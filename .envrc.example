@@ -1,0 +1,27 @@
+# Copy to .envrc, adjust if needed, then run:
+#   direnv allow
+#
+# These values are not secrets. The real .envrc is ignored so each machine can
+# choose its local role without changing git-tracked files.
+
+export PIPY_SESSION_DIR="$HOME/.local/state/pipy/sessions"
+export PIPY_SESSION_REMOTE_PATH=".local/state/pipy/sessions"
+
+export PIPY_SESSION_ATLAS_REMOTE="atlas.tailde2ec.ts.net:$PIPY_SESSION_REMOTE_PATH"
+export PIPY_SESSION_STUDIO_REMOTE="studio.tailde2ec.ts.net:$PIPY_SESSION_REMOTE_PATH"
+
+# Set this per machine:
+#   studio -> atlas.tailde2ec.ts.net:$PIPY_SESSION_REMOTE_PATH
+#   atlas  -> studio.tailde2ec.ts.net:$PIPY_SESSION_REMOTE_PATH
+case "$(hostname -s)" in
+  studio)
+    export PIPY_SESSION_REMOTE="$PIPY_SESSION_ATLAS_REMOTE"
+    ;;
+  atlas)
+    export PIPY_SESSION_REMOTE="$PIPY_SESSION_STUDIO_REMOTE"
+    ;;
+  *)
+    echo "warning: unknown host $(hostname -s), set PIPY_SESSION_REMOTE manually" >&2
+    export PIPY_SESSION_REMOTE=""
+    ;;
+esac
