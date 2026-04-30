@@ -86,11 +86,106 @@ For partial reconstructions, use `--partial` when initializing the record:
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
-## Automatic Capture Status
+## Automatic Capture
 
-Automatic session capture from Codex, Claude, or Pi is not implemented yet.
+Automatic capture is adapter-specific. There is no single hook mechanism that
+reliably covers Claude Code, Codex, and Pi.
 
-For now, session records are created with the generic `pipy-session` recorder,
-manually, or by future wrappers/hooks. Some agent platforms do not expose a
-complete raw transcript to the running agent, so records may need to be partial
-reconstructions until we add platform-specific capture adapters.
+Current support matrix:
+
+| Platform | pipy support | Capture status |
+| --- | --- | --- |
+| Claude Code | `pipy-session auto hook claude` handles official hook JSON for `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial by default; stores lifecycle and conservative metadata, not raw prompt/tool transcripts. |
+| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex also has official hooks behind a feature flag, but this slice does not rely on them for full lifecycle finalization. | Partial. Do not treat this as complete automatic transcript capture. |
+| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. Pi already auto-saves sessions under its own session store. | Partial pipy metadata only; Pi-native session import is not implemented yet. |
+
+Start, append, and stop an automatic partial capture directly:
+
+```sh
+active="$(uv run pipy-session auto start --agent codex --slug wrapper-test --session-id codex-123)"
+uv run pipy-session auto event --agent codex --session-id codex-123 --type codex.turn.observed --summary "Observed a turn boundary."
+uv run pipy-session auto stop --agent codex --session-id codex-123
+```
+
+The automatic state mapping is stored under the sync-excluded active area:
+
+```text
+~/.local/state/pipy/sessions/.in-progress/pipy/.state/
+```
+
+### Claude Code Hook Setup
+
+Claude Code support is implemented as a hook adapter, but this repository does
+not install hooks into your user dotfiles. To enable it for this project, add a
+project-local Claude settings file such as `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Code must trust the project settings for project-local hooks to run. The
+adapter intentionally stores prompt text and assistant/tool output as redacted
+metadata counts instead of raw content. The example observes every prompt and
+tool-use event, so each hook starts `uv`; restrict matchers or remove metadata
+events if that overhead is noticeable.
+
+### Wrapper Capture
+
+Use wrapper capture when a platform does not provide a verified start/end hook
+that pipy can finalize reliably:
+
+```sh
+uv run pipy-session wrap --agent codex --slug codex-work -- codex
+uv run pipy-session wrap --agent pi --slug pi-work -- pi
+```
+
+Wrapper records are marked partial because they only record pipy lifecycle
+metadata around the process. They do not capture the platform's full transcript.

@@ -182,6 +182,65 @@ The CLI can add this marker during initialization:
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
+## Automatic Capture
+
+Automatic capture uses the same recorder lifecycle as manual capture:
+
+- active JSONL records live under `.in-progress/pipy/`
+- adapter state lives under `.in-progress/pipy/.state/`
+- finalized JSONL and Markdown records move to `pipy/YYYY/MM/`
+- finalized records remain immutable and syncable
+
+The `.state/` files map a platform session id to a pipy active JSONL file. They
+are operational state, not durable history, and they stay under `.in-progress/`
+so `just sessions-sync` does not copy them.
+
+The scriptable commands are:
+
+```sh
+uv run pipy-session auto start --agent claude --slug some-work --session-id platform-id
+uv run pipy-session auto event --agent claude --session-id platform-id --type claude.userpromptsubmit --summary "Observed prompt metadata."
+uv run pipy-session auto stop --agent claude --session-id platform-id
+uv run pipy-session auto hook claude
+uv run pipy-session wrap --agent codex --slug codex-work -- codex
+```
+
+`auto hook claude` reads the official Claude Code hook JSON from stdin. It
+handles:
+
+- `SessionStart`: creates an active partial pipy record and state mapping
+- `UserPromptSubmit`, `PostToolUse`, and other metadata events: appends a
+  conservative metadata event if state exists
+- `SessionEnd`: appends an end marker, finalizes the record, and removes state
+
+The Claude adapter is metadata-first. It does not write raw prompt text, raw
+assistant messages, raw tool inputs, raw tool responses, secrets, tokens,
+credentials, or private keys by default. Prompt and assistant text are recorded
+as redacted character counts. Tool payloads are represented by tool names, ids,
+and JSON key names when available.
+
+Metadata values and keys with sensitive markers such as `token`, `secret`,
+`password`, `credential`, or `api_key` are redacted before they are written.
+Platform session ids containing those markers use a stable redacted hash in
+state filenames and records.
+
+Codex and Pi currently use wrapper-based pipy capture unless a future adapter
+adds a verified lifecycle bridge:
+
+- Codex: current official Codex docs include hooks behind a feature flag, but
+  the start/end lifecycle needed for reliable finalization is not treated here
+  as complete transcript capture. Use `pipy-session wrap --agent codex -- ...`
+  for partial lifecycle metadata.
+- Pi: Pi already auto-saves its own JSONL sessions under `~/.pi/agent/sessions/`.
+  Pipy does not import or duplicate those native sessions in this slice. Use
+  `pipy-session wrap --agent pi -- ...` only when you want a pipy-side partial
+  lifecycle marker around the Pi process.
+
+Records created by these automatic commands are partial unless `auto start
+--complete` is used by an adapter that truly captures a complete transcript.
+Do not use `--complete` for the Claude, Codex wrapper, or Pi wrapper flows
+documented here.
+
 ## Current Session Example
 
 The bootstrap record for the current Codex conversation was stored outside the repository at:
@@ -282,10 +341,13 @@ Because session data can contain sensitive project context, use a sync backend t
 
 The first implementation can stay file-based. Later, the same records can be imported into SQLite or another indexed store behind a `SessionRepository` port.
 
-Automatic capture from Codex, Claude, and Pi is not implemented yet. A later
-implementation slice should add platform-specific wrappers or hooks that write
-active records under `.in-progress/<project>/`, finalize them at session end,
-and leave finalized records for `just sessions-sync`.
+Future automatic-capture work should keep the adapter boundary explicit:
+
+- add a Codex hook adapter only if it can reliably map platform lifecycle events
+  to pipy start/finalize semantics without overstating transcript completeness
+- add a Pi importer or bridge that references Pi-native session files without
+  copying sensitive raw data into git
+- add opt-in raw transcript import only with clear redaction behavior
 
 Likely future abstractions:
 
