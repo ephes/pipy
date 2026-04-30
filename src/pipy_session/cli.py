@@ -11,6 +11,7 @@ from typing import Any
 from pipy_session.auto_capture import (
     append_auto_event,
     handle_claude_hook,
+    prune_auto_capture_state,
     read_hook_json,
     run_wrapped_agent,
     start_auto_capture,
@@ -90,6 +91,13 @@ def build_parser() -> argparse.ArgumentParser:
     auto_stop.add_argument("--session-id", help="Platform session id for state lookup.")
     auto_stop.add_argument("--summary", help="Markdown summary text to finalize.")
     auto_stop.add_argument("--metadata-json", help="Metadata JSON object to store on the end event.")
+
+    auto_prune = auto_subparsers.add_parser("prune", help="Remove stale automatic-capture state files.")
+    auto_prune.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report stale state files without removing them.",
+    )
 
     auto_hook = auto_subparsers.add_parser("hook", help="Handle a platform hook JSON payload from stdin.")
     auto_hook_subparsers = auto_hook.add_subparsers(dest="platform", required=True)
@@ -192,6 +200,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(record.jsonl_path)
                 if record.markdown_path is not None:
                     print(record.markdown_path)
+                return 0
+
+            if args.auto_command == "prune":
+                results = prune_auto_capture_state(root=args.root, dry_run=args.dry_run)
+                action = "would-remove" if args.dry_run else "removed"
+                for result in results:
+                    print(f"{action}\t{result.path}\t{result.reason}")
+                print(f"summary\t{action}\t{len(results)}")
                 return 0
 
             if args.auto_command == "hook" and args.platform == "claude":

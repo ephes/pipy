@@ -46,10 +46,43 @@ class HookResult:
     active_path: Path | None = None
 
 
+@dataclass(frozen=True)
+class PrunedState:
+    """One stale automatic-capture state file found by prune."""
+
+    path: Path
+    reason: str
+    removed: bool
+
+
 def state_dir(root: str | Path | None = None) -> Path:
     """Return the excluded directory used for automatic-capture state."""
 
     return resolve_session_root(root) / ".in-progress" / PROJECT_NAME / ".state"
+
+
+def prune_auto_capture_state(
+    *,
+    root: str | Path | None = None,
+    dry_run: bool = False,
+) -> list[PrunedState]:
+    """Remove stale automatic-capture state files without touching records."""
+
+    directory = state_dir(root)
+    if not directory.exists():
+        return []
+
+    pruned: list[PrunedState] = []
+    for path in sorted(directory.glob("*.json")):
+        if not path.is_file():
+            continue
+        reason = _stale_state_reason(path, root=root)
+        if reason is None:
+            continue
+        if not dry_run:
+            path.unlink(missing_ok=True)
+        pruned.append(PrunedState(path=path, reason=reason, removed=not dry_run))
+    return pruned
 
 
 def start_auto_capture(
@@ -69,7 +102,11 @@ def start_auto_capture(
     safe_agent = _safe_component(agent, "agent")
     if platform_session_id is not None:
         existing_state_path = _state_path(root, safe_agent, platform_session_id)
-        existing = _existing_live_state(existing_state_path, platform_session_id=platform_session_id)
+        existing = _existing_live_state(
+            existing_state_path,
+            platform_session_id=platform_session_id,
+            root=root,
+        )
         if existing is not None:
             append_event(
                 existing.active_path,
@@ -369,7 +406,38 @@ def _read_state(path: Path) -> dict[str, Any]:
     return parsed
 
 
-def _existing_live_state(path: Path, *, platform_session_id: str) -> AutoCaptureState | None:
+def _stale_state_reason(path: Path, *, root: str | Path | None) -> str | None:
+    try:
+        state = _read_state(path)
+    except OSError:
+        return "unreadable-state"
+    except json.JSONDecodeError:
+        return "invalid-json"
+    except ValueError:
+        return "invalid-state"
+
+    active_path_value = state.get("active_path")
+    if not active_path_value:
+        return "missing-active-path"
+
+    active_path = Path(str(active_path_value))
+    if not active_path.exists():
+        return "active-not-found"
+
+    try:
+        resolve_active_path(active_path, root=root)
+    except (FileNotFoundError, ValueError):
+        return "non-active-record"
+
+    return None
+
+
+def _existing_live_state(
+    path: Path,
+    *,
+    platform_session_id: str,
+    root: str | Path | None,
+) -> AutoCaptureState | None:
     if not path.exists():
         return None
     try:
@@ -379,7 +447,12 @@ def _existing_live_state(path: Path, *, platform_session_id: str) -> AutoCapture
 
     active_path = Path(str(state.get("active_path") or ""))
     agent = str(state.get("agent") or "")
-    if not agent or not active_path.exists():
+    if not agent:
+        return None
+
+    try:
+        active_path = resolve_active_path(active_path, root=root)
+    except (OSError, ValueError):
         return None
 
     return AutoCaptureState(

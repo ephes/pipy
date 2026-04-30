@@ -113,6 +113,26 @@ The automatic state mapping is stored under the sync-excluded active area:
 ~/.local/state/pipy/sessions/.in-progress/pipy/.state/
 ```
 
+If hooks or wrappers are interrupted, stale automatic state mappings can be
+inspected and removed without deleting session records:
+
+```sh
+uv run pipy-session auto prune --dry-run
+uv run pipy-session auto prune
+```
+
+Prune scans only `.in-progress/pipy/.state/*.json` under the selected session
+root. It removes stale state files that are malformed or no longer point to an
+existing active `.jsonl` record under `.in-progress/pipy/`. It does not remove
+active JSONL records, finalized archive files, Markdown summaries, or
+`*.partial` staging files. Output is tab-separated, with one line per stale
+state file and a final summary line:
+
+```text
+would-remove	/path/to/state.json	active-not-found
+summary	would-remove	1
+```
+
 ### Claude Code Hook Setup
 
 Claude Code support is implemented as a hook adapter, but this repository does

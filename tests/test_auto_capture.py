@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 
 from pipy_session import (
     append_auto_event,
+    finalize_session,
     handle_claude_hook,
+    init_session,
+    prune_auto_capture_state,
     start_auto_capture,
     state_dir,
     stop_auto_capture,
@@ -102,6 +105,195 @@ def test_auto_capture_reuses_live_state_for_repeated_start(tmp_path):
     assert active_records == [first.active_path]
     events = read_jsonl(first.active_path)
     assert events[-1]["type"] == "auto_capture.resumed"
+
+
+def test_auto_capture_does_not_resume_state_pointing_outside_active_dir(tmp_path):
+    first = start_auto_capture(
+        agent="claude",
+        slug="outside-active",
+        platform_session_id="outside-active",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text('{"type":"session.started"}\n', encoding="utf-8")
+    state_payload = json.loads(first.state_path.read_text(encoding="utf-8"))
+    state_payload["active_path"] = str(outside)
+    first.state_path.write_text(json.dumps(state_payload) + "\n", encoding="utf-8")
+
+    second = start_auto_capture(
+        agent="claude",
+        slug="outside-active",
+        platform_session_id="outside-active",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    assert second.active_path != outside
+    assert second.active_path != first.active_path
+    assert outside.read_text(encoding="utf-8") == '{"type":"session.started"}\n'
+
+
+def test_prune_dry_run_reports_stale_state_without_deleting(tmp_path):
+    state = start_auto_capture(
+        agent="claude",
+        slug="dry-run-prune",
+        platform_session_id="dry-run-session",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    state.active_path.unlink()
+
+    results = prune_auto_capture_state(root=tmp_path, dry_run=True)
+
+    assert [(result.path, result.reason, result.removed) for result in results] == [
+        (state.state_path, "active-not-found", False)
+    ]
+    assert state.state_path.exists()
+
+
+def test_prune_removes_orphaned_state_when_active_path_is_missing(tmp_path):
+    state = start_auto_capture(
+        agent="claude",
+        slug="orphan-prune",
+        platform_session_id="orphan-prune",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    state.active_path.unlink()
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert [(result.path, result.reason, result.removed) for result in results] == [
+        (state.state_path, "active-not-found", True)
+    ]
+    assert not state.state_path.exists()
+
+
+def test_prune_removes_corrupt_and_non_object_state(tmp_path):
+    directory = state_dir(tmp_path)
+    directory.mkdir(parents=True)
+    corrupt = directory / "claude-corrupt.json"
+    non_object = directory / "claude-list.json"
+    corrupt.write_text("{not-json", encoding="utf-8")
+    non_object.write_text("[]\n", encoding="utf-8")
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert [(result.path.name, result.reason, result.removed) for result in results] == [
+        ("claude-corrupt.json", "invalid-json", True),
+        ("claude-list.json", "invalid-state", True),
+    ]
+    assert not corrupt.exists()
+    assert not non_object.exists()
+
+
+def test_prune_preserves_live_state_referencing_active_jsonl(tmp_path):
+    state = start_auto_capture(
+        agent="claude",
+        slug="live-prune",
+        platform_session_id="live-prune",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert results == []
+    assert state.state_path.exists()
+    assert state.active_path.exists()
+
+
+def test_prune_does_not_delete_active_jsonl_files(tmp_path):
+    live = start_auto_capture(
+        agent="codex",
+        slug="keep-active",
+        platform_session_id="keep-active",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    bad_state = state_dir(tmp_path) / "codex-bad.json"
+    bad_state.write_text('{"active_path":""}\n', encoding="utf-8")
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert [(result.path, result.reason) for result in results] == [
+        (bad_state, "missing-active-path")
+    ]
+    assert not bad_state.exists()
+    assert live.active_path.exists()
+    assert live.state_path.exists()
+
+
+def test_prune_does_not_delete_finalized_archive_files(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="archive-preserved",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    finalized = finalize_session(active, root=tmp_path)
+    stale_state = state_dir(tmp_path) / "codex-finalized.json"
+    stale_state.parent.mkdir(parents=True, exist_ok=True)
+    stale_state.write_text(
+        json.dumps({"active_path": str(finalized.jsonl_path)}) + "\n",
+        encoding="utf-8",
+    )
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert [(result.path, result.reason) for result in results] == [
+        (stale_state, "non-active-record")
+    ]
+    assert not stale_state.exists()
+    assert finalized.jsonl_path.exists()
+
+
+def test_prune_ignores_partial_state_staging_files(tmp_path):
+    directory = state_dir(tmp_path)
+    directory.mkdir(parents=True)
+    partial = directory / "claude-staged.json.partial"
+    partial.write_text("{not-json", encoding="utf-8")
+
+    results = prune_auto_capture_state(root=tmp_path)
+
+    assert results == []
+    assert partial.exists()
+
+
+def test_cli_auto_prune_uses_root_and_reports_results(tmp_path, capsys):
+    state = start_auto_capture(
+        agent="claude",
+        slug="cli-prune",
+        platform_session_id="cli-prune",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    state.active_path.unlink()
+
+    dry_run_code = main(["--root", str(tmp_path), "auto", "prune", "--dry-run"])
+    dry_run = capsys.readouterr()
+
+    assert dry_run_code == 0
+    assert f"would-remove\t{state.state_path}\tactive-not-found" in dry_run.out
+    assert "summary\twould-remove\t1" in dry_run.out
+    assert state.state_path.exists()
+
+    prune_code = main(["--root", str(tmp_path), "auto", "prune"])
+    pruned = capsys.readouterr()
+
+    assert prune_code == 0
+    assert f"removed\t{state.state_path}\tactive-not-found" in pruned.out
+    assert "summary\tremoved\t1" in pruned.out
+    assert not state.state_path.exists()
 
 
 def test_claude_hook_start_prompt_metadata_and_end_are_partial_and_redacted(tmp_path):

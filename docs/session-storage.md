@@ -201,6 +201,8 @@ The scriptable commands are:
 uv run pipy-session auto start --agent claude --slug some-work --session-id platform-id
 uv run pipy-session auto event --agent claude --session-id platform-id --type claude.userpromptsubmit --summary "Observed prompt metadata."
 uv run pipy-session auto stop --agent claude --session-id platform-id
+uv run pipy-session auto prune --dry-run
+uv run pipy-session auto prune
 uv run pipy-session auto hook claude
 uv run pipy-session wrap --agent codex --slug codex-work -- codex
 ```
@@ -240,6 +242,47 @@ Records created by these automatic commands are partial unless `auto start
 --complete` is used by an adapter that truly captures a complete transcript.
 Do not use `--complete` for the Claude, Codex wrapper, or Pi wrapper flows
 documented here.
+
+### Automatic State Pruning
+
+Interrupted hooks, killed wrappers, or sessions that never send a matching end
+event can leave abandoned files under `.in-progress/pipy/.state/`. These files
+are adapter bookkeeping only. They are not durable history.
+
+Use dry-run mode first to inspect stale mappings:
+
+```sh
+uv run pipy-session auto prune --dry-run
+```
+
+Then remove them:
+
+```sh
+uv run pipy-session auto prune
+```
+
+Prune scans only:
+
+```text
+${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/.in-progress/pipy/.state/*.json
+```
+
+A state file is stale when it is malformed, is not a JSON object, lacks an
+`active_path`, points at a missing file, or points at something other than an
+existing active `.jsonl` record directly under `.in-progress/pipy/`. Live state
+that references an existing active JSONL record is preserved.
+
+Prune removes only stale `.state/*.json` files. It does not remove active JSONL
+records, finalized `pipy/YYYY/MM/` archive records, Markdown summaries, or
+`*.partial` staging files. It also does not import transcripts, install hooks,
+or schedule background maintenance.
+
+Output is tab-separated and avoids printing raw JSON state contents:
+
+```text
+would-remove	/path/to/state.json	active-not-found
+summary	would-remove	1
+```
 
 ## Current Session Example
 
