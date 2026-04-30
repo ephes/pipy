@@ -98,6 +98,70 @@ YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>-followup-1.jsonl
 YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>-followup-1.md
 ```
 
+## Recorder CLI
+
+The `pipy-session` command is the first local recorder foundation. It does not
+capture Codex, Claude, or Pi transcripts automatically. Instead, it provides a
+generic way to create manual or reconstructed records that already follow the
+storage lifecycle used by `just sessions-sync`.
+
+Install the project environment first:
+
+```sh
+uv sync
+```
+
+Initialize an active record:
+
+```sh
+uv run pipy-session init --agent codex --slug session-storage-work
+```
+
+This creates a JSONL file under:
+
+```text
+${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/.in-progress/pipy/
+```
+
+Append structured events while the record is active:
+
+```sh
+uv run pipy-session append <active-path> --type decision.recorded --summary "Use immutable finalized files for sync."
+uv run pipy-session append <active-path> --event-json '{"type":"verification.performed","summary":"uv run pytest passed."}'
+```
+
+Finalize the record when the session ends:
+
+```sh
+uv run pipy-session finalize <active-path>
+```
+
+To include a matching Markdown summary, pass either text or an existing summary
+file:
+
+```sh
+uv run pipy-session finalize <active-path> --summary-file summary.md
+uv run pipy-session finalize <active-path> --summary "# Summary
+
+Captured the useful session decisions."
+```
+
+Finalization moves the JSONL file to:
+
+```text
+${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/pipy/YYYY/MM/
+```
+
+The finalized basename keeps the documented conflict-resistant shape:
+
+```text
+YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl
+YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.md
+```
+
+The normal append API refuses finalized archive paths. If a finalized record
+needs correction, create a follow-up record instead of editing the original.
+
 ## Privacy
 
 Session records must not include secrets, API keys, credentials, private keys, tokens, or sensitive personal data. Redact sensitive values before writing.
@@ -110,6 +174,12 @@ Some coding-agent environments do not expose a complete raw transcript to the ru
 
 ```json
 {"type":"capture.limitations","summary":"Partial reconstruction from visible conversation context; no raw platform transcript export was available."}
+```
+
+The CLI can add this marker during initialization:
+
+```sh
+uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
 ## Current Session Example
@@ -212,7 +282,10 @@ Because session data can contain sensitive project context, use a sync backend t
 
 The first implementation can stay file-based. Later, the same records can be imported into SQLite or another indexed store behind a `SessionRepository` port.
 
-Automatic capture from Codex, Claude, and Pi is not implemented yet. The next implementation slice should add platform-specific wrappers or hooks that write active records under `.in-progress/<project>/`, finalize them at session end, and leave finalized records for `just sessions-sync`.
+Automatic capture from Codex, Claude, and Pi is not implemented yet. A later
+implementation slice should add platform-specific wrappers or hooks that write
+active records under `.in-progress/<project>/`, finalize them at session end,
+and leave finalized records for `just sessions-sync`.
 
 Likely future abstractions:
 
