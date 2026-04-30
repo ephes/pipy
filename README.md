@@ -4,6 +4,12 @@ Python slop fork experiments for a coding-agent harness inspired by Pi and clean
 
 The repository currently contains the first project infrastructure slice: durable session-storage policy and explicit sync between the `studio` and `atlas` development machines.
 
+Clone with SSH so pushes work non-interactively from agent sessions:
+
+```sh
+git clone git@github.com:ephes/pipy.git
+```
+
 ## Session Sync Setup
 
 Copy the direnv example and approve it:
