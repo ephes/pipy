@@ -103,6 +103,48 @@ class FinalizedSessionInspection:
         return data
 
 
+@dataclass(frozen=True)
+class VerificationIssue:
+    """Privacy-safe structural issue found in the local session archive."""
+
+    severity: str
+    kind: str
+    path: Path
+    detail: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "severity": self.severity,
+            "kind": self.kind,
+            "path": str(self.path),
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class SessionArchiveVerification:
+    """Read-only verification result for the local session archive."""
+
+    root: Path
+    issues: list[VerificationIssue]
+
+    @property
+    def ok(self) -> bool:
+        return not self.issues
+
+    @property
+    def issue_count(self) -> int:
+        return len(self.issues)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "issue_count": self.issue_count,
+            "root": str(self.root),
+            "issues": [issue.to_dict() for issue in self.issues],
+        }
+
+
 def list_finalized_sessions(root: str | Path | None = None) -> list[FinalizedSessionListing]:
     """Return finalized session records sorted newest first."""
 
@@ -171,6 +213,90 @@ def inspect_finalized_session(
     )
 
 
+def verify_session_archive(root: str | Path | None = None) -> SessionArchiveVerification:
+    """Verify finalized session archive structure without exposing raw event bodies."""
+
+    root_path = resolve_session_root(root)
+    archive_dir = root_path / PROJECT_NAME
+    issues: list[VerificationIssue] = []
+
+    if root_path.exists():
+        for path in sorted(root_path.rglob("*.partial")):
+            if path.is_file():
+                issues.append(
+                    VerificationIssue(
+                        severity="warning",
+                        kind="partial-file",
+                        path=path,
+                        detail="sync-excluded partial file exists",
+                    )
+                )
+
+    finalized_jsonl_paths: list[Path] = []
+    if archive_dir.exists():
+        for path in sorted(archive_dir.rglob("*")):
+            if not path.is_file() or path.name.endswith(".partial"):
+                continue
+
+            relative = path.relative_to(archive_dir)
+            if not _is_year_month_archive_file(relative):
+                issues.append(
+                    VerificationIssue(
+                        severity="error",
+                        kind="unexpected-archive-file",
+                        path=path,
+                        detail="expected finalized files directly under pipy/YYYY/MM/",
+                    )
+                )
+                continue
+
+            if path.suffix == ".jsonl":
+                if FILENAME_RE.match(path.name) is None:
+                    issues.append(
+                        VerificationIssue(
+                            severity="error",
+                            kind="malformed-filename",
+                            path=path,
+                            detail=(
+                                "filename must match "
+                                "YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl"
+                            ),
+                        )
+                    )
+                    continue
+
+                finalized_jsonl_paths.append(path)
+                issue = _first_event_verification_issue(path)
+                if issue is not None:
+                    issues.append(issue)
+                continue
+
+            if path.suffix == ".md":
+                if not path.with_suffix(".jsonl").exists():
+                    issues.append(
+                        VerificationIssue(
+                            severity="warning",
+                            kind="orphan-summary",
+                            path=path,
+                            detail="missing sibling JSONL",
+                        )
+                    )
+                continue
+
+            issues.append(
+                VerificationIssue(
+                    severity="warning",
+                    kind="unsupported-archive-file",
+                    path=path,
+                    detail="unsupported file suffix under finalized archive",
+                )
+            )
+
+    issues.extend(_ambiguous_name_issues(finalized_jsonl_paths))
+    issues.sort(key=_verification_issue_sort_key)
+    return SessionArchiveVerification(root=root_path, issues=issues)
+
+
 def resolve_finalized_record(record: str | Path, *, root: str | Path | None = None) -> Path:
     """Resolve a path, basename, or stem to exactly one finalized JSONL record."""
 
@@ -228,6 +354,28 @@ def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
     if inspection.summary_text is not None:
         lines.extend(["summary_text:", inspection.summary_text.rstrip("\n")])
 
+    return "\n".join(lines)
+
+
+def format_archive_verification(verification: SessionArchiveVerification) -> str:
+    """Format archive verification as stable tab-separated text."""
+
+    lines = ["status\tissue\tpath\tdetail"]
+    if verification.ok:
+        lines.append("ok")
+        return "\n".join(lines)
+
+    for issue in verification.issues:
+        lines.append(
+            "\t".join(
+                [
+                    issue.severity,
+                    issue.kind,
+                    str(issue.path),
+                    issue.detail,
+                ]
+            )
+        )
     return "\n".join(lines)
 
 
@@ -319,6 +467,107 @@ def _is_finalized_archive_jsonl(path: Path, root: Path) -> bool:
         return False
 
     return True
+
+
+def _is_year_month_archive_file(relative: Path) -> bool:
+    if len(relative.parts) != 3:
+        return False
+    year, month, _filename = relative.parts
+    return year.isdigit() and len(year) == 4 and month.isdigit() and len(month) == 2
+
+
+def _first_event_verification_issue(path: Path) -> VerificationIssue | None:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            first_line = handle.readline()
+    except UnicodeError:
+        return VerificationIssue(
+            severity="error",
+            kind="malformed-jsonl",
+            path=path,
+            detail="first line is not valid UTF-8",
+        )
+
+    if not first_line.strip():
+        return VerificationIssue(
+            severity="error",
+            kind="malformed-jsonl",
+            path=path,
+            detail="empty first line",
+        )
+
+    try:
+        first_event = json.loads(first_line)
+    except json.JSONDecodeError:
+        return VerificationIssue(
+            severity="error",
+            kind="malformed-jsonl",
+            path=path,
+            detail="invalid JSON first line",
+        )
+
+    if not isinstance(first_event, dict):
+        return VerificationIssue(
+            severity="error",
+            kind="malformed-jsonl",
+            path=path,
+            detail="first line is not a JSON object",
+        )
+
+    if first_event.get("type") != "session.started":
+        return VerificationIssue(
+            severity="error",
+            kind="malformed-jsonl",
+            path=path,
+            detail="first event is not session.started",
+        )
+
+    return None
+
+
+def _ambiguous_name_issues(paths: list[Path]) -> list[VerificationIssue]:
+    issues: list[VerificationIssue] = []
+    by_basename: dict[str, list[Path]] = {}
+    by_stem: dict[str, list[Path]] = {}
+    for path in paths:
+        by_basename.setdefault(path.name, []).append(path)
+        by_stem.setdefault(path.stem, []).append(path)
+
+    for basename, matches in sorted(by_basename.items()):
+        if len(matches) > 1:
+            sorted_matches = sorted(matches)
+            issues.append(
+                VerificationIssue(
+                    severity="warning",
+                    kind="ambiguous-basename",
+                    path=sorted_matches[0],
+                    detail=_ambiguity_detail("basename", basename, sorted_matches),
+                )
+            )
+
+    for stem, matches in sorted(by_stem.items()):
+        if len(matches) > 1:
+            sorted_matches = sorted(matches)
+            issues.append(
+                VerificationIssue(
+                    severity="warning",
+                    kind="ambiguous-stem",
+                    path=sorted_matches[0],
+                    detail=_ambiguity_detail("stem", stem, sorted_matches),
+                )
+            )
+
+    return issues
+
+
+def _ambiguity_detail(label: str, value: str, matches: list[Path]) -> str:
+    paths = ", ".join(str(path) for path in matches)
+    return f"duplicate {label} {value!r} appears in {len(matches)} finalized records: {paths}"
+
+
+def _verification_issue_sort_key(issue: VerificationIssue) -> tuple[int, str, str, str]:
+    severity_rank = {"error": 0, "warning": 1}
+    return (severity_rank.get(issue.severity, 99), issue.kind, str(issue.path), issue.detail)
 
 
 def _filename_stamp(path: Path) -> str:

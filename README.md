@@ -109,6 +109,21 @@ records directly under `pipy/YYYY/MM/`. It reports metadata, event counts,
 event type counts, and the matching Markdown summary text when present. It does
 not dump raw JSONL event bodies.
 
+Verify local archive health without repairing or mutating files:
+
+```sh
+uv run pipy-session verify
+uv run pipy-session verify --json
+```
+
+The verify command scans the resolved session root for finalized archive
+structure issues. It reports malformed finalized JSONL first events, orphan
+Markdown summaries, sync-excluded `*.partial` leftovers, unexpected files under
+`pipy/`, and duplicate finalized record basenames or stems that would make
+`inspect <name>` ambiguous. The report contains paths, issue kinds, severities,
+and structural details only; it does not print raw JSONL event bodies, prompt
+text, tool output, or transcript payloads.
+
 ## Automatic Capture
 
 Automatic capture is adapter-specific. There is no single hook mechanism that

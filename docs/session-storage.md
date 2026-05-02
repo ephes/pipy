@@ -204,6 +204,44 @@ Neither output includes full JSONL events, payloads, prompt text, tool output,
 or other raw transcript content by default. Markdown summaries are shown
 because they are intentional human-review artifacts.
 
+Verify finalized archive health without modifying records:
+
+```sh
+uv run pipy-session verify
+uv run pipy-session verify --json
+```
+
+`verify` is read-only and local. It scans the resolved session root for
+structural archive issues and exits successfully when the scan completes, even
+when issues are reported. A non-zero exit means the command failed to run, such
+as an operating-system error while reading the session root.
+
+The archive verifier reports:
+
+- malformed finalized JSONL files under `pipy/YYYY/MM/*.jsonl`, based on the
+  first event only: empty first line, non-UTF-8 first line, invalid JSON,
+  non-object JSON, or a first event whose `type` is not `session.started`
+- orphan Markdown summaries under `pipy/YYYY/MM/*.md` with no sibling JSONL
+- `*.partial` leftovers anywhere under the session root, including
+  `.in-progress/`
+- unexpected files under `pipy/`, including files outside `YYYY/MM/`, files
+  directly under `pipy/YYYY/`, unsupported suffixes under `pipy/YYYY/MM/`, and
+  malformed finalized JSONL filenames
+- duplicate finalized JSONL basenames or stems across `pipy/*/*/`, because
+  those names make `inspect <basename-or-stem>` ambiguous
+
+Active JSONL files under `.in-progress/pipy/` and automatic state files under
+`.in-progress/pipy/.state/` are mutable operational files and are not treated as
+malformed finalized records. The verifier may report `*.partial` files in the
+active area because sync excludes them and they can indicate an interrupted
+write.
+
+The human output is tab-separated. JSON output contains `ok`, `issue_count`,
+`root`, and a list of issues with `severity`, `kind`, `path`, and `detail`.
+Neither output prints full JSONL events, payloads, prompt text, tool output, or
+raw transcript bodies. `verify` does not repair, delete, move, rewrite, index,
+or import session records.
+
 ## Privacy
 
 Session records must not include secrets, API keys, credentials, private keys, tokens, or sensitive personal data. Redact sensitive values before writing.

@@ -18,10 +18,12 @@ from pipy_session.auto_capture import (
     stop_auto_capture,
 )
 from pipy_session.catalog import (
+    format_archive_verification,
     format_session_inspection,
     format_session_table,
     inspect_finalized_session,
     list_finalized_sessions,
+    verify_session_archive,
 )
 from pipy_session.recorder import append_event, finalize_session, init_session
 
@@ -80,6 +82,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit JSON instead of labeled text.",
+    )
+
+    verify_parser = subparsers.add_parser("verify", help="Verify finalized session archive health.")
+    verify_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a tab-separated report.",
     )
 
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
@@ -192,6 +201,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(inspection.to_dict(), sort_keys=True))
             else:
                 print(format_session_inspection(inspection))
+            return 0
+
+        if args.command == "verify":
+            verification = verify_session_archive(root=args.root)
+            if args.json:
+                print(json.dumps(verification.to_dict(), sort_keys=True))
+            else:
+                print(format_archive_verification(verification))
             return 0
 
         if args.command == "auto":

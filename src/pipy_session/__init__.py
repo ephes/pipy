@@ -14,9 +14,12 @@ from pipy_session.auto_capture import (
 from pipy_session.catalog import (
     FinalizedSessionInspection,
     FinalizedSessionListing,
+    SessionArchiveVerification,
+    VerificationIssue,
     inspect_finalized_session,
     list_finalized_sessions,
     resolve_finalized_record,
+    verify_session_archive,
 )
 from pipy_session.recorder import (
     FILENAME_RE,
@@ -40,6 +43,8 @@ __all__ = [
     "HookResult",
     "PrunedState",
     "SessionRecord",
+    "SessionArchiveVerification",
+    "VerificationIssue",
     "append_auto_event",
     "append_event",
     "finalize_session",
@@ -54,4 +59,5 @@ __all__ = [
     "start_auto_capture",
     "state_dir",
     "stop_auto_capture",
+    "verify_session_archive",
 ]

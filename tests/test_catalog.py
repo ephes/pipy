@@ -9,12 +9,242 @@ from pipy_session import (
     init_session,
     inspect_finalized_session,
     list_finalized_sessions,
+    verify_session_archive,
 )
-from pipy_session.catalog import format_session_table
+from pipy_session.catalog import format_archive_verification, format_session_table
 from pipy_session.cli import main
 
 
 FIXED_NOW = datetime(2026, 4, 30, 13, 30, 0, tzinfo=UTC)
+
+
+def issue_by_path_and_kind(issues, path, kind):
+    matches = [issue for issue in issues if issue.path == path and issue.kind == kind]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_verify_session_archive_reports_ok_for_empty_archive(tmp_path):
+    verification = verify_session_archive(root=tmp_path)
+
+    assert verification.ok is True
+    assert verification.issue_count == 0
+    assert verification.issues == []
+    assert verification.to_dict() == {
+        "ok": True,
+        "issue_count": 0,
+        "root": str(tmp_path),
+        "issues": [],
+    }
+    assert format_archive_verification(verification).splitlines() == [
+        "status\tissue\tpath\tdetail",
+        "ok",
+    ]
+
+
+def test_verify_session_archive_reports_ok_for_valid_record_with_summary(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="verify-valid",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    finalize_session(active, root=tmp_path, summary_text="# Summary\n\nVerified.")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert verification.ok is True
+    assert verification.issues == []
+
+
+def test_verify_session_archive_reports_malformed_finalized_jsonl(tmp_path):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    empty = archive / "2026-04-30T133000Z-studio-codex-empty.jsonl"
+    non_utf8 = archive / "2026-04-30T133001Z-studio-codex-non-utf8.jsonl"
+    invalid = archive / "2026-04-30T133001Z-studio-codex-invalid.jsonl"
+    not_object = archive / "2026-04-30T133002Z-studio-codex-not-object.jsonl"
+    wrong_event = archive / "2026-04-30T133003Z-studio-codex-wrong.jsonl"
+    empty.write_text("", encoding="utf-8")
+    non_utf8.write_bytes(b"\xff\xfe\n")
+    invalid.write_text("{not-json}\n", encoding="utf-8")
+    not_object.write_text('["session.started"]\n', encoding="utf-8")
+    wrong_event.write_text('{"type":"decision.recorded","summary":"hidden"}\n', encoding="utf-8")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert verification.ok is False
+    assert issue_by_path_and_kind(verification.issues, empty, "malformed-jsonl").detail == "empty first line"
+    assert issue_by_path_and_kind(verification.issues, non_utf8, "malformed-jsonl").detail == (
+        "first line is not valid UTF-8"
+    )
+    assert issue_by_path_and_kind(verification.issues, invalid, "malformed-jsonl").detail == (
+        "invalid JSON first line"
+    )
+    assert issue_by_path_and_kind(verification.issues, not_object, "malformed-jsonl").detail == (
+        "first line is not a JSON object"
+    )
+    assert issue_by_path_and_kind(verification.issues, wrong_event, "malformed-jsonl").detail == (
+        "first event is not session.started"
+    )
+    assert "hidden" not in format_archive_verification(verification)
+
+
+def test_verify_session_archive_reports_orphan_summary_and_partial_leftovers(tmp_path):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    orphan = archive / "2026-04-30T133000Z-studio-codex-orphan.md"
+    archive_partial = archive / "2026-04-30T133001Z-studio-codex-staged.jsonl.partial"
+    active_partial = tmp_path / ".in-progress" / "pipy" / "active.jsonl.partial"
+    orphan.write_text("# Summary\n\nIntentional human text.", encoding="utf-8")
+    archive_partial.write_text('{"type":"session.started"}\n', encoding="utf-8")
+    active_partial.parent.mkdir(parents=True)
+    active_partial.write_text('{"type":"session.started"}\n', encoding="utf-8")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert issue_by_path_and_kind(verification.issues, orphan, "orphan-summary").severity == "warning"
+    assert issue_by_path_and_kind(verification.issues, archive_partial, "partial-file").severity == "warning"
+    assert issue_by_path_and_kind(verification.issues, active_partial, "partial-file").severity == "warning"
+
+
+def test_verify_session_archive_reports_unexpected_archive_files(tmp_path):
+    archive = tmp_path / "pipy"
+    direct = archive / "direct.jsonl"
+    year_file = archive / "2026" / "year-level.jsonl"
+    deep = archive / "2026" / "04" / "nested" / "deep.jsonl"
+    unsupported = archive / "2026" / "04" / "notes.txt"
+    malformed_name = archive / "2026" / "04" / "bad-name.jsonl"
+    direct.parent.mkdir(parents=True)
+    year_file.parent.mkdir(parents=True)
+    deep.parent.mkdir(parents=True)
+    unsupported.parent.mkdir(parents=True, exist_ok=True)
+    for path in [direct, year_file, deep, unsupported, malformed_name]:
+        path.write_text('{"type":"session.started"}\n', encoding="utf-8")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert issue_by_path_and_kind(verification.issues, direct, "unexpected-archive-file").severity == "error"
+    assert issue_by_path_and_kind(verification.issues, year_file, "unexpected-archive-file").severity == "error"
+    assert issue_by_path_and_kind(verification.issues, deep, "unexpected-archive-file").severity == "error"
+    assert issue_by_path_and_kind(verification.issues, unsupported, "unsupported-archive-file").severity == (
+        "warning"
+    )
+    assert issue_by_path_and_kind(verification.issues, malformed_name, "malformed-filename").severity == "error"
+
+
+def test_verify_session_archive_reports_duplicate_basename_and_stem_ambiguity(tmp_path):
+    basename = "2026-04-30T133000Z-studio-codex-ambiguous.jsonl"
+    first = tmp_path / "pipy" / "2026" / "04" / basename
+    second = tmp_path / "pipy" / "2026" / "05" / basename
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    content = (
+        '{"agent":"codex","machine":"studio","project":"pipy","slug":"ambiguous",'
+        '"timestamp":"2026-04-30T13:30:00+00:00","type":"session.started"}\n'
+    )
+    first.write_text(content, encoding="utf-8")
+    second.write_text(content, encoding="utf-8")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    basename_issue = issue_by_path_and_kind(verification.issues, first, "ambiguous-basename")
+    stem_issue = issue_by_path_and_kind(verification.issues, first, "ambiguous-stem")
+    assert basename_issue.severity == "warning"
+    assert stem_issue.severity == "warning"
+    assert str(second) in basename_issue.detail
+    assert str(second) in stem_issue.detail
+
+
+def test_verify_session_archive_ignores_active_jsonl_and_state_files(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="active-ignored",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    state_dir = tmp_path / ".in-progress" / "pipy" / ".state"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "codex-state.json"
+    state_file.write_text('{"active_path":"/tmp/active.jsonl"}\n', encoding="utf-8")
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert verification.ok is True
+    assert active.exists()
+    assert state_file.exists()
+
+
+def test_cli_verify_supports_human_and_json_output(tmp_path, capsys):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    malformed = archive / "2026-04-30T133000Z-studio-codex-bad.jsonl"
+    malformed.write_text('{"type":"decision.recorded","summary":"do not print"}\n', encoding="utf-8")
+
+    human_code = main(["--root", str(tmp_path), "verify"])
+    human_output = capsys.readouterr()
+
+    assert human_code == 0
+    assert "status\tissue\tpath\tdetail" in human_output.out
+    assert f"error\tmalformed-jsonl\t{malformed}\tfirst event is not session.started" in human_output.out
+    assert "do not print" not in human_output.out
+
+    json_code = main(["--root", str(tmp_path), "verify", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    parsed = json.loads(json_output.out)
+    assert parsed == {
+        "ok": False,
+        "issue_count": 1,
+        "root": str(tmp_path),
+        "issues": [
+            {
+                "severity": "error",
+                "kind": "malformed-jsonl",
+                "path": str(malformed),
+                "detail": "first event is not session.started",
+            }
+        ],
+    }
+
+
+def test_cli_verify_reports_non_utf8_first_line_without_failing_scan(tmp_path, capsys):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    malformed = archive / "2026-04-30T133000Z-studio-codex-non-utf8.jsonl"
+    malformed.write_bytes(b"\xff\xfe\n")
+
+    human_exit_code = main(["--root", str(tmp_path), "verify"])
+    human_output = capsys.readouterr()
+
+    assert human_exit_code == 0
+    assert f"error\tmalformed-jsonl\t{malformed}\tfirst line is not valid UTF-8" in human_output.out
+    assert "\xff" not in human_output.out
+    assert "\xfe" not in human_output.out
+    assert human_output.err == ""
+
+    exit_code = main(["--root", str(tmp_path), "verify", "--json"])
+    output = capsys.readouterr()
+
+    assert exit_code == 0
+    parsed = json.loads(output.out)
+    assert parsed == {
+        "ok": False,
+        "issue_count": 1,
+        "root": str(tmp_path),
+        "issues": [
+            {
+                "severity": "error",
+                "kind": "malformed-jsonl",
+                "path": str(malformed),
+                "detail": "first line is not valid UTF-8",
+            }
+        ],
+    }
+    assert output.err == ""
 
 
 def test_list_finalized_sessions_returns_archive_records_newest_first(tmp_path):
