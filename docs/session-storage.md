@@ -177,6 +177,43 @@ partial/complete marker, summary presence, and JSONL path.
 It skips archive JSONL files whose first line is missing, not valid UTF-8,
 malformed JSON, or not a `session.started` event.
 
+Search finalized records without indexing or mutating them:
+
+```sh
+uv run pipy-session search <query>
+uv run pipy-session search <query> --json
+```
+
+`search` scans only finalized archive JSONL records directly under
+`pipy/YYYY/MM/` and sibling Markdown summaries when present. It does not search
+active records under `.in-progress/pipy/`, automatic state files under
+`.in-progress/pipy/.state/`, `*.partial` staging files, unsupported archive
+files, or arbitrary files outside the finalized archive.
+
+Search is a local, read-only, case-insensitive substring scan. The query must
+not be empty or only whitespace. It matches:
+
+- finalized listing metadata: start time, machine, agent, slug, capture marker,
+  JSONL path, and Markdown path when present
+- JSONL event `type`
+- JSONL event `summary` when the summary is a string
+- sibling Markdown summary text when the summary can be read as UTF-8
+
+Search returns results newest first, following the same ordering as `list`.
+Malformed or unreadable per-record JSONL data is skipped quietly so one bad
+record does not prevent discovery; use `verify` for archive-health reporting.
+Markdown read failures skip only Markdown matching for that record.
+
+Human output is a stable tab-separated table with start time, machine, agent,
+slug, capture marker, structural match labels, and JSONL path. JSON output is a
+list of structured result objects with metadata and match entries containing a
+field name, optional event type, optional line number, and a short snippet.
+Snippets may come only from metadata, event `type`, event `summary`, or
+Markdown summary text. Search does not print raw JSONL event bodies, payload
+values, prompt text, tool output, transcript bodies, raw invalid bytes, or raw
+exception messages. It does not repair, delete, move, rewrite, index, import,
+cache, or sync session records.
+
 Inspect one finalized record without printing raw JSONL event bodies:
 
 ```sh

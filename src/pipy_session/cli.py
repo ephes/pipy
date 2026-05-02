@@ -20,9 +20,11 @@ from pipy_session.auto_capture import (
 from pipy_session.catalog import (
     format_archive_verification,
     format_session_inspection,
+    format_session_search_results,
     format_session_table,
     inspect_finalized_session,
     list_finalized_sessions,
+    search_finalized_sessions,
     verify_session_archive,
 )
 from pipy_session.recorder import append_event, finalize_session, init_session
@@ -71,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="List finalized session records.")
     list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a tab-separated table.",
+    )
+
+    search_parser = subparsers.add_parser("search", help="Search finalized session records.")
+    search_parser.add_argument("query", help="Case-insensitive search query.")
+    search_parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON instead of a tab-separated table.",
@@ -193,6 +203,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps([record.to_dict() for record in records], sort_keys=True))
             else:
                 print(format_session_table(records))
+            return 0
+
+        if args.command == "search":
+            results = search_finalized_sessions(args.query, root=args.root)
+            if args.json:
+                print(json.dumps([result.to_dict() for result in results], sort_keys=True))
+            else:
+                print(format_session_search_results(results))
             return 0
 
         if args.command == "inspect":

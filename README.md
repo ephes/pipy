@@ -98,6 +98,23 @@ records, ignores `.in-progress/` and `*.partial` files, and reports whether a
 matching Markdown summary exists. It skips archive JSONL files whose first line
 is missing, not valid UTF-8, malformed JSON, or not a `session.started` event.
 
+Search finalized records in the local archive:
+
+```sh
+uv run pipy-session search session-storage
+uv run pipy-session search session-storage --json
+```
+
+The search command is read-only and scans only finalized `pipy/YYYY/MM/*.jsonl`
+records plus sibling Markdown summaries. It requires a non-empty query and
+performs case-insensitive substring matching against listing metadata, event
+types, event `summary` strings, and Markdown summary text. It ignores active
+`.in-progress/` records, automatic state files, `*.partial` files, unsupported
+archive files, and malformed or unreadable finalized JSONL records. Human
+output is tab-separated; JSON output includes structured match fields. Search
+does not print raw JSONL event bodies, payload values, prompt text, tool output,
+or transcript bodies.
+
 Inspect one finalized record by path, basename, or stem:
 
 ```sh

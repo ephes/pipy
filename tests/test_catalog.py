@@ -10,9 +10,14 @@ from pipy_session import (
     init_session,
     inspect_finalized_session,
     list_finalized_sessions,
+    search_finalized_sessions,
     verify_session_archive,
 )
-from pipy_session.catalog import format_archive_verification, format_session_table
+from pipy_session.catalog import (
+    format_archive_verification,
+    format_session_search_results,
+    format_session_table,
+)
 from pipy_session.cli import main
 
 
@@ -555,6 +560,386 @@ def test_cli_list_skips_non_utf8_first_line_in_human_and_json_output(tmp_path, c
     assert str(non_utf8) not in json_output.out
     assert "\xff" not in json_output.out
     assert "\xfe" not in json_output.out
+    assert json_output.err == ""
+
+
+def test_search_finalized_sessions_finds_metadata_events_and_markdown(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="search-target",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="Use searchable finalized session summaries.",
+        payload={"secret": "PAYLOAD_SECRET should stay hidden"},
+        now=FIXED_NOW,
+    )
+    record = finalize_session(
+        active,
+        root=tmp_path,
+        summary_text="# Summary\n\nMarkdown helps future agents find work.",
+    )
+    other_active = init_session(
+        agent="claude",
+        slug="other-work",
+        root=tmp_path,
+        machine="atlas",
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    finalize_session(other_active, root=tmp_path)
+
+    slug_results = search_finalized_sessions("search-target", root=tmp_path)
+    agent_results = search_finalized_sessions("CODEX", root=tmp_path)
+    event_type_results = search_finalized_sessions("decision.recorded", root=tmp_path)
+    summary_results = search_finalized_sessions("FINALIZED SESSION", root=tmp_path)
+    markdown_results = search_finalized_sessions("future agents", root=tmp_path)
+
+    assert [result.jsonl_path for result in slug_results] == [record.jsonl_path]
+    assert [result.jsonl_path for result in agent_results] == [record.jsonl_path]
+    assert [result.jsonl_path for result in event_type_results] == [record.jsonl_path]
+    assert [result.jsonl_path for result in summary_results] == [record.jsonl_path]
+    assert [result.jsonl_path for result in markdown_results] == [record.jsonl_path]
+    assert "metadata.slug" in {match.field for match in slug_results[0].matches}
+    assert event_type_results[0].matches[0].field == "event.type"
+    assert summary_results[0].matches[0].field == "event.summary"
+    assert markdown_results[0].matches[0].field == "markdown.summary"
+    assert search_finalized_sessions("PAYLOAD_SECRET", root=tmp_path) == []
+
+
+def test_search_finalized_sessions_returns_newest_first(tmp_path):
+    older_active = init_session(
+        agent="codex",
+        slug="older-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        older_active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="shared search needle",
+        now=FIXED_NOW,
+    )
+    older = finalize_session(older_active, root=tmp_path)
+    newer_active = init_session(
+        agent="codex",
+        slug="newer-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW + timedelta(hours=1),
+    )
+    append_event(
+        newer_active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="shared search needle",
+        now=FIXED_NOW + timedelta(hours=1),
+    )
+    newer = finalize_session(newer_active, root=tmp_path)
+
+    results = search_finalized_sessions("shared search needle", root=tmp_path)
+
+    assert [result.jsonl_path for result in results] == [newer.jsonl_path, older.jsonl_path]
+
+
+def test_search_ignores_active_state_partials_unsupported_and_malformed_records(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="needlexyz-active",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="needlexyz active record should not be searched",
+        now=FIXED_NOW,
+    )
+    clean_active = init_session(
+        agent="codex",
+        slug="clean-record",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    clean = finalize_session(clean_active, root=tmp_path)
+
+    archive = tmp_path / "pipy" / "2026" / "04"
+    partial = archive / "2026-04-30T133200Z-studio-codex-needlexyz.jsonl.partial"
+    partial.write_text('{"type":"session.started","summary":"needlexyz"}\n', encoding="utf-8")
+    unsupported = archive / "needlexyz.txt"
+    unsupported.write_text("needlexyz unsupported", encoding="utf-8")
+    malformed = archive / "2026-04-30T133300Z-studio-codex-needlexyz-bad.jsonl"
+    malformed.write_text("{not-json with needlexyz}\n", encoding="utf-8")
+    later_malformed = archive / "2026-04-30T133400Z-studio-codex-needlexyz-later-bad.jsonl"
+    later_malformed.write_text(
+        (
+            '{"agent":"codex","machine":"studio","project":"pipy","slug":"needlexyz-later-bad",'
+            '"timestamp":"2026-04-30T13:34:00+00:00","type":"session.started"}\n'
+            '{"type":"decision.recorded","summary":"needlexyz"\n'
+        ),
+        encoding="utf-8",
+    )
+    state_dir = tmp_path / ".in-progress" / "pipy" / ".state"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "needlexyz-state.json"
+    state_file.write_text('{"active_path":"needlexyz"}\n', encoding="utf-8")
+
+    results = search_finalized_sessions("needlexyz", root=tmp_path)
+
+    assert results == []
+    assert clean.jsonl_path.exists()
+    assert active.exists()
+    assert state_file.exists()
+
+
+def test_search_skips_unreadable_records_without_aborting(tmp_path, monkeypatch):
+    active = init_session(
+        agent="codex",
+        slug="resilient-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="resilient needle",
+        now=FIXED_NOW,
+    )
+    valid = finalize_session(active, root=tmp_path)
+    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable.write_text(
+        (
+            '{"agent":"codex","machine":"studio","project":"pipy","slug":"unreadable",'
+            '"timestamp":"2026-04-30T13:31:00+00:00","type":"session.started"}\n'
+            '{"type":"decision.recorded","summary":"SECRET_BODY resilient needle"}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    original_open = Path.open
+
+    def raise_for_unreadable(self, *args, **kwargs):
+        if self == unreadable:
+            raise OSError("SECRET_EXCEPTION with prompt text")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raise_for_unreadable)
+
+    results = search_finalized_sessions("resilient needle", root=tmp_path)
+
+    assert [result.jsonl_path for result in results] == [valid.jsonl_path]
+    assert "SECRET_BODY" not in format_session_search_results(results)
+
+
+def test_format_session_search_results_is_stable_and_privacy_safe(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="privacy-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="tool.command",
+        summary="Needle public summary.",
+        payload={
+            "command": "cat secret.txt",
+            "output": "PAYLOAD_SECRET prompt text tool output transcript body",
+        },
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+
+    table = format_session_search_results(search_finalized_sessions("needle", root=tmp_path))
+
+    assert table.splitlines() == [
+        "started\tmachine\tagent\tslug\tcapture\tmatches\tpath",
+        (
+            "2026-04-30T13:30:00+00:00\tstudio\tcodex\tprivacy-search\tcomplete\t"
+            f"summary\t{record.jsonl_path}"
+        ),
+    ]
+    assert "PAYLOAD_SECRET" not in table
+    assert "prompt text" not in table
+    assert "tool output" not in table
+    assert "transcript body" not in table
+    assert '{"type"' not in table
+
+
+def test_search_human_output_sanitizes_event_type_labels(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="label-sanitize",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event={
+            "type": "tool\tcommand\nINJECTED",
+            "summary": "Needle summary with\tcollapsed\nwhitespace.",
+        },
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+
+    table = format_session_search_results(search_finalized_sessions("tool", root=tmp_path))
+    lines = table.splitlines()
+
+    assert lines == [
+        "started\tmachine\tagent\tslug\tcapture\tmatches\tpath",
+        (
+            "2026-04-30T13:30:00+00:00\tstudio\tcodex\tlabel-sanitize\tcomplete\t"
+            f"event:tool command INJECTED\t{record.jsonl_path}"
+        ),
+    ]
+    assert len(lines[1].split("\t")) == 7
+
+
+def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="cli-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="Needle public event summary.",
+        payload={"secret": "PAYLOAD_SECRET prompt text tool output"},
+        now=FIXED_NOW,
+    )
+    record = finalize_session(
+        active,
+        root=tmp_path,
+        summary_text="# Summary\n\nNeedle markdown summary.",
+    )
+    invalid = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-invalid.jsonl"
+    invalid.write_bytes(b"\xff\xfe\n")
+
+    human_code = main(["--root", str(tmp_path), "search", "needle"])
+    human_output = capsys.readouterr()
+
+    assert human_code == 0
+    assert "started\tmachine\tagent\tslug\tcapture\tmatches\tpath" in human_output.out
+    assert f"\tstudio\tcodex\tcli-search\tcomplete\tsummary, markdown\t{record.jsonl_path}" in (
+        human_output.out
+    )
+    assert "PAYLOAD_SECRET" not in human_output.out
+    assert "prompt text" not in human_output.out
+    assert "tool output" not in human_output.out
+    assert '{"type"' not in human_output.out
+    assert "\xff" not in human_output.out
+    assert "\xfe" not in human_output.out
+    assert human_output.err == ""
+
+    json_code = main(["--root", str(tmp_path), "search", "needle", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    parsed = json.loads(json_output.out)
+    assert parsed == [
+        {
+            "agent": "codex",
+            "capture": "complete",
+            "has_summary": True,
+            "jsonl_path": str(record.jsonl_path),
+            "machine": "studio",
+            "markdown_path": str(record.markdown_path),
+            "matches": [
+                {
+                    "event_type": "decision.recorded",
+                    "field": "event.summary",
+                    "line": 2,
+                    "snippet": "Needle public event summary.",
+                },
+                {
+                    "event_type": None,
+                    "field": "markdown.summary",
+                    "line": 3,
+                    "snippet": "# Summary Needle markdown summary.",
+                },
+            ],
+            "partial": False,
+            "slug": "cli-search",
+            "started": "2026-04-30T13:30:00+00:00",
+        }
+    ]
+    assert "PAYLOAD_SECRET" not in json_output.out
+    assert "prompt text" not in json_output.out
+    assert "tool output" not in json_output.out
+    assert '{"type"' not in json_output.out
+    assert "\xff" not in json_output.out
+    assert "\xfe" not in json_output.out
+    assert json_output.err == ""
+
+
+def test_search_rejects_empty_query(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="empty-query",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    finalize_session(active, root=tmp_path)
+
+    for query in ["", " \t\n"]:
+        try:
+            search_finalized_sessions(query, root=tmp_path)
+        except ValueError as exc:
+            assert str(exc) == "search query must not be empty"
+        else:
+            raise AssertionError("empty search query should fail")
+
+    exit_code = main(["--root", str(tmp_path), "search", ""])
+    output = capsys.readouterr()
+
+    assert exit_code == 2
+    assert output.out == ""
+    assert "pipy-session: search query must not be empty" in output.err
+
+
+def test_cli_search_empty_results(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="empty-search",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    finalize_session(active, root=tmp_path)
+
+    human_code = main(["--root", str(tmp_path), "search", "missing"])
+    human_output = capsys.readouterr()
+
+    assert human_code == 0
+    assert human_output.out == "started\tmachine\tagent\tslug\tcapture\tmatches\tpath\n"
+    assert human_output.err == ""
+
+    json_code = main(["--root", str(tmp_path), "search", "missing", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    assert json.loads(json_output.out) == []
     assert json_output.err == ""
 
 

@@ -14,11 +14,14 @@ from pipy_session.auto_capture import (
 from pipy_session.catalog import (
     FinalizedSessionInspection,
     FinalizedSessionListing,
+    FinalizedSessionSearchMatch,
+    FinalizedSessionSearchResult,
     SessionArchiveVerification,
     VerificationIssue,
     inspect_finalized_session,
     list_finalized_sessions,
     resolve_finalized_record,
+    search_finalized_sessions,
     verify_session_archive,
 )
 from pipy_session.recorder import (
@@ -40,6 +43,8 @@ __all__ = [
     "FinalizedRecordError",
     "FinalizedSessionInspection",
     "FinalizedSessionListing",
+    "FinalizedSessionSearchMatch",
+    "FinalizedSessionSearchResult",
     "HookResult",
     "PrunedState",
     "SessionRecord",
@@ -56,6 +61,7 @@ __all__ = [
     "resolve_active_path",
     "resolve_finalized_record",
     "resolve_session_root",
+    "search_finalized_sessions",
     "start_auto_capture",
     "state_dir",
     "stop_auto_capture",
