@@ -95,7 +95,8 @@ uv run pipy-session list --json
 
 The list command is read-only. It scans finalized `pipy/YYYY/MM/*.jsonl`
 records, ignores `.in-progress/` and `*.partial` files, and reports whether a
-matching Markdown summary exists.
+matching Markdown summary exists. It skips archive JSONL files whose first line
+is missing, not valid UTF-8, malformed JSON, or not a `session.started` event.
 
 Inspect one finalized record by path, basename, or stem:
 

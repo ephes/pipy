@@ -387,7 +387,7 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
     try:
         with path.open(encoding="utf-8") as handle:
             first_line = handle.readline()
-    except OSError:
+    except (OSError, UnicodeError):
         return None
 
     try:

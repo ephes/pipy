@@ -174,8 +174,8 @@ does not read or sync active records under `.in-progress/`, does not include
 `*.partial` staging files, and does not mutate finalized JSONL or Markdown
 files. The tabular output includes the start time, machine, agent, slug,
 partial/complete marker, summary presence, and JSONL path.
-It skips archive JSONL files whose first line is missing, malformed JSON, or
-not a `session.started` event.
+It skips archive JSONL files whose first line is missing, not valid UTF-8,
+malformed JSON, or not a `session.started` event.
 
 Inspect one finalized record without printing raw JSONL event bodies:
 
