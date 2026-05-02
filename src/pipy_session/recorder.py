@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 PROJECT_NAME = "pipy"
 
-_FILENAME_RE = re.compile(
+FILENAME_RE = re.compile(
     r"^(?P<stamp>\d{4}-\d{2}-\d{2}T\d{6}Z)-"
     r"(?P<machine>[A-Za-z0-9._-]+)-"
     r"(?P<agent>[A-Za-z0-9._-]+)-"
@@ -165,7 +165,7 @@ def finalize_session(
 
     root_path = resolve_session_root(root)
     active_path = resolve_active_path(active, root=root_path)
-    match = _FILENAME_RE.match(active_path.name)
+    match = FILENAME_RE.match(active_path.name)
     if match is None:
         raise ValueError(
             "active session filename must match "

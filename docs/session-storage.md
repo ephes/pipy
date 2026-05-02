@@ -162,6 +162,21 @@ YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.md
 The normal append API refuses finalized archive paths. If a finalized record
 needs correction, create a follow-up record instead of editing the original.
 
+List finalized records without modifying them:
+
+```sh
+uv run pipy-session list
+uv run pipy-session list --json
+```
+
+`list` scans only finalized archive records under `pipy/YYYY/MM/*.jsonl`. It
+does not read or sync active records under `.in-progress/`, does not include
+`*.partial` staging files, and does not mutate finalized JSONL or Markdown
+files. The tabular output includes the start time, machine, agent, slug,
+partial/complete marker, summary presence, and JSONL path.
+It skips archive JSONL files whose first line is missing, malformed JSON, or
+not a `session.started` event.
+
 ## Privacy
 
 Session records must not include secrets, API keys, credentials, private keys, tokens, or sensitive personal data. Redact sensitive values before writing.

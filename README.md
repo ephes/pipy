@@ -86,6 +86,17 @@ For partial reconstructions, use `--partial` when initializing the record:
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
+List finalized records in the local archive:
+
+```sh
+uv run pipy-session list
+uv run pipy-session list --json
+```
+
+The list command is read-only. It scans finalized `pipy/YYYY/MM/*.jsonl`
+records, ignores `.in-progress/` and `*.partial` files, and reports whether a
+matching Markdown summary exists.
+
 ## Automatic Capture
 
 Automatic capture is adapter-specific. There is no single hook mechanism that

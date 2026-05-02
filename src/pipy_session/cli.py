@@ -17,6 +17,7 @@ from pipy_session.auto_capture import (
     start_auto_capture,
     stop_auto_capture,
 )
+from pipy_session.catalog import format_session_table, list_finalized_sessions
 from pipy_session.recorder import append_event, finalize_session, init_session
 
 
@@ -60,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
     finalize_summary = finalize_parser.add_mutually_exclusive_group()
     finalize_summary.add_argument("--summary-file", type=Path, help="Markdown summary file to finalize.")
     finalize_summary.add_argument("--summary", help="Markdown summary text to finalize.")
+
+    list_parser = subparsers.add_parser("list", help="List finalized session records.")
+    list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a tab-separated table.",
+    )
 
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command", required=True)
@@ -155,6 +163,14 @@ def main(argv: list[str] | None = None) -> int:
             print(record.jsonl_path)
             if record.markdown_path is not None:
                 print(record.markdown_path)
+            return 0
+
+        if args.command == "list":
+            records = list_finalized_sessions(root=args.root)
+            if args.json:
+                print(json.dumps([record.to_dict() for record in records], sort_keys=True))
+            else:
+                print(format_session_table(records))
             return 0
 
         if args.command == "auto":
