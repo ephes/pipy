@@ -445,13 +445,17 @@ def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
     """Format one finalized session inspection as stable labeled text."""
 
     lines = [
-        f"started: {inspection.started}",
-        f"machine: {inspection.machine}",
-        f"agent: {inspection.agent}",
-        f"slug: {inspection.slug}",
-        f"capture: {inspection.capture}",
-        f"jsonl_path: {inspection.jsonl_path}",
-        f"markdown_path: {inspection.markdown_path}" if inspection.markdown_path else "summary: no",
+        f"started: {_table_cell(inspection.started)}",
+        f"machine: {_table_cell(inspection.machine)}",
+        f"agent: {_table_cell(inspection.agent)}",
+        f"slug: {_table_cell(inspection.slug)}",
+        f"capture: {_table_cell(inspection.capture)}",
+        f"jsonl_path: {_table_cell(str(inspection.jsonl_path))}",
+        (
+            f"markdown_path: {_table_cell(str(inspection.markdown_path))}"
+            if inspection.markdown_path
+            else "summary: no"
+        ),
         f"event_count: {inspection.event_count}",
         "event_types:",
     ]

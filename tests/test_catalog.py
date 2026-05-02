@@ -15,6 +15,7 @@ from pipy_session import (
 )
 from pipy_session.catalog import (
     format_archive_verification,
+    format_session_inspection,
     format_session_search_results,
     format_session_table,
 )
@@ -1123,6 +1124,75 @@ def test_cli_inspect_human_output_includes_metadata_counts_and_summary(tmp_path,
     assert "  session.started: 1" in output.out
     assert "  file.changed: 1" in output.out
     assert "# Summary\n\nHuman output." in output.out
+
+
+def test_format_session_inspection_collapses_control_whitespace_in_metadata(tmp_path, capsys):
+    root = tmp_path / "session\troot\nsandbox"
+    archive = root / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    record_path = archive / "2026-04-30T133000Z-studio-codex-control-whitespace.jsonl"
+    markdown_path = record_path.with_suffix(".md")
+    started = "2026-04-30T13:30:00+00:00\nmachine: forged"
+    machine = "studio\tagent: forged"
+    agent = "codex\nslug: forged"
+    slug = "control\twhitespace\nsummary: forged"
+    summary_text = "# Summary\n\nKeep\tintentional\nMarkdown lines.\n"
+    events = [
+        {
+            "agent": agent,
+            "machine": machine,
+            "project": "pipy",
+            "slug": slug,
+            "timestamp": started,
+            "type": "session.started",
+        },
+        {
+            "summary": "Human inspect output collapses metadata whitespace.",
+            "type": "decision.recorded",
+        },
+    ]
+    record_path.write_text(
+        "".join(f"{json.dumps(event, sort_keys=True)}\n" for event in events),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(summary_text, encoding="utf-8")
+
+    inspection = inspect_finalized_session(record_path, root=root)
+    formatted = format_session_inspection(inspection)
+
+    assert inspection.started == started
+    assert inspection.machine == machine
+    assert inspection.agent == agent
+    assert inspection.slug == slug
+    assert inspection.jsonl_path == record_path
+    assert inspection.markdown_path == markdown_path
+    assert inspection.summary_text == summary_text
+    assert f"jsonl_path: {' '.join(str(record_path).split())}" in formatted
+    assert f"markdown_path: {' '.join(str(markdown_path).split())}" in formatted
+    assert "summary_text:\n# Summary\n\nKeep\tintentional\nMarkdown lines." in formatted
+    lines = formatted.splitlines()
+    assert "started: 2026-04-30T13:30:00+00:00 machine: forged" in lines
+    assert "machine: studio agent: forged" in lines
+    assert "agent: codex slug: forged" in lines
+    assert "slug: control whitespace summary: forged" in lines
+    assert "machine: forged" not in lines
+    assert "agent: forged" not in lines
+    assert "slug: forged" not in lines
+    assert "summary: forged" not in lines
+
+    exit_code = main(["--root", str(root), "inspect", str(record_path), "--json"])
+    output = capsys.readouterr()
+    parsed = json.loads(output.out)
+
+    assert exit_code == 0
+    assert output.err == ""
+    assert parsed["started"] == started
+    assert parsed["machine"] == machine
+    assert parsed["agent"] == agent
+    assert parsed["slug"] == slug
+    assert parsed["jsonl_path"] == str(record_path)
+    assert parsed["markdown_path"] == str(markdown_path)
+    assert parsed["summary_text"] == summary_text
 
 
 def test_cli_inspect_rejects_active_records_state_files_and_partials(tmp_path, capsys):
