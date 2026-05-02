@@ -97,6 +97,18 @@ The list command is read-only. It scans finalized `pipy/YYYY/MM/*.jsonl`
 records, ignores `.in-progress/` and `*.partial` files, and reports whether a
 matching Markdown summary exists.
 
+Inspect one finalized record by path, basename, or stem:
+
+```sh
+uv run pipy-session inspect 2026-05-02T064433Z-studio-codex-session-work
+uv run pipy-session inspect 2026-05-02T064433Z-studio-codex-session-work.jsonl --json
+```
+
+The inspect command is also read-only and only opens finalized archive JSONL
+records directly under `pipy/YYYY/MM/`. It reports metadata, event counts,
+event type counts, and the matching Markdown summary text when present. It does
+not dump raw JSONL event bodies.
+
 ## Automatic Capture
 
 Automatic capture is adapter-specific. There is no single hook mechanism that

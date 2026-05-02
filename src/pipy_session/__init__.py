@@ -11,7 +11,13 @@ from pipy_session.auto_capture import (
     state_dir,
     stop_auto_capture,
 )
-from pipy_session.catalog import FinalizedSessionListing, list_finalized_sessions
+from pipy_session.catalog import (
+    FinalizedSessionInspection,
+    FinalizedSessionListing,
+    inspect_finalized_session,
+    list_finalized_sessions,
+    resolve_finalized_record,
+)
 from pipy_session.recorder import (
     FILENAME_RE,
     PROJECT_NAME,
@@ -29,6 +35,7 @@ __all__ = [
     "AutoCaptureState",
     "FILENAME_RE",
     "FinalizedRecordError",
+    "FinalizedSessionInspection",
     "FinalizedSessionListing",
     "HookResult",
     "PrunedState",
@@ -38,9 +45,11 @@ __all__ = [
     "finalize_session",
     "handle_claude_hook",
     "init_session",
+    "inspect_finalized_session",
     "list_finalized_sessions",
     "prune_auto_capture_state",
     "resolve_active_path",
+    "resolve_finalized_record",
     "resolve_session_root",
     "start_auto_capture",
     "state_dir",

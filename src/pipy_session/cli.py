@@ -17,7 +17,12 @@ from pipy_session.auto_capture import (
     start_auto_capture,
     stop_auto_capture,
 )
-from pipy_session.catalog import format_session_table, list_finalized_sessions
+from pipy_session.catalog import (
+    format_session_inspection,
+    format_session_table,
+    inspect_finalized_session,
+    list_finalized_sessions,
+)
 from pipy_session.recorder import append_event, finalize_session, init_session
 
 
@@ -67,6 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit JSON instead of a tab-separated table.",
+    )
+
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect one finalized session record.")
+    inspect_parser.add_argument("record", help="Finalized record path, basename, or stem.")
+    inspect_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of labeled text.",
     )
 
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
@@ -171,6 +184,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps([record.to_dict() for record in records], sort_keys=True))
             else:
                 print(format_session_table(records))
+            return 0
+
+        if args.command == "inspect":
+            inspection = inspect_finalized_session(args.record, root=args.root)
+            if args.json:
+                print(json.dumps(inspection.to_dict(), sort_keys=True))
+            else:
+                print(format_session_inspection(inspection))
             return 0
 
         if args.command == "auto":

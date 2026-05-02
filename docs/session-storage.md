@@ -177,6 +177,33 @@ partial/complete marker, summary presence, and JSONL path.
 It skips archive JSONL files whose first line is missing, malformed JSON, or
 not a `session.started` event.
 
+Inspect one finalized record without printing raw JSONL event bodies:
+
+```sh
+uv run pipy-session inspect <record>
+uv run pipy-session inspect <record> --json
+```
+
+`<record>` may be an absolute finalized archive path, a relative finalized
+archive path, a finalized JSONL basename, or a finalized JSONL stem. Basename
+and stem resolution searches only finalized records under `pipy/*/*/` and fails
+instead of guessing when more than one record matches.
+
+`inspect` is read-only. It accepts only finalized `.jsonl` records directly
+under `${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/pipy/YYYY/MM/`. It
+rejects active records under `.in-progress/pipy/`, automatic state files under
+`.in-progress/pipy/.state/`, `*.partial` staging files, arbitrary paths outside
+the finalized archive, and malformed archive records whose first line is
+missing, invalid JSON, or not a `session.started` event.
+
+The human output reports the same metadata as `list`, plus total event count,
+event counts by type, and matching Markdown summary text when a `.md` sibling
+exists. The JSON output includes those fields as structured data, with
+`summary_text` set to the Markdown content or `null` when no summary exists.
+Neither output includes full JSONL events, payloads, prompt text, tool output,
+or other raw transcript content by default. Markdown summaries are shown
+because they are intentional human-review artifacts.
+
 ## Privacy
 
 Session records must not include secrets, API keys, credentials, private keys, tokens, or sensitive personal data. Redact sensitive values before writing.
