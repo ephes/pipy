@@ -1,4 +1,5 @@
 .pipy/
+.claude/settings.local.json
 .envrc
 .direnv/
 .venv/

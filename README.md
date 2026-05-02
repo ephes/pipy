@@ -136,8 +136,8 @@ summary	would-remove	1
 ### Claude Code Hook Setup
 
 Claude Code support is implemented as a hook adapter, but this repository does
-not install hooks into your user dotfiles. To enable it for this project, add a
-project-local Claude settings file such as `.claude/settings.json`:
+not install hooks into your user dotfiles or commit live hook settings. To enable
+it for your local checkout, add `.claude/settings.local.json`:
 
 ```json
 {
@@ -148,7 +148,7 @@ project-local Claude settings file such as `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
             "timeout": 5
           }
         ]
@@ -159,7 +159,7 @@ project-local Claude settings file such as `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
             "timeout": 5
           }
         ]
@@ -167,10 +167,11 @@ project-local Claude settings file such as `.claude/settings.json`:
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash|Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
             "timeout": 5
           }
         ]
@@ -181,7 +182,7 @@ project-local Claude settings file such as `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pipy-session auto hook claude",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
             "timeout": 5
           }
         ]
@@ -194,8 +195,8 @@ project-local Claude settings file such as `.claude/settings.json`:
 Claude Code must trust the project settings for project-local hooks to run. The
 adapter intentionally stores prompt text and assistant/tool output as redacted
 metadata counts instead of raw content. The example observes every prompt and
-tool-use event, so each hook starts `uv`; restrict matchers or remove metadata
-events if that overhead is noticeable.
+high-signal write-like tool event, so each matching hook starts `uv`; tighten
+matchers further or remove `UserPromptSubmit` if that overhead is noticeable.
 
 ### Wrapper Capture
 
