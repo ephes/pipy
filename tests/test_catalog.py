@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from pipy_session import (
     append_event,
@@ -89,6 +90,105 @@ def test_verify_session_archive_reports_malformed_finalized_jsonl(tmp_path):
         "first event is not session.started"
     )
     assert "hidden" not in format_archive_verification(verification)
+
+
+def test_verify_session_archive_reports_unreadable_finalized_jsonl_without_aborting(tmp_path, monkeypatch):
+    active = init_session(
+        agent="codex",
+        slug="valid-alongside-unreadable",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    valid = finalize_session(active, root=tmp_path)
+    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable.write_bytes(
+        b'{"type":"decision.recorded","summary":"SECRET_BODY should not print"}\n\xff\xfe\n'
+    )
+
+    original_open = Path.open
+
+    def raise_for_unreadable(self, *args, **kwargs):
+        if self == unreadable:
+            raise OSError("SECRET_EXCEPTION with prompt text")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raise_for_unreadable)
+
+    verification = verify_session_archive(root=tmp_path)
+
+    assert verification.ok is False
+    assert [issue.path for issue in verification.issues] == [unreadable]
+    issue = issue_by_path_and_kind(verification.issues, unreadable, "unreadable-jsonl")
+    assert issue.severity == "error"
+    assert issue.detail == "could not read first line"
+    assert valid.jsonl_path not in [reported.path for reported in verification.issues]
+
+
+def test_cli_verify_reports_unreadable_jsonl_without_exposing_exception_or_content(
+    tmp_path, monkeypatch, capsys
+):
+    active = init_session(
+        agent="codex",
+        slug="valid-cli-unreadable",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    valid = finalize_session(active, root=tmp_path)
+    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable.write_bytes(
+        b'{"type":"decision.recorded","summary":"SECRET_BODY should not print"}\n\xff\xfe\n'
+    )
+
+    original_open = Path.open
+
+    def raise_for_unreadable(self, *args, **kwargs):
+        if self == unreadable:
+            raise OSError("SECRET_EXCEPTION with prompt text")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raise_for_unreadable)
+
+    human_code = main(["--root", str(tmp_path), "verify"])
+    human_output = capsys.readouterr()
+
+    assert human_code == 0
+    assert (
+        f"error\tunreadable-jsonl\t{unreadable}\tcould not read first line"
+        in human_output.out
+    )
+    assert str(valid.jsonl_path) not in human_output.out
+    assert "SECRET_EXCEPTION" not in human_output.out
+    assert "SECRET_BODY" not in human_output.out
+    assert "\xff" not in human_output.out
+    assert "\xfe" not in human_output.out
+    assert human_output.err == ""
+
+    json_code = main(["--root", str(tmp_path), "verify", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    parsed = json.loads(json_output.out)
+    assert parsed == {
+        "ok": False,
+        "issue_count": 1,
+        "root": str(tmp_path),
+        "issues": [
+            {
+                "severity": "error",
+                "kind": "unreadable-jsonl",
+                "path": str(unreadable),
+                "detail": "could not read first line",
+            }
+        ],
+    }
+    assert str(valid.jsonl_path) not in json_output.out
+    assert "SECRET_EXCEPTION" not in json_output.out
+    assert "SECRET_BODY" not in json_output.out
+    assert "\xff" not in json_output.out
+    assert "\xfe" not in json_output.out
+    assert json_output.err == ""
 
 
 def test_verify_session_archive_reports_orphan_summary_and_partial_leftovers(tmp_path):

@@ -118,12 +118,13 @@ uv run pipy-session verify --json
 ```
 
 The verify command scans the resolved session root for finalized archive
-structure issues. It reports malformed finalized JSONL first events, orphan
-Markdown summaries, sync-excluded `*.partial` leftovers, unexpected files under
-`pipy/`, and duplicate finalized record basenames or stems that would make
-`inspect <name>` ambiguous. The report contains paths, issue kinds, severities,
-and structural details only; it does not print raw JSONL event bodies, prompt
-text, tool output, or transcript payloads.
+structure issues. It reports malformed finalized JSONL first events, unreadable
+finalized JSONL first-line read failures, orphan Markdown summaries,
+sync-excluded `*.partial` leftovers, unexpected files under `pipy/`, and
+duplicate finalized record basenames or stems that would make `inspect <name>`
+ambiguous. The report contains paths, issue kinds, severities, and structural
+details only; it does not print raw JSONL event bodies, prompt text, tool
+output, raw exception text, or transcript payloads.
 
 ## Automatic Capture
 

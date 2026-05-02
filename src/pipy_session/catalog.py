@@ -480,6 +480,13 @@ def _first_event_verification_issue(path: Path) -> VerificationIssue | None:
     try:
         with path.open(encoding="utf-8") as handle:
             first_line = handle.readline()
+    except OSError:
+        return VerificationIssue(
+            severity="error",
+            kind="unreadable-jsonl",
+            path=path,
+            detail="could not read first line",
+        )
     except UnicodeError:
         return VerificationIssue(
             severity="error",

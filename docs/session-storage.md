@@ -221,6 +221,8 @@ The archive verifier reports:
 - malformed finalized JSONL files under `pipy/YYYY/MM/*.jsonl`, based on the
   first event only: empty first line, non-UTF-8 first line, invalid JSON,
   non-object JSON, or a first event whose `type` is not `session.started`
+- unreadable finalized JSONL files under `pipy/YYYY/MM/*.jsonl` when the
+  verifier cannot open the file or read its first line
 - orphan Markdown summaries under `pipy/YYYY/MM/*.md` with no sibling JSONL
 - `*.partial` leftovers anywhere under the session root, including
   `.in-progress/`
@@ -238,9 +240,9 @@ write.
 
 The human output is tab-separated. JSON output contains `ok`, `issue_count`,
 `root`, and a list of issues with `severity`, `kind`, `path`, and `detail`.
-Neither output prints full JSONL events, payloads, prompt text, tool output, or
-raw transcript bodies. `verify` does not repair, delete, move, rewrite, index,
-or import session records.
+Neither output prints full JSONL events, payloads, prompt text, tool output, raw
+exception text, or raw transcript bodies. `verify` does not repair, delete,
+move, rewrite, index, or import session records.
 
 ## Privacy
 
