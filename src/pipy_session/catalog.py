@@ -263,13 +263,13 @@ def format_session_table(records: list[FinalizedSessionListing]) -> str:
         lines.append(
             "\t".join(
                 [
-                    record.started,
-                    record.machine,
-                    record.agent,
-                    record.slug,
-                    record.capture,
-                    summary,
-                    str(record.jsonl_path),
+                    _table_cell(record.started),
+                    _table_cell(record.machine),
+                    _table_cell(record.agent),
+                    _table_cell(record.slug),
+                    _table_cell(record.capture),
+                    _table_cell(summary),
+                    _table_cell(str(record.jsonl_path)),
                 ]
             )
         )

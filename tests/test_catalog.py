@@ -480,6 +480,57 @@ def test_format_session_table_prints_header_and_rows(tmp_path):
     ]
 
 
+def test_list_human_output_sanitizes_metadata_table_cells(tmp_path, capsys):
+    root = tmp_path / "session\troot\nname"
+    archive = root / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    record_path = archive / "2026-04-30T133000Z-studio-codex-safe-name.jsonl"
+    first_event = {
+        "type": "session.started",
+        "timestamp": "2026-04-30T13:30:00+00:00\tBAD\nNEXT",
+        "machine": "studio\twest\nrack",
+        "agent": "codex\tcli\nagent",
+        "slug": "safe\tname\ninjected",
+    }
+    record_path.write_text(f"{json.dumps(first_event)}\n", encoding="utf-8")
+
+    table = format_session_table(list_finalized_sessions(root=root))
+    lines = table.splitlines()
+
+    assert len(lines) == 2
+    assert lines[0] == "started\tmachine\tagent\tslug\tcapture\tsummary\tpath"
+    columns = lines[1].split("\t")
+    assert len(columns) == 7
+    assert columns == [
+        "2026-04-30T13:30:00+00:00 BAD NEXT",
+        "studio west rack",
+        "codex cli agent",
+        "safe name injected",
+        "complete",
+        "no",
+        str(record_path).replace("\t", " ").replace("\n", " "),
+    ]
+
+    json_code = main(["--root", str(root), "list", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    assert json.loads(json_output.out) == [
+        {
+            "agent": "codex\tcli\nagent",
+            "capture": "complete",
+            "has_summary": False,
+            "jsonl_path": str(record_path),
+            "machine": "studio\twest\nrack",
+            "markdown_path": None,
+            "partial": False,
+            "slug": "safe\tname\ninjected",
+            "started": "2026-04-30T13:30:00+00:00\tBAD\nNEXT",
+        }
+    ]
+    assert json_output.err == ""
+
+
 def test_cli_list_supports_table_and_json_output(tmp_path, capsys):
     active = init_session(
         agent="codex",
