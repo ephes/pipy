@@ -14,6 +14,15 @@ Install the Python tooling with `uv`:
 uv sync
 ```
 
+Run local verification through `just`:
+
+```sh
+just test       # pytest
+just lint       # ruff check
+just typecheck  # mypy
+just check      # lint, typecheck, then test
+```
+
 ## Session Sync Setup
 
 Copy the direnv example and approve it:

@@ -4,6 +4,21 @@ set dotenv-load := false
 default:
     just --list
 
+# Run the Python test suite.
+test:
+    uv run pytest
+
+# Run lint checks.
+lint:
+    uv run ruff check .
+
+# Run static type checks.
+typecheck:
+    uv run mypy src tests
+
+# Run all local verification checks.
+check: lint typecheck test
+
 # Prepare the local session directories.
 sessions-init:
     mkdir -p "${PIPY_SESSION_DIR:-$HOME/.local/state/pipy/sessions}/.in-progress/pipy"

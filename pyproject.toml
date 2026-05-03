@@ -11,7 +11,9 @@ pipy-session = "pipy_session.cli:main"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.18",
     "pytest>=8.0",
+    "ruff>=0.14",
 ]
 
 [build-system]
