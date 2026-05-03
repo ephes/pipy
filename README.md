@@ -129,6 +129,20 @@ not dump raw JSONL event bodies. Human labels collapse control whitespace so
 record metadata or event type strings cannot forge extra table or label lines;
 `--json` keeps structured values non-lossy.
 
+Reflect on finalized records to extract summary-safe learning signals:
+
+```sh
+uv run pipy-session reflect
+uv run pipy-session reflect --json
+```
+
+The reflect command is read-only. It scans finalized records and reports archive
+counts, event type counts, low-signal partial capture counts, and curated
+learning signals from event `summary` strings and Markdown summary snippets. It
+does not print raw JSONL event bodies, payload values, prompt text, tool output,
+or transcript bodies. Use it as the first pass before promoting durable
+decisions, lessons, ADRs, prompts, hooks, or skills into git.
+
 Verify local archive health without repairing or mutating files:
 
 ```sh

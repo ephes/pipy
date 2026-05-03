@@ -5,17 +5,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pipy_session import (
+    SessionReflectionItem,
     append_event,
     finalize_session,
     init_session,
     inspect_finalized_session,
     list_finalized_sessions,
+    reflect_on_finalized_sessions,
     search_finalized_sessions,
     verify_session_archive,
 )
 from pipy_session.catalog import (
     format_archive_verification,
     format_session_inspection,
+    format_session_reflection,
     format_session_search_results,
     format_session_table,
 )
@@ -993,6 +996,297 @@ def test_cli_search_empty_results(tmp_path, capsys):
     assert json_code == 0
     assert json.loads(json_output.out) == []
     assert json_output.err == ""
+
+
+def test_reflect_on_finalized_sessions_extracts_summary_safe_learning_signals(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="reflection-target",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="decision.recorded",
+        summary="Keep reflection read-only and summary-safe.",
+        payload={"secret": "PAYLOAD_SECRET prompt text tool output"},
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="lesson.learned",
+        summary="Markdown summaries are useful curated learning artifacts.",
+        now=FIXED_NOW,
+    )
+    record = finalize_session(
+        active,
+        root=tmp_path,
+        summary_text="# Summary\n\nImplemented reflection over finalized session summaries.",
+    )
+
+    low_signal_active = init_session(
+        agent="claude",
+        slug="lifecycle-only",
+        root=tmp_path,
+        machine="studio",
+        partial=True,
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    append_event(
+        low_signal_active,
+        root=tmp_path,
+        event_type="auto_capture.started",
+        summary="Automatic capture started for claude.",
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    append_event(
+        low_signal_active,
+        root=tmp_path,
+        event_type="auto_capture.ended",
+        summary="Automatic capture ended.",
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    finalize_session(
+        low_signal_active,
+        root=tmp_path,
+        summary_text=(
+            "# Summary\n\nAutomatic claude capture finalized.\n\n"
+            "This record is partial: the adapter captured lifecycle metadata."
+        ),
+    )
+
+    malformed = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133200Z-studio-codex-bad.jsonl"
+    malformed.write_text("{not-json PAYLOAD_SECRET}\n", encoding="utf-8")
+
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+    formatted = format_session_reflection(reflection)
+
+    assert reflection.session_count == 2
+    assert reflection.sessions_with_markdown == 2
+    assert reflection.low_signal_session_count == 1
+    assert reflection.agent_counts == {"claude": 1, "codex": 1}
+    assert reflection.capture_counts == {"complete": 1, "partial": 1}
+    assert reflection.event_type_counts["decision.recorded"] == 1
+    assert reflection.event_type_counts["lesson.learned"] == 1
+    assert reflection.summary_event_count == 5
+    assert [
+        (item.category, item.event_type, item.summary)
+        for item in reflection.items
+        if item.jsonl_path == record.jsonl_path
+    ] == [
+        ("decisions", "decision.recorded", "Keep reflection read-only and summary-safe."),
+        (
+            "lessons",
+            "lesson.learned",
+            "Markdown summaries are useful curated learning artifacts.",
+        ),
+        (
+            "session-summaries",
+            None,
+            "# Summary Implemented reflection over finalized session summaries.",
+        ),
+    ]
+    assert "## Decisions" in formatted
+    assert "Keep reflection read-only and summary-safe." in formatted
+    assert "Markdown summaries are useful curated learning artifacts." in formatted
+    assert "PAYLOAD_SECRET" not in formatted
+    assert "prompt text" not in formatted
+    assert "tool output" not in formatted
+    assert '{"type"' not in formatted
+
+
+def test_cli_reflect_supports_human_and_json_output(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="cli-reflect",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    append_event(
+        active,
+        root=tmp_path,
+        event_type="recommendation.recorded",
+        summary="Add a reflection command before building an index.",
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+
+    human_code = main(["--root", str(tmp_path), "reflect"])
+    human_output = capsys.readouterr()
+
+    assert human_code == 0
+    assert "# Session Reflection" in human_output.out
+    assert "## Recommendations" in human_output.out
+    assert "Add a reflection command before building an index." in human_output.out
+    assert human_output.err == ""
+
+    json_code = main(["--root", str(tmp_path), "reflect", "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    parsed = json.loads(json_output.out)
+    assert parsed["session_count"] == 1
+    assert parsed["items"] == [
+        {
+            "agent": "codex",
+            "capture": "complete",
+            "category": "recommendations",
+            "event_type": "recommendation.recorded",
+            "jsonl_path": str(record.jsonl_path),
+            "line": 2,
+            "machine": "studio",
+            "slug": "cli-reflect",
+            "started": "2026-04-30T13:30:00+00:00",
+            "summary": "Add a reflection command before building an index.",
+        }
+    ]
+    assert json_output.err == ""
+
+
+def test_reflect_ignores_corrupt_jsonl_body_without_dropping_markdown_summary(tmp_path):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    record = archive / "2026-04-30T133000Z-studio-codex-corrupt-body.jsonl"
+    markdown = record.with_suffix(".md")
+    record.write_text(
+        (
+            '{"agent":"codex","machine":"studio","partial":true,"project":"pipy",'
+            '"slug":"corrupt-body","timestamp":"2026-04-30T13:30:00+00:00",'
+            '"type":"session.started"}\n'
+            '{"type":"auto_capture.started","summary":"PAYLOAD_SECRET should be discarded"}\n'
+            '{"type":"auto_capture.ended","summary":"broken"\n'
+        ),
+        encoding="utf-8",
+    )
+    markdown.write_text("# Summary\n\nCurated summary survives corrupt JSONL body.", encoding="utf-8")
+
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+    formatted = format_session_reflection(reflection)
+
+    assert reflection.session_count == 1
+    assert reflection.sessions_with_markdown == 1
+    assert reflection.event_type_counts == {}
+    assert reflection.summary_event_count == 0
+    assert reflection.low_signal_session_count == 0
+    assert [item.to_dict() for item in reflection.items] == [
+        {
+            "agent": "codex",
+            "capture": "partial",
+            "category": "session-summaries",
+            "event_type": None,
+            "jsonl_path": str(record),
+            "line": None,
+            "machine": "studio",
+            "slug": "corrupt-body",
+            "started": "2026-04-30T13:30:00+00:00",
+            "summary": "# Summary Curated summary survives corrupt JSONL body.",
+        }
+    ]
+    assert "Curated summary survives corrupt JSONL body." in formatted
+    assert "PAYLOAD_SECRET" not in formatted
+
+
+def test_reflect_markdown_summary_snippet_is_width_limited_with_ellipsis(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="long-summary",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    record = finalize_session(
+        active,
+        root=tmp_path,
+        summary_text="# Summary\n\n" + ("Long curated detail. " * 30),
+    )
+
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+    [item] = reflection.items
+
+    assert item.jsonl_path == record.jsonl_path
+    assert item.category == "session-summaries"
+    assert item.summary.endswith("...")
+    assert len(item.summary) <= 240
+
+
+def test_reflect_generic_auto_summary_filter_requires_auto_phrase_at_start(tmp_path):
+    auto_active = init_session(
+        agent="claude",
+        slug="generic-auto",
+        root=tmp_path,
+        machine="studio",
+        partial=True,
+        now=FIXED_NOW,
+    )
+    finalize_session(
+        auto_active,
+        root=tmp_path,
+        summary_text="# Summary\n\nAutomatic claude capture finalized.\n\nLifecycle metadata only.",
+    )
+    curated_active = init_session(
+        agent="codex",
+        slug="curated-mention",
+        root=tmp_path,
+        machine="studio",
+        partial=True,
+        now=FIXED_NOW + timedelta(minutes=1),
+    )
+    curated = finalize_session(
+        curated_active,
+        root=tmp_path,
+        summary_text=(
+            "# Summary\n\n"
+            "Investigated why the phrase automatic claude capture finalized appears in generic summaries."
+        ),
+    )
+
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+
+    assert [item.jsonl_path for item in reflection.items] == [curated.jsonl_path]
+    assert "Investigated why the phrase" in reflection.items[0].summary
+
+
+def test_format_session_reflection_renders_unknown_categories_after_canonical_order(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="unknown-category",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+    listing = list_finalized_sessions(root=tmp_path)[0]
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+    reflection = type(reflection)(
+        root=reflection.root,
+        session_count=reflection.session_count,
+        sessions_with_markdown=reflection.sessions_with_markdown,
+        agent_counts=reflection.agent_counts,
+        capture_counts=reflection.capture_counts,
+        event_type_counts=reflection.event_type_counts,
+        summary_event_count=reflection.summary_event_count,
+        low_signal_session_count=reflection.low_signal_session_count,
+        items=[
+            *reflection.items,
+            SessionReflectionItem(
+                category="zz-extra-category",
+                listing=listing,
+                summary="Extra category should render in Markdown.",
+            ),
+        ],
+    )
+
+    formatted = format_session_reflection(reflection)
+
+    assert record.jsonl_path == listing.jsonl_path
+    assert "## Session Summaries" in formatted
+    assert "## Zz Extra Category" in formatted
+    assert formatted.index("## Session Summaries") < formatted.index("## Zz Extra Category")
+    assert "Extra category should render in Markdown." in formatted
 
 
 def test_inspect_finalized_session_by_absolute_path_reads_metadata_counts_and_summary(tmp_path):

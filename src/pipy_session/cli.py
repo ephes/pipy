@@ -20,11 +20,13 @@ from pipy_session.auto_capture import (
 )
 from pipy_session.catalog import (
     format_archive_verification,
+    format_session_reflection,
     format_session_inspection,
     format_session_search_results,
     format_session_table,
     inspect_finalized_session,
     list_finalized_sessions,
+    reflect_on_finalized_sessions,
     search_finalized_sessions,
     verify_session_archive,
 )
@@ -100,6 +102,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit JSON instead of a tab-separated report.",
+    )
+
+    reflect_parser = subparsers.add_parser("reflect", help="Summarize learnings from finalized records.")
+    reflect_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of a Markdown report.",
     )
 
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
@@ -219,11 +228,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "search":
-            results = search_finalized_sessions(args.query, root=args.root)
+            search_results = search_finalized_sessions(args.query, root=args.root)
             if args.json:
-                print(json.dumps([result.to_dict() for result in results], sort_keys=True))
+                print(json.dumps([result.to_dict() for result in search_results], sort_keys=True))
             else:
-                print(format_session_search_results(results))
+                print(format_session_search_results(search_results))
             return 0
 
         if args.command == "inspect":
@@ -240,6 +249,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(verification.to_dict(), sort_keys=True))
             else:
                 print(format_archive_verification(verification))
+            return 0
+
+        if args.command == "reflect":
+            reflection = reflect_on_finalized_sessions(root=args.root)
+            if args.json:
+                print(json.dumps(reflection.to_dict(), sort_keys=True))
+            else:
+                print(format_session_reflection(reflection))
             return 0
 
         if args.command == "auto":
@@ -288,11 +305,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.auto_command == "prune":
-                results = prune_auto_capture_state(root=args.root, dry_run=args.dry_run)
+                prune_results = prune_auto_capture_state(root=args.root, dry_run=args.dry_run)
                 action = "would-remove" if args.dry_run else "removed"
-                for result in results:
-                    print(f"{action}\t{result.path}\t{result.reason}")
-                print(f"summary\t{action}\t{len(results)}")
+                for prune_result in prune_results:
+                    print(f"{action}\t{prune_result.path}\t{prune_result.reason}")
+                print(f"summary\t{action}\t{len(prune_results)}")
                 return 0
 
             if args.auto_command == "reference-pi":
@@ -310,9 +327,9 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.auto_command == "hook" and args.platform == "claude":
                 payload = read_hook_json(sys.stdin.read())
-                result = handle_claude_hook(payload, root=args.root, machine=args.machine)
-                if result.message:
-                    print(f"pipy-session: {result.message}", file=sys.stderr)
+                hook_result = handle_claude_hook(payload, root=args.root, machine=args.machine)
+                if hook_result.message:
+                    print(f"pipy-session: {hook_result.message}", file=sys.stderr)
                 return 0
 
         if args.command == "wrap":

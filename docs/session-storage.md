@@ -243,6 +243,40 @@ because they are intentional human-review artifacts. Human metadata and event
 type labels collapse control whitespace so malformed archive values cannot forge
 extra physical output lines; JSON output preserves structured values.
 
+Reflect on finalized records without indexing or mutating them:
+
+```sh
+uv run pipy-session reflect
+uv run pipy-session reflect --json
+```
+
+`reflect` builds a summary-safe learning report over finalized archive records.
+It uses the same finalized-record discovery rules as `list`, skips malformed or
+unreadable records quietly, and does not read active records, automatic state
+files, `*.partial` staging files, or arbitrary files outside the archive.
+
+The report includes:
+
+- record counts by agent and capture marker
+- total Markdown-summary coverage
+- event type counts
+- count of low-signal partial captures that contain only lifecycle or hook
+  metadata
+- curated learning items from event `summary` strings for event types such as
+  `decision.recorded`, `lesson.learned`, `recommendation.recorded`,
+  `review.findings`, `implementation.completed`, `file.changed`,
+  `verification.performed`, and `research.performed`
+- short Markdown summary snippets when they are not generic automatic-capture
+  summaries
+
+Human output is Markdown intended for review. JSON output is a structured report
+with the same fields. Neither output includes raw JSONL event bodies, payload
+values, prompt text, tool output, transcript bodies, raw invalid bytes, or raw
+exception messages. The command does not repair, delete, move, rewrite, index,
+import, cache, sync, or promote session records. Use the report as an input to
+explicit promotion work: ADRs, curated lessons, prompts, hooks, skills, or
+documentation changes that intentionally belong in git.
+
 Verify finalized archive health without modifying records:
 
 ```sh

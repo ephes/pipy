@@ -212,6 +212,119 @@ class SessionArchiveVerification:
         }
 
 
+@dataclass(frozen=True)
+class SessionReflectionItem:
+    """One summary-safe event or Markdown signal for archive reflection."""
+
+    category: str
+    listing: FinalizedSessionListing
+    summary: str
+    event_type: str | None = None
+    line: int | None = None
+
+    @property
+    def started(self) -> str:
+        return self.listing.started
+
+    @property
+    def agent(self) -> str:
+        return self.listing.agent
+
+    @property
+    def slug(self) -> str:
+        return self.listing.slug
+
+    @property
+    def jsonl_path(self) -> Path:
+        return self.listing.jsonl_path
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "started": self.listing.started,
+            "machine": self.listing.machine,
+            "agent": self.listing.agent,
+            "slug": self.listing.slug,
+            "capture": self.listing.capture,
+            "event_type": self.event_type,
+            "line": self.line,
+            "summary": self.summary,
+            "jsonl_path": str(self.listing.jsonl_path),
+        }
+
+
+@dataclass(frozen=True)
+class SessionReflection:
+    """Summary-safe learning report over finalized session records."""
+
+    root: Path
+    session_count: int
+    sessions_with_markdown: int
+    agent_counts: dict[str, int]
+    capture_counts: dict[str, int]
+    event_type_counts: dict[str, int]
+    summary_event_count: int
+    low_signal_session_count: int
+    items: list[SessionReflectionItem]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root": str(self.root),
+            "session_count": self.session_count,
+            "sessions_with_markdown": self.sessions_with_markdown,
+            "agent_counts": dict(self.agent_counts),
+            "capture_counts": dict(self.capture_counts),
+            "event_type_counts": dict(self.event_type_counts),
+            "summary_event_count": self.summary_event_count,
+            "low_signal_session_count": self.low_signal_session_count,
+            "items": [item.to_dict() for item in self.items],
+        }
+
+
+REFLECTION_EVENT_CATEGORIES = {
+    "decision.recorded": "decisions",
+    "lesson.learned": "lessons",
+    "recommendation.recorded": "recommendations",
+    "review.findings": "review-findings",
+    "review.assessed": "review-findings",
+    "review.performed": "review-findings",
+    "review.followup.completed": "review-followups",
+    "implementation.completed": "implementation",
+    "file.changed": "implementation",
+    "commit.created": "implementation",
+    "git.push": "implementation",
+    "verification.performed": "verification",
+    "research.performed": "research",
+}
+
+REFLECTION_CATEGORY_ORDER = (
+    "decisions",
+    "lessons",
+    "recommendations",
+    "review-findings",
+    "review-followups",
+    "research",
+    "implementation",
+    "verification",
+    "session-summaries",
+)
+
+LOW_SIGNAL_EVENT_TYPES = {
+    "auto_capture.ended",
+    "auto_capture.started",
+    "capture.limitations",
+    "session.started",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _ReflectionJsonlSignals:
+    event_type_counts: Counter[str]
+    items: list[SessionReflectionItem]
+    summary_event_count: int
+    record_event_types: set[str]
+
+
 def list_finalized_sessions(root: str | Path | None = None) -> list[FinalizedSessionListing]:
     """Return finalized session records sorted newest first."""
 
@@ -254,6 +367,68 @@ def search_finalized_sessions(
     return results
 
 
+def reflect_on_finalized_sessions(root: str | Path | None = None) -> SessionReflection:
+    """Build a read-only learning report from summary-safe archive fields."""
+
+    root_path = resolve_session_root(root)
+    records = list_finalized_sessions(root=root_path)
+    agent_counts: Counter[str] = Counter()
+    capture_counts: Counter[str] = Counter()
+    event_type_counts: Counter[str] = Counter()
+    items: list[SessionReflectionItem] = []
+    summary_event_count = 0
+    low_signal_session_count = 0
+
+    for listing in records:
+        agent_counts[listing.agent] += 1
+        capture_counts[listing.capture] += 1
+
+        had_reflection_signal = False
+        record_event_types: set[str] = set()
+        jsonl_signals = _read_reflection_jsonl_signals(listing)
+        if jsonl_signals is not None:
+            event_type_counts.update(jsonl_signals.event_type_counts)
+            items.extend(jsonl_signals.items)
+            summary_event_count += jsonl_signals.summary_event_count
+            record_event_types = jsonl_signals.record_event_types
+            had_reflection_signal = bool(jsonl_signals.items)
+
+        if listing.markdown_path is not None:
+            markdown_summary = _markdown_summary_snippet(listing.markdown_path)
+            if markdown_summary:
+                if not _is_generic_auto_summary(markdown_summary):
+                    had_reflection_signal = True
+                    items.append(
+                        SessionReflectionItem(
+                            category="session-summaries",
+                            listing=listing,
+                            summary=markdown_summary,
+                        )
+                    )
+
+        if (
+            listing.partial
+            and record_event_types
+            and record_event_types.issubset(
+                LOW_SIGNAL_EVENT_TYPES | {"claude.userpromptsubmit", "claude.posttooluse"}
+            )
+            and not had_reflection_signal
+        ):
+            low_signal_session_count += 1
+
+    return SessionReflection(
+        root=root_path,
+        session_count=len(records),
+        sessions_with_markdown=sum(1 for record in records if record.has_summary),
+        agent_counts=dict(sorted(agent_counts.items())),
+        capture_counts=dict(sorted(capture_counts.items())),
+        event_type_counts=dict(sorted(event_type_counts.items())),
+        summary_event_count=summary_event_count,
+        low_signal_session_count=low_signal_session_count,
+        items=items,
+    )
+
+
 def format_session_table(records: list[FinalizedSessionListing]) -> str:
     """Format finalized session records as a compact tab-separated table."""
 
@@ -273,6 +448,70 @@ def format_session_table(records: list[FinalizedSessionListing]) -> str:
                 ]
             )
         )
+    return "\n".join(lines)
+
+
+def format_session_reflection(reflection: SessionReflection) -> str:
+    """Format a summary-safe archive reflection as Markdown."""
+
+    lines = [
+        "# Session Reflection",
+        "",
+        f"- root: {_table_cell(str(reflection.root))}",
+        f"- sessions: {reflection.session_count}",
+        f"- sessions_with_markdown: {reflection.sessions_with_markdown}",
+        f"- low_signal_partial_sessions: {reflection.low_signal_session_count}",
+        f"- summary_events: {reflection.summary_event_count}",
+        f"- captures: {_format_counts(reflection.capture_counts)}",
+        f"- agents: {_format_counts(reflection.agent_counts)}",
+        "",
+        "## Event Types",
+        "",
+    ]
+
+    if reflection.event_type_counts:
+        for event_type, count in sorted(
+            reflection.event_type_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        ):
+            lines.append(f"- {_table_cell(event_type)}: {count}")
+    else:
+        lines.append("- none")
+
+    grouped: dict[str, list[SessionReflectionItem]] = {}
+    for item in reflection.items:
+        grouped.setdefault(item.category, []).append(item)
+
+    categories = list(REFLECTION_CATEGORY_ORDER)
+    ordered_categories = set(categories)
+    categories.extend(sorted(category for category in grouped if category not in ordered_categories))
+    for category in categories:
+        category_items = grouped.get(category, [])
+        lines.extend(["", f"## {_section_title(category)}", ""])
+        if not category_items:
+            lines.append("- none")
+            continue
+
+        for item in category_items:
+            event_label = f" {item.event_type}" if item.event_type else ""
+            line_label = f":{item.line}" if item.line is not None else ""
+            lines.append(
+                "- "
+                f"[{_table_cell(item.started)} {_table_cell(item.agent)} "
+                f"{_table_cell(item.slug)}{event_label}{line_label}] "
+                f"{_table_cell(item.summary)}"
+            )
+
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            "- Uses finalized session metadata, event types, event summaries, and Markdown summary snippets only.",
+            "- Does not print raw JSONL event bodies, payload values, or transcript bodies.",
+            "- Skips malformed or unreadable finalized records; run `pipy-session verify` for archive health.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -600,6 +839,49 @@ def _search_finalized_listing(
     return matches
 
 
+def _read_reflection_jsonl_signals(listing: FinalizedSessionListing) -> _ReflectionJsonlSignals | None:
+    event_type_counts: Counter[str] = Counter()
+    items: list[SessionReflectionItem] = []
+    summary_event_count = 0
+    record_event_types: set[str] = set()
+
+    try:
+        with listing.jsonl_path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    return None
+
+                event_type_value = event.get("type")
+                event_type = str(event_type_value) if event_type_value else "unknown"
+                event_type_counts[event_type] += 1
+                record_event_types.add(event_type)
+
+                summary = event.get("summary")
+                if isinstance(summary, str):
+                    summary_event_count += 1
+                    category = REFLECTION_EVENT_CATEGORIES.get(event_type)
+                    if category is not None:
+                        items.append(
+                            SessionReflectionItem(
+                                category=category,
+                                listing=listing,
+                                event_type=event_type,
+                                line=line_number,
+                                summary=_snippet(summary, "", width=240),
+                            )
+                        )
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+
+    return _ReflectionJsonlSignals(
+        event_type_counts=event_type_counts,
+        items=items,
+        summary_event_count=summary_event_count,
+        record_event_types=record_event_types,
+    )
+
+
 def _matches_query(value: str, normalized_query: str) -> bool:
     return normalized_query in value.casefold()
 
@@ -613,14 +895,21 @@ def _snippet(value: str, normalized_query: str, *, width: int = 160) -> str:
     if index < 0:
         index = 0
 
-    start = max(0, index - 60)
-    end = min(len(value), index + len(normalized_query) + 60)
+    if normalized_query:
+        start = max(0, index - 60)
+        end = min(len(value), index + len(normalized_query) + 60)
+    else:
+        start = 0
+        end = min(len(value), width)
+
     snippet = " ".join(value[start:end].split())
     if start > 0:
         snippet = f"...{snippet}"
     if end < len(value):
         snippet = f"{snippet}..."
-    return snippet[:width]
+    if len(snippet) <= width:
+        return snippet
+    return f"{snippet[: max(0, width - 3)].rstrip()}..."
 
 
 def _line_number_for_match(value: str, normalized_query: str) -> int | None:
@@ -655,6 +944,35 @@ def _search_match_label(match: FinalizedSessionSearchMatch) -> str:
 
 def _table_cell(value: str) -> str:
     return " ".join(value.split())
+
+
+def _format_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "none"
+    return ", ".join(f"{_table_cell(key)}={value}" for key, value in counts.items())
+
+
+def _section_title(category: str) -> str:
+    return " ".join(part.capitalize() for part in category.split("-"))
+
+
+def _markdown_summary_snippet(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+
+    return _snippet(text, "", width=240)
+
+
+def _is_generic_auto_summary(summary: str) -> bool:
+    normalized = _table_cell(summary).casefold()
+    if normalized.startswith("# summary "):
+        normalized = normalized.removeprefix("# summary ").lstrip()
+    return (
+        normalized.startswith("automatic codex capture finalized")
+        or normalized.startswith("automatic claude capture finalized")
+    )
 
 
 def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int, dict[str, int]]:
