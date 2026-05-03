@@ -20,3 +20,12 @@ This file is for coding agents working in this repository. It records local proj
 - If a platform does not expose a complete raw transcript, store the best available reconstruction and explicitly mark it as partial.
 - Session records should explain the goal, important decisions, commands or tools used, files changed, verification performed, and follow-up ideas.
 - Commit only durable session policy, schemas, curated lessons, ADRs, prompts, hooks, or skills that are intentionally promoted from raw session data.
+
+## Workflow Learning Capture
+- When a session involves implementation, review, subagents, model comparison, or a meaningful workflow decision, record summary-safe workflow events before finalizing the session.
+- Use `pipy-session workflow role` for implementer/reviewer/planner roles and model identifiers when known.
+- Use `pipy-session workflow subagent` when delegated explorer/worker/subagent work materially affects the result.
+- Use `pipy-session workflow review-outcome` after review cycles to capture finding counts by severity and closure counts: accepted, fixed, rejected, and deferred.
+- Use `pipy-session workflow evaluation` when there is a useful judgment about whether to keep, switch, or compare a workflow pattern.
+- Do not put prompts, transcript bodies, tool output, secrets, credentials, or sensitive personal data in workflow fields.
+- Prefer summary-safe learning events over relying on memory when evaluating patterns such as Codex implementation plus Claude review.
