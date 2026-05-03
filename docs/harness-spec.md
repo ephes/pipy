@@ -1,0 +1,860 @@
+# Coding-Agent Harness Spec
+
+Status: accepted for slice-1 implementation
+
+<style>
+.mermaid,
+.mermaid svg {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+</style>
+
+## Goal
+
+Build pipy's own coding-agent harness deliberately, starting with a small
+local-first runner that can launch a coding agent, observe a conservative run
+lifecycle, and write a durable pipy session record.
+
+The first harness slice is not another session-capture feature by itself. It is
+the foundation for pipy's own agent surface:
+
+- a `pipy` CLI for running coding-agent tasks
+- a harness core that owns run lifecycle and status
+- adapter boundaries for current external agents
+- a future native pipy agent runtime behind the same interface
+- integration with `pipy-session` for durable, privacy-conscious records
+
+The existing `pipy-session` package remains the recorder and archive layer. The
+harness should call it instead of creating a parallel transcript format.
+
+## Non-Goals
+
+- Do not build a broad transcript database.
+- Do not import raw native transcripts by default.
+- Do not store prompts, assistant messages, tool payloads, stdout, stderr,
+  secrets, tokens, credentials, private keys, or sensitive personal data by
+  default.
+- Do not replace Codex, Claude Code, Pi, Aider, Goose, or Continue in the first
+  slice.
+- Do not implement a native model/tool loop in the first slice.
+- Do not add multi-agent orchestration, branching, compaction, repo maps,
+  indexing, long-running daemons, or a web UI yet.
+- Do not change the finalized session archive layout documented in
+  `docs/session-storage.md`.
+- Do not add a docs server unless the docs set grows enough to need navigation,
+  search, preview, or publishing.
+
+## Design Principles
+
+- Local first. Runs execute from a local workspace and local state remains under
+  user control.
+- Small core, explicit adapters. The harness owns lifecycle; adapters own how a
+  native agent is invoked and observed.
+- Conservative capture. Store metadata and summaries that help future work, not
+  raw conversations or command output.
+- Native stores stay native. When an agent already keeps its own transcript,
+  pipy may reference that native record without copying its contents.
+- One lifecycle vocabulary. Codex, Claude, Pi, and future pipy-native runs should
+  normalize into the same small event vocabulary where possible.
+- Testable first slice. The initial implementation should be runnable with fake
+  subprocess adapters and temporary session roots.
+- Standard library first. New dependencies need a clear near-term payoff.
+
+## Research Notes
+
+### Pipy Foundation
+
+The existing session recorder already establishes the storage invariants the
+harness should reuse:
+
+- active records live under `.in-progress/pipy/`
+- finalized records move into `pipy/YYYY/MM/`
+- JSONL is append-only while active
+- finalized files are immutable
+- Markdown summaries are intentional human-review artifacts
+- catalog/search/inspect/verify avoid printing raw event bodies and payloads
+- automatic capture is adapter-specific and partial by default
+
+The harness should treat `pipy_session.recorder` as its durable event sink, and
+`pipy_session.catalog` as the archive inspection surface.
+
+### Flue Lessons
+
+Local repo: `/Users/jochen/src/flue`
+
+Useful ideas:
+
+- Separate command modes. `flue run` is one-shot, `flue dev` is long-running,
+  and `flue build` creates artifacts. Pipy should start with one-shot `pipy run`
+  before designing watch mode, servers, or deployable artifacts.
+- Keep a small event stream. Flue normalizes agent activity into events such as
+  agent start, text deltas, tool start/end, turn end, command start/end,
+  task start/end, compaction start/end, idle, and error. Pipy should define a
+  smaller privacy-safe subset first.
+- Keep pipeline behavior predictable. Flue prints the final result to stdout and
+  sends progress, events, and logs to stderr. Pipy should follow the same CLI
+  convention for harness output so `pipy run` composes in shell pipelines.
+- Keep harness/session logic below UI and transport layers. Flue's CLI consumes
+  events, but core session behavior is not embedded in the CLI.
+- Discover runtime context from workspace files such as `AGENTS.md`, `CLAUDE.md`,
+  skills, and directory listings, but avoid baking all context into build
+  artifacts. Pipy can defer context discovery because external agents already do
+  their own instruction loading.
+
+Things not to borrow yet:
+
+- Build and deploy targets.
+- Server generation.
+- Runtime tool APIs.
+- Subagent execution.
+- Compaction.
+
+### Pi Lessons
+
+Local repo: `/Users/jochen/src/pi-mono`
+
+Useful ideas:
+
+- Pi separates the small `Agent` event vocabulary from `AgentSession`, which
+  composes lifecycle, persistence, settings, retry, compaction, and UI/RPC/print
+  modes. This maps directly onto pipy's adapter/runner split: adapters observe
+  and normalize events, while the runner owns lifecycle and persistence.
+- `AgentSession` is the durable center. Interactive, print, RPC, and SDK modes
+  sit on top of one lifecycle/session abstraction. Pipy should likewise keep
+  `pipy run` thin and put lifecycle in a harness core.
+- Pi supports in-memory sessions through `SessionManager.inMemory()` and
+  `--no-session`. Pipy should use an in-memory recorder fake for unit tests and
+  reserve real temporary session roots for integration tests.
+- Pi uses JSONL session files with structured entries and a tree model. The tree
+  model is powerful, but too broad for pipy's first harness slice.
+- Pi separates a UUID session id from any human-facing display name. Pipy should
+  likewise make `run_id` the stable identity and keep `slug` as a display and
+  filename component.
+- Pi's print mode and RPC mode show two useful future directions: a one-shot
+  final-output path and a JSONL protocol for process integration.
+- Pi distinguishes native session data, user-facing UI, extension state, and LLM
+  context. Pipy should maintain a similar distinction between native agent
+  transcript stores and pipy's conservative run records.
+- Pi's session migrations are a warning for pipy because finalized pipy files
+  are immutable. Pipy should version harness records from the first slice instead
+  of planning in-place archive rewrites later.
+- Pipy's lifecycle should complete recorder append/finalize work before the
+  runner returns the native process exit code.
+
+Things not to borrow yet:
+
+- Session branching and `/tree`.
+- In-place transcript migration.
+- Extension UI and RPC protocol.
+- Prompt template/skill expansion.
+- Native model registry and OAuth handling.
+
+### Web Research
+
+Relevant external patterns:
+
+- Codex CLI is a local coding agent that can read, edit, and run code in the
+  selected directory. It has non-interactive `codex exec` and JSONL output where
+  stdout becomes a stream of events such as `thread.started`, `turn.started`,
+  `turn.completed`, `turn.failed`, `item.*`, and `error`.
+  Sources: <https://developers.openai.com/codex/cli>,
+  <https://developers.openai.com/codex/noninteractive>.
+- Codex hooks receive JSON hook payloads with shared fields such as
+  `session_id`, `transcript_path`, `cwd`, `hook_event_name`, and `model`.
+  Source: <https://developers.openai.com/codex/hooks>.
+- Claude Code hooks also provide lifecycle, prompt, tool, compaction, subagent,
+  and session-end events with `transcript_path` and `session_id`. Hook stdout can
+  affect context for some events, so pipy hook adapters must avoid accidental
+  context injection unless explicitly designed.
+  Source: <https://docs.claude.com/en/docs/claude-code/hooks>.
+- OpenHands uses an append-only typed event log with message, action,
+  observation, state update, error, and condensation events. Its
+  action/observation split is useful prior art for later pipy event vocabulary,
+  but slice 1 should stay at lifecycle metadata.
+  Source: <https://docs.openhands.dev/sdk/arch/events>.
+- Inspect AI writes structured eval logs with top-level metadata, samples,
+  events, summaries, and APIs for reading headers or samples incrementally. Its
+  log shape is useful prior art for keeping records stable enough for later UI,
+  search, and analysis.
+  Source: <https://inspect.aisi.org.uk/eval-logs.html>.
+- OpenTelemetry GenAI semantic conventions define names such as
+  `gen_ai.operation.name`, `gen_ai.agent.name`, and conversation identifiers.
+  Pipy can keep its own event names while documenting a small mapping later.
+  Source: <https://opentelemetry.io/docs/specs/semconv/gen-ai/>.
+- Anthropic's Claude Agent SDK exposes a supported headless Python surface with
+  `query()` as an async iterator and options such as `cwd`, `allowed_tools`, and
+  `permission_mode`. A future Claude adapter should target a supported SDK shape
+  before scraping hook output.
+  Source: <https://github.com/anthropics/claude-agent-sdk-python>.
+- pydantic-ai exposes `Agent.run`, `run_stream`, `iter`, and `RunContext`-based
+  dependency injection. It is useful prior art for a future native pipy agent
+  runtime behind the same harness port.
+  Source: <https://ai.pydantic.dev/api/agent/>.
+- Goose's `goose run` starts a session, executes provided instructions, exits,
+  and supports `json` and `stream-json` output for automation. Goose also has an
+  explicit `--no-session` mode and currently stores sessions in SQLite.
+  Sources: <https://goose-docs.ai/docs/guides/running-tasks/>,
+  <https://goose-docs.ai/docs/guides/sessions/session-management/>.
+- Aider supports `--message` / `--message-file` for one-shot scripting and has a
+  repository map concept that gives broad code context. The one-shot CLI shape is
+  useful; repo maps should be deferred.
+  Sources: <https://aider.chat/docs/scripting.html>,
+  <https://aider.chat/docs/repomap.html>.
+- Continue CLI headless mode uses `cn -p` for single tasks and requires explicit
+  write/tool permissions in headless mode. Pipy should likewise make permission
+  posture explicit instead of guessing.
+  Source: <https://docs.continue.dev/cli/headless-mode>.
+- LangGraph, smolagents, AutoGen, and CrewAI provide vocabulary for checkpoints,
+  step callbacks, teams, and task processes, but they are too framework-heavy for
+  pipy's first local harness slice.
+  Sources: <https://docs.langchain.com/oss/python/langgraph/persistence>,
+  <https://huggingface.co/docs/smolagents/reference/agents>,
+  <https://microsoft.github.io/autogen/stable/reference/python/autogen_agentchat.teams.html>,
+  <https://docs.crewai.com/en/concepts/crews>.
+- Zensical can turn Markdown into a documentation site, serve previews, and use
+  Mermaid through Markdown extensions, but this project does not need a docs
+  server for one spec file.
+  Sources: <https://zensical.org/docs/create-your-site/>,
+  <https://zensical.org/docs/setup/extensions/>.
+
+## Core Concepts
+
+### Task
+
+A user-requested unit of work. In the first slice, a task is just metadata plus
+the external command being run. Later it may include structured prompts,
+permissions, workspace policy, expected outputs, or evaluation criteria.
+
+`slug` is a human-facing label and filename component. It is not the stable
+identity of a run.
+
+Suggested fields:
+
+- `slug`
+- `goal` or short description
+- `workspace`
+- `agent`
+- `created_at`
+
+### Agent
+
+The logical agent selected for the task, such as `codex`, `claude`, `pi`, or
+future `pipy-native`.
+
+An agent is not the same as an adapter. The agent is the product-facing choice;
+the adapter is the implementation that knows how to run it.
+
+### Agent Port
+
+The protocol the Runner calls to execute an agent. The port is stable harness
+surface; adapters are concrete implementations behind it.
+
+Suggested methods:
+
+- `prepare(task, command, cwd) -> PreparedRun`
+- `run(prepared, event_sink) -> AdapterResult`
+
+### Adapter
+
+The concrete implementation behind the harness agent port, such as a
+subprocess-backed adapter, Codex adapter, Claude adapter, or future pipy-native
+runtime adapter.
+
+Responsibilities:
+
+- validate that the native command can be run
+- construct the process invocation or hook behavior
+- normalize observable lifecycle events into harness events
+- optionally report a native session reference
+- return exit status and timing
+
+Non-responsibilities:
+
+- storing pipy records directly
+- importing raw transcripts by default
+- deciding long-term product policy
+
+Adapters report events; the Runner records them. No adapter may mutate a pipy
+session record directly.
+
+### Run
+
+One execution of a task through one adapter.
+
+`run_id` is the stable identity of the execution and should be generated by the
+Runner before recording starts. `slug` remains a display label and filename
+component. Multiple runs may share the same slug.
+
+Aggregate boundary: one Run equals one durable pipy record file and one recorder
+unit of work. Only the owning Runner mutates that record.
+
+Suggested fields:
+
+- `run_id`
+- `task`
+- `agent`
+- `adapter`
+- `workspace`
+- `status`
+- `started_at`
+- `ended_at`
+- `exit_code`
+- `session_record`
+
+`session_record` should be a small structured reference to the pipy-side record,
+not the raw record body. Suggested fields: active path while running, finalized
+JSONL path after finalize, optional Markdown summary path, and capture marker.
+
+### Run Event
+
+A privacy-safe event emitted by the harness or adapter. Run events are not raw
+native transcript events. They should be stable enough to support later UI,
+search, and analysis.
+
+Every harness event should carry:
+
+- `event_id`: stable unique identifier within the run record
+- `run_id`: stable run identity
+- `sequence`: monotonically increasing integer assigned by the Runner
+- `timestamp`: ISO-8601 timestamp
+
+The first recorded event should also include `harness_protocol_version`. Start
+versioning records in the first slice so finalized JSONL files do not need
+in-place migration later.
+
+Initial event vocabulary:
+
+- `harness.run.started`
+- `harness.run.completed`
+- `harness.run.failed`
+- `agent.process.started`
+- `agent.process.exited`
+- `agent.native_session.referenced`
+- `workspace.files.changed`
+- `verification.performed`
+- `session.finalized`
+
+`session.finalized` is a harness lifecycle event. It is appended by the Runner
+just before the recorder unit of work is closed and moved into the finalized
+archive.
+
+Potential later events:
+
+- `agent.turn.started`
+- `agent.turn.completed`
+- `agent.tool.observed`
+- `agent.approval.requested`
+- `agent.approval.resolved`
+- `agent.idle`
+- `artifact.created`
+
+### Artifact
+
+A durable output from the run. In the first slice this should mean only safe,
+explicit artifacts such as a generated file path or final summary path. It
+should not mean raw stdout/stderr, prompts, assistant messages, tool payloads,
+or diffs.
+
+### Native Session Reference
+
+A metadata-only reference to an external agent's own session record.
+
+Allowed by default:
+
+- source filename
+- source file size
+- source mtime
+- hash of resolved absolute path
+- whether raw content was imported: always `false` by default
+
+Disallowed by default:
+
+- absolute source path
+- raw native transcript body
+- prompt text
+- assistant text
+- tool args/results
+
+### Pipy Session Record
+
+The durable pipy-side run record stored through `pipy-session`. It is a summary
+and event trail for future review, not a complete transcript.
+
+## Architecture
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#eef2ff', 'secondaryColor': '#ecfdf5', 'tertiaryColor': '#fff7ed', 'primaryTextColor': '#111111', 'secondaryTextColor': '#111111', 'tertiaryTextColor': '#111111', 'textColor': '#111111', 'lineColor': '#334155', 'primaryBorderColor': '#1d4ed8', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'htmlLabels': true}}}%%
+flowchart LR
+  User["<span style='color:#111111'>User</span>"] --> CLI["<span style='color:#111111'>pipy CLI</span>"]
+  CLI --> Runner["<span style='color:#111111'>Harness Runner</span>"]
+  Runner --> Adapter["<span style='color:#111111'>Adapter behind Agent<br/>Port</span>"]
+  Adapter --> Native["<span style='color:#111111'>Native Agent CLI or<br/>Runtime</span>"]
+  Adapter --> Ref["<span style='color:#111111'>Native Session<br/>Reference</span>"]
+  Runner --> Recorder["<span style='color:#111111'>pipy-session Recorder</span>"]
+  Recorder --> Archive["<span style='color:#111111'>JSONL + Markdown<br/>Archive</span>"]
+  Runner --> Terminal["<span style='color:#111111'>Terminal stdout/stderr</span>"]
+  Native --> Terminal
+
+  classDef actor fill:#f8fafc,stroke:#334155,color:#111111,stroke-width:1.5px;
+  classDef core fill:#eef2ff,stroke:#1d4ed8,color:#111111,stroke-width:1.5px;
+  classDef store fill:#ecfdf5,stroke:#047857,color:#111111,stroke-width:1.5px;
+  classDef terminal fill:#fff7ed,stroke:#c2410c,color:#111111,stroke-width:1.5px;
+  class User,CLI,Native actor;
+  class Runner,Adapter core;
+  class Ref,Recorder,Archive store;
+  class Terminal terminal;
+```
+
+Important boundaries:
+
+- CLI parses user intent and passes it to the harness core.
+- Harness core owns run lifecycle and recorder integration.
+- Agent port defines the protocol the Runner calls.
+- Concrete adapters own native agent invocation details.
+- Recorder owns active/finalized session file lifecycle.
+- Native transcript stores remain outside pipy's archive unless explicitly
+  referenced.
+
+Wiring should use explicit constructor injection:
+
+```text
+Runner(agent_port, recorder, capture_policy, clock=..., id_factory=...)
+bootstrap(agent_name, root) -> Runner
+```
+
+No dependency injection framework or global adapter registry is needed in the
+first slice. A small bootstrap selector is enough.
+
+### Capture Policy
+
+Capture policy should be a value object passed to the Runner rather than a set
+of scattered flags.
+
+Suggested fields:
+
+- `record_argv`: default `false`
+- `record_stdout`: default `false`
+- `record_stderr`: default `false`
+- `record_file_paths`: default `false`, set by `--record-files`
+- `import_raw_transcript`: default `false`
+- `workspace_path_mode`: `basename_and_hash` by default
+
+### Recorder Unit of Work
+
+Treat the recorder integration as a unit of work:
+
+```text
+with recorder.session(run) as session:
+    session.append(...)
+```
+
+The concrete API may differ, but the semantics should be the same: initialize an
+active record, append lifecycle events while the run is active, and finalize the
+record exactly once on success, failure, abort, or adapter exception. Finalize
+failure should be explicit rather than silently returning a successful run.
+
+## Adapter Boundary
+
+This section describes the concrete data exchanged through the `AgentPort`
+methods defined above.
+
+`PreparedRun` should include:
+
+- display-safe command label
+- executable name
+- resolved working directory
+- redacted or omitted argv metadata
+
+`AdapterResult` should include:
+
+- status
+- exit code
+- start/end timestamps or duration
+- optional native session reference
+- safe changed-file paths if collected
+
+The event sink is Runner-owned. It may assign `event_id` and `sequence` before
+appending to the recorder. A concrete adapter should not expose full command
+output to the recorder. It may stream the native process to the user's terminal.
+
+Concrete adapter examples:
+
+- `SubprocessAdapter`
+- `CodexAdapter`
+- `ClaudeAdapter`
+- `PipyNativeAdapter`
+
+## Run Lifecycle
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#eef2ff', 'secondaryColor': '#ecfdf5', 'tertiaryColor': '#fff7ed', 'primaryTextColor': '#111111', 'secondaryTextColor': '#111111', 'tertiaryTextColor': '#111111', 'textColor': '#111111', 'lineColor': '#334155', 'primaryBorderColor': '#1d4ed8', 'edgeLabelBackground': '#ffffff', 'actorBkg': '#f8fafc', 'actorBorder': '#334155', 'actorTextColor': '#111111', 'actorLineColor': '#334155', 'signalColor': '#334155', 'signalTextColor': '#111111', 'labelBoxBkgColor': '#ffffff', 'labelTextColor': '#111111', 'activationBkgColor': '#eef2ff', 'activationBorderColor': '#1d4ed8'}}}%%
+sequenceDiagram
+  participant CLI as pipy CLI
+  participant Runner as Harness Runner
+  participant Adapter as Adapter behind Agent Port
+  participant Native as Native Agent
+  participant Recorder as pipy-session
+  participant Archive as Archive
+  participant Terminal as Terminal
+
+  CLI->>Runner: run task
+  Runner->>Recorder: init partial session
+  Runner->>Recorder: append harness.run.started
+  Runner->>Adapter: prepare
+  Adapter-->>Runner: prepared run
+  Runner->>Adapter: run(prepared, event_sink)
+  Adapter->>Native: spawn process
+  Adapter-->>Runner: report agent.process.started
+  Runner->>Recorder: append agent.process.started
+  Native-->>Terminal: stream stdout/stderr
+  Native-->>Adapter: exit
+  Adapter-->>Runner: report agent.process.exited
+  Runner->>Recorder: append agent.process.exited
+  Adapter-->>Runner: result
+  Runner->>Recorder: append summary events
+  Runner->>Recorder: append session.finalized
+  Runner->>Recorder: finalize with Markdown summary
+  Recorder->>Archive: move JSONL + Markdown
+  Runner-->>CLI: exit with native status
+```
+
+The Runner should serialize recorder writes through a single async queue or
+write lock. Child stdout/stderr streams and adapter lifecycle callbacks may
+arrive concurrently; recorder event order must come from Runner-assigned
+`sequence`, not thread scheduling.
+
+`session.finalized` is the final JSONL event appended while the record is still
+active. The recorder then closes the unit of work and moves the JSONL and
+Markdown summary into the finalized archive.
+
+The Runner returns the native exit status only after recorder finalization has
+completed or a recording failure has been handled according to the capture
+policy.
+
+Status model:
+
+- `pending`: run object created but process not started
+- `running`: native process started
+- `succeeded`: process exited 0
+- `failed`: process exited non-zero or adapter failed
+- `aborted`: interrupted by signal or cancellation
+
+## Privacy and Capture Boundaries
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#ecfdf5', 'secondaryColor': '#eef2ff', 'tertiaryColor': '#fff7ed', 'primaryTextColor': '#111111', 'secondaryTextColor': '#111111', 'tertiaryTextColor': '#111111', 'textColor': '#111111', 'lineColor': '#334155', 'primaryBorderColor': '#047857', 'edgeLabelBackground': '#ffffff'}, 'flowchart': {'htmlLabels': true}}}%%
+flowchart TB
+  subgraph Stored["<span style='color:#111111'>Stored</span>"]
+    direction TB
+    StoredTitle["<span style='color:#111111'><b>Stored in pipy record<br/>by default</b></span>"]
+    A["<span style='color:#111111'>agent name</span>"]
+    B["<span style='color:#111111'>adapter name</span>"]
+    C["<span style='color:#111111'>workspace basename or path hash</span>"]
+    D["<span style='color:#111111'>start/end timestamps</span>"]
+    E["<span style='color:#111111'>exit code and status</span>"]
+    F["<span style='color:#111111'>safe event summaries</span>"]
+    G["<span style='color:#111111'>optional changed file paths</span>"]
+    H["<span style='color:#111111'>native session metadata reference</span>"]
+    StoredTitle --> A --> B --> C --> D --> E --> F --> G --> H
+  end
+
+  subgraph NativeOnly["<span style='color:#111111'>Native store</span>"]
+    direction TB
+    NativeTitle["<span style='color:#111111'><b>Left in native agent<br/>store</b></span>"]
+    I["<span style='color:#111111'>raw transcript</span>"]
+    J["<span style='color:#111111'>assistant messages</span>"]
+    K["<span style='color:#111111'>tool calls and tool results</span>"]
+    L["<span style='color:#111111'>native event stream</span>"]
+    NativeTitle --> I --> J --> K --> L
+  end
+
+  subgraph NotCaptured["<span style='color:#111111'>Not captured</span>"]
+    direction TB
+    NotCapturedTitle["<span style='color:#111111'><b>Not captured<br/>by default</b></span>"]
+    M["<span style='color:#111111'>prompt text</span>"]
+    N["<span style='color:#111111'>stdout and stderr</span>"]
+    O["<span style='color:#111111'>full argv</span>"]
+    P["<span style='color:#111111'>secrets and credentials</span>"]
+    Q["<span style='color:#111111'>file diffs</span>"]
+    NotCapturedTitle --> M --> N --> O --> P --> Q
+  end
+
+  classDef stored fill:#dcfce7,stroke:#047857,color:#111111,stroke-width:1.5px;
+  classDef native fill:#dbeafe,stroke:#1d4ed8,color:#111111,stroke-width:1.5px;
+  classDef blocked fill:#ffedd5,stroke:#c2410c,color:#111111,stroke-width:1.5px;
+  classDef storedHeading fill:#f0fdf4,stroke:#f0fdf4,color:#111111,stroke-width:0px;
+  classDef nativeHeading fill:#eff6ff,stroke:#eff6ff,color:#111111,stroke-width:0px;
+  classDef blockedHeading fill:#fff7ed,stroke:#fff7ed,color:#111111,stroke-width:0px;
+  class StoredTitle storedHeading;
+  class NativeTitle nativeHeading;
+  class NotCapturedTitle blockedHeading;
+  class A,B,C,D,E,F,G,H stored;
+  class I,J,K,L native;
+  class M,N,O,P,Q blocked;
+  style Stored fill:#f0fdf4,stroke:#047857,color:#111111
+  style NativeOnly fill:#eff6ff,stroke:#1d4ed8,color:#111111
+  style NotCaptured fill:#fff7ed,stroke:#c2410c,color:#111111
+  linkStyle default stroke:#64748b,stroke-width:1px;
+```
+
+Default capture policy:
+
+- Store enough lifecycle metadata to find and understand the run later.
+- Prefer summaries authored by the harness over raw native content.
+- Avoid storing text that came from the user prompt or model output.
+- Redact secret-looking metadata keys and values.
+- For argv, store only the executable and safe mode flags unless a user
+  explicitly requests full command capture in a future opt-in feature.
+- For workspace paths, prefer basename plus optional path hash. Full paths are
+  sometimes useful locally but can leak private project structure.
+
+## Session Recording Integration
+
+The first harness should initialize a partial pipy session record at run start:
+
+```text
+session.started
+capture.limitations
+harness.run.started
+agent.process.started
+agent.process.exited
+harness.run.completed | harness.run.failed | harness.run.aborted
+session.finalized
+```
+
+Across the lifecycle, event payloads draw from these fields; not every event
+carries every field. Completion-only fields such as `status`, `exit_code`, and
+`duration_seconds` should appear on completion, failure, or abort events rather
+than every event:
+
+- `adapter`
+- `run_id`
+- `harness_protocol_version`
+- `event_id`
+- `sequence`
+- `status`
+- `exit_code`
+- `duration_seconds`
+- `cwd_name`
+- `cwd_sha256`
+- `command_executable`
+- `argv_stored`: `false`
+- `stdout_stored`: `false`
+- `stderr_stored`: `false`
+- `raw_transcript_imported`: `false`
+
+`session.started` is a recorder marker. When created by the harness, it should
+carry the run envelope fields (`run_id`, `event_id`, `sequence`, `timestamp`)
+and `harness_protocol_version`, with `sequence` set to 0. Subsequent harness
+events should carry the same envelope fields. `session.finalized` is a harness
+event appended before recorder finalization, not a post-archive mutation.
+
+The finalized Markdown summary should include:
+
+- run status
+- agent and adapter
+- workspace display name
+- start/end timestamps or duration
+- exit code
+- native session reference note, if any
+- changed file paths, if enabled
+- explicit note that raw transcript content was not imported
+
+## CLI Shape
+
+Add a new product CLI:
+
+```sh
+uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
+uv run pipy run --agent pi --slug issue-123 --cwd . -- pi -p "..."
+uv run pipy run --agent custom --slug smoke --cwd . -- echo "hello"
+```
+
+Keep the existing lower-level recorder CLI:
+
+```sh
+uv run pipy-session init ...
+uv run pipy-session append ...
+uv run pipy-session finalize ...
+uv run pipy-session list
+uv run pipy-session verify
+```
+
+Initial `pipy run` flags:
+
+- `--agent <name>`: logical agent name
+- `--slug <slug>`: human-facing run label and session filename component
+- `--cwd <path>`: working directory for the native command, default current dir
+- `--goal <text>`: optional short goal, but avoid storing full prompts by default
+- `--record-files`: opt in to recording changed file paths
+- `--root <path>`: optional session root override, matching `pipy-session`
+- command after `--`: native command to execute
+
+The Runner generates `run_id`; users should not need to provide it in slice 1.
+Two invocations may use the same `--slug`; the recorder may disambiguate
+filenames, but `run_id` remains the stable identity.
+
+CLI output convention:
+
+- harness diagnostics, event summaries, and progress go to stderr
+- child process output streams through according to adapter policy
+- any future machine-readable final result or selected record path should go to
+  stdout
+
+The initial CLI should not have:
+
+- `pipy dev`
+- `pipy serve`
+- `pipy import-transcript`
+- `pipy replay`
+- `pipy task spawn`
+- `pipy approve`
+
+## First Implementation Slice
+
+The first slice should implement a subprocess-backed harness runner. It should
+work with real native commands and fake test commands, but it should not parse
+native transcripts.
+
+Likely package layout:
+
+```text
+src/pipy_harness/__init__.py
+src/pipy_harness/models.py
+src/pipy_harness/runner.py
+src/pipy_harness/capture.py
+src/pipy_harness/adapters/__init__.py
+src/pipy_harness/adapters/base.py
+src/pipy_harness/adapters/subprocess.py
+src/pipy_harness/cli.py
+```
+
+Likely project metadata change:
+
+```toml
+[project.scripts]
+pipy = "pipy_harness.cli:main"
+pipy-session = "pipy_session.cli:main"
+```
+
+Scope:
+
+- create run model and status enum
+- create agent port protocol
+- create capture policy value object
+- implement generic subprocess adapter
+- implement `pipy run`
+- stream child stdout/stderr through to the terminal
+- initialize and finalize a partial pipy session record
+- record process start/exit and run completion/failure
+- assign `run_id`, `event_id`, and `sequence`
+- return the native process exit code
+- optionally record changed file paths using git status porcelain output when
+  `--record-files` is set
+
+Explicitly out of scope:
+
+- reading native transcript files
+- parsing Codex/Claude/Pi JSONL
+- storing prompts or model output
+- enforcing sandbox policy
+- managing approvals
+- retrying failed agent runs
+- running multiple agents
+- serving docs or UI
+
+## Testing Plan
+
+Add focused tests before or alongside implementation:
+
+- runner unit tests use an in-memory recorder fake
+- runner success creates and finalizes a partial session record
+- runner failure finalizes a record and returns non-zero exit code
+- runner returns the native exit code only after recorder finalization completes
+- interrupted or adapter error path records failure without mutating finalized
+  records
+- concurrent adapter event callbacks are serialized with stable `sequence`
+- subprocess stdout/stderr are streamed or allowed through but not stored in the
+  JSONL or Markdown record
+- command prompt text after `--` is not stored by default
+- secret-looking argv, metadata keys, and values are redacted or omitted
+- `--record-files` records file paths only, not diffs
+- without `--record-files`, changed file paths are not recorded
+- CLI parser preserves command after `--`
+- session archive remains compatible with existing `verify`, `list`,
+  `search`, and `inspect`
+- integration tests can still use temporary real session roots through `--root`
+
+Suggested test files:
+
+```text
+tests/test_harness_runner.py
+tests/test_harness_cli.py
+tests/test_harness_subprocess_adapter.py
+```
+
+## Deferred Work
+
+- Native pipy agent runtime.
+- Codex JSONL event adapter.
+- Claude hook integration beyond existing conservative `pipy-session auto`.
+- Pi-native session inspection beyond metadata references.
+- Raw transcript import with explicit opt-in and redaction policy.
+- Indexed archive search.
+- Repo maps or workspace summaries.
+- Permission policy and sandbox profiles.
+- Interactive TUI.
+- RPC mode.
+- Multi-agent task delegation.
+- Long-running dev server.
+- Docs server such as Zensical.
+
+## Open Questions
+
+### 1. Should the first `pipy run` allow arbitrary subprocess commands?
+
+Recommendation: yes, but frame it as a `custom` or `subprocess` adapter and keep
+the capture policy conservative.
+
+Reasoning: this makes the first harness testable without depending on Codex,
+Claude, or Pi being installed and authenticated. Named adapters can still add
+agent-specific validation later.
+
+### 2. Should changed file paths be recorded by default?
+
+Recommendation: no. Add `--record-files` in the first slice.
+
+Reasoning: file paths can leak project structure. Recording paths is useful, but
+it should start as an explicit choice until the redaction and display policy is
+settled.
+
+### 3. Should the new CLI be `pipy`?
+
+Recommendation: yes.
+
+Reasoning: `pipy-session` is a useful low-level recorder CLI, but the harness is
+the product surface. A top-level `pipy run` command makes the distinction clear:
+`pipy` runs agent tasks; `pipy-session` manages records.
+
+### 4. What is the first native-agent target?
+
+Recommendation: implement the generic subprocess path first, then add a thin
+Codex named adapter because Codex has a documented non-interactive mode and
+JSONL stream. Do not parse the JSONL stream in the first implementation unless
+that is separately approved.
+
+### 5. Should a docs server be introduced now?
+
+Recommendation: no.
+
+Reasoning: the near-term review artifact is one Markdown spec plus the existing
+session-storage document. Mermaid diagrams in Markdown are enough. Revisit
+Zensical or a similar docs server when navigation, search, publishing, or live
+preview becomes a real bottleneck.
+
+## Recommendation
+
+Implement the first harness slice only after this spec is reviewed and adjusted.
+The next implementation should be small: `pipy run`, generic subprocess adapter,
+run lifecycle events, conservative session recording, and focused tests.
