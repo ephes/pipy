@@ -398,6 +398,62 @@ The CLI can add this marker during initialization:
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
+## Pipy Run Harness
+
+The top-level `pipy` CLI is the initial product harness surface. Its first
+implemented command is `pipy run`, which runs one arbitrary subprocess command,
+streams the child process stdout and stderr to the caller, records conservative
+lifecycle metadata through the same recorder lifecycle, finalizes the record,
+and returns the child process exit code.
+
+```sh
+uv run pipy run --agent custom --slug smoke -- echo hello
+uv run pipy run --agent custom --slug smoke --root /tmp/pipy-sessions --cwd . -- echo hello
+```
+
+`pipy run` creates partial records. The harness does not import raw transcripts
+and does not store child stdout, child stderr, prompt text, model output, full
+argv, diffs, or file contents. It records safe lifecycle metadata such as:
+
+- `run_id`, `event_id`, `sequence`, and `harness_protocol_version`
+- logical agent and adapter name
+- workspace basename plus SHA-256 hash of the resolved workspace path
+- process start and exit events
+- run status and exit code
+- capture policy markers such as `argv_stored=false`, `stdout_stored=false`,
+  `stderr_stored=false`, and `raw_transcript_imported=false`
+
+`--record-files` is the only file-path capture option in this slice. When set,
+the harness runs `git status --porcelain` in the selected `--cwd` after the
+child exits and records relative changed file paths only. It does not store
+diffs or file contents. Non-git directories are handled without failing the
+run. Relative path strings are normalized to collapse control whitespace, but
+ordinary filenames such as `secret_config.py` or `auth_token.py` are preserved
+because path recording is already explicit opt-in. Without `--record-files`,
+changed paths are not recorded.
+
+The subprocess adapter inherits stdin from the parent process. This keeps
+generic commands and future agent CLIs usable when they intentionally read from
+stdin, but stdin content is not captured by pipy.
+
+The first harness event stream follows this shape:
+
+```text
+session.started
+capture.limitations
+harness.run.started
+agent.process.started
+agent.process.exited
+workspace.files.changed         # only when --record-files finds changed paths
+harness.run.completed | harness.run.failed | harness.run.aborted
+session.finalized
+```
+
+`session.finalized` is appended while the JSONL record is still active. The
+recorder then moves the JSONL and Markdown summary into the finalized archive
+under `pipy/YYYY/MM/`. Records produced by `pipy run` are compatible with
+`pipy-session verify`, `list`, `search`, `inspect`, and `reflect`.
+
 ## Automatic Capture
 
 Automatic capture uses the same recorder lifecycle as manual capture:

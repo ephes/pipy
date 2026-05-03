@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init", help="Create an active session JSONL file.")
+    _add_root_option(init_parser)
     init_parser.add_argument("--agent", required=True, help="Agent name, for example codex.")
     init_parser.add_argument("--slug", required=True, help="Short topic slug for the filename.")
     init_parser.add_argument("--goal", help="Optional session goal for the session.started event.")
@@ -58,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--machine", help="Machine name override, mainly for tests.")
 
     append_parser = subparsers.add_parser("append", help="Append one JSONL event to an active session.")
+    _add_root_option(append_parser)
     append_parser.add_argument("active", help="Active session path, filename, or stem.")
     append_parser.add_argument("--type", dest="event_type", help="Event type, for example decision.recorded.")
     append_parser.add_argument("--summary", help="Concise human-readable event summary.")
@@ -69,12 +71,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     finalize_parser = subparsers.add_parser("finalize", help="Move an active session to the archive.")
+    _add_root_option(finalize_parser)
     finalize_parser.add_argument("active", help="Active session path, filename, or stem.")
     finalize_summary = finalize_parser.add_mutually_exclusive_group()
     finalize_summary.add_argument("--summary-file", type=Path, help="Markdown summary file to finalize.")
     finalize_summary.add_argument("--summary", help="Markdown summary text to finalize.")
 
     list_parser = subparsers.add_parser("list", help="List finalized session records.")
+    _add_root_option(list_parser)
     list_parser.add_argument(
         "--json",
         action="store_true",
@@ -82,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     search_parser = subparsers.add_parser("search", help="Search finalized session records.")
+    _add_root_option(search_parser)
     search_parser.add_argument("query", help="Case-insensitive search query.")
     search_parser.add_argument(
         "--json",
@@ -90,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     inspect_parser = subparsers.add_parser("inspect", help="Inspect one finalized session record.")
+    _add_root_option(inspect_parser)
     inspect_parser.add_argument("record", help="Finalized record path, basename, or stem.")
     inspect_parser.add_argument(
         "--json",
@@ -98,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     verify_parser = subparsers.add_parser("verify", help="Verify finalized session archive health.")
+    _add_root_option(verify_parser)
     verify_parser.add_argument(
         "--json",
         action="store_true",
@@ -105,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     reflect_parser = subparsers.add_parser("reflect", help="Summarize learnings from finalized records.")
+    _add_root_option(reflect_parser)
     reflect_parser.add_argument(
         "--json",
         action="store_true",
@@ -115,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         "workflow",
         help="Append summary-safe workflow learning events to an active session.",
     )
+    _add_root_option(workflow_parser)
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
 
     workflow_role = workflow_subparsers.add_parser(
@@ -176,6 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_evaluation.add_argument("--summary", required=True, help="Short evaluation summary.")
 
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
+    _add_root_option(auto_parser)
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command", required=True)
 
     auto_start = auto_subparsers.add_parser("start", help="Start an automatic partial capture.")
@@ -231,12 +241,22 @@ def build_parser() -> argparse.ArgumentParser:
     claude_hook.add_argument("--machine", help="Machine name override, mainly for tests.")
 
     wrap_parser = subparsers.add_parser("wrap", help="Run an agent command with partial lifecycle capture.")
+    _add_root_option(wrap_parser)
     wrap_parser.add_argument("--agent", required=True, help="Agent name, for example codex or pi.")
     wrap_parser.add_argument("--slug", required=True, help="Short topic slug for the filename.")
     wrap_parser.add_argument("--goal", help="Optional session goal.")
     wrap_parser.add_argument("wrapped_command", nargs=argparse.REMAINDER, help="Command to run after --.")
 
     return parser
+
+
+def _add_root_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Session root. Defaults to PIPY_SESSION_DIR or ~/.local/state/pipy/sessions.",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

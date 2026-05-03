@@ -62,6 +62,7 @@ def init_session(
     partial: bool = False,
     machine: str | None = None,
     now: datetime | None = None,
+    initial_fields: Mapping[str, Any] | None = None,
 ) -> Path:
     """Create an active JSONL session file under .in-progress/pipy."""
 
@@ -85,6 +86,17 @@ def init_session(
         "machine": safe_machine,
         "slug": safe_slug,
     }
+    if initial_fields:
+        session_started.update(dict(initial_fields))
+        session_started.update(
+            {
+                "type": "session.started",
+                "project": PROJECT_NAME,
+                "agent": safe_agent,
+                "machine": safe_machine,
+                "slug": safe_slug,
+            }
+        )
     if goal:
         session_started["goal"] = goal
     if partial:

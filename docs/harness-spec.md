@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: accepted for slice-1 implementation
+Status: slice-1 subprocess harness implemented
 
 <style>
 .mermaid,
@@ -712,6 +712,12 @@ The initial CLI should not have:
 - `pipy approve`
 
 ## First Implementation Slice
+
+Implementation note: this slice is now implemented as the top-level
+`pipy run` command backed by `SubprocessAdapter`. It records partial lifecycle
+metadata only, streams child stdout/stderr without storing them, finalizes the
+record before returning, and keeps changed file path capture opt-in through
+`--record-files`.
 
 The first slice should implement a subprocess-backed harness runner. It should
 work with real native commands and fake test commands, but it should not parse

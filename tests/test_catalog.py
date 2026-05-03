@@ -320,6 +320,15 @@ def test_cli_verify_supports_human_and_json_output(tmp_path, capsys):
     }
 
 
+def test_cli_verify_accepts_root_after_subcommand(tmp_path, capsys):
+    code = main(["verify", "--root", str(tmp_path)])
+    output = capsys.readouterr()
+
+    assert code == 0
+    assert output.out.splitlines() == ["status\tissue\tpath\tdetail", "ok"]
+    assert output.err == ""
+
+
 def test_cli_verify_reports_non_utf8_first_line_without_failing_scan(tmp_path, capsys):
     archive = tmp_path / "pipy" / "2026" / "04"
     archive.mkdir(parents=True)

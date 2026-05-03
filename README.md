@@ -3,8 +3,9 @@
 Python slop fork experiments for a coding-agent harness inspired by Pi and clean architecture.
 
 The repository currently contains the first project infrastructure slices:
-durable session-storage policy, a small local session-recorder CLI, and
-explicit sync between the `studio` and `atlas` development machines.
+durable session-storage policy, a small local session-recorder CLI, an initial
+`pipy run` subprocess harness, and explicit sync between the `studio` and
+`atlas` development machines.
 
 ## Development Setup
 
@@ -61,6 +62,46 @@ Finalized immutable records should be moved to:
 ```
 
 See `docs/session-storage.md` for the full lifecycle.
+
+## Pipy Run Harness
+
+Use `pipy run` to execute one native command while pipy records conservative
+partial lifecycle metadata into the session archive:
+
+```sh
+uv run pipy run --agent custom --slug smoke -- echo hello
+uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
+```
+
+Required flags:
+
+- `--agent <name>`: logical agent name, such as `custom`, `codex`, `claude`, or `pi`
+- `--slug <slug>`: short run label used in the session filename
+- command after `--`: native subprocess command to run
+
+Optional flags:
+
+- `--cwd <path>`: child process working directory, defaulting to the current directory
+- `--goal <text>`: short goal stored on the session start event
+- `--root <path>`: session root override, matching `pipy-session --root`
+- `--record-files`: after the child exits, record changed git file paths only
+
+Treat `--goal` as user-visible archive metadata; do not paste full prompts,
+secrets, credentials, or sensitive personal data into it.
+
+The harness streams child stdout and stderr to the caller, finalizes the pipy
+record, and then returns the child process exit code. Records created by this
+first slice are partial because pipy stores lifecycle metadata, not native
+transcripts.
+
+By default `pipy run` does not store child stdout, child stderr, full argv,
+prompt text, model output, diffs, or file contents. It records safe metadata
+such as agent, adapter, run id, workspace basename plus path hash, status, and
+exit code. `--record-files` records relative changed paths from
+`git status --porcelain`; without it, changed paths are not recorded.
+
+Finalized records remain compatible with `pipy-session verify`, `list`,
+`search`, `inspect`, and `reflect`.
 
 ## Session Recorder CLI
 
