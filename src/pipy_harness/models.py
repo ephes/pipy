@@ -34,16 +34,21 @@ class RunRequest:
     goal: str | None = None
     root: Path | None = None
     capture_policy: CapturePolicy = CapturePolicy()
+    native_provider: str | None = None
+    native_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedRun:
-    """Privacy-safe subprocess invocation details prepared by an adapter."""
+    """Privacy-safe invocation details prepared by an adapter."""
 
     command: Sequence[str]
     cwd: Path
     adapter: str
     command_executable: str
+    goal: str | None = None
+    native_provider: str | None = None
+    native_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

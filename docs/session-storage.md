@@ -401,19 +401,21 @@ uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ## Pipy Run Harness
 
 The top-level `pipy` CLI is the initial product harness surface. Its first
-implemented command is `pipy run`, which runs one arbitrary subprocess command,
-streams the child process stdout and stderr to the caller, records conservative
-lifecycle metadata through the same recorder lifecycle, finalizes the record,
-and returns the child process exit code.
+implemented command is `pipy run`. It can run one arbitrary subprocess command
+or one minimal native pipy bootstrap turn, records conservative lifecycle
+metadata through the same recorder lifecycle, finalizes the record, and returns
+the adapter exit code.
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent custom --slug smoke --root /tmp/pipy-sessions --cwd . -- echo hello
+uv run pipy run --agent pipy-native --slug native-smoke --root /tmp/pipy-sessions --goal "Native bootstrap smoke"
 ```
 
 `pipy run` creates partial records. The harness does not import raw transcripts
-and does not store child stdout, child stderr, prompt text, model output, full
-argv, diffs, or file contents. It records safe lifecycle metadata such as:
+and does not store child stdout, child stderr, full system prompts, prompt text,
+model output, full argv, diffs, tool payloads, or file contents. It records safe
+lifecycle metadata such as:
 
 - `run_id`, `event_id`, `sequence`, and `harness_protocol_version`
 - logical agent and adapter name
@@ -422,6 +424,9 @@ argv, diffs, or file contents. It records safe lifecycle metadata such as:
 - run status and exit code
 - capture policy markers such as `argv_stored=false`, `stdout_stored=false`,
   `stderr_stored=false`, and `raw_transcript_imported=false`
+- native bootstrap markers such as `system_prompt_id`,
+  `system_prompt_version`, `prompt_stored=false`,
+  `model_output_stored=false`, and `tool_payloads_stored=false`
 
 `--record-files` is the only file-path capture option in this slice. When set,
 the harness runs `git status --porcelain` in the selected `--cwd` after the
@@ -436,6 +441,15 @@ The subprocess adapter inherits stdin from the parent process. This keeps
 generic commands and future agent CLIs usable when they intentionally read from
 stdin, but stdin content is not captured by pipy.
 
+The native bootstrap adapter is selected with `--agent pipy-native`. In this
+slice it owns system prompt construction and calls only the deterministic
+`fake` provider. The fake provider is for tests and smoke runs, not a production
+AI provider. It prints its final text to stdout through the explicit CLI
+contract, but the JSONL and Markdown archive records store only provider/session
+lifecycle metadata, safe model/provider labels, durations, and storage booleans.
+Native runs require `--goal`; that field remains user-visible archive metadata,
+so keep it short and non-sensitive.
+
 The first harness event stream follows this shape:
 
 ```text
@@ -447,6 +461,16 @@ agent.process.exited
 workspace.files.changed         # only when --record-files finds changed paths
 harness.run.completed | harness.run.failed | harness.run.aborted
 session.finalized
+```
+
+Native runs add a small native lifecycle vocabulary before the final harness
+completion event:
+
+```text
+native.session.started
+native.provider.started
+native.provider.completed | native.provider.failed
+native.session.completed
 ```
 
 `session.finalized` is appended while the JSONL record is still active. The
@@ -696,10 +720,18 @@ directly. SQLite or another indexed store is future query/performance work
 behind a `SessionRepository` port, not a capture-quality prerequisite for moving
 on to the main coding-agent harness.
 
-Future automatic-capture work should keep the adapter boundary explicit:
+Future automatic-capture work should keep the adapter boundary explicit and
+secondary to the native pipy runtime:
 
-- add a Codex hook adapter only if it can reliably map platform lifecycle events
-  to pipy start/finalize semantics without overstating transcript completeness
+- prioritize a native pipy runtime bootstrap that owns prompt construction,
+  provider calls, the tool boundary, and session semantics
+- do not make `codex`, `claude`, or another coding-agent CLI the main product
+  execution path; wrapping them would inherit their prompt stack, approval
+  model, transcript shape, and execution loop
+- add a Codex hook or subprocess adapter only if it is explicitly scoped as
+  external-agent capture/reference work and can reliably map platform lifecycle
+  events to pipy start/finalize semantics without overstating transcript
+  completeness
 - keep Pi bridging reference-only unless raw import becomes explicit opt-in with
   a concrete redaction policy
 - add opt-in raw transcript import only with clear redaction behavior

@@ -1,0 +1,28 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native import FakeNativeProvider, ProviderRequest
+
+
+def test_fake_native_provider_is_deterministic_without_echoing_prompt(tmp_path):
+    provider = FakeNativeProvider()
+    request = ProviderRequest(
+        system_prompt="SYSTEM_PROMPT_SHOULD_NOT_BE_RETURNED",
+        user_prompt="USER_PROMPT_SHOULD_NOT_BE_RETURNED",
+        provider_name=provider.name,
+        model_id=provider.model_id,
+        cwd=Path(tmp_path),
+    )
+
+    result = provider.complete(request)
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.provider_name == "fake"
+    assert result.model_id == "fake-native-bootstrap"
+    assert result.final_text == "pipy native fake provider completed."
+    assert "SYSTEM_PROMPT" not in result.final_text
+    assert "USER_PROMPT" not in result.final_text
+    assert result.usage["input_characters"] > 0
+    assert result.usage["output_characters"] == len(result.final_text)

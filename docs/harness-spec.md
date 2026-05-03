@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-1 subprocess harness implemented
+Status: slice-2 native runtime bootstrap implemented
 
 <style>
 .mermaid,
@@ -22,7 +22,7 @@ the foundation for pipy's own agent surface:
 - a `pipy` CLI for running coding-agent tasks
 - a harness core that owns run lifecycle and status
 - adapter boundaries for current external agents
-- a future native pipy agent runtime behind the same interface
+- a native pipy agent runtime behind the same interface
 - integration with `pipy-session` for durable, privacy-conscious records
 
 The existing `pipy-session` package remains the recorder and archive layer. The
@@ -37,7 +37,7 @@ harness should call it instead of creating a parallel transcript format.
   default.
 - Do not replace Codex, Claude Code, Pi, Aider, Goose, or Continue in the first
   slice.
-- Do not implement a native model/tool loop in the first slice.
+- Do not implement a full native model/tool loop in the bootstrap slice.
 - Do not add multi-agent orchestration, branching, compaction, repo maps,
   indexing, long-running daemons, or a web UI yet.
 - Do not change the finalized session archive layout documented in
@@ -485,6 +485,41 @@ Concrete adapter examples:
 - `ClaudeAdapter`
 - `PipyNativeAdapter`
 
+### Native Runtime Bootstrap
+
+The native bootstrap slice adds `PipyNativeAdapter` behind the same
+`AgentPort`. It does not shell out to Codex, Claude, Pi, or another coding-agent
+CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
+and calls a provider through a minimal `ProviderPort`.
+
+The current provider implementation is a deterministic `fake` provider for
+tests and smoke runs. It is not a production AI provider and it does not require
+credentials. A smoke run is:
+
+```sh
+uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
+```
+
+Native runs emit only privacy-safe lifecycle metadata:
+
+- `native.session.started`
+- `native.provider.started`
+- `native.provider.completed`
+- `native.provider.failed`
+- `native.session.completed`
+
+Payloads may include safe labels such as `provider`, `model_id`,
+`system_prompt_id`, `system_prompt_version`, `status`, `exit_code`, duration,
+and storage booleans. They must not include the full system prompt, user prompt
+text beyond the existing short `--goal` session metadata, model output, tool
+payloads, stdout, stderr, secrets, tokens, credentials, private keys, or
+sensitive personal data.
+
+The native session owns system prompt construction internally. Archive records
+store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
+fake provider's final text may be printed to stdout by the CLI contract, but it
+is not stored in JSONL or Markdown by default.
+
 ## Run Lifecycle
 
 ```mermaid
@@ -800,9 +835,27 @@ tests/test_harness_cli.py
 tests/test_harness_subprocess_adapter.py
 ```
 
+## Native Bootstrap Slice
+
+Implementation note: the next small native slice is now implemented as
+`--agent pipy-native`. It adds:
+
+- native value objects under `src/pipy_harness/native/`
+- a minimal `ProviderPort`
+- deterministic `FakeNativeProvider`
+- `NativeAgentSession` that owns system prompt construction
+- `PipyNativeAdapter` behind the existing runner boundary
+- CLI selection without requiring a command after `--`
+- focused provider, session, runner, CLI, and catalog compatibility tests
+
+This slice deliberately remains partial. It does not implement live providers,
+OAuth, provider registries, retries, native tool execution, approvals, sandbox
+policy, external-agent adapters, raw transcript import, TUI/RPC modes, indexed
+search, compaction, branching, or multi-agent orchestration.
+
 ## Deferred Work
 
-- Native pipy agent runtime.
+- Full native pipy agent runtime beyond the bootstrap slice.
 - Codex JSONL event adapter.
 - Claude hook integration beyond existing conservative `pipy-session auto`.
 - Pi-native session inspection beyond metadata references.
@@ -845,10 +898,27 @@ the product surface. A top-level `pipy run` command makes the distinction clear:
 
 ### 4. What is the first native-agent target?
 
-Recommendation: implement the generic subprocess path first, then add a thin
-Codex named adapter because Codex has a documented non-interactive mode and
-JSONL stream. Do not parse the JSONL stream in the first implementation unless
-that is separately approved.
+Recommendation: after the generic subprocess harness slice, implement a native
+pipy runtime bootstrap rather than a thin Codex or Claude adapter. This is now
+the implemented second slice.
+
+Reasoning: pipy should own the agent loop, prompt stack, provider boundary,
+tool boundary, auth boundary, and durable session semantics. Calling `codex`,
+`claude`, or another coding-agent CLI would inherit that product's system
+prompt, approval model, transcript shape, and execution loop, which defeats the
+purpose of building pipy as a clean-architecture Pi-like agent. External-agent
+wrappers are useful for smoke tests and reference records, but they should not
+be the main product direction.
+
+The native runtime bootstrap establishes:
+
+- a native `pipy` agent path behind the same runner/adapter boundary
+- a minimal provider port and prompt/session construction owned by
+  pipy
+- model output, prompts, and tool payloads kept out of the pipy archive by
+  default
+- deferral of a real tool loop, approvals, sandbox policy, and raw transcript import
+  unless explicitly scoped
 
 ### 5. Should a docs server be introduced now?
 
@@ -861,6 +931,9 @@ preview becomes a real bottleneck.
 
 ## Recommendation
 
-Implement the first harness slice only after this spec is reviewed and adjusted.
-The next implementation should be small: `pipy run`, generic subprocess adapter,
-run lifecycle events, conservative session recording, and focused tests.
+The first harness slice is implemented as `pipy run` with a generic subprocess
+adapter, lifecycle events, conservative session recording, and focused tests.
+The second slice is implemented as a native pipy runtime bootstrap with a
+minimal provider/session boundary and deterministic fake provider path. The
+next implementation should extend the native runtime deliberately rather than
+making Codex or Claude subprocess wrapping the main product path.

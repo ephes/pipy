@@ -4,8 +4,8 @@ Python slop fork experiments for a coding-agent harness inspired by Pi and clean
 
 The repository currently contains the first project infrastructure slices:
 durable session-storage policy, a small local session-recorder CLI, an initial
-`pipy run` subprocess harness, and explicit sync between the `studio` and
-`atlas` development machines.
+`pipy run` subprocess harness, a native pipy runtime bootstrap, and explicit
+sync between the `studio` and `atlas` development machines.
 
 ## Development Setup
 
@@ -71,28 +71,33 @@ partial lifecycle metadata into the session archive:
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
+uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
 ```
 
 Required flags:
 
 - `--agent <name>`: logical agent name, such as `custom`, `codex`, `claude`, or `pi`
 - `--slug <slug>`: short run label used in the session filename
-- command after `--`: native subprocess command to run
+- `--goal <text>`: short goal, required for `--agent pipy-native`
+- command after `--`: native subprocess command to run, required except for `--agent pipy-native`
 
 Optional flags:
 
 - `--cwd <path>`: child process working directory, defaulting to the current directory
-- `--goal <text>`: short goal stored on the session start event
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
+- `--native-provider fake`: deterministic bootstrap provider for `--agent pipy-native`
+- `--native-model <id>`: model label for the deterministic native bootstrap provider
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
 
-The harness streams child stdout and stderr to the caller, finalizes the pipy
-record, and then returns the child process exit code. Records created by this
-first slice are partial because pipy stores lifecycle metadata, not native
-transcripts.
+For subprocess runs, the harness streams child stdout and stderr to the caller,
+finalizes the pipy record, and then returns the child process exit code. For
+`--agent pipy-native`, pipy runs one minimal native turn through the
+deterministic fake provider by default. That provider is a smoke-test boundary,
+not a real model. Its final text is printed to stdout by the CLI contract, but
+the pipy archive still stores only lifecycle metadata.
 
 By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, diffs, or file contents. It records safe metadata
@@ -102,6 +107,13 @@ exit code. `--record-files` records relative changed paths from
 
 Finalized records remain compatible with `pipy-session verify`, `list`,
 `search`, `inspect`, and `reflect`.
+
+The subprocess harness is a foundation and smoke-test path, not the long-term
+agent runtime. The native bootstrap path establishes that pipy owns its system
+prompt, provider boundary, tool boundary, and session semantics instead of
+delegating to `codex`, `claude`, or another coding-agent CLI. It does not yet
+implement live providers, a tool loop, approvals, sandbox policy, retries, or
+raw transcript import.
 
 ## Session Recorder CLI
 
