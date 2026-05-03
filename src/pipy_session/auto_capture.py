@@ -55,6 +55,61 @@ class PrunedState:
     removed: bool
 
 
+def reference_pi_session(
+    pi_session_path: str | Path,
+    *,
+    root: str | Path | None = None,
+    slug: str | None = None,
+    summary: str | None = None,
+    machine: str | None = None,
+    now: datetime | None = None,
+) -> SessionRecord:
+    """Create a finalized partial record referencing a Pi-native session file."""
+
+    source_path = Path(pi_session_path).expanduser()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Pi session file not found: {source_path}")
+    if not source_path.is_file():
+        raise ValueError(f"Pi session path must be a file: {source_path}")
+
+    resolved_path = source_path.resolve()
+    stat = source_path.stat()
+    path_hash = sha256(str(resolved_path).encode("utf-8")).hexdigest()
+    active_path = init_session(
+        agent="pi",
+        slug=slug or f"pi-reference-{path_hash[:12]}",
+        root=root,
+        goal="Reference a Pi-native session file without importing transcript content.",
+        partial=True,
+        machine=machine,
+        now=now,
+    )
+    append_event(
+        active_path,
+        root=root,
+        event_type="pi.session_reference",
+        agent="pi",
+        summary="Referenced a Pi-native session file without copying transcript content.",
+        payload=_sanitize_metadata(
+            {
+                "adapter": "pi-session-reference",
+                "source_filename": source_path.name,
+                "source_file_size_bytes": stat.st_size,
+                "source_mtime": _timestamp(datetime.fromtimestamp(stat.st_mtime, UTC)),
+                "source_absolute_path_sha256": path_hash,
+                "source_path_stored": False,
+                "raw_content_imported": False,
+            }
+        ),
+        now=now,
+    )
+    return finalize_session(
+        active_path,
+        root=root,
+        summary_text=_pi_reference_summary(source_path.name, stat.st_size, summary),
+    )
+
+
 def state_dir(root: str | Path | None = None) -> Path:
     """Return the excluded directory used for automatic-capture state."""
 
@@ -574,6 +629,30 @@ def _default_summary(agent: str | None, metadata: Mapping[str, Any] | None = Non
         "This record is partial: the adapter captured lifecycle metadata, not a complete raw transcript."
         f"{reason}\n"
     )
+
+
+def _pi_reference_summary(filename: str, size: int, summary: str | None = None) -> str:
+    safe_filename = str(_sanitize_value(_table_safe(filename)))
+    safe_summary = _sanitize_summary_lines(summary)
+    extra = f"\n\n{safe_summary}\n" if safe_summary else "\n"
+    return (
+        "# Summary\n\n"
+        "This record is a reference to a Pi-native session file, not a transcript import.\n\n"
+        f"- Source filename: {safe_filename}\n"
+        f"- Source file size: {size} bytes\n"
+        "- Raw Pi session content copied: no\n"
+        f"{extra}"
+    )
+
+
+def _sanitize_summary_lines(summary: str | None) -> str:
+    if not summary or not summary.strip():
+        return ""
+    return "\n".join(str(_sanitize_value(line)) for line in summary.strip().splitlines())
+
+
+def _table_safe(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _safe_component(value: str, name: str) -> str:

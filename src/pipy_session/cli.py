@@ -12,6 +12,7 @@ from pipy_session.auto_capture import (
     append_auto_event,
     handle_claude_hook,
     prune_auto_capture_state,
+    reference_pi_session,
     read_hook_json,
     run_wrapped_agent,
     start_auto_capture,
@@ -138,6 +139,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Report stale state files without removing them.",
     )
+
+    auto_reference_pi = auto_subparsers.add_parser(
+        "reference-pi",
+        help="Create a partial pipy record that references a Pi-native session file.",
+    )
+    auto_reference_pi.add_argument("pi_session_path", type=Path, help="Pi-native session file path.")
+    auto_reference_pi.add_argument("--slug", help="Short topic slug for the filename.")
+    auto_reference_pi.add_argument(
+        "--summary",
+        help="Optional Markdown summary to include after the reference notice.",
+    )
+    auto_reference_pi.add_argument("--machine", help="Machine name override, mainly for tests.")
 
     auto_hook = auto_subparsers.add_parser("hook", help="Handle a platform hook JSON payload from stdin.")
     auto_hook_subparsers = auto_hook.add_subparsers(dest="platform", required=True)
@@ -280,6 +293,19 @@ def main(argv: list[str] | None = None) -> int:
                 for result in results:
                     print(f"{action}\t{result.path}\t{result.reason}")
                 print(f"summary\t{action}\t{len(results)}")
+                return 0
+
+            if args.auto_command == "reference-pi":
+                record = reference_pi_session(
+                    args.pi_session_path,
+                    root=args.root,
+                    slug=args.slug,
+                    summary=args.summary,
+                    machine=args.machine,
+                )
+                print(record.jsonl_path)
+                if record.markdown_path is not None:
+                    print(record.markdown_path)
                 return 0
 
             if args.auto_command == "hook" and args.platform == "claude":

@@ -239,7 +239,9 @@ exists. The JSON output includes those fields as structured data, with
 `summary_text` set to the Markdown content or `null` when no summary exists.
 Neither output includes full JSONL events, payloads, prompt text, tool output,
 or other raw transcript content by default. Markdown summaries are shown
-because they are intentional human-review artifacts.
+because they are intentional human-review artifacts. Human metadata and event
+type labels collapse control whitespace so malformed archive values cannot forge
+extra physical output lines; JSON output preserves structured values.
 
 Verify finalized archive health without modifying records:
 
@@ -322,6 +324,7 @@ uv run pipy-session auto event --agent claude --session-id platform-id --type cl
 uv run pipy-session auto stop --agent claude --session-id platform-id
 uv run pipy-session auto prune --dry-run
 uv run pipy-session auto prune
+uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
 uv run pipy-session auto hook claude
 uv run pipy-session wrap --agent codex --slug codex-work -- codex
 ```
@@ -345,22 +348,57 @@ Metadata values and keys with sensitive markers such as `token`, `secret`,
 Platform session ids containing those markers use a stable redacted hash in
 state filenames and records.
 
-Codex and Pi currently use wrapper-based pipy capture unless a future adapter
-adds a verified lifecycle bridge:
+Codex and Pi currently use wrapper-based or reference-based pipy capture unless
+a future adapter adds a verified lifecycle bridge:
 
-- Codex: current official Codex docs include hooks behind a feature flag, but
-  the start/end lifecycle needed for reliable finalization is not treated here
-  as complete transcript capture. Use `pipy-session wrap --agent codex -- ...`
-  for partial lifecycle metadata.
+- Codex: current official Codex docs and local CLI support include hooks, and
+  the local `codex_hooks` feature is stable and enabled, but the documented
+  `Stop` hook is turn-scoped rather than a reliable local session finalizer.
+  Pipy therefore does not install `pipy-session auto hook codex` in this slice.
+  Use `pipy-session wrap --agent codex -- ...` for partial lifecycle metadata.
 - Pi: Pi already auto-saves its own JSONL sessions under `~/.pi/agent/sessions/`.
-  Pipy does not import or duplicate those native sessions in this slice. Use
-  `pipy-session wrap --agent pi -- ...` only when you want a pipy-side partial
-  lifecycle marker around the Pi process.
+  Use `pipy-session auto reference-pi <pi-session-path>` when you want a
+  finalized pipy record that points at a Pi-native session file without copying
+  raw transcript content. Use `pipy-session wrap --agent pi -- ...` only when
+  you want a pipy-side partial lifecycle marker around the Pi process.
 
 Records created by these automatic commands are partial unless `auto start
 --complete` is used by an adapter that truly captures a complete transcript.
 Do not use `--complete` for the Claude, Codex wrapper, or Pi wrapper flows
 documented here.
+
+### Pi-Native Session References
+
+`auto reference-pi` is a conservative bridge for cases where Pi already wrote a
+native session file and pipy only needs a durable pointer:
+
+```sh
+uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
+```
+
+The command requires an explicit existing file path and rejects missing paths or
+directories. It creates and immediately finalizes a partial `agent="pi"` pipy
+record. The JSONL record stores only conservative metadata:
+
+- adapter name
+- source filename
+- source file size
+- source mtime
+- SHA-256 hash of the resolved absolute source path
+- markers that the source path itself was not stored and raw content was not imported
+
+The command does not read, copy, print, or store the Pi-native JSONL body or the
+absolute source path. The Markdown summary explicitly says the pipy record is a
+reference to a Pi-native session, not a transcript import.
+
+### Raw Transcript Import Policy
+
+Raw transcript import remains deferred and out of scope by default. A future
+importer must be explicit opt-in and must define redaction behavior before it
+handles prompt text, assistant messages, tool inputs, tool outputs, raw
+exception text, secrets, API keys, tokens, credentials, private keys, or
+sensitive personal data. Metadata capture, wrapper lifecycle records, and
+Pi-native references are not raw transcript import.
 
 ### Automatic State Pruning
 
@@ -501,14 +539,18 @@ Because session data can contain sensitive project context, use a sync backend t
 
 ## Future Direction
 
-The first implementation can stay file-based. Later, the same records can be imported into SQLite or another indexed store behind a `SessionRepository` port.
+The current implementation stays file-based. Finalized JSONL and Markdown files
+remain the source of truth, and the read-only catalog commands scan those files
+directly. SQLite or another indexed store is future query/performance work
+behind a `SessionRepository` port, not a capture-quality prerequisite for moving
+on to the main coding-agent harness.
 
 Future automatic-capture work should keep the adapter boundary explicit:
 
 - add a Codex hook adapter only if it can reliably map platform lifecycle events
   to pipy start/finalize semantics without overstating transcript completeness
-- add a Pi importer or bridge that references Pi-native session files without
-  copying sensitive raw data into git
+- keep Pi bridging reference-only unless raw import becomes explicit opt-in with
+  a concrete redaction policy
 - add opt-in raw transcript import only with clear redaction behavior
 
 Likely future abstractions:

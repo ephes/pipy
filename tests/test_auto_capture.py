@@ -4,6 +4,7 @@ import json
 import io
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pipy_session import (
     append_auto_event,
@@ -11,6 +12,7 @@ from pipy_session import (
     handle_claude_hook,
     init_session,
     prune_auto_capture_state,
+    reference_pi_session,
     start_auto_capture,
     state_dir,
     stop_auto_capture,
@@ -576,3 +578,111 @@ def test_wrapped_agent_records_partial_lifecycle(tmp_path):
     assert events[0]["agent"] == "pi"
     assert events[0]["partial"] is True
     assert events[-1]["payload"]["return_code"] == 3
+
+
+def test_reference_pi_session_records_metadata_without_copying_raw_content(tmp_path):
+    raw_secret = "RAW_PI_PROMPT token=SECRET123 assistant output"
+    pi_session = tmp_path / ".pi" / "agent" / "sessions" / "native.jsonl"
+    pi_session.parent.mkdir(parents=True)
+    pi_session.write_text(f'{{"message":"{raw_secret}"}}\n', encoding="utf-8")
+
+    record = reference_pi_session(
+        pi_session,
+        root=tmp_path / "pipy-sessions",
+        slug="pi-native-reference",
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    jsonl_text = record.jsonl_path.read_text(encoding="utf-8")
+    markdown_text = record.markdown_path.read_text(encoding="utf-8")
+    assert raw_secret not in jsonl_text
+    assert raw_secret not in markdown_text
+    assert str(pi_session) not in jsonl_text
+    assert str(pi_session) not in markdown_text
+
+    events = read_jsonl(record.jsonl_path)
+    assert events[0]["agent"] == "pi"
+    assert events[0]["partial"] is True
+    reference_event = [event for event in events if event["type"] == "pi.session_reference"][0]
+    payload = reference_event["payload"]
+    assert payload["adapter"] == "pi-session-reference"
+    assert payload["source_filename"] == "native.jsonl"
+    assert payload["source_file_size_bytes"] == len(pi_session.read_bytes())
+    assert len(payload["source_absolute_path_sha256"]) == 64
+    assert payload["source_path_stored"] is False
+    assert payload["raw_content_imported"] is False
+    assert "not a transcript import" in markdown_text
+    assert "Raw Pi session content copied: no" in markdown_text
+
+
+def test_cli_auto_reference_pi_creates_finalized_partial_record(tmp_path, capsys):
+    raw_secret = "RAW_PI_TOOL_OUTPUT password hunter2"
+    pi_session = tmp_path / "pi-session.jsonl"
+    pi_session.write_text(raw_secret, encoding="utf-8")
+    root = tmp_path / "sessions"
+
+    exit_code = main(
+        [
+            "--root",
+            str(root),
+            "auto",
+            "reference-pi",
+            str(pi_session),
+            "--slug",
+            "cli-pi-reference",
+            "--machine",
+            "studio",
+            "--summary",
+            "Reviewed Pi-native session externally.",
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert exit_code == 0
+    paths = [line for line in output.out.splitlines() if line]
+    assert len(paths) == 2
+    jsonl_path = paths[0]
+    markdown_path = paths[1]
+    combined = Path(jsonl_path).read_text(encoding="utf-8") + Path(markdown_path).read_text(
+        encoding="utf-8"
+    )
+    assert raw_secret not in combined
+    assert str(pi_session) not in combined
+    assert "Reviewed Pi-native session externally." in combined
+    assert output.err == ""
+
+
+def test_reference_pi_session_redacts_sensitive_summary_lines_only(tmp_path):
+    pi_session = tmp_path / "pi-session.jsonl"
+    pi_session.write_text('{"message":"safe native content"}\n', encoding="utf-8")
+
+    record = reference_pi_session(
+        pi_session,
+        root=tmp_path / "sessions",
+        slug="summary-redaction",
+        machine="studio",
+        summary="Line 1\nLine 2 with password=hunter2\nLine 3",
+        now=FIXED_NOW,
+    )
+
+    markdown_text = record.markdown_path.read_text(encoding="utf-8")
+    assert "Line 1\n[REDACTED]\nLine 3" in markdown_text
+    assert "hunter2" not in markdown_text
+
+
+def test_reference_pi_session_rejects_missing_or_directory_path(tmp_path):
+    missing = tmp_path / "missing.jsonl"
+    try:
+        reference_pi_session(missing, root=tmp_path)
+    except FileNotFoundError as exc:
+        assert "Pi session file not found" in str(exc)
+    else:
+        raise AssertionError("missing Pi session path should fail")
+
+    try:
+        reference_pi_session(tmp_path, root=tmp_path)
+    except ValueError as exc:
+        assert "Pi session path must be a file" in str(exc)
+    else:
+        raise AssertionError("directory Pi session path should fail")

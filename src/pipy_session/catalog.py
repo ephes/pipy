@@ -460,7 +460,7 @@ def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
         "event_types:",
     ]
     for event_type, count in inspection.event_types.items():
-        lines.append(f"  {event_type}: {count}")
+        lines.append(f"  {_table_cell(event_type)}: {count}")
 
     if inspection.summary_text is not None:
         lines.extend(["summary_text:", inspection.summary_text.rstrip("\n")])

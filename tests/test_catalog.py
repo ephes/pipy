@@ -1195,6 +1195,45 @@ def test_format_session_inspection_collapses_control_whitespace_in_metadata(tmp_
     assert parsed["summary_text"] == summary_text
 
 
+def test_inspect_human_output_sanitizes_event_type_labels_but_json_keeps_raw(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="inspect-event-label",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    raw_event_type = "tool\tcommand\nforged.label:\r 999"
+    append_event(
+        active,
+        root=tmp_path,
+        event={
+            "type": raw_event_type,
+            "summary": "Human inspect event labels should be one physical line.",
+        },
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "inspect", str(record.jsonl_path)])
+    output = capsys.readouterr()
+
+    assert exit_code == 0
+    lines = output.out.splitlines()
+    assert f"  {' '.join(raw_event_type.split())}: 1" in lines
+    assert "forged.label:" not in lines
+    assert all(line != " 999: 1" for line in lines)
+
+    json_code = main(["--root", str(tmp_path), "inspect", str(record.jsonl_path), "--json"])
+    json_output = capsys.readouterr()
+
+    assert json_code == 0
+    parsed = json.loads(json_output.out)
+    assert parsed["event_types"][raw_event_type] == 1
+    assert raw_event_type in parsed["event_types"]
+    assert json_output.err == ""
+
+
 def test_cli_inspect_rejects_active_records_state_files_and_partials(tmp_path, capsys):
     active = init_session(
         agent="codex",

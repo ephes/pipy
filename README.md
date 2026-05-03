@@ -125,7 +125,9 @@ uv run pipy-session inspect 2026-05-02T064433Z-studio-codex-session-work.jsonl -
 The inspect command is also read-only and only opens finalized archive JSONL
 records directly under `pipy/YYYY/MM/`. It reports metadata, event counts,
 event type counts, and the matching Markdown summary text when present. It does
-not dump raw JSONL event bodies.
+not dump raw JSONL event bodies. Human labels collapse control whitespace so
+record metadata or event type strings cannot forge extra table or label lines;
+`--json` keeps structured values non-lossy.
 
 Verify local archive health without repairing or mutating files:
 
@@ -153,8 +155,8 @@ Current support matrix:
 | Platform | pipy support | Capture status |
 | --- | --- | --- |
 | Claude Code | `pipy-session auto hook claude` handles official hook JSON for `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial by default; stores lifecycle and conservative metadata, not raw prompt/tool transcripts. |
-| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex also has official hooks behind a feature flag, but this slice does not rely on them for full lifecycle finalization. | Partial. Do not treat this as complete automatic transcript capture. |
-| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. Pi already auto-saves sessions under its own session store. | Partial pipy metadata only; Pi-native session import is not implemented yet. |
+| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex hooks were rechecked against current OpenAI docs and local CLI support; no pipy Codex hook adapter is installed because the documented `Stop` hook is turn-scoped, not a reliable session finalizer. | Partial. Do not treat this as complete automatic transcript capture. |
+| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. `pipy-session auto reference-pi <path>` creates a finalized pipy reference to a Pi-native session file without copying its contents. | Partial pipy metadata/reference only; no raw Pi transcript import by default. |
 
 Start, append, and stop an automatic partial capture directly:
 
@@ -163,6 +165,20 @@ active="$(uv run pipy-session auto start --agent codex --slug wrapper-test --ses
 uv run pipy-session auto event --agent codex --session-id codex-123 --type codex.turn.observed --summary "Observed a turn boundary."
 uv run pipy-session auto stop --agent codex --session-id codex-123
 ```
+
+Reference an existing Pi-native session file without importing its raw JSONL
+body:
+
+```sh
+uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
+```
+
+The Pi reference workflow requires an explicit existing file path, creates a
+finalized partial `agent="pi"` record immediately, stores conservative metadata
+such as the source filename, file size, mtime, and SHA-256 hash of the resolved
+absolute path, and writes a Markdown summary saying the record is a reference,
+not a transcript import. It does not read, copy, print, or store raw Pi session
+content or the absolute source path.
 
 The automatic state mapping is stored under the sync-excluded active area:
 
@@ -267,3 +283,26 @@ uv run pipy-session wrap --agent pi --slug pi-work -- pi
 
 Wrapper records are marked partial because they only record pipy lifecycle
 metadata around the process. They do not capture the platform's full transcript.
+
+### Codex Hook Status
+
+OpenAI's current Codex docs include lifecycle hooks, and the local CLI reports
+the `codex_hooks` feature as stable and enabled. Pipy still does not provide
+`pipy-session auto hook codex` because the available reliable local finalization
+surface is not a session end event: the documented `Stop` hook runs at turn
+scope. Until Codex exposes stable local session start/end semantics that map
+cleanly to pipy's active/finalized lifecycle, use wrapper capture for Codex.
+
+### Raw Transcript Import
+
+Raw transcript import is intentionally out of scope by default. Importing raw
+Codex, Claude, or Pi transcript bodies would require explicit opt-in behavior
+and a concrete redaction policy for prompts, assistant messages, tool inputs,
+tool outputs, secrets, tokens, credentials, private keys, and sensitive personal
+data. Current automatic commands capture metadata or references only.
+
+### Indexed Storage
+
+The finalized JSONL and Markdown archive remains the current implementation and
+source of truth. SQLite or another indexed store is deferred future
+query/performance work, not a blocker for moving on to the coding-agent harness.
