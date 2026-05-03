@@ -6,6 +6,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from pipy_session import (
     append_auto_event,
     finalize_session,
@@ -337,6 +339,9 @@ def test_claude_hook_start_prompt_metadata_and_end_are_partial_and_redacted(tmp_
     events = read_jsonl(end_result.record.jsonl_path)
     assert events[0]["agent"] == "claude"
     assert events[0]["partial"] is True
+    model_event = [event for event in events if event["type"] == "model.used"][0]
+    assert model_event["summary"] == "Model used: agent=claude, model=claude-sonnet-4-6."
+    assert model_event["payload"] == {"agent": "claude", "model": "claude-sonnet-4-6"}
     prompt_event = [event for event in events if event["type"] == "claude.userpromptsubmit"][0]
     assert prompt_event["payload"]["prompt"] == {"characters": 47, "redacted": True}
     assert prompt_event["payload"]["transcript_file"] == "session.jsonl"
@@ -524,6 +529,43 @@ def test_wrapper_argv_metadata_keeps_redacted_argv_shape(tmp_path):
         "--password",
         "[REDACTED]",
     ]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_model"),
+    [
+        (["codex", "--model", "gpt-5.3-codex"], "gpt-5.3-codex"),
+        (["codex", "--model=gpt-5.3-codex"], "gpt-5.3-codex"),
+        (["codex", "--model"], None),
+        (["python", "-m", "mymodule"], None),
+    ],
+)
+def test_wrapper_argv_model_is_recorded_as_summary_safe_model_event(
+    tmp_path,
+    argv,
+    expected_model,
+):
+    state = start_auto_capture(
+        agent="codex",
+        slug="argv-model",
+        platform_session_id="argv-model",
+        root=tmp_path,
+        machine="studio",
+        metadata={
+            "adapter": "wrapper",
+            "argv": _redacted_argv(argv),
+        },
+        now=FIXED_NOW,
+    )
+
+    events = read_jsonl(state.active_path)
+    model_events = [event for event in events if event["type"] == "model.used"]
+    if expected_model is None:
+        assert model_events == []
+    else:
+        assert len(model_events) == 1
+        assert model_events[0]["summary"] == f"Model used: agent=codex, model={expected_model}."
+        assert model_events[0]["payload"] == {"agent": "codex", "model": expected_model}
 
 
 def test_cli_metadata_json_argv_is_redacted_before_recording(tmp_path):

@@ -192,6 +192,8 @@ def start_auto_capture(
     session_id = platform_session_id or active_path.stem
     public_session_id = _public_session_id(session_id)
 
+    sanitized_metadata = _sanitize_metadata(metadata or {})
+
     append_event(
         active_path,
         root=root,
@@ -200,11 +202,22 @@ def start_auto_capture(
         summary=f"Automatic capture started for {safe_agent}.",
         payload={
             "capture_complete": not partial,
-            "metadata": _sanitize_metadata(metadata or {}),
+            "metadata": sanitized_metadata,
             "platform_session_id": public_session_id,
         },
         now=now,
     )
+    public_model = _public_model_from_metadata(sanitized_metadata)
+    if public_model is not None:
+        append_event(
+            active_path,
+            root=root,
+            event_type="model.used",
+            agent=safe_agent,
+            summary=f"Model used: agent={safe_agent}, model={public_model}.",
+            payload={"agent": safe_agent, "model": public_model},
+            now=now,
+        )
 
     path = _state_path(root, safe_agent, session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -570,6 +583,32 @@ def _sanitize_metadata(value: Mapping[str, Any]) -> dict[str, Any]:
             continue
         sanitized[key_text] = _sanitize_value(item)
     return sanitized
+
+
+def _public_model_from_metadata(metadata: Mapping[str, Any]) -> str | None:
+    model = metadata.get("model")
+    if isinstance(model, str):
+        cleaned = " ".join(model.split())
+        if cleaned and cleaned != "[REDACTED]":
+            return cleaned
+
+    argv = metadata.get("argv")
+    if isinstance(argv, list):
+        return _public_model_from_argv([str(part) for part in argv])
+    return None
+
+
+def _public_model_from_argv(argv: list[str]) -> str | None:
+    for index, arg in enumerate(argv):
+        if arg == "--model" and index + 1 < len(argv):
+            candidate = " ".join(argv[index + 1].split())
+            if candidate and candidate != "[REDACTED]":
+                return candidate
+        if arg.startswith("--model="):
+            candidate = " ".join(arg.removeprefix("--model=").split())
+            if candidate and candidate != "[REDACTED]":
+                return candidate
+    return None
 
 
 def _sanitize_value(value: Any) -> Any:

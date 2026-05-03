@@ -111,6 +111,70 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of a Markdown report.",
     )
 
+    workflow_parser = subparsers.add_parser(
+        "workflow",
+        help="Append summary-safe workflow learning events to an active session.",
+    )
+    workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+
+    workflow_role = workflow_subparsers.add_parser(
+        "role",
+        help="Record which agent/model filled a workflow role.",
+    )
+    workflow_role.add_argument("active", help="Active session path, filename, or stem.")
+    workflow_role.add_argument("--role", required=True, help="Role, for example implementer or reviewer.")
+    workflow_role.add_argument("--agent", required=True, help="Agent, for example codex or claude.")
+    workflow_role.add_argument("--model", help="Model identifier, for example claude-opus.")
+    workflow_role.add_argument("--phase", help="Workflow phase, for example implementation or review.")
+    workflow_role.add_argument("--summary", help="Optional short extra note.")
+
+    workflow_subagent = workflow_subparsers.add_parser(
+        "subagent",
+        help="Record privacy-safe subagent usage.",
+    )
+    workflow_subagent.add_argument("active", help="Active session path, filename, or stem.")
+    workflow_subagent.add_argument("--role", required=True, help="Subagent role, for example explorer.")
+    workflow_subagent.add_argument("--agent", help="Subagent agent, for example codex.")
+    workflow_subagent.add_argument("--model", help="Subagent model identifier.")
+    workflow_subagent.add_argument("--task-kind", help="Task kind, for example codebase-review.")
+    workflow_subagent.add_argument("--outcome", help="Outcome, for example findings-used.")
+    workflow_subagent.add_argument("--summary", help="Optional short extra note.")
+
+    workflow_review = workflow_subparsers.add_parser(
+        "review-outcome",
+        help="Record review findings and closure counts.",
+    )
+    workflow_review.add_argument("active", help="Active session path, filename, or stem.")
+    workflow_review.add_argument("--implementer-agent", help="Implementer agent.")
+    workflow_review.add_argument("--implementer-model", help="Implementer model identifier.")
+    workflow_review.add_argument("--reviewer-agent", help="Reviewer agent.")
+    workflow_review.add_argument("--reviewer-model", help="Reviewer model identifier.")
+    workflow_review.add_argument("--high", type=int, default=0, help="High-severity finding count.")
+    workflow_review.add_argument("--medium", type=int, default=0, help="Medium-severity finding count.")
+    workflow_review.add_argument("--low", type=int, default=0, help="Low-severity or polish finding count.")
+    workflow_review.add_argument("--accepted", type=int, default=0, help="Accepted finding count.")
+    workflow_review.add_argument("--fixed", type=int, default=0, help="Fixed finding count.")
+    workflow_review.add_argument("--rejected", type=int, default=0, help="Rejected finding count.")
+    workflow_review.add_argument("--deferred", type=int, default=0, help="Deferred finding count.")
+    workflow_review.add_argument("--summary", help="Optional short extra note.")
+
+    workflow_evaluation = workflow_subparsers.add_parser(
+        "evaluation",
+        help="Record a human or agent judgment about a workflow pattern.",
+    )
+    workflow_evaluation.add_argument("active", help="Active session path, filename, or stem.")
+    workflow_evaluation.add_argument("--pattern", required=True, help="Pattern being evaluated.")
+    workflow_evaluation.add_argument(
+        "--confidence",
+        choices=("low", "medium", "high"),
+        help="Confidence in the evaluation.",
+    )
+    workflow_evaluation.add_argument(
+        "--recommendation",
+        help="Recommendation, for example keep, switch, or compare.",
+    )
+    workflow_evaluation.add_argument("--summary", required=True, help="Short evaluation summary.")
+
     auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command", required=True)
 
@@ -259,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_session_reflection(reflection))
             return 0
 
+        if args.command == "workflow":
+            path = _append_workflow_event(args)
+            print(path)
+            return 0
+
         if args.command == "auto":
             if args.auto_command == "start":
                 metadata = _parse_optional_json_object(args.metadata_json, "--metadata-json")
@@ -370,6 +439,165 @@ def _wrapped_command(command: list[str]) -> list[str]:
     if command and command[0] == "--":
         return command[1:]
     return command
+
+
+def _append_workflow_event(args: argparse.Namespace) -> Path:
+    if args.workflow_command == "role":
+        fields = _compact_fields(
+            {
+                "role": args.role,
+                "agent": args.agent,
+                "model": args.model,
+                "phase": args.phase,
+                "note": args.summary,
+            }
+        )
+        summary = _summary_sentence(
+            "Workflow role",
+            fields,
+            field_order=("role", "agent", "model", "phase", "note"),
+        )
+        return append_event(
+            args.active,
+            root=args.root,
+            event_type="workflow.role",
+            summary=summary,
+            agent=args.agent,
+            payload=fields,
+        )
+
+    if args.workflow_command == "subagent":
+        fields = _compact_fields(
+            {
+                "role": args.role,
+                "agent": args.agent,
+                "model": args.model,
+                "task_kind": args.task_kind,
+                "outcome": args.outcome,
+                "note": args.summary,
+            }
+        )
+        summary = _summary_sentence(
+            "Subagent used",
+            fields,
+            field_order=("role", "agent", "model", "task_kind", "outcome", "note"),
+        )
+        return append_event(
+            args.active,
+            root=args.root,
+            event_type="subagent.used",
+            summary=summary,
+            agent=args.agent,
+            payload=fields,
+        )
+
+    if args.workflow_command == "review-outcome":
+        _validate_non_negative_counts(
+            {
+                "high": args.high,
+                "medium": args.medium,
+                "low": args.low,
+                "accepted": args.accepted,
+                "fixed": args.fixed,
+                "rejected": args.rejected,
+                "deferred": args.deferred,
+            }
+        )
+        fields = _compact_fields(
+            {
+                "implementer_agent": args.implementer_agent,
+                "implementer_model": args.implementer_model,
+                "reviewer_agent": args.reviewer_agent,
+                "reviewer_model": args.reviewer_model,
+                "high": args.high,
+                "medium": args.medium,
+                "low": args.low,
+                "accepted": args.accepted,
+                "fixed": args.fixed,
+                "rejected": args.rejected,
+                "deferred": args.deferred,
+                "note": args.summary,
+            }
+        )
+        summary = _summary_sentence(
+            "Review outcome",
+            fields,
+            field_order=(
+                "implementer_agent",
+                "implementer_model",
+                "reviewer_agent",
+                "reviewer_model",
+                "high",
+                "medium",
+                "low",
+                "accepted",
+                "fixed",
+                "rejected",
+                "deferred",
+                "note",
+            ),
+        )
+        return append_event(
+            args.active,
+            root=args.root,
+            event_type="review.outcome",
+            summary=summary,
+            agent=args.reviewer_agent,
+            payload=fields,
+        )
+
+    if args.workflow_command == "evaluation":
+        fields = _compact_fields(
+            {
+                "pattern": args.pattern,
+                "confidence": args.confidence,
+                "recommendation": args.recommendation,
+                "note": args.summary,
+            }
+        )
+        summary = _summary_sentence(
+            "Workflow evaluation",
+            fields,
+            field_order=("pattern", "confidence", "recommendation", "note"),
+        )
+        return append_event(
+            args.active,
+            root=args.root,
+            event_type="workflow.evaluation",
+            summary=summary,
+            payload=fields,
+        )
+
+    raise ValueError(f"unknown workflow command: {args.workflow_command}")
+
+
+def _compact_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            cleaned = " ".join(value.split())
+            if not cleaned:
+                continue
+            compact[key] = cleaned
+            continue
+        compact[key] = value
+    return compact
+
+
+def _summary_sentence(prefix: str, fields: dict[str, Any], *, field_order: tuple[str, ...]) -> str:
+    details = ", ".join(
+        f"{field}={fields[field]}" for field in field_order if field in fields
+    )
+    return f"{prefix}: {details}."
+
+
+def _validate_non_negative_counts(counts: dict[str, int]) -> None:
+    negative = [name for name, value in counts.items() if value < 0]
+    if negative:
+        formatted = ", ".join(negative)
+        raise ValueError(f"workflow count fields must be non-negative: {formatted}")
 
 
 if __name__ == "__main__":

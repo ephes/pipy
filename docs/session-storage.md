@@ -76,6 +76,15 @@ The format is intentionally loose at this stage. Prefer stable fields where poss
 - `summary`: concise human-readable content.
 - `payload`: structured details when useful.
 
+Full raw transcript capture is a separate adapter capability from summary-safe
+learning events. When a platform exposes a reliable full-session export, pipy
+may store or reference that private raw artifact under the same local session
+root, outside git. Commands such as `search`, `inspect`, `verify`, and
+`reflect` must still default to finalized metadata, event types, event
+summaries, Markdown summaries, and explicitly allowlisted learning fields rather
+than raw transcript bodies. This keeps complete capture useful for private
+forensics while preserving safe day-to-day reflection.
+
 ## File Lifecycle
 
 Session recorders should not sync files while they are still being written.
@@ -129,6 +138,56 @@ Append structured events while the record is active:
 uv run pipy-session append <active-path> --type decision.recorded --summary "Use immutable finalized files for sync."
 uv run pipy-session append <active-path> --event-json '{"type":"verification.performed","summary":"uv run pytest passed."}'
 ```
+
+Record workflow-learning details explicitly when the session should teach future
+agents about model, role, review, or subagent choices:
+
+```sh
+uv run pipy-session workflow role <active-path> \
+  --role implementer \
+  --agent codex \
+  --model gpt-5.3-codex \
+  --phase implementation
+
+uv run pipy-session workflow role <active-path> \
+  --role reviewer \
+  --agent claude \
+  --model claude-opus \
+  --phase review
+
+uv run pipy-session workflow review-outcome <active-path> \
+  --implementer-agent codex \
+  --implementer-model gpt-5.3-codex \
+  --reviewer-agent claude \
+  --reviewer-model claude-opus \
+  --high 1 --medium 2 --low 4 \
+  --accepted 7 --fixed 7 --rejected 0 --deferred 0
+
+uv run pipy-session workflow evaluation <active-path> \
+  --pattern codex-implementation-claude-opus-review \
+  --confidence medium \
+  --recommendation keep-testing \
+  --summary "Reviewer found lifecycle risks implementer missed."
+```
+
+Use `workflow subagent` when delegation materially affects the result:
+
+```sh
+uv run pipy-session workflow subagent <active-path> \
+  --role explorer \
+  --agent codex \
+  --model gpt-5.3-codex \
+  --task-kind review-support \
+  --outcome findings-used
+```
+
+These commands append summary-safe events such as `workflow.role`,
+`review.outcome`, `workflow.evaluation`, and `subagent.used`. Automatic
+adapters also append `model.used` when a model identifier is exposed safely by
+hook metadata or wrapper argv. The generated summaries are intentionally
+searchable by `pipy-session search` and surfaced by `pipy-session reflect`. Do
+not include prompts, transcript bodies, tool output, secrets, credentials, or
+sensitive personal data in model, role, outcome, or summary fields.
 
 Finalize the record when the session ends:
 
@@ -264,8 +323,10 @@ The report includes:
   metadata
 - curated learning items from event `summary` strings for event types such as
   `decision.recorded`, `lesson.learned`, `recommendation.recorded`,
-  `review.findings`, `implementation.completed`, `file.changed`,
-  `verification.performed`, and `research.performed`
+  `model.used`, `workflow.role`, `subagent.used`, `review.findings`,
+  `review.outcome`, `review.followup.completed`, `workflow.evaluation`,
+  `implementation.completed`, `file.changed`, `verification.performed`, and
+  `research.performed`
 - short Markdown summary snippets when they are not generic automatic-capture
   summaries
 

@@ -1147,6 +1147,166 @@ def test_cli_reflect_supports_human_and_json_output(tmp_path, capsys):
     assert json_output.err == ""
 
 
+def test_cli_workflow_events_are_reflected_as_learning_signals(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="sandwich-mode",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "workflow",
+                "role",
+                str(active),
+                "--role",
+                "implementer",
+                "--agent",
+                "codex",
+                "--model",
+                "gpt-5.3-codex",
+                "--phase",
+                "implementation",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "workflow",
+                "subagent",
+                str(active),
+                "--role",
+                "explorer",
+                "--agent",
+                "codex",
+                "--model",
+                "gpt-5.3-codex",
+                "--task-kind",
+                "review-support",
+                "--outcome",
+                "findings-used",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "workflow",
+                "review-outcome",
+                str(active),
+                "--implementer-agent",
+                "codex",
+                "--implementer-model",
+                "gpt-5.3-codex",
+                "--reviewer-agent",
+                "claude",
+                "--reviewer-model",
+                "claude-opus",
+                "--high",
+                "1",
+                "--medium",
+                "2",
+                "--low",
+                "4",
+                "--accepted",
+                "7",
+                "--fixed",
+                "7",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "workflow",
+                "evaluation",
+                str(active),
+                "--pattern",
+                "codex-implementation-claude-opus-review",
+                "--confidence",
+                "medium",
+                "--recommendation",
+                "keep-testing",
+                "--summary",
+                "Reviewer found lifecycle risks implementer missed.",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    record = finalize_session(active, root=tmp_path)
+
+    reflection = reflect_on_finalized_sessions(root=tmp_path)
+    formatted = format_session_reflection(reflection)
+
+    assert reflection.event_type_counts["workflow.role"] == 1
+    assert reflection.event_type_counts["subagent.used"] == 1
+    assert reflection.event_type_counts["review.outcome"] == 1
+    assert reflection.event_type_counts["workflow.evaluation"] == 1
+    assert [
+        (item.category, item.event_type)
+        for item in reflection.items
+        if item.jsonl_path == record.jsonl_path
+    ] == [
+        ("workflow-roles", "workflow.role"),
+        ("subagents", "subagent.used"),
+        ("review-outcomes", "review.outcome"),
+        ("workflow-evaluations", "workflow.evaluation"),
+    ]
+    assert "## Workflow Roles" in formatted
+    assert "## Subagents" in formatted
+    assert "## Review Outcomes" in formatted
+    assert "## Workflow Evaluations" in formatted
+    assert "model=gpt-5.3-codex" in formatted
+    assert "reviewer_model=claude-opus" in formatted
+    assert "pattern=codex-implementation-claude-opus-review" in formatted
+
+
+def test_cli_workflow_review_outcome_rejects_negative_counts(tmp_path, capsys):
+    active = init_session(
+        agent="codex",
+        slug="negative-review-count",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "workflow",
+            "review-outcome",
+            str(active),
+            "--high",
+            "-1",
+        ]
+    )
+    output = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "workflow count fields must be non-negative: high" in output.err
+    assert "review.outcome" not in active.read_text(encoding="utf-8")
+
+
 def test_reflect_ignores_corrupt_jsonl_body_without_dropping_markdown_summary(tmp_path):
     archive = tmp_path / "pipy" / "2026" / "04"
     archive.mkdir(parents=True)
