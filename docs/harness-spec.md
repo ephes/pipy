@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-2 native runtime bootstrap implemented
+Status: slice-3 native provider boundary implemented
 
 <style>
 .mermaid,
@@ -492,13 +492,28 @@ The native bootstrap slice adds `PipyNativeAdapter` behind the same
 CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
 and calls a provider through a minimal `ProviderPort`.
 
-The current provider implementation is a deterministic `fake` provider for
-tests and smoke runs. It is not a production AI provider and it does not require
-credentials. A smoke run is:
+The deterministic `fake` provider remains the default for tests and smoke runs.
+It is not a production AI provider and it does not require credentials. A smoke
+run is:
 
 ```sh
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
 ```
+
+The first real provider is the OpenAI Responses API provider. It is selected
+explicitly, reads credentials from `OPENAI_API_KEY`, requires `--native-model`,
+uses pipy's internally built system prompt as the Responses API `instructions`
+field, uses the short native goal as `input`, and requests `store: false`:
+
+```sh
+uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
+```
+
+The OpenAI provider uses a small injectable standard-library HTTP boundary so
+tests can provide fake responses without live credentials or network access. It
+does not enable built-in tools, function calling, web search, file search, code
+interpreter, computer use, conversation state, background mode, streaming,
+retries, model fallback, OAuth, or a provider registry.
 
 Native runs emit only privacy-safe lifecycle metadata:
 
@@ -510,15 +525,16 @@ Native runs emit only privacy-safe lifecycle metadata:
 
 Payloads may include safe labels such as `provider`, `model_id`,
 `system_prompt_id`, `system_prompt_version`, `status`, `exit_code`, duration,
-and storage booleans. They must not include the full system prompt, user prompt
-text beyond the existing short `--goal` session metadata, model output, tool
-payloads, stdout, stderr, secrets, tokens, credentials, private keys, or
-sensitive personal data.
+usage counters, provider response storage booleans, and conservative sanitized
+error metadata. They must not include the full system prompt, user prompt text
+beyond the existing short `--goal` session metadata, model output, raw HTTP
+request or response bodies, tool payloads, stdout, stderr, secrets, tokens,
+credentials, private keys, or sensitive personal data.
 
 The native session owns system prompt construction internally. Archive records
 store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
-fake provider's final text may be printed to stdout by the CLI contract, but it
-is not stored in JSONL or Markdown by default.
+provider's final text may be printed to stdout by the CLI contract, but it is
+not stored in JSONL or Markdown by default.
 
 ## Run Lifecycle
 
@@ -855,6 +871,9 @@ search, compaction, branching, or multi-agent orchestration.
 
 ## Deferred Work
 
+For the current task-slice backlog and next-step ordering, see
+`docs/backlog.md`. The list below records broader deferred design areas.
+
 - Full native pipy agent runtime beyond the bootstrap slice.
 - Codex JSONL event adapter.
 - Claude hook integration beyond existing conservative `pipy-session auto`.
@@ -936,4 +955,5 @@ adapter, lifecycle events, conservative session recording, and focused tests.
 The second slice is implemented as a native pipy runtime bootstrap with a
 minimal provider/session boundary and deterministic fake provider path. The
 next implementation should extend the native runtime deliberately rather than
-making Codex or Claude subprocess wrapping the main product path.
+making Codex or Claude subprocess wrapping the main product path. Track the
+current next slice in `docs/backlog.md`.

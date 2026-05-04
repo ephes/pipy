@@ -79,6 +79,7 @@ class NativeAgentSession:
                 "status": provider_result.status.value,
                 "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
                 "usage": provider_result.usage or {},
+                "provider_metadata": provider_result.metadata or {},
                 "error_type": provider_result.error_type,
                 "error_message": provider_result.error_message,
             },
@@ -104,6 +105,8 @@ class NativeAgentSession:
             final_text=provider_result.final_text,
             provider_name=provider_result.provider_name,
             model_id=provider_result.model_id,
+            error_type=provider_result.error_type,
+            error_message=provider_result.error_message,
         )
 
 

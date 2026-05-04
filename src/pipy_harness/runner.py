@@ -127,6 +127,13 @@ class HarnessRunner:
             )
             status = adapter_result.status
             exit_code = adapter_result.exit_code
+            if status != HarnessStatus.SUCCEEDED and adapter_result.metadata is not None:
+                adapter_error_type = adapter_result.metadata.get("error_type")
+                adapter_error_message = adapter_result.metadata.get("error_message")
+                if isinstance(adapter_error_type, str):
+                    error_type = sanitize_text(adapter_error_type)
+                if isinstance(adapter_error_message, str):
+                    error_message = sanitize_text(adapter_error_message)
 
             if request.capture_policy.record_file_paths and adapter_result.changed_paths:
                 sink.emit(

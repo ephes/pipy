@@ -63,6 +63,9 @@ Finalized immutable records should be moved to:
 
 See `docs/session-storage.md` for the full lifecycle.
 
+Near-term implementation planning lives in `docs/backlog.md`. Design rationale
+and product boundaries live in `docs/harness-spec.md`.
+
 ## Pipy Run Harness
 
 Use `pipy run` to execute one native command while pipy records conservative
@@ -72,6 +75,7 @@ partial lifecycle metadata into the session archive:
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
+uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
 ```
 
 Required flags:
@@ -86,24 +90,32 @@ Optional flags:
 - `--cwd <path>`: child process working directory, defaulting to the current directory
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
-- `--native-provider fake`: deterministic bootstrap provider for `--agent pipy-native`
-- `--native-model <id>`: model label for the deterministic native bootstrap provider
+- `--native-provider fake|openai`: native provider for `--agent pipy-native`, defaulting to `fake`
+- `--native-model <id>`: model label for the native provider; required for `--native-provider openai`
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
 
 For subprocess runs, the harness streams child stdout and stderr to the caller,
 finalizes the pipy record, and then returns the child process exit code. For
-`--agent pipy-native`, pipy runs one minimal native turn through the
-deterministic fake provider by default. That provider is a smoke-test boundary,
-not a real model. Its final text is printed to stdout by the CLI contract, but
-the pipy archive still stores only lifecycle metadata.
+`--agent pipy-native`, pipy runs one minimal native turn through an injected
+provider. The deterministic fake provider remains the default smoke-test
+boundary and does not require credentials. The OpenAI provider calls the
+Responses API through a small standard-library HTTP boundary, reads its API key
+from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
+internal system prompt as `instructions`, sends the short `--goal` as `input`,
+and requests `store: false`. It does not enable tools, streaming, retries,
+conversation state, background mode, model fallback, or raw transcript import.
+Provider final text is printed to stdout by the CLI contract, but the pipy
+archive still stores only lifecycle metadata.
 
 By default `pipy run` does not store child stdout, child stderr, full argv,
-prompt text, model output, diffs, or file contents. It records safe metadata
-such as agent, adapter, run id, workspace basename plus path hash, status, and
-exit code. `--record-files` records relative changed paths from
-`git status --porcelain`; without it, changed paths are not recorded.
+prompt text, model output, raw HTTP payloads, diffs, or file contents. It
+records safe metadata such as agent, adapter, provider, model id, run id,
+workspace basename plus path hash, status, exit code, safe usage counters when
+available, and provider storage booleans. `--record-files` records relative
+changed paths from `git status --porcelain`; without it, changed paths are not
+recorded.
 
 Finalized records remain compatible with `pipy-session verify`, `list`,
 `search`, `inspect`, and `reflect`.
@@ -111,9 +123,10 @@ Finalized records remain compatible with `pipy-session verify`, `list`,
 The subprocess harness is a foundation and smoke-test path, not the long-term
 agent runtime. The native bootstrap path establishes that pipy owns its system
 prompt, provider boundary, tool boundary, and session semantics instead of
-delegating to `codex`, `claude`, or another coding-agent CLI. It does not yet
-implement live providers, a tool loop, approvals, sandbox policy, retries, or
-raw transcript import.
+delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
+small OpenAI Responses provider boundary, but it does not yet implement a tool
+loop, approvals, sandbox policy, retries, streaming, provider registry, OAuth,
+or raw transcript import.
 
 ## Session Recorder CLI
 

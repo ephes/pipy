@@ -745,3 +745,6 @@ Likely future abstractions:
 - `ReflectionRepository`
 
 The application core should depend on these ports, while CLI, Textual, web, and external integrations provide adapters.
+
+For task-slice ordering, use `docs/backlog.md`; this document remains the
+source of truth for archive lifecycle and privacy constraints.

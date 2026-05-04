@@ -9,7 +9,7 @@ from pathlib import Path
 from pipy_harness.adapters import PipyNativeAdapter, SubprocessAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
-from pipy_harness.native import FakeNativeProvider
+from pipy_harness.native import FakeNativeProvider, OpenAIResponsesProvider
 from pipy_harness.runner import HarnessRunner
 
 
@@ -32,15 +32,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=["fake"],
+        choices=["fake", "openai"],
         help=(
-            "Native provider for --agent pipy-native. The only bootstrap provider is "
-            "the deterministic fake provider."
+            "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
     )
     run_parser.add_argument(
         "--native-model",
-        help="Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap.",
+        help=(
+            "Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap "
+            "for --native-provider fake and is required for --native-provider openai."
+        ),
     )
     run_parser.add_argument(
         "--record-files",
@@ -121,8 +123,12 @@ def _adapter_for(
     native_model: str | None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
-        if native_provider not in (None, "fake"):
+        if native_provider not in (None, "fake", "openai"):
             raise ValueError(f"unsupported native provider: {native_provider}")
+        if native_provider == "openai":
+            if not native_model:
+                raise ValueError("--native-model is required for --native-provider openai")
+            return PipyNativeAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
         return PipyNativeAdapter(
             provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap")
         )

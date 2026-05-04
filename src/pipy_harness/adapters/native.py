@@ -67,4 +67,8 @@ class PipyNativeAdapter:
             exit_code=run_output.exit_code,
             started_at=run_output.started_at,
             ended_at=run_output.ended_at,
+            metadata={
+                "error_type": run_output.error_type,
+                "error_message": run_output.error_message,
+            },
         )
