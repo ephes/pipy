@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-6 native fake tool-intent implemented
+Status: slice-7 native provider usage normalization implemented
 
 <style>
 .mermaid,
@@ -542,13 +542,17 @@ Native runs emit only privacy-safe lifecycle metadata:
 
 Payloads may include safe labels such as `provider`, `model_id`,
 `system_prompt_id`, `system_prompt_version`, `status`, `exit_code`, duration,
-usage counters, provider response storage booleans, tool name/kind, approval
-policy label, sandbox policy label, storage booleans, and conservative
-sanitized error metadata. They must not include the full system prompt, user
-prompt text beyond the existing short `--goal` session metadata, model output,
-raw HTTP request or response bodies, tool arguments, tool payloads, stdout,
-stderr, diffs, file contents, secrets, tokens, credentials, private keys, or
-sensitive personal data.
+normalized usage counters, provider response storage booleans, tool name/kind,
+approval policy label, sandbox policy label, storage booleans, and
+conservative sanitized error metadata. Normalized provider usage is limited to
+finite non-negative `input_tokens`, `output_tokens`, `total_tokens`,
+`cached_tokens`, and `reasoning_tokens`; unknown provider-native usage keys and
+unavailable counters are omitted rather than guessed. Payloads must not include
+the full system prompt, user prompt text beyond the existing short `--goal`
+session metadata, model output, raw HTTP request or response bodies, raw
+provider usage payloads, tool arguments, tool payloads, stdout, stderr, diffs,
+file contents, secrets, tokens, credentials, private keys, or sensitive
+personal data.
 
 The native session owns system prompt construction internally. Archive records
 store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
@@ -997,6 +1001,9 @@ Implementation note: the first native slices are implemented as
 - deterministic `FakeNativeProvider`
 - deterministic `FakeNoOpNativeTool`
 - `NativeAgentSession` that owns system prompt construction
+- normalized provider usage metadata limited to finite non-negative
+  `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and
+  `reasoning_tokens`
 - `PipyNativeAdapter` behind the existing runner boundary
 - CLI selection without requiring a command after `--`
 - focused provider, tool, session, runner, CLI, and catalog compatibility tests

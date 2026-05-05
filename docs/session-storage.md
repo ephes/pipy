@@ -449,9 +449,13 @@ tests and smoke runs, not a production AI/tool runtime. The no-op tool does not
 inspect or mutate the workspace and does not execute shell commands. Provider
 final text prints to stdout through the explicit CLI contract when the native
 run succeeds, but the JSONL and Markdown archive records store only
-provider/session/tool lifecycle metadata, safe labels, durations, policy labels,
-and storage booleans. Native runs require `--goal`; that field remains
-user-visible archive metadata, so keep it short and non-sensitive.
+provider/session/tool lifecycle metadata, safe labels, durations, normalized
+usage counters, policy labels, and storage booleans. Normalized provider usage
+is limited to finite non-negative `input_tokens`, `output_tokens`,
+`total_tokens`, `cached_tokens`, and `reasoning_tokens`; unknown
+provider-native usage keys and unavailable counters are omitted. Native runs
+require `--goal`; that field remains user-visible archive metadata, so keep it
+short and non-sensitive.
 
 The first harness event stream follows this shape:
 

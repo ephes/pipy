@@ -35,22 +35,30 @@ reviewable change while keeping the source-of-truth design constraints in
   provider success with no intent completes without tool events and
   unsafe/unsupported intent data is skipped with metadata-only lifecycle
   records.
+- Native provider usage metadata normalization: native archives allow only
+  finite non-negative normalized `input_tokens`, `output_tokens`,
+  `total_tokens`, `cached_tokens`, and `reasoning_tokens` counters;
+  provider-native raw usage payloads and unavailable counters are omitted
+  rather than guessed.
 
 ## Next Slice
 
-### Native Provider Usage Metadata Normalization
+### Native Final Text Stdout Mode Decision
 
-Goal: decide and implement the smallest provider-usage normalization layer that
-keeps native provider metadata useful without leaking prompt or output content.
+Goal: decide whether native run final text should eventually support a
+structured machine-readable stdout mode, while preserving the current
+human-readable stdout-only final text path and metadata-only archives.
 
 Candidate shape:
 
-- define allowlisted normalized usage keys shared by fake and OpenAI providers
-- keep provider-native raw usage payloads out of JSONL and Markdown by default
-- preserve existing safe counters such as input, output, total, cached, and
-  reasoning token counts when available
-- document unknown or unavailable counters as omitted rather than guessed
-- keep the provider boundary standard-library first and do not add dependencies
+- document the current stdout contract for `pipy run --agent pipy-native`
+- decide whether a future flag should emit structured final status/output
+  records to stdout for shell automation
+- keep progress, diagnostics, and session-finalization messages on stderr
+- keep raw prompt, model output, provider responses, and tool payloads out of
+  JSONL and Markdown by default
+- avoid changing the current default stdout behavior in this slice unless the
+  design is obvious and testable
 
 Keep out of scope:
 
@@ -67,19 +75,17 @@ Keep out of scope:
 
 Acceptance checks:
 
-- normalized provider usage remains metadata-only and privacy-safe
-- fake-provider and OpenAI-provider tests remain deterministic
+- docs clearly describe whether structured stdout is deferred or selected
+- existing native CLI tests still prove final text prints only on successful
+  native runs
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
-- raw system prompts, user prompts beyond the short `--goal` metadata, and
-  model output are not persisted by default
-- raw provider responses, tool payloads, stdout, stderr, diffs, file contents,
-  secrets, and credentials are not persisted by default
+- raw system prompts, user prompts beyond the short `--goal` metadata, model
+  output, provider responses, tool payloads, stdout, stderr, diffs, file
+  contents, secrets, and credentials are not persisted by default
 
 ## Near Term
 
-- Decide whether native run final text should eventually support a structured
-  machine-readable stdout mode.
 - Decide when a post-tool provider turn is useful after the fake intent path,
   while keeping execution fake until permission and sandbox enforcement are
   designed.

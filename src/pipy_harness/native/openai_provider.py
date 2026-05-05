@@ -14,8 +14,13 @@ from typing import Any, Protocol
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("input_tokens_details", "cached_tokens"),
+    ("output_tokens_details", "reasoning_tokens"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,25 +261,16 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
 def _extract_usage(value: Any) -> dict[str, int | float]:
     if not isinstance(value, Mapping):
         return {}
-    usage: dict[str, int | float] = {}
-    for key in ("input_tokens", "output_tokens", "total_tokens"):
-        item = value.get(key)
-        if isinstance(item, int | float):
-            usage[key] = item
+    usage: dict[str, Any] = {}
+    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
+        usage[key] = value.get(key)
 
-    input_details = value.get("input_tokens_details")
-    if isinstance(input_details, Mapping):
-        cached_tokens = input_details.get("cached_tokens")
-        if isinstance(cached_tokens, int | float):
-            usage["cached_tokens"] = cached_tokens
+    for details_key, usage_key in OPENAI_NESTED_USAGE_FIELDS:
+        details = value.get(details_key)
+        if isinstance(details, Mapping) and usage_key in details:
+            usage[usage_key] = details[usage_key]
 
-    output_details = value.get("output_tokens_details")
-    if isinstance(output_details, Mapping):
-        reasoning_tokens = output_details.get("reasoning_tokens")
-        if isinstance(reasoning_tokens, int | float):
-            usage["reasoning_tokens"] = reasoning_tokens
-
-    return usage
+    return normalize_provider_usage(usage)
 
 
 def _decode_json_object(payload: bytes) -> Mapping[str, Any]:

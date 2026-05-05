@@ -24,8 +24,7 @@ def test_fake_native_provider_is_deterministic_without_echoing_prompt(tmp_path):
     assert result.final_text == "pipy native fake provider completed."
     assert "SYSTEM_PROMPT" not in result.final_text
     assert "USER_PROMPT" not in result.final_text
-    assert result.usage["input_characters"] > 0
-    assert result.usage["output_characters"] == len(result.final_text)
+    assert result.usage == {}
     assert result.metadata is None
 
 

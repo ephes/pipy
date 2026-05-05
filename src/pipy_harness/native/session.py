@@ -26,6 +26,7 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.tool import ToolPort
+from pipy_harness.native.usage import normalize_provider_usage
 
 SYSTEM_PROMPT_ID = "pipy-native-bootstrap"
 SYSTEM_PROMPT_VERSION = "1"
@@ -137,7 +138,7 @@ class NativeAgentSession:
                 **safe_context,
                 "status": provider_result.status.value,
                 "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
-                "usage": sanitize_metadata(provider_result.usage or {}),
+                "usage": normalize_provider_usage(provider_result.usage or {}),
                 "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
                 "error_type": _safe_optional_text(provider_result.error_type),
                 "error_message": _safe_optional_text(provider_result.error_message),

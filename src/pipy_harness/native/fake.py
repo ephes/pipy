@@ -45,10 +45,7 @@ class FakeNativeProvider:
             started_at=started_at,
             ended_at=ended_at,
             final_text=final_text,
-            usage={
-                "input_characters": len(request.system_prompt) + len(request.user_prompt),
-                "output_characters": len(final_text or ""),
-            },
+            usage={},
             metadata=metadata or None,
         )
 

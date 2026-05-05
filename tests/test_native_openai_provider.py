@@ -73,10 +73,12 @@ def test_openai_provider_posts_responses_request_and_parses_output(tmp_path):
                     }
                 ],
                 "usage": {
+                    "billable_units": 99,
                     "input_tokens": 10,
+                    "prompt_tokens": 11,
                     "input_tokens_details": {"cached_tokens": 3},
                     "output_tokens": 2,
-                    "output_tokens_details": {"reasoning_tokens": 1},
+                    "output_tokens_details": {"accepted_prediction_tokens": 4, "reasoning_tokens": 1},
                     "total_tokens": 12,
                 },
             },
@@ -126,6 +128,62 @@ def test_openai_provider_accepts_top_level_output_text(tmp_path):
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.final_text == "short text"
+
+
+def test_openai_provider_omits_unknown_unavailable_and_non_counter_usage(tmp_path):
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "status": "completed",
+                "output_text": "short text",
+                "usage": {
+                    "input_tokens": True,
+                    "output_tokens": 2,
+                    "total_tokens": float("inf"),
+                    "input_tokens_details": {"cached_tokens": -1},
+                    "output_tokens_details": {"reasoning_tokens": 1.5},
+                    "unknown_provider_counter": 42,
+                },
+            },
+        )
+    )
+    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.usage == {
+        "output_tokens": 2,
+        "reasoning_tokens": 1.5,
+    }
+
+
+def test_openai_provider_preserves_top_level_usage_when_details_omit_counter(tmp_path):
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "status": "completed",
+                "output_text": "short text",
+                "usage": {
+                    "cached_tokens": 4,
+                    "reasoning_tokens": 5,
+                    "input_tokens_details": {},
+                    "output_tokens_details": {"accepted_prediction_tokens": 1},
+                },
+            },
+        )
+    )
+    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.usage == {
+        "cached_tokens": 4,
+        "reasoning_tokens": 5,
+    }
 
 
 def test_openai_provider_rejects_empty_output_text(tmp_path):

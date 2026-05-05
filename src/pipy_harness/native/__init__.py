@@ -20,6 +20,7 @@ from pipy_harness.native.openai_provider import OpenAIResponsesProvider
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.session import NativeAgentSession
 from pipy_harness.native.tool import ToolPort
+from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 __all__ = [
     "FakeNativeProvider",
@@ -35,10 +36,12 @@ __all__ = [
     "NativeToolSandboxMode",
     "NativeToolSandboxPolicy",
     "NativeToolStatus",
+    "NORMALIZED_PROVIDER_USAGE_KEYS",
     "OpenAIResponsesProvider",
     "PROVIDER_TOOL_INTENT_METADATA_KEY",
     "ProviderPort",
     "ProviderRequest",
     "ProviderResult",
     "ToolPort",
+    "normalize_provider_usage",
 ]

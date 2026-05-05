@@ -123,6 +123,10 @@ available, provider storage booleans, safe tool-intent labels when present,
 no-op tool name/kind when invoked, approval and sandbox policy labels, and tool
 storage booleans. `--record-files` records relative changed paths from
 `git status --porcelain`; without it, changed paths are not recorded.
+Native provider usage is normalized to finite non-negative allowlisted token
+counters: `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`,
+and `reasoning_tokens`. Unknown provider-native usage fields and unavailable
+counters are omitted rather than guessed.
 
 Finalized records remain compatible with `pipy-session verify`, `list`,
 `search`, `inspect`, and `reflect`.

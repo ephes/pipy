@@ -46,6 +46,7 @@ class CapturingProvider:
     final_text: str = "MODEL_OUTPUT_SHOULD_PRINT_ONLY"
     status: HarnessStatus = HarnessStatus.SUCCEEDED
     metadata: dict[str, object] | None = None
+    usage: dict[str, object] | None = None
     captured_request: ProviderRequest | None = None
 
     @property
@@ -66,6 +67,7 @@ class CapturingProvider:
             started_at=now,
             ended_at=now,
             final_text=self.final_text if self.status == HarnessStatus.SUCCEEDED else None,
+            usage=self.usage,
             metadata=self.metadata,
         )
 
@@ -149,6 +151,45 @@ def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_ev
         assert payload["model_output_stored"] is False
         assert payload["tool_payloads_stored"] is False
     assert not [event for event in sink.events if event[0].startswith("native.tool.")]
+
+
+def test_native_session_normalizes_provider_usage_before_archiving(tmp_path):
+    provider = CapturingProvider(
+        usage={
+            "input_tokens": 10,
+            "output_tokens": 2,
+            "total_tokens": 12,
+            "cached_tokens": 3,
+            "reasoning_tokens": 1,
+            "input_characters": 999,
+            "raw_provider_usage": "SHOULD_NOT_PERSIST",
+        }
+    )
+    sink = RecordingSink()
+
+    NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert provider_completed[2]["usage"] == {
+        "cached_tokens": 3,
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "reasoning_tokens": 1,
+        "total_tokens": 12,
+    }
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "input_characters" not in serialized
+    assert "SHOULD_NOT_PERSIST" not in serialized
 
 
 def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(tmp_path):
