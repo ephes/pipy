@@ -1,5 +1,13 @@
 This file is for coding agents working in this repository. It records local project instructions that should be visible to Codex, Claude, Pi, and similar tools.
 
+## Start Here
+- Use `docs/backlog.md` as the current task-slice index. It names the next small, reviewable slice and the main deferred boundaries.
+- Use `docs/harness-spec.md` for harness architecture, native runtime direction, adapter boundaries, privacy constraints, and broader deferred design.
+- Use `docs/session-storage.md` before changing session capture, archive layout, catalog commands, automatic capture, sync behavior, or privacy policy.
+- Keep `pipy-native` as the product runtime direction. Codex, Claude, Pi, or other CLI wrapping may be useful for capture/reference work, but must not become the main product execution path unless the project direction explicitly changes.
+- Keep capture metadata-first by default; see Session Capture and Workflow Learning Capture below for privacy rules.
+- For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
+
 ## Dotfile Management (chezmoi)
 - Dotfiles are managed with **chezmoi** (source: `~/.local/share/chezmoi`, repo: dotfiles).
 - Always edit the chezmoi source, not the target file directly. Use `chezmoi edit <target>` or edit the source file in `~/.local/share/chezmoi/` directly.
