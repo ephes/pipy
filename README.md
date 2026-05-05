@@ -115,6 +115,13 @@ import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
 metadata.
 
+Native stdout is intentionally human-readable by default: a successful
+`pipy-native` run prints only the provider final text to stdout. Session
+finalization messages, diagnostics, and errors go to stderr so stdout remains
+usable in shell pipelines. Failed native runs do not print provider final text
+to stdout. A structured machine-readable native stdout mode is deferred to a
+future explicit flag; this default mode does not emit JSON status records.
+
 By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, raw HTTP payloads, diffs, or file contents. It
 records safe metadata such as agent, adapter, provider, model id, run id,

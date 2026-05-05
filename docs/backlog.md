@@ -40,25 +40,29 @@ reviewable change while keeping the source-of-truth design constraints in
   `total_tokens`, `cached_tokens`, and `reasoning_tokens` counters;
   provider-native raw usage payloads and unavailable counters are omitted
   rather than guessed.
+- Native final text stdout mode decision: successful native provider final text
+  remains the default human-readable stdout payload, while session
+  finalization, diagnostics, progress, and errors stay on stderr; structured
+  machine-readable native stdout is deferred to a future explicit flag, and
+  archives remain metadata-only without model output.
 
 ## Next Slice
 
-### Native Final Text Stdout Mode Decision
+### Native Post-Tool Provider Turn Decision
 
-Goal: decide whether native run final text should eventually support a
-structured machine-readable stdout mode, while preserving the current
-human-readable stdout-only final text path and metadata-only archives.
+Goal: decide when a post-tool provider turn is useful after the fake intent
+path, while keeping execution fake until permission prompts and sandbox
+enforcement are designed.
 
 Candidate shape:
 
-- document the current stdout contract for `pipy run --agent pipy-native`
-- decide whether a future flag should emit structured final status/output
-  records to stdout for shell automation
-- keep progress, diagnostics, and session-finalization messages on stderr
-- keep raw prompt, model output, provider responses, and tool payloads out of
-  JSONL and Markdown by default
-- avoid changing the current default stdout behavior in this slice unless the
-  design is obvious and testable
+- document whether the current one-provider-turn fake tool path should remain
+  bounded or gain a second provider turn after a no-op tool result
+- keep the fake/no-op execution boundary; do not add real filesystem, shell, or
+  provider-side tool execution
+- define what summary-safe metadata a post-tool turn would need before any
+  implementation
+- preserve successful final text stdout and metadata-only archive behavior
 
 Keep out of scope:
 
@@ -75,9 +79,9 @@ Keep out of scope:
 
 Acceptance checks:
 
-- docs clearly describe whether structured stdout is deferred or selected
-- existing native CLI tests still prove final text prints only on successful
-  native runs
+- docs clearly describe whether a post-tool provider turn is deferred or
+  selected for the fake intent path
+- native behavior still uses deterministic fake/no-op execution only
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
@@ -86,9 +90,9 @@ Acceptance checks:
 
 ## Near Term
 
-- Decide when a post-tool provider turn is useful after the fake intent path,
-  while keeping execution fake until permission and sandbox enforcement are
-  designed.
+- Decide whether a future structured native stdout flag should emit JSON status
+  records, and define that output contract without changing the current
+  human-readable default.
 
 ## Deferred
 

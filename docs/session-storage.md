@@ -457,6 +457,15 @@ provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
 
+The native stdout/stderr split is part of the storage privacy contract:
+successful provider final text is terminal output, not archived session data.
+Session finalization messages, diagnostics, and errors go to stderr. Failed
+native runs do not print provider final text to stdout. A future structured
+machine-readable stdout mode, if needed for automation, must be introduced by
+an explicit flag and must still keep raw prompts, model output, provider
+responses, tool payloads, stdout, stderr, diffs, and file contents out of JSONL
+and Markdown by default.
+
 The first harness event stream follows this shape:
 
 ```text

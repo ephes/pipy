@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-7 native provider usage normalization implemented
+Status: slice-8 native final text stdout contract documented
 
 <style>
 .mermaid,
@@ -556,12 +556,20 @@ personal data.
 
 The native session owns system prompt construction internally. Archive records
 store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
-provider's final text may be printed to stdout by the CLI contract, but it is
-not stored in JSONL or Markdown by default. If the provider succeeds with no
-safe intent, the session completes without emitting tool lifecycle events. If
-the provider fails, the no-op tool path is recorded as `native.tool.skipped`;
-if a safe no-op intent is detected and the no-op tool fails, the native run
-fails without printing provider final text.
+provider's final text is not stored in JSONL or Markdown by default. If the
+provider succeeds with no safe intent, the session completes without emitting
+tool lifecycle events. If the provider fails, the no-op tool path is recorded
+as `native.tool.skipped`; if a safe no-op intent is detected and the no-op tool
+fails, the native run fails without printing provider final text.
+
+The current native stdout decision is to preserve the human-readable default:
+successful provider final text prints to stdout and nothing else in the native
+success path is written there by the harness. Session finalization notices,
+diagnostics, progress, provider errors, and other harness messages go to
+stderr. Failed native runs do not print provider final text to stdout. A
+structured machine-readable native stdout mode is deferred to a future explicit
+flag or slice; it is not part of the default `pipy run --agent pipy-native`
+contract.
 
 ### Native Fake Tool Intent
 
@@ -889,8 +897,10 @@ CLI output convention:
 
 - harness diagnostics, event summaries, and progress go to stderr
 - child process output streams through according to adapter policy
-- any future machine-readable final result or selected record path should go to
-  stdout
+- native provider final text prints to stdout only when `pipy-native` succeeds
+- `pipy-native` session-finalization messages and errors go to stderr
+- structured machine-readable native stdout is deferred to a future explicit
+  flag rather than changing the default human-readable stdout contract
 
 The initial CLI should not have:
 
