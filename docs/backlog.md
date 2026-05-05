@@ -21,22 +21,28 @@ reviewable change while keeping the source-of-truth design constraints in
   `--native-provider openai --native-model <model>`, using `OPENAI_API_KEY`,
   an injectable standard-library HTTP boundary, `store: false`, stdout-only
   final text, and privacy-safe partial archive metadata.
+- Native tool boundary with explicit request/result/status, approval policy, and
+  sandbox policy data, plus a deterministic fake no-op tool path that emits
+  privacy-safe lifecycle events without inspecting or mutating the workspace.
 
 ## Next Slice
 
-### Native Tool Boundary
+### Native Loop Planning Slice
 
-Goal: define the native tool request/result boundary without adding real
-filesystem or shell execution yet.
+Goal: decide the smallest useful native model/tool loop shape after the
+provider and tool boundaries, without granting real filesystem or shell powers
+yet.
 
 Candidate shape:
 
-- add value objects for a native tool request, result, and lifecycle status
-- keep a fake or no-op tool implementation for deterministic tests
-- emit privacy-safe tool lifecycle events without storing tool payloads
-- make approval and sandbox policy explicit data, but do not enforce real
-  workspace mutation yet
-- keep the provider turn single-shot; do not add a full agent loop
+- document how a provider result may request a tool without persisting raw
+  prompt/model/tool payloads
+- keep fake-provider and fake-tool behavior deterministic
+- define a minimal internal planner contract if needed
+- keep approval and sandbox policy as explicit data until enforcement is
+  designed
+- decide whether the no-op tool should remain mandatory for smoke runs or become
+  an injectable test path only
 
 Keep out of scope:
 
@@ -60,14 +66,13 @@ Acceptance checks:
 
 ## Near Term
 
-- Add a no-op or fake tool path to test native tool lifecycle events without
-  touching the workspace.
-- Design the permission and sandbox policy as explicit data, not implicit CLI
-  behavior.
 - Decide how native provider usage metadata should be normalized without
   leaking prompt or output contents.
 - Decide whether native run final text should eventually support a structured
   machine-readable stdout mode.
+- Decide when to introduce a real tool-request protocol from provider output,
+  while keeping execution fake until permission and sandbox enforcement are
+  designed.
 
 ## Deferred
 
@@ -94,7 +99,7 @@ Acceptance checks:
   personal data by default.
 - Building approvals, sandboxing, retries, streaming, OAuth, provider registry,
   raw transcript import, TUI, RPC, compaction, branching, or orchestration in
-  the next provider-boundary slice.
+  the next native slice.
 
 ## Maintenance Notes
 

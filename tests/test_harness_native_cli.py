@@ -50,11 +50,21 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     assert event_types[-1] == "session.finalized"
     assert "native.session.started" in event_types
     assert "native.provider.completed" in event_types
+    assert "native.tool.completed" in event_types
     provider_payloads = [
         event["payload"] for event in events if event["type"] == "native.provider.completed"
     ]
     assert provider_payloads[0]["provider"] == "fake"
     assert provider_payloads[0]["model_id"] == "fake-native-bootstrap"
+    tool_completed = [event["payload"] for event in events if event["type"] == "native.tool.completed"][0]
+    assert tool_completed["tool_name"] == "noop"
+    assert tool_completed["approval_policy"] == "not-required"
+    assert tool_completed["sandbox_policy"] == "no-workspace-access"
+    assert tool_completed["tool_payloads_stored"] is False
+    assert tool_completed["stdout_stored"] is False
+    assert tool_completed["stderr_stored"] is False
+    assert tool_completed["diffs_stored"] is False
+    assert tool_completed["file_contents_stored"] is False
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
@@ -63,8 +73,10 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     assert verify_session_archive(root=root).ok is True
     assert list_finalized_sessions(root=root)[0].jsonl_path == finalized[0]
     assert search_finalized_sessions("native.provider.completed", root=root)
+    assert search_finalized_sessions("native.tool.completed", root=root)
     inspection = inspect_finalized_session(finalized[0], root=root)
     assert inspection.event_types["native.session.completed"] == 1
+    assert inspection.event_types["native.tool.completed"] == 1
 
 
 def test_cli_native_rejects_command_after_separator(tmp_path, capsys):
@@ -149,6 +161,10 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
         "provider_response_store_requested": False,
         "response_status": "completed",
     }
+    assert [event["type"] for event in events if str(event["type"]).startswith("native.tool.")] == [
+        "native.tool.started",
+        "native.tool.completed",
+    ]
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
@@ -193,6 +209,8 @@ def test_cli_native_openai_missing_credentials_finalizes_failed_record(tmp_path,
     assert provider_failed["payload"]["provider"] == "openai"
     assert provider_failed["payload"]["error_type"] == "OpenAIAuthError"
     assert "API key is required" in provider_failed["payload"]["error_message"]
+    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert verify_session_archive(root=root).ok is True
 
 

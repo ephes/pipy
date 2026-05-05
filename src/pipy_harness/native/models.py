@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,82 @@ class ProviderResult:
     ended_at: datetime
     final_text: str | None = None
     usage: dict[str, int | float] | None = None
+    metadata: dict[str, Any] | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+class NativeToolStatus(StrEnum):
+    """Lifecycle vocabulary for one native tool boundary invocation."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class NativeToolApprovalMode(StrEnum):
+    """Approval posture represented as data before enforcement exists."""
+
+    NOT_REQUIRED = "not-required"
+    REQUIRED = "required"
+
+
+class NativeToolSandboxMode(StrEnum):
+    """Sandbox posture represented as data before enforcement exists."""
+
+    NO_WORKSPACE_ACCESS = "no-workspace-access"
+    READ_ONLY_WORKSPACE = "read-only-workspace"
+    MUTATING_WORKSPACE = "mutating-workspace"
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolApprovalPolicy:
+    """Approval policy attached to a native tool request."""
+
+    mode: NativeToolApprovalMode = NativeToolApprovalMode.NOT_REQUIRED
+
+    @property
+    def label(self) -> str:
+        return self.mode.value
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolSandboxPolicy:
+    """Sandbox policy attached to a native tool request."""
+
+    mode: NativeToolSandboxMode = NativeToolSandboxMode.NO_WORKSPACE_ACCESS
+    filesystem_mutation_allowed: bool = False
+    shell_execution_allowed: bool = False
+    network_access_allowed: bool = False
+
+    @property
+    def label(self) -> str:
+        return self.mode.value
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolRequest:
+    """Privacy-safe request sent across the native tool port."""
+
+    request_id: str
+    tool_name: str
+    tool_kind: str
+    approval_policy: NativeToolApprovalPolicy
+    sandbox_policy: NativeToolSandboxPolicy
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolResult:
+    """Privacy-safe result returned by a native tool."""
+
+    request_id: str
+    tool_name: str
+    status: NativeToolStatus
+    started_at: datetime
+    ended_at: datetime
     metadata: dict[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None

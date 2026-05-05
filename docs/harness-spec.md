@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-3 native provider boundary implemented
+Status: slice-4 native tool boundary implemented
 
 <style>
 .mermaid,
@@ -490,7 +490,8 @@ Concrete adapter examples:
 The native bootstrap slice adds `PipyNativeAdapter` behind the same
 `AgentPort`. It does not shell out to Codex, Claude, Pi, or another coding-agent
 CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
-and calls a provider through a minimal `ProviderPort`.
+calls a provider through a minimal `ProviderPort`, and exercises a deterministic
+no-op tool through a minimal `ToolPort`.
 
 The deterministic `fake` provider remains the default for tests and smoke runs.
 It is not a production AI provider and it does not require credentials. A smoke
@@ -515,26 +516,41 @@ does not enable built-in tools, function calling, web search, file search, code
 interpreter, computer use, conversation state, background mode, streaming,
 retries, model fallback, OAuth, or a provider registry.
 
+The native tool boundary defines explicit request/result/status value objects
+plus approval and sandbox policy data. The only implemented tool is the
+deterministic fake no-op tool. It does not read, write, edit, delete, diff,
+inspect, or execute anything in the workspace. Its current role is to prove
+event shape, lifecycle, dependency injection, and privacy-safe records before
+real permission prompts or sandbox enforcement exist.
+
 Native runs emit only privacy-safe lifecycle metadata:
 
 - `native.session.started`
 - `native.provider.started`
 - `native.provider.completed`
 - `native.provider.failed`
+- `native.tool.started`
+- `native.tool.completed`
+- `native.tool.failed`
+- `native.tool.skipped`
 - `native.session.completed`
 
 Payloads may include safe labels such as `provider`, `model_id`,
 `system_prompt_id`, `system_prompt_version`, `status`, `exit_code`, duration,
-usage counters, provider response storage booleans, and conservative sanitized
-error metadata. They must not include the full system prompt, user prompt text
-beyond the existing short `--goal` session metadata, model output, raw HTTP
-request or response bodies, tool payloads, stdout, stderr, secrets, tokens,
-credentials, private keys, or sensitive personal data.
+usage counters, provider response storage booleans, tool name/kind, approval
+policy label, sandbox policy label, storage booleans, and conservative
+sanitized error metadata. They must not include the full system prompt, user
+prompt text beyond the existing short `--goal` session metadata, model output,
+raw HTTP request or response bodies, tool arguments, tool payloads, stdout,
+stderr, diffs, file contents, secrets, tokens, credentials, private keys, or
+sensitive personal data.
 
 The native session owns system prompt construction internally. Archive records
 store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
 provider's final text may be printed to stdout by the CLI contract, but it is
-not stored in JSONL or Markdown by default.
+not stored in JSONL or Markdown by default. If the provider fails, the no-op
+tool path is recorded as `native.tool.skipped`; if the no-op tool fails, the
+native run fails without printing provider final text.
 
 ## Run Lifecycle
 
@@ -851,23 +867,26 @@ tests/test_harness_cli.py
 tests/test_harness_subprocess_adapter.py
 ```
 
-## Native Bootstrap Slice
+## Native Provider And Tool Boundary Slices
 
-Implementation note: the next small native slice is now implemented as
-`--agent pipy-native`. It adds:
+Implementation note: the first native slices are implemented as
+`--agent pipy-native`. They add:
 
 - native value objects under `src/pipy_harness/native/`
 - a minimal `ProviderPort`
+- a minimal `ToolPort`
 - deterministic `FakeNativeProvider`
+- deterministic `FakeNoOpNativeTool`
 - `NativeAgentSession` that owns system prompt construction
 - `PipyNativeAdapter` behind the existing runner boundary
 - CLI selection without requiring a command after `--`
-- focused provider, session, runner, CLI, and catalog compatibility tests
+- focused provider, tool, session, runner, CLI, and catalog compatibility tests
 
-This slice deliberately remains partial. It does not implement live providers,
-OAuth, provider registries, retries, native tool execution, approvals, sandbox
-policy, external-agent adapters, raw transcript import, TUI/RPC modes, indexed
-search, compaction, branching, or multi-agent orchestration.
+These slices deliberately remain partial. They do not implement a full
+model/tool loop, real filesystem or shell tool execution, OAuth, provider
+registries, retries, approval prompts, sandbox enforcement, external-agent
+adapters, raw transcript import, TUI/RPC modes, indexed search, compaction,
+branching, or multi-agent orchestration.
 
 ## Deferred Work
 
@@ -934,10 +953,11 @@ The native runtime bootstrap establishes:
 - a native `pipy` agent path behind the same runner/adapter boundary
 - a minimal provider port and prompt/session construction owned by
   pipy
+- a fake no-op tool port with explicit approval and sandbox policy data
 - model output, prompts, and tool payloads kept out of the pipy archive by
   default
-- deferral of a real tool loop, approvals, sandbox policy, and raw transcript import
-  unless explicitly scoped
+- deferral of a real tool loop, approval prompts, sandbox enforcement, and raw
+  transcript import unless explicitly scoped
 
 ### 5. Should a docs server be introduced now?
 

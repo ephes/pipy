@@ -7,9 +7,11 @@ import sys
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
+from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.session import NativeAgentSession, SYSTEM_PROMPT_ID, SYSTEM_PROMPT_VERSION
+from pipy_harness.native.tool import ToolPort
 
 
 class PipyNativeAdapter:
@@ -17,8 +19,9 @@ class PipyNativeAdapter:
 
     name = "pipy-native"
 
-    def __init__(self, provider: ProviderPort) -> None:
+    def __init__(self, provider: ProviderPort, tool: ToolPort | None = None) -> None:
         self.provider = provider
+        self.tool = tool or FakeNoOpNativeTool()
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -48,7 +51,7 @@ class PipyNativeAdapter:
         event_sink: EventSink,
         capture_policy: CapturePolicy,
     ) -> AdapterResult:
-        run_output = NativeAgentSession(provider=self.provider).run(
+        run_output = NativeAgentSession(provider=self.provider, tool=self.tool).run(
             NativeRunInput(
                 goal=prepared.goal or "",
                 cwd=prepared.cwd,

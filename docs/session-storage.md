@@ -442,13 +442,15 @@ generic commands and future agent CLIs usable when they intentionally read from
 stdin, but stdin content is not captured by pipy.
 
 The native bootstrap adapter is selected with `--agent pipy-native`. In this
-slice it owns system prompt construction and calls only the deterministic
-`fake` provider. The fake provider is for tests and smoke runs, not a production
-AI provider. It prints its final text to stdout through the explicit CLI
-contract, but the JSONL and Markdown archive records store only provider/session
-lifecycle metadata, safe model/provider labels, durations, and storage booleans.
-Native runs require `--goal`; that field remains user-visible archive metadata,
-so keep it short and non-sensitive.
+slice it owns system prompt construction, calls one provider, and exercises a
+deterministic fake no-op tool boundary. The fake provider and fake no-op tool
+are for tests and smoke runs, not a production AI/tool runtime. The no-op tool
+does not inspect or mutate the workspace and does not execute shell commands.
+Provider final text prints to stdout through the explicit CLI contract when the
+native run succeeds, but the JSONL and Markdown archive records store only
+provider/session/tool lifecycle metadata, safe labels, durations, policy labels,
+and storage booleans. Native runs require `--goal`; that field remains
+user-visible archive metadata, so keep it short and non-sensitive.
 
 The first harness event stream follows this shape:
 
@@ -470,8 +472,13 @@ completion event:
 native.session.started
 native.provider.started
 native.provider.completed | native.provider.failed
+native.tool.started
+native.tool.completed | native.tool.failed | native.tool.skipped
 native.session.completed
 ```
+
+`native.tool.started` is emitted only when the no-op tool is actually invoked.
+Provider failures record `native.tool.skipped` instead.
 
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive
@@ -723,7 +730,7 @@ on to the main coding-agent harness.
 Future automatic-capture work should keep the adapter boundary explicit and
 secondary to the native pipy runtime:
 
-- prioritize a native pipy runtime bootstrap that owns prompt construction,
+- prioritize the native pipy runtime path that owns prompt construction,
   provider calls, the tool boundary, and session semantics
 - do not make `codex`, `claude`, or another coding-agent CLI the main product
   execution path; wrapping them would inherit their prompt stack, approval
