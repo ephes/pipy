@@ -43,33 +43,40 @@ reviewable change while keeping the source-of-truth design constraints in
 - Native final text stdout mode decision: successful native provider final text
   remains the default human-readable stdout payload, while session
   finalization, diagnostics, progress, and errors stay on stderr; structured
-  machine-readable native stdout is deferred to a future explicit flag, and
-  archives remain metadata-only without model output.
+  machine-readable native stdout is deferred to a future explicit flag, later
+  named as `--native-output json`, and archives remain metadata-only without
+  model output.
 - Native post-tool provider turn decision: the current native fake intent path
   remains bounded to one provider turn plus optional one fake no-op tool
   invocation; any post-tool provider turn is deferred until permission prompts,
   sandbox enforcement, and real tool-result observation semantics are designed,
   and future metadata must remain summary-safe and metadata-only.
+- Native structured stdout flag contract decision: current `pipy-native`
+  stdout remains successful provider final text only by default, while future
+  structured automation output is reserved for explicit `--native-output json`
+  emitting one final metadata-only JSON object with no raw prompts, model
+  output, provider responses, tool payloads, stdout, stderr, diffs, file
+  contents, secrets, credentials, tokens, private keys, or sensitive personal
+  data.
 
 ## Next Slice
 
-### Native Structured Stdout Flag Contract Decision
+### Native Runtime Boundary Decision After Structured Stdout
 
-Goal: decide whether a future structured native stdout flag should emit JSON
-status records, while preserving the current successful-provider-final-text
-human-readable stdout default.
+Goal: decide the next small native runtime boundary after the structured stdout
+contract, while keeping the current bounded one-provider-turn plus optional
+fake no-op tool path unchanged.
 
 Candidate shape:
 
-- document the flag name and whether output is JSON object, JSONL event stream,
-  or another explicitly versioned machine-readable shape
-- preserve the default native stdout contract: successful provider final text
-  only, with diagnostics, finalization, progress, and errors on stderr
-- define how structured stdout relates to archive metadata without storing raw
-  prompts, model output, provider responses, tool payloads, stdout, stderr,
-  diffs, or file contents
-- keep records compatible with `pipy-session verify`, `list`, `search`,
-  `inspect`, and `reflect`
+- choose one narrow decision slice before adding any broader native execution
+  behavior
+- keep `pipy-native` as the product runtime direction rather than wrapping
+  Codex, Claude, Pi, or another CLI as the main path
+- preserve metadata-only archives and the default native stdout/stderr contract
+- keep real execution, approvals, sandboxing, post-tool provider turns, and
+  broader model/tool loops deferred unless their contracts are explicitly
+  selected first
 
 Keep out of scope:
 
@@ -88,22 +95,22 @@ Keep out of scope:
 
 Acceptance checks:
 
-- docs clearly describe whether structured native stdout is deferred or selected
-  for implementation and what its contract would be
-- native default stdout remains successful final text only
+- docs name the selected next native boundary and explain why it is still
+  bounded
+- native default stdout remains successful final text only on success, with
+  diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
   output, provider responses, tool payloads, stdout, stderr, diffs, file
-  contents, secrets, and credentials are not persisted or emitted in structured
-  automation output by default
+  contents, secrets, credentials, tokens, private keys, and sensitive personal
+  data are not persisted or emitted in automation output by default
 
 ## Near Term
 
-- Decide the next native runtime boundary after structured stdout, keeping real
-  execution, approvals, sandboxing, and broader model/tool loops deferred until
-  their contracts are explicit.
+- Implement explicit `--native-output json` only after the schema is reviewed
+  against `docs/harness-spec.md` and `docs/session-storage.md`.
 
 ## Deferred
 

@@ -130,8 +130,20 @@ Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
 finalization messages, diagnostics, and errors go to stderr so stdout remains
 usable in shell pipelines. Failed native runs do not print provider final text
-to stdout. A structured machine-readable native stdout mode is deferred to a
-future explicit flag; this default mode does not emit JSON status records.
+to stdout. A structured machine-readable native stdout mode is deferred to
+future `--native-output json`; this default mode does not emit JSON status
+records.
+
+The future `--native-output json` mode is a metadata-only status surface, not a
+transcript or final-text channel. Its first shape should be one final versioned
+JSON object on stdout after the native run and recorder finalization attempt,
+with diagnostics and finalization still on stderr. Allowed fields are
+summary-safe values such as schema/version, status, exit code, adapter,
+provider, model, duration, normalized usage counters, storage booleans, safe
+tool lifecycle labels, and finalized-record references. It must not emit raw
+prompts, model output, provider responses, provider-native payloads, tool
+arguments or results, stdout, stderr, diffs, file contents, secrets,
+credentials, tokens, private keys, or sensitive personal data by default.
 
 By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, raw HTTP payloads, diffs, or file contents. It

@@ -20,6 +20,22 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def assert_no_structured_status_stdout(stdout: str) -> None:
+    # The exact stdout assertions above this helper pin today's behavior; this
+    # guard records that default native stdout must not become structured status
+    # output if those text fixtures are relaxed later.
+    for line in stdout.splitlines():
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        assert not (
+            isinstance(parsed, dict)
+            and parsed.get("schema") == "pipy.native_output"
+            and "status" in parsed
+        )
+
+
 def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capfd):
     root = tmp_path / "sessions"
 
@@ -42,6 +58,7 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     captured = capfd.readouterr()
     assert exit_code == 0
     assert captured.out == "pipy native fake provider completed.\n"
+    assert_no_structured_status_stdout(captured.out)
     assert "pipy native fake provider completed." not in captured.err
     assert "session finalized" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -144,6 +161,7 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
     captured = capfd.readouterr()
     assert exit_code == 0
     assert captured.out == "OPENAI_OUTPUT_SHOULD_PRINT_ONLY\n"
+    assert_no_structured_status_stdout(captured.out)
     assert "OPENAI_OUTPUT_SHOULD_PRINT_ONLY" not in captured.err
     assert "session finalized" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -216,6 +234,7 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     captured = capfd.readouterr()
     assert exit_code == 1
     assert captured.out == ""
+    assert_no_structured_status_stdout(captured.out)
     assert "OpenAITestFailure" in captured.err
     assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE" not in captured.err
     assert "session finalized" in captured.err

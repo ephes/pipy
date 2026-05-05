@@ -475,9 +475,24 @@ successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed
 native runs do not print provider final text to stdout. A future structured
 machine-readable stdout mode, if needed for automation, must be introduced by
-an explicit flag and must still keep raw prompts, model output, provider
-responses, tool payloads, stdout, stderr, diffs, and file contents out of JSONL
-and Markdown by default.
+explicit `--native-output json` and must still keep raw prompts, model output,
+provider responses, provider-native payloads, tool arguments/results, tool
+payloads, stdout, stderr, diffs, file contents, secrets, credentials, tokens,
+private keys, and sensitive personal data out of JSONL and Markdown by
+default.
+
+Future structured native stdout follows the same metadata-only boundary. Its
+first contract should emit one final versioned JSON object, not a JSONL event
+stream, and only after the native run and recorder finalization attempt
+complete. Allowed fields are summary-safe status metadata: schema/version,
+status, exit code, adapter/provider/model labels, duration, normalized usage
+counters, storage booleans such as `prompt_stored=false` and
+`model_output_stored=false`, safe tool lifecycle labels, policy labels, and
+finalized-record references that do not reveal raw record contents. It must
+not expose raw prompts, model output, provider responses, provider-native
+payloads, tool arguments, tool results, stdout, stderr, diffs, file contents,
+secrets, credentials, tokens, private keys, or sensitive personal data by
+default.
 
 The first harness event stream follows this shape:
 
