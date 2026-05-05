@@ -48,6 +48,7 @@ class CapturingProvider:
     metadata: dict[str, object] | None = None
     usage: dict[str, object] | None = None
     captured_request: ProviderRequest | None = None
+    complete_calls: int = 0
 
     @property
     def name(self) -> str:
@@ -58,6 +59,7 @@ class CapturingProvider:
         return "capturing-model"
 
     def complete(self, request: ProviderRequest) -> ProviderResult:
+        self.complete_calls += 1
         self.captured_request = request
         now = datetime(2026, 5, 3, 12, 0, tzinfo=UTC)
         return ProviderResult(
@@ -246,6 +248,59 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
     assert tool_payload["stderr_stored"] is False
     assert tool_payload["diffs_stored"] is False
     assert tool_payload["file_contents_stored"] is False
+
+
+def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_result(tmp_path):
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_BE_ARCHIVED_AFTER_TOOL",
+        metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent()},
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    event_types = [event[0] for event in sink.events]
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert provider.complete_calls == 1
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.session.completed",
+    ]
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count("native.provider.completed") == 1
+    tool_completed_index = event_types.index("native.tool.completed")
+    assert event_types.index("native.provider.completed") < tool_completed_index
+    assert not event_types[tool_completed_index + 1 : -1]
+
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "MODEL_OUTPUT_SHOULD_NOT_BE_ARCHIVED_AFTER_TOOL" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+    for event_type, _, payload in sink.events:
+        assert payload is not None
+        assert payload["prompt_stored"] is False
+        assert payload["model_output_stored"] is False
+        assert payload["tool_payloads_stored"] is False
+        if event_type.startswith("native.tool."):
+            assert payload["stdout_stored"] is False
+            assert payload["stderr_stored"] is False
+            assert payload["diffs_stored"] is False
+            assert payload["file_contents_stored"] is False
 
 
 def test_native_session_unsafe_intent_skips_without_detected_or_started_events(tmp_path):

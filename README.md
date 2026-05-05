@@ -115,6 +115,17 @@ import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
 metadata.
 
+The current native fake intent path does not make a post-tool provider call.
+After one safe no-op tool result, the session completes instead of feeding a
+tool observation back to the provider. A future post-tool provider turn is
+deferred until permission prompts, sandbox enforcement, and tool-result
+observation semantics are designed. Any future turn must remain metadata-only
+in the pipy archive: safe turn/provider/model labels, status, durations,
+normalized usage counters, storage booleans, and safe observation labels may be
+recorded, but raw tool results, stdout, stderr, diffs, file contents, prompts,
+model output, provider responses, secrets, credentials, tokens, and sensitive
+personal data must not be stored by default.
+
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
 finalization messages, diagnostics, and errors go to stderr so stdout remains
@@ -143,9 +154,10 @@ agent runtime. The native bootstrap path establishes that pipy owns its system
 prompt, provider boundary, tool boundary, and session semantics instead of
 delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
 small OpenAI Responses provider boundary and one bounded fake no-op tool-intent
-path, but it does not yet implement a general model/tool loop, real tool
-execution, approval prompts, sandbox enforcement, retries, streaming, provider
-registry, OAuth, or raw transcript import.
+path that ends after the optional no-op tool result. It does not yet implement
+a post-tool provider turn, general model/tool loop, real tool execution,
+approval prompts, sandbox enforcement, retries, streaming, provider registry,
+OAuth, or raw transcript import.
 
 ## Session Recorder CLI
 

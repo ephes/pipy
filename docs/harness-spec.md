@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-8 native final text stdout contract documented
+Status: slice-9 native post-tool provider turn decision documented
 
 <style>
 .mermaid,
@@ -669,6 +669,31 @@ should not emit `native.tool.started`. A provider success with an unsupported
 or unsafe intent should not emit `native.tool.intent.detected` or
 `native.tool.started`; it should emit only a metadata-only skipped or failed
 lifecycle event with safe labels and no raw payload.
+
+### Native Post-Tool Provider Turn Decision
+
+The current native runtime remains bounded to one provider turn plus, only when
+the provider result exposes one safe supported intent, one injected fake no-op
+tool invocation. After `native.tool.completed`, the session emits
+`native.session.completed`; it does not call the provider again and does not
+emit another `native.provider.started` event.
+
+A post-tool provider turn is deferred until pipy has designed permission
+prompts, sandbox enforcement, and real tool-result observation semantics. Adding
+that turn would move the native path toward a real agent loop, so the runtime
+must first define what the provider may observe, how approval and sandbox
+decisions are enforced, and how failures or unsafe observations are represented
+without archiving raw content.
+
+If a future slice adds a post-tool provider turn, the archive may record only
+summary-safe metadata such as turn index, provider and model labels, status,
+duration, normalized usage counters, provider response storage booleans, prompt
+and model-output storage booleans, safe tool-observation labels, and storage
+booleans for tool payloads, stdout, stderr, diffs, and file contents. It must
+not archive raw tool result payloads, stdout, stderr, diffs, file contents,
+prompts, model output, provider responses, provider-native tool-call objects,
+function arguments, secrets, credentials, private keys, tokens, or sensitive
+personal data.
 
 Still deferred:
 

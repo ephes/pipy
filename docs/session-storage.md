@@ -457,6 +457,19 @@ provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
 
+The native fake intent path remains bounded to one provider turn and at most one
+fake no-op tool invocation. After a safe no-op tool result, the native session
+completes; it does not make a second provider call or archive a tool-result
+observation for provider consumption. A future post-tool provider turn is
+deferred until permission prompts, sandbox enforcement, and real tool-result
+observation semantics are designed. If that turn is added later, JSONL and
+Markdown records may still contain only summary-safe metadata such as turn
+index, provider/model labels, status, durations, normalized usage counters,
+storage booleans, and safe observation labels. They must not contain raw tool
+result payloads, stdout, stderr, diffs, file contents, prompts, model output,
+provider responses, provider-native tool-call payloads, secrets, credentials,
+tokens, private keys, or sensitive personal data by default.
+
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed
@@ -496,7 +509,9 @@ native.session.completed
 the no-op tool to be invoked. Provider successes with no intent complete without
 tool events. Provider failures and provider successes with unsupported or unsafe
 intent data record `native.tool.skipped` with safe reason metadata instead of
-emitting `native.tool.intent.detected` or `native.tool.started`.
+emitting `native.tool.intent.detected` or `native.tool.started`. Safe no-op
+tool success is followed directly by `native.session.completed`; there is no
+post-tool `native.provider.started` event in the current contract.
 
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive

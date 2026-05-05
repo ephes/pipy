@@ -45,54 +45,65 @@ reviewable change while keeping the source-of-truth design constraints in
   finalization, diagnostics, progress, and errors stay on stderr; structured
   machine-readable native stdout is deferred to a future explicit flag, and
   archives remain metadata-only without model output.
+- Native post-tool provider turn decision: the current native fake intent path
+  remains bounded to one provider turn plus optional one fake no-op tool
+  invocation; any post-tool provider turn is deferred until permission prompts,
+  sandbox enforcement, and real tool-result observation semantics are designed,
+  and future metadata must remain summary-safe and metadata-only.
 
 ## Next Slice
 
-### Native Post-Tool Provider Turn Decision
+### Native Structured Stdout Flag Contract Decision
 
-Goal: decide when a post-tool provider turn is useful after the fake intent
-path, while keeping execution fake until permission prompts and sandbox
-enforcement are designed.
+Goal: decide whether a future structured native stdout flag should emit JSON
+status records, while preserving the current successful-provider-final-text
+human-readable stdout default.
 
 Candidate shape:
 
-- document whether the current one-provider-turn fake tool path should remain
-  bounded or gain a second provider turn after a no-op tool result
-- keep the fake/no-op execution boundary; do not add real filesystem, shell, or
-  provider-side tool execution
-- define what summary-safe metadata a post-tool turn would need before any
-  implementation
-- preserve successful final text stdout and metadata-only archive behavior
+- document the flag name and whether output is JSON object, JSONL event stream,
+  or another explicitly versioned machine-readable shape
+- preserve the default native stdout contract: successful provider final text
+  only, with diagnostics, finalization, progress, and errors on stderr
+- define how structured stdout relates to archive metadata without storing raw
+  prompts, model output, provider responses, tool payloads, stdout, stderr,
+  diffs, or file contents
+- keep records compatible with `pipy-session verify`, `list`, `search`,
+  `inspect`, and `reflect`
 
 Keep out of scope:
 
-- OAuth or a provider registry
-- retries, streaming, or model fallback
+- changing the current human-readable default stdout mode
+- streaming
+- retries or model fallback
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
-- provider-side built-in tools such as web search, file search, code
-  interpreter, computer use, or background mode
-- raw prompt/model output storage in JSONL or Markdown
-- raw provider tool-call payloads, tool arguments, stdout, stderr, diffs, or
-  file contents in JSONL or Markdown
-- Codex, Claude, or Pi CLI wrapping as the main product path
+- post-tool provider turns or a general model/tool loop
+- provider-side built-in tools
+- raw prompt/model output storage in JSONL, Markdown, or structured stdout
+- raw provider responses, tool payloads, stdout, stderr, diffs, file contents,
+  secrets, credentials, or sensitive personal data in JSONL, Markdown, or
+  structured stdout
+- Codex, Claude, Pi, or another CLI wrapper as the main product path
 
 Acceptance checks:
 
-- docs clearly describe whether a post-tool provider turn is deferred or
-  selected for the fake intent path
-- native behavior still uses deterministic fake/no-op execution only
+- docs clearly describe whether structured native stdout is deferred or selected
+  for implementation and what its contract would be
+- native default stdout remains successful final text only
+- native behavior still uses the bounded deterministic fake/no-op execution path
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
   output, provider responses, tool payloads, stdout, stderr, diffs, file
-  contents, secrets, and credentials are not persisted by default
+  contents, secrets, and credentials are not persisted or emitted in structured
+  automation output by default
 
 ## Near Term
 
-- Decide whether a future structured native stdout flag should emit JSON status
-  records, and define that output contract without changing the current
-  human-readable default.
+- Decide the next native runtime boundary after structured stdout, keeping real
+  execution, approvals, sandboxing, and broader model/tool loops deferred until
+  their contracts are explicit.
 
 ## Deferred
 
