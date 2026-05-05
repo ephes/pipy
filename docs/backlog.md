@@ -24,25 +24,32 @@ reviewable change while keeping the source-of-truth design constraints in
 - Native tool boundary with explicit request/result/status, approval policy, and
   sandbox policy data, plus a deterministic fake no-op tool path that emits
   privacy-safe lifecycle events without inspecting or mutating the workspace.
+- Native loop planning documented: future provider output becomes a sanitized
+  internal tool-request intent before any tool lifecycle event is recorded, with
+  fake/no-op execution only, metadata-only archives, and real execution,
+  approvals, sandbox enforcement, retries, streaming, fallback, OAuth, provider
+  registry, raw transcript import, and orchestration deferred.
 
 ## Next Slice
 
-### Native Loop Planning Slice
+### Native Fake Tool-Intent Slice
 
-Goal: decide the smallest useful native model/tool loop shape after the
-provider and tool boundaries, without granting real filesystem or shell powers
-yet.
+Goal: implement the first fake provider-to-tool intent path after the native
+loop planning slice, while still granting no real filesystem or shell powers.
 
 Candidate shape:
 
-- document how a provider result may request a tool without persisting raw
-  prompt/model/tool payloads
-- keep fake-provider and fake-tool behavior deterministic
-- define a minimal internal planner contract if needed
-- keep approval and sandbox policy as explicit data until enforcement is
-  designed
-- decide whether the no-op tool should remain mandatory for smoke runs or become
-  an injectable test path only
+- add a sanitized internal tool-intent value or equivalent metadata path,
+  grounded in `docs/harness-spec.md`
+- allow the fake provider to deterministically request one `noop` intent through
+  explicit fixture data, not by inspecting or echoing prompt text
+- emit metadata-only `native.tool.intent.detected` for safe supported intents
+- invoke only the injected fake/no-op tool when a safe intent is present
+- keep native runs single-turn or one bounded fake intent path; do not implement
+  a general provider/tool loop
+- stop treating the no-op tool as mandatory for successful provider-final-text
+  runs once intent-driven invocation is implemented
+- keep approval and sandbox policy as explicit data with no enforcement yet
 
 Keep out of scope:
 
@@ -50,11 +57,20 @@ Keep out of scope:
 - retries, streaming, or model fallback
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
+- provider-side built-in tools such as web search, file search, code
+  interpreter, computer use, or background mode
 - raw prompt/model output storage in JSONL or Markdown
+- raw provider tool-call payloads, tool arguments, stdout, stderr, diffs, or
+  file contents in JSONL or Markdown
 - Codex, Claude, or Pi CLI wrapping as the main product path
 
 Acceptance checks:
 
+- fake provider can emit no intent and still complete without invoking the tool
+- fake provider can emit one safe no-op intent and deterministically invoke the
+  fake/no-op tool
+- unsafe or unsupported intent data becomes a sanitized skipped or failed
+  lifecycle path without storing raw payloads
 - fake-provider tests remain deterministic
 - fake-tool tests remain deterministic
 - native records still pass `pipy-session verify`
@@ -70,7 +86,7 @@ Acceptance checks:
   leaking prompt or output contents.
 - Decide whether native run final text should eventually support a structured
   machine-readable stdout mode.
-- Decide when to introduce a real tool-request protocol from provider output,
+- Decide when a post-tool provider turn is useful after the fake intent path,
   while keeping execution fake until permission and sandbox enforcement are
   designed.
 

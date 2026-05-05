@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-4 native tool boundary implemented
+Status: slice-5 native loop planning documented
 
 <style>
 .mermaid,
@@ -551,6 +551,121 @@ provider's final text may be printed to stdout by the CLI contract, but it is
 not stored in JSONL or Markdown by default. If the provider fails, the no-op
 tool path is recorded as `native.tool.skipped`; if the no-op tool fails, the
 native run fails without printing provider final text.
+
+### Native Loop Planning
+
+The next native runtime shape should be the smallest provider-to-tool loop that
+proves contract and lifecycle behavior without adding real execution powers. It
+should remain bounded, deterministic, and metadata-only in the pipy archive.
+
+The smallest useful loop is:
+
+1. Build the internal native system prompt and one user goal, as the current
+   native session does.
+2. Call the selected provider through `ProviderPort`.
+3. Interpret the provider result as either final text or one sanitized internal
+   tool-request intent.
+4. If there is no tool intent, complete the native session and print provider
+   final text only on success.
+5. If there is one supported tool intent, invoke only the injected no-op
+   `ToolPort`, record privacy-safe tool lifecycle metadata, and then complete
+   the session with a bounded fake result path.
+6. If provider or tool status is not successful, fail the native session and do
+   not print provider final text.
+
+This is intentionally not yet a general model/tool loop. A later real loop may
+feed a sanitized tool-result observation back to a provider for another model
+turn, but this planning slice keeps the first implementation to at most one
+fake provider-emitted intent and one no-op tool invocation.
+
+Provider-owned raw response content remains provider-owned. Pipy may parse a
+provider response inside the provider boundary, but the archive must store only
+safe lifecycle fields. Raw provider response bodies, raw model messages,
+provider-native tool-call payloads, function arguments, output text, and
+provider-specific request ids that could reveal payload content must not be
+written to JSONL or Markdown by default.
+
+The future internal tool-request intent should be a sanitized value produced
+after provider parsing, not the raw provider tool-call object. Allowed fields
+are limited to:
+
+- `request_id`: a pipy-generated opaque id, deterministic in tests. The current
+  `native-tool-0001` constant is acceptable only while the no-op path has at
+  most one invocation per native session; later loop work should generate a
+  per-invocation id, likely derived from `turn_index`.
+- `tool_name`: an allowlisted safe label such as `noop`.
+- `tool_kind`: an allowlisted safe category such as `internal_noop`.
+- `turn_index`: a small integer assigned by pipy.
+- `intent_source`: a safe label such as `fake_provider` or `provider_metadata`.
+- `approval_policy`: the policy label already represented by
+  `NativeToolApprovalPolicy`.
+- `approval_required`: a boolean derived from approval policy data.
+- `sandbox_policy`: the policy label already represented by
+  `NativeToolSandboxPolicy`.
+- `filesystem_mutation_allowed`, `shell_execution_allowed`, and
+  `network_access_allowed`: booleans derived from sandbox policy data.
+- `tool_payloads_stored`, `stdout_stored`, `stderr_stored`, `diffs_stored`, and
+  `file_contents_stored`: booleans that remain `false` for the no-op slice.
+- optional sanitized metadata containing only counters, booleans, enum labels,
+  and short non-secret identifiers.
+
+The internal tool-request intent must not contain or persist raw prompts, model
+output, raw provider responses, provider-native tool-call objects, tool
+arguments, shell commands, filesystem paths selected by the model, file
+contents, diffs, patches, stdout, stderr, credentials, tokens, private keys,
+API keys, or sensitive personal data. If a provider can only express a tool
+request through raw arguments, the provider adapter must convert that into an
+allowlisted intent in memory and drop the raw payload before emitting events.
+Unsupported or unsafe provider requests should become sanitized failures or
+safe skipped-tool records, not archived payloads.
+
+Deterministic fake behavior should remain the first implementation target. The
+fake provider may gain an explicit fixture field or may reuse the existing
+`ProviderResult.metadata` dictionary with an allowlisted key that asks for one
+no-op intent. That fixture path must not inspect the prompt, echo the prompt,
+or derive archived content from prompt text. The fake no-op tool should
+continue to return deterministic safe metadata showing that the workspace was
+not inspected or mutated and that no stdout, stderr, or tool payloads were
+stored.
+
+The current no-op tool should remain mandatory for native smoke runs until the
+provider-to-tool lifecycle has been implemented and reviewed. After that slice,
+the no-op tool should become an injected smoke-test and unit-test tool rather
+than a mandatory part of every successful native provider run. Production
+native runs should not execute an implicit tool when a provider returns only
+final text; tool invocation should be driven by an explicit sanitized intent.
+
+The expected lifecycle for the next fake intent slice is:
+
+```text
+native.session.started
+native.provider.started
+native.provider.completed
+native.tool.intent.detected        # metadata-only, emitted only for a safe intent
+native.tool.started
+native.tool.completed | native.tool.failed | native.tool.skipped
+native.session.completed
+```
+
+Provider failure should still record `native.provider.failed` followed by
+`native.tool.skipped` with a safe reason. A provider success with no intent
+should not emit `native.tool.started`. A provider success with an unsupported
+or unsafe intent should not emit `native.tool.intent.detected` or
+`native.tool.started`; it should emit only a metadata-only skipped or failed
+lifecycle event with safe labels and no raw payload.
+
+Still deferred:
+
+- real filesystem or shell tool execution
+- approval prompts or sandbox enforcement
+- provider retries, streaming, fallback, OAuth, or a provider registry
+- provider-side built-in tools such as web search, file search, code
+  interpreter, computer use, or background mode
+- raw transcript import
+- raw prompt, model output, tool argument, tool payload, stdout, stderr, diff,
+  patch, file-content, secret, credential, private-key, token, or sensitive
+  personal-data storage in JSONL or Markdown by default
+- TUI, RPC, compaction, branching, orchestration, and agent delegation
 
 ## Run Lifecycle
 
