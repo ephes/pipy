@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.adapters.native import PipyNativeAdapter
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
+    FakeNativeProvider,
     FakeNoOpNativeTool,
     NativeRunInput,
     NativeToolRequest,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -31,15 +36,16 @@ class RecordingSink:
         event_type: str,
         *,
         summary: str,
-        payload: dict[str, object] | None = None,
+        payload: Mapping[str, object] | None = None,
     ) -> None:
-        self.events.append((event_type, summary, payload))
+        self.events.append((event_type, summary, dict(payload) if payload is not None else None))
 
 
 @dataclass(slots=True)
 class CapturingProvider:
     final_text: str = "MODEL_OUTPUT_SHOULD_PRINT_ONLY"
     status: HarnessStatus = HarnessStatus.SUCCEEDED
+    metadata: dict[str, object] | None = None
     captured_request: ProviderRequest | None = None
 
     @property
@@ -60,6 +66,7 @@ class CapturingProvider:
             started_at=now,
             ended_at=now,
             final_text=self.final_text if self.status == HarnessStatus.SUCCEEDED else None,
+            metadata=self.metadata,
         )
 
 
@@ -73,7 +80,7 @@ class ExplodingProvider:
 
 
 class ExplodingTool:
-    name = "exploding-tool"
+    name = "noop"
 
     def invoke(self, request: NativeToolRequest) -> NativeToolResult:
         raise RuntimeError("tool exploded token=SECRET123")
@@ -83,7 +90,28 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-def test_native_session_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):
+def safe_noop_intent() -> dict[str, object]:
+    return {
+        "tool_name": "noop",
+        "tool_kind": "internal_noop",
+        "turn_index": 0,
+        "intent_source": "fake_provider",
+        "approval_policy": "not-required",
+        "approval_required": False,
+        "sandbox_policy": "no-workspace-access",
+        "filesystem_mutation_allowed": False,
+        "shell_execution_allowed": False,
+        "network_access_allowed": False,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "metadata": {"fixture": "safe-noop", "safe_count": 1},
+    }
+
+
+def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):
     provider = CapturingProvider()
     sink = RecordingSink()
     output = NativeAgentSession(provider=provider).run(
@@ -108,8 +136,6 @@ def test_native_session_builds_prompt_calls_provider_and_emits_safe_events(tmp_p
         "native.session.started",
         "native.provider.started",
         "native.provider.completed",
-        "native.tool.started",
-        "native.tool.completed",
         "native.session.completed",
     ]
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
@@ -122,6 +148,49 @@ def test_native_session_builds_prompt_calls_provider_and_emits_safe_events(tmp_p
         assert payload["prompt_stored"] is False
         assert payload["model_output_stored"] is False
         assert payload["tool_payloads_stored"] is False
+    assert not [event for event in sink.events if event[0].startswith("native.tool.")]
+
+
+def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(tmp_path):
+    provider = FakeNativeProvider(tool_intent=safe_noop_intent())
+    sink = RecordingSink()
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert [event[0] for event in sink.events] == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.session.completed",
+    ]
+    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert provider_completed[2]["provider_metadata"] == {"tool_intent_metadata_present": True}
+    intent_detected = [event for event in sink.events if event[0] == "native.tool.intent.detected"][0]
+    intent_payload = intent_detected[2]
+    assert intent_payload is not None
+    assert intent_payload["tool_request_id"] == "native-tool-0001"
+    assert intent_payload["turn_index"] == 0
+    assert intent_payload["intent_source"] == "fake_provider"
+    assert intent_payload["intent_metadata"] == {
+        "fixture": "safe-noop",
+        "internal_noop": True,
+        "safe_count": 1,
+        "tool_payloads_stored": False,
+    }
     tool_completed = [event for event in sink.events if event[0] == "native.tool.completed"][0]
     tool_payload = tool_completed[2]
     assert tool_payload is not None
@@ -136,6 +205,169 @@ def test_native_session_builds_prompt_calls_provider_and_emits_safe_events(tmp_p
     assert tool_payload["stderr_stored"] is False
     assert tool_payload["diffs_stored"] is False
     assert tool_payload["file_contents_stored"] is False
+
+
+def test_native_session_unsafe_intent_skips_without_detected_or_started_events(tmp_path):
+    provider = FakeNativeProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_INTENT",
+        tool_intent={
+            "tool_name": "noop",
+            "tool_kind": "internal_noop",
+            "intent_source": "fake_provider",
+            "payload": {"command": "SHOULD_NOT_PERSIST"},
+            "metadata": {"raw_payload": "SHOULD_NOT_PERSIST"},
+        },
+    )
+    sink = RecordingSink()
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    event_types = [event[0] for event in sink.events]
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert "native.tool.intent.detected" not in event_types
+    assert "native.tool.started" not in event_types
+    assert [event for event in event_types if event.startswith("native.tool.")] == ["native.tool.skipped"]
+    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    assert tool_skipped[2]["reason"] == "unsafe_tool_intent_keys"
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_PERSIST" not in serialized
+    assert "raw_payload" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("tool_intent", "reason"),
+    [
+        (["not", "a", "mapping"], "unsafe_tool_intent_shape"),
+        (
+            {
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 0,
+                "intent_source": "fake_provider",
+                "metadata": {"command": "SHOULD_NOT_PERSIST"},
+            },
+            "unsafe_tool_intent_metadata",
+        ),
+        (
+            {
+                "request_id": "provider-owned-id",
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 0,
+                "intent_source": "fake_provider",
+            },
+            "unsafe_tool_intent_request_id",
+        ),
+        (
+            {
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 1,
+                "intent_source": "fake_provider",
+            },
+            "unsafe_tool_intent_turn_index",
+        ),
+        (
+            {
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 0,
+                "intent_source": "raw_provider_tool_call",
+            },
+            "unsafe_tool_intent_source",
+        ),
+        (
+            {
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 0,
+                "intent_source": "fake_provider",
+                "approval_required": True,
+            },
+            "unsafe_tool_intent_policy",
+        ),
+    ],
+)
+def test_native_session_unsafe_intent_reasons_are_sanitized_and_skipped(
+    tmp_path,
+    tool_intent: object,
+    reason: str,
+):
+    provider = FakeNativeProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_INTENT",
+        metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: tool_intent},
+    )
+    sink = RecordingSink()
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    event_types = [event[0] for event in sink.events]
+    assert output.status == HarnessStatus.FAILED
+    assert output.final_text is None
+    assert "native.tool.intent.detected" not in event_types
+    assert "native.tool.started" not in event_types
+    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    tool_payload = tool_skipped[2]
+    assert tool_payload is not None
+    assert tool_payload["reason"] == reason
+    assert tool_payload["tool_name"] == "unsafe"
+    assert tool_payload["tool_kind"] == "unsafe_intent"
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_PERSIST" not in serialized
+    assert "provider-owned-id" not in serialized
+    assert "raw_provider_tool_call" not in serialized
+
+
+def test_native_session_unsupported_intent_skips_without_invoking_tool(tmp_path):
+    provider = FakeNativeProvider(
+        tool_intent={
+            "tool_name": "shell",
+            "tool_kind": "external_shell",
+            "turn_index": 0,
+            "intent_source": "fake_provider",
+        },
+    )
+    sink = RecordingSink()
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    event_types = [event[0] for event in sink.events]
+    assert output.status == HarnessStatus.FAILED
+    assert "native.tool.intent.detected" not in event_types
+    assert "native.tool.started" not in event_types
+    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    assert tool_skipped[2]["reason"] == "unsupported_tool_intent"
+    assert tool_skipped[2]["tool_name"] == "unsupported"
+    assert tool_skipped[2]["tool_kind"] == "unsupported_intent"
 
 
 def test_native_runner_finalizes_failed_provider_record(tmp_path):
@@ -176,7 +408,10 @@ def test_native_runner_finalizes_failed_tool_record_without_printing_provider_te
     root = tmp_path / "sessions"
     result = HarnessRunner(
         adapter=PipyNativeAdapter(
-            provider=CapturingProvider(final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_TOOL_FAILURE"),
+            provider=CapturingProvider(
+                final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_TOOL_FAILURE",
+                metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent()},
+            ),
             tool=FakeNoOpNativeTool(
                 status=NativeToolStatus.FAILED,
                 metadata={"api_token": "SECRET123", "safe_count": 1},
@@ -218,7 +453,10 @@ def test_native_runner_records_raising_tool_as_sanitized_failure(tmp_path):
     root = tmp_path / "sessions"
     result = HarnessRunner(
         adapter=PipyNativeAdapter(
-            provider=CapturingProvider(final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_AFTER_RAISE"),
+            provider=CapturingProvider(
+                final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_AFTER_RAISE",
+                metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent()},
+            ),
             tool=ExplodingTool(),
         ),
         id_factory=lambda: "native-tool-raised",
@@ -237,6 +475,7 @@ def test_native_runner_records_raising_tool_as_sanitized_failure(tmp_path):
     assert result.status == HarnessStatus.FAILED
     events = read_jsonl(result.record.jsonl_path)
     assert [event["type"] for event in events if str(event["type"]).startswith("native.tool.")] == [
+        "native.tool.intent.detected",
         "native.tool.started",
         "native.tool.failed",
     ]

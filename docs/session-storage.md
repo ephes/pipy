@@ -442,12 +442,13 @@ generic commands and future agent CLIs usable when they intentionally read from
 stdin, but stdin content is not captured by pipy.
 
 The native bootstrap adapter is selected with `--agent pipy-native`. In this
-slice it owns system prompt construction, calls one provider, and exercises a
-deterministic fake no-op tool boundary. The fake provider and fake no-op tool
-are for tests and smoke runs, not a production AI/tool runtime. The no-op tool
-does not inspect or mutate the workspace and does not execute shell commands.
-Provider final text prints to stdout through the explicit CLI contract when the
-native run succeeds, but the JSONL and Markdown archive records store only
+slice it owns system prompt construction, calls one provider, and invokes the
+deterministic fake no-op tool boundary only when the provider returns one
+sanitized supported no-op intent. The fake provider and fake no-op tool are for
+tests and smoke runs, not a production AI/tool runtime. The no-op tool does not
+inspect or mutate the workspace and does not execute shell commands. Provider
+final text prints to stdout through the explicit CLI contract when the native
+run succeeds, but the JSONL and Markdown archive records store only
 provider/session/tool lifecycle metadata, safe labels, durations, policy labels,
 and storage booleans. Native runs require `--goal`; that field remains
 user-visible archive metadata, so keep it short and non-sensitive.
@@ -472,13 +473,17 @@ completion event:
 native.session.started
 native.provider.started
 native.provider.completed | native.provider.failed
+native.tool.intent.detected        # only for a safe supported intent
 native.tool.started
 native.tool.completed | native.tool.failed | native.tool.skipped
 native.session.completed
 ```
 
-`native.tool.started` is emitted only when the no-op tool is actually invoked.
-Provider failures record `native.tool.skipped` instead.
+`native.tool.started` is emitted only when a safe supported no-op intent causes
+the no-op tool to be invoked. Provider successes with no intent complete without
+tool events. Provider failures and provider successes with unsupported or unsafe
+intent data record `native.tool.skipped` with safe reason metadata instead of
+emitting `native.tool.intent.detected` or `native.tool.started`.
 
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive

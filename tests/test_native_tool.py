@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pipy_harness.native import (
     FakeNoOpNativeTool,
     NativeToolApprovalPolicy,
+    NativeToolIntent,
     NativeToolRequest,
     NativeToolResult,
     NativeToolSandboxPolicy,
@@ -33,6 +34,26 @@ def test_native_tool_value_objects_do_not_model_payload_or_output_storage():
     assert request_fields["sandbox_policy"]["network_access_allowed"] is False
     for forbidden in ("arguments", "payload", "stdout", "stderr", "diff", "file_content"):
         assert forbidden not in request_fields
+
+
+def test_native_tool_intent_value_object_is_metadata_only():
+    intent = NativeToolIntent(
+        request_id="native-tool-0001",
+        tool_name="noop",
+        tool_kind="internal_noop",
+        turn_index=0,
+        intent_source="fake_provider",
+        approval_policy=NativeToolApprovalPolicy(),
+        sandbox_policy=NativeToolSandboxPolicy(),
+        metadata={"safe_count": 1, "internal_noop": True},
+    )
+
+    intent_fields = asdict(intent)
+
+    assert intent_fields["turn_index"] == 0
+    assert intent_fields["intent_source"] == "fake_provider"
+    for forbidden in ("arguments", "payload", "stdout", "stderr", "diff", "file_content", "command", "path"):
+        assert forbidden not in intent_fields
 
 
 def test_fake_noop_native_tool_is_deterministic_and_side_effect_free():

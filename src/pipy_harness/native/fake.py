@@ -11,6 +11,7 @@ from pipy_harness.native.models import (
     NativeToolRequest,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -23,6 +24,8 @@ class FakeNativeProvider:
     model_id: str = "fake-native-bootstrap"
     final_text: str = "pipy native fake provider completed."
     status: HarnessStatus = HarnessStatus.SUCCEEDED
+    metadata: dict[str, Any] | None = None
+    tool_intent: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -32,6 +35,9 @@ class FakeNativeProvider:
         started_at = datetime.now(UTC)
         ended_at = datetime.now(UTC)
         final_text = self.final_text if self.status == HarnessStatus.SUCCEEDED else None
+        metadata = dict(self.metadata or {})
+        if self.tool_intent is not None:
+            metadata[PROVIDER_TOOL_INTENT_METADATA_KEY] = dict(self.tool_intent)
         return ProviderResult(
             status=self.status,
             provider_name=self.name,
@@ -43,6 +49,7 @@ class FakeNativeProvider:
                 "input_characters": len(request.system_prompt) + len(request.user_prompt),
                 "output_characters": len(final_text or ""),
             },
+            metadata=metadata or None,
         )
 
 

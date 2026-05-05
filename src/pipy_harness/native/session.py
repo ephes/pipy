@@ -15,10 +15,12 @@ from pipy_harness.native.models import (
     NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
+    NativeToolIntent,
     NativeToolRequest,
     NativeToolResult,
     NativeToolSandboxPolicy,
     NativeToolStatus,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -30,6 +32,46 @@ SYSTEM_PROMPT_VERSION = "1"
 NOOP_TOOL_REQUEST_ID = "native-tool-0001"
 NOOP_TOOL_NAME = "noop"
 NOOP_TOOL_KIND = "internal_noop"
+NOOP_TOOL_TURN_INDEX = 0
+TOOL_INTENT_UNSUPPORTED_NAME = "unsupported"
+TOOL_INTENT_UNSUPPORTED_KIND = "unsupported_intent"
+TOOL_INTENT_UNSAFE_NAME = "unsafe"
+TOOL_INTENT_UNSAFE_KIND = "unsafe_intent"
+_SUPPORTED_INTENT_SOURCES = {"fake_provider", "provider_metadata"}
+_SAFE_INTENT_METADATA_KEYS = {
+    "fixture",
+    "internal_noop",
+    "safe_count",
+    "tool_payloads_stored",
+    "workspace_inspected",
+    "workspace_mutated",
+}
+_ALLOWED_INTENT_KEYS = {
+    "request_id",
+    "tool_name",
+    "tool_kind",
+    "turn_index",
+    "intent_source",
+    "approval_policy",
+    "approval_required",
+    "sandbox_policy",
+    "filesystem_mutation_allowed",
+    "shell_execution_allowed",
+    "network_access_allowed",
+    "tool_payloads_stored",
+    "stdout_stored",
+    "stderr_stored",
+    "diffs_stored",
+    "file_contents_stored",
+    "metadata",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedToolIntent:
+    intent: NativeToolIntent | None = None
+    skipped_request: NativeToolRequest | None = None
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -96,7 +138,7 @@ class NativeAgentSession:
                 "status": provider_result.status.value,
                 "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
                 "usage": sanitize_metadata(provider_result.usage or {}),
-                "provider_metadata": sanitize_metadata(provider_result.metadata or {}),
+                "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
                 "error_type": _safe_optional_text(provider_result.error_type),
                 "error_message": _safe_optional_text(provider_result.error_message),
             },
@@ -104,10 +146,30 @@ class NativeAgentSession:
 
         tool_result: NativeToolResult | None = None
         if provider_result.status == HarnessStatus.SUCCEEDED:
-            tool_result = self._invoke_noop_tool(event_sink, safe_context)
+            parsed_intent = _parse_tool_intent(provider_result)
+            if parsed_intent.intent is not None:
+                _emit_tool_intent_detected(event_sink, safe_context, parsed_intent.intent)
+                tool_result = self._invoke_noop_tool(event_sink, safe_context, parsed_intent.intent)
+            elif parsed_intent.skipped_request is not None:
+                tool_result = _skipped_tool_result(
+                    parsed_intent.skipped_request,
+                    error_type="NativeToolIntentSkipped",
+                    error_message=parsed_intent.reason or "tool_intent_skipped",
+                )
+                _emit_tool_result_event(
+                    event_sink,
+                    safe_context,
+                    parsed_intent.skipped_request,
+                    tool_result,
+                    reason=parsed_intent.reason,
+                )
         else:
             tool_request = _noop_tool_request()
-            tool_result = _skipped_tool_result(tool_request)
+            tool_result = _skipped_tool_result(
+                tool_request,
+                error_type="NativeToolSkipped",
+                error_message="provider_not_succeeded",
+            )
             _emit_tool_result_event(
                 event_sink,
                 safe_context,
@@ -145,8 +207,9 @@ class NativeAgentSession:
         self,
         event_sink: EventSink,
         safe_context: Mapping[str, object],
+        intent: NativeToolIntent,
     ) -> NativeToolResult:
-        tool_request = _noop_tool_request()
+        tool_request = _tool_request_from_intent(intent)
         event_sink.emit(
             "native.tool.started",
             summary=(
@@ -189,6 +252,114 @@ def _safe_context(run_input: NativeRunInput) -> dict[str, object]:
     }
 
 
+def _safe_provider_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+    safe_metadata = dict(metadata)
+    if PROVIDER_TOOL_INTENT_METADATA_KEY in safe_metadata:
+        safe_metadata.pop(PROVIDER_TOOL_INTENT_METADATA_KEY)
+        safe_metadata["tool_intent_metadata_present"] = True
+    return sanitize_metadata(safe_metadata)
+
+
+def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
+    metadata = provider_result.metadata or {}
+    if PROVIDER_TOOL_INTENT_METADATA_KEY not in metadata:
+        return _ParsedToolIntent()
+
+    raw_intent = metadata[PROVIDER_TOOL_INTENT_METADATA_KEY]
+    if not isinstance(raw_intent, Mapping):
+        return _ParsedToolIntent(
+            skipped_request=_skipped_intent_tool_request("unsafe_tool_intent_shape"),
+            reason="unsafe_tool_intent_shape",
+        )
+
+    reason = _unsafe_intent_reason(raw_intent)
+    if reason is not None:
+        return _ParsedToolIntent(skipped_request=_skipped_intent_tool_request(reason), reason=reason)
+
+    if raw_intent.get("tool_name") != NOOP_TOOL_NAME or raw_intent.get("tool_kind") != NOOP_TOOL_KIND:
+        return _ParsedToolIntent(
+            skipped_request=_skipped_intent_tool_request("unsupported_tool_intent"),
+            reason="unsupported_tool_intent",
+        )
+
+    metadata_result = _safe_intent_metadata(raw_intent.get("metadata"))
+    if metadata_result is None:
+        return _ParsedToolIntent(
+            skipped_request=_skipped_intent_tool_request("unsafe_tool_intent_metadata"),
+            reason="unsafe_tool_intent_metadata",
+        )
+
+    return _ParsedToolIntent(
+        intent=NativeToolIntent(
+            request_id=NOOP_TOOL_REQUEST_ID,
+            tool_name=NOOP_TOOL_NAME,
+            tool_kind=NOOP_TOOL_KIND,
+            turn_index=NOOP_TOOL_TURN_INDEX,
+            intent_source=str(raw_intent.get("intent_source", "provider_metadata")),
+            approval_policy=NativeToolApprovalPolicy(),
+            sandbox_policy=NativeToolSandboxPolicy(),
+            metadata=metadata_result,
+        )
+    )
+
+
+def _unsafe_intent_reason(raw_intent: Mapping[object, object]) -> str | None:
+    if any(not isinstance(key, str) for key in raw_intent):
+        return "unsafe_tool_intent_keys"
+    if set(raw_intent) - _ALLOWED_INTENT_KEYS:
+        return "unsafe_tool_intent_keys"
+    if raw_intent.get("request_id", NOOP_TOOL_REQUEST_ID) != NOOP_TOOL_REQUEST_ID:
+        return "unsafe_tool_intent_request_id"
+    if raw_intent.get("turn_index", NOOP_TOOL_TURN_INDEX) != NOOP_TOOL_TURN_INDEX:
+        return "unsafe_tool_intent_turn_index"
+    intent_source = raw_intent.get("intent_source", "provider_metadata")
+    if intent_source not in _SUPPORTED_INTENT_SOURCES:
+        return "unsafe_tool_intent_source"
+    if raw_intent.get("approval_policy", NativeToolApprovalPolicy().label) != NativeToolApprovalPolicy().label:
+        return "unsafe_tool_intent_policy"
+    if raw_intent.get("approval_required", False) is not False:
+        return "unsafe_tool_intent_policy"
+    if raw_intent.get("sandbox_policy", NativeToolSandboxPolicy().label) != NativeToolSandboxPolicy().label:
+        return "unsafe_tool_intent_policy"
+    for key in (
+        "filesystem_mutation_allowed",
+        "shell_execution_allowed",
+        "network_access_allowed",
+        "tool_payloads_stored",
+        "stdout_stored",
+        "stderr_stored",
+        "diffs_stored",
+        "file_contents_stored",
+    ):
+        if raw_intent.get(key, False) is not False:
+            return "unsafe_tool_intent_policy"
+    return None
+
+
+def _safe_intent_metadata(value: object) -> dict[str, object] | None:
+    if value is None:
+        return {
+            "internal_noop": True,
+            "tool_payloads_stored": False,
+        }
+    if not isinstance(value, Mapping):
+        return None
+
+    safe_metadata: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or key not in _SAFE_INTENT_METADATA_KEYS:
+            return None
+        if not isinstance(item, bool | int | float | str):
+            return None
+        sanitized_item = sanitize_text(item) if isinstance(item, str) else item
+        if sanitized_item == "[REDACTED]":
+            return None
+        safe_metadata[key] = sanitized_item
+    safe_metadata.setdefault("internal_noop", True)
+    safe_metadata.setdefault("tool_payloads_stored", False)
+    return safe_metadata
+
+
 def _noop_tool_request() -> NativeToolRequest:
     return NativeToolRequest(
         request_id=NOOP_TOOL_REQUEST_ID,
@@ -201,6 +372,50 @@ def _noop_tool_request() -> NativeToolRequest:
             "tool_payloads_stored": False,
         },
     )
+
+
+def _tool_request_from_intent(intent: NativeToolIntent) -> NativeToolRequest:
+    return NativeToolRequest(
+        request_id=intent.request_id,
+        tool_name=intent.tool_name,
+        tool_kind=intent.tool_kind,
+        approval_policy=intent.approval_policy,
+        sandbox_policy=intent.sandbox_policy,
+        metadata=intent.metadata,
+    )
+
+
+def _skipped_intent_tool_request(reason: str) -> NativeToolRequest:
+    unsafe = reason.startswith("unsafe")
+    return NativeToolRequest(
+        request_id=NOOP_TOOL_REQUEST_ID,
+        tool_name=TOOL_INTENT_UNSAFE_NAME if unsafe else TOOL_INTENT_UNSUPPORTED_NAME,
+        tool_kind=TOOL_INTENT_UNSAFE_KIND if unsafe else TOOL_INTENT_UNSUPPORTED_KIND,
+        approval_policy=NativeToolApprovalPolicy(),
+        sandbox_policy=NativeToolSandboxPolicy(),
+    )
+
+
+def _safe_intent_context(intent: NativeToolIntent) -> dict[str, object]:
+    return {
+        "tool_request_id": intent.request_id,
+        "tool_name": intent.tool_name,
+        "tool_kind": intent.tool_kind,
+        "turn_index": intent.turn_index,
+        "intent_source": intent.intent_source,
+        "approval_policy": intent.approval_policy.label,
+        "approval_required": intent.approval_policy.mode == NativeToolApprovalMode.REQUIRED,
+        "sandbox_policy": intent.sandbox_policy.label,
+        "filesystem_mutation_allowed": intent.sandbox_policy.filesystem_mutation_allowed,
+        "shell_execution_allowed": intent.sandbox_policy.shell_execution_allowed,
+        "network_access_allowed": intent.sandbox_policy.network_access_allowed,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "intent_metadata": sanitize_metadata(intent.metadata or {}),
+    }
 
 
 def _safe_tool_context(tool_request: NativeToolRequest) -> dict[str, object]:
@@ -220,6 +435,25 @@ def _safe_tool_context(tool_request: NativeToolRequest) -> dict[str, object]:
         "diffs_stored": False,
         "file_contents_stored": False,
     }
+
+
+def _emit_tool_intent_detected(
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    intent: NativeToolIntent,
+) -> None:
+    event_sink.emit(
+        "native.tool.intent.detected",
+        summary=(
+            "Native tool intent detected: "
+            f"tool={sanitize_text(intent.tool_name)}, kind={sanitize_text(intent.tool_kind)}."
+        ),
+        payload={
+            **safe_context,
+            **_safe_intent_context(intent),
+            "status": NativeToolStatus.PENDING.value,
+        },
+    )
 
 
 def _emit_tool_result_event(
@@ -260,7 +494,12 @@ def _tool_event_type(status: NativeToolStatus) -> str:
     return "native.tool.failed"
 
 
-def _skipped_tool_result(tool_request: NativeToolRequest) -> NativeToolResult:
+def _skipped_tool_result(
+    tool_request: NativeToolRequest,
+    *,
+    error_type: str | None = None,
+    error_message: str | None = None,
+) -> NativeToolResult:
     now = _utc_now()
     return NativeToolResult(
         request_id=tool_request.request_id,
@@ -273,6 +512,8 @@ def _skipped_tool_result(tool_request: NativeToolRequest) -> NativeToolResult:
             "workspace_inspected": False,
             "tool_payloads_stored": False,
         },
+        error_type=error_type,
+        error_message=error_message,
     )
 
 
@@ -301,7 +542,7 @@ def _failed_tool_result(
 def _final_status(provider_result: ProviderResult, tool_result: NativeToolResult | None) -> HarnessStatus:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return provider_result.status
-    if tool_result is not None and tool_result.status == NativeToolStatus.FAILED:
+    if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return HarnessStatus.FAILED
     return HarnessStatus.SUCCEEDED
 
@@ -312,7 +553,7 @@ def _native_error_type(
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_type)
-    if tool_result is not None and tool_result.status == NativeToolStatus.FAILED:
+    if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return _safe_optional_text(tool_result.error_type) or "NativeToolError"
     return None
 
@@ -323,7 +564,7 @@ def _native_error_message(
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_message)
-    if tool_result is not None and tool_result.status == NativeToolStatus.FAILED:
+    if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return _safe_optional_text(tool_result.error_message)
     return None
 

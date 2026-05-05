@@ -10,6 +10,8 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 
+PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
+
 
 @dataclass(frozen=True, slots=True)
 class NativeRunInput:
@@ -107,6 +109,25 @@ class NativeToolRequest:
     request_id: str
     tool_name: str
     tool_kind: str
+    approval_policy: NativeToolApprovalPolicy
+    sandbox_policy: NativeToolSandboxPolicy
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolIntent:
+    """Sanitized internal provider-to-tool intent.
+
+    This is not a raw provider tool-call object. It carries only safe labels,
+    policy booleans, and optional sanitized metadata for one bounded native
+    no-op invocation.
+    """
+
+    request_id: str
+    tool_name: str
+    tool_kind: str
+    turn_index: int
+    intent_source: str
     approval_policy: NativeToolApprovalPolicy
     sandbox_policy: NativeToolSandboxPolicy
     metadata: dict[str, Any] | None = None

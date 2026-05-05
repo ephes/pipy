@@ -99,15 +99,17 @@ secrets, credentials, or sensitive personal data into it.
 For subprocess runs, the harness streams child stdout and stderr to the caller,
 finalizes the pipy record, and then returns the child process exit code. For
 `--agent pipy-native`, pipy runs one minimal native turn through an injected
-provider and a deterministic fake no-op tool boundary. The deterministic fake
-provider remains the default smoke-test boundary and does not require
-credentials. The no-op tool proves tool lifecycle and policy records without
-inspecting or mutating the workspace, executing shell commands, storing tool
-payloads, or enforcing approvals/sandboxing. The OpenAI provider calls the
-Responses API through a small standard-library HTTP boundary, reads its API key
-from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
-internal system prompt as `instructions`, sends the short `--goal` as `input`,
-and requests `store: false`. It does not enable provider-side tools, streaming,
+provider. The deterministic fake provider remains the default smoke-test
+boundary and does not require credentials. Native tool invocation is driven
+only by one sanitized supported no-op intent from provider metadata; provider
+success with final text and no intent completes without tool events. The
+injected no-op tool proves tool lifecycle and policy records without inspecting
+or mutating the workspace, executing shell commands, storing tool payloads, or
+enforcing approvals/sandboxing. The OpenAI provider calls the Responses API
+through a small standard-library HTTP boundary, reads its API key from
+`OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's internal
+system prompt as `instructions`, sends the short `--goal` as `input`, and
+requests `store: false`. It does not enable provider-side tools, streaming,
 retries, conversation state, background mode, model fallback, or raw transcript
 import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
@@ -117,10 +119,10 @@ By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, raw HTTP payloads, diffs, or file contents. It
 records safe metadata such as agent, adapter, provider, model id, run id,
 workspace basename plus path hash, status, exit code, safe usage counters when
-available, provider storage booleans, no-op tool name/kind, approval and
-sandbox policy labels, and tool storage booleans. `--record-files` records
-relative changed paths from `git status --porcelain`; without it, changed paths
-are not recorded.
+available, provider storage booleans, safe tool-intent labels when present,
+no-op tool name/kind when invoked, approval and sandbox policy labels, and tool
+storage booleans. `--record-files` records relative changed paths from
+`git status --porcelain`; without it, changed paths are not recorded.
 
 Finalized records remain compatible with `pipy-session verify`, `list`,
 `search`, `inspect`, and `reflect`.
@@ -129,10 +131,10 @@ The subprocess harness is a foundation and smoke-test path, not the long-term
 agent runtime. The native bootstrap path establishes that pipy owns its system
 prompt, provider boundary, tool boundary, and session semantics instead of
 delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
-small OpenAI Responses provider boundary and a fake no-op tool boundary, but it
-does not yet implement a model/tool loop, real tool execution, approval prompts,
-sandbox enforcement, retries, streaming, provider registry, OAuth, or raw
-transcript import.
+small OpenAI Responses provider boundary and one bounded fake no-op tool-intent
+path, but it does not yet implement a general model/tool loop, real tool
+execution, approval prompts, sandbox enforcement, retries, streaming, provider
+registry, OAuth, or raw transcript import.
 
 ## Session Recorder CLI
 

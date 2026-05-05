@@ -29,27 +29,28 @@ reviewable change while keeping the source-of-truth design constraints in
   fake/no-op execution only, metadata-only archives, and real execution,
   approvals, sandbox enforcement, retries, streaming, fallback, OAuth, provider
   registry, raw transcript import, and orchestration deferred.
+- Native fake tool-intent path: fake providers can deterministically expose one
+  sanitized internal no-op intent through explicit fixture metadata; native
+  sessions invoke the injected no-op tool only for that safe intent, while
+  provider success with no intent completes without tool events and
+  unsafe/unsupported intent data is skipped with metadata-only lifecycle
+  records.
 
 ## Next Slice
 
-### Native Fake Tool-Intent Slice
+### Native Provider Usage Metadata Normalization
 
-Goal: implement the first fake provider-to-tool intent path after the native
-loop planning slice, while still granting no real filesystem or shell powers.
+Goal: decide and implement the smallest provider-usage normalization layer that
+keeps native provider metadata useful without leaking prompt or output content.
 
 Candidate shape:
 
-- add a sanitized internal tool-intent value or equivalent metadata path,
-  grounded in `docs/harness-spec.md`
-- allow the fake provider to deterministically request one `noop` intent through
-  explicit fixture data, not by inspecting or echoing prompt text
-- emit metadata-only `native.tool.intent.detected` for safe supported intents
-- invoke only the injected fake/no-op tool when a safe intent is present
-- keep native runs single-turn or one bounded fake intent path; do not implement
-  a general provider/tool loop
-- stop treating the no-op tool as mandatory for successful provider-final-text
-  runs once intent-driven invocation is implemented
-- keep approval and sandbox policy as explicit data with no enforcement yet
+- define allowlisted normalized usage keys shared by fake and OpenAI providers
+- keep provider-native raw usage payloads out of JSONL and Markdown by default
+- preserve existing safe counters such as input, output, total, cached, and
+  reasoning token counts when available
+- document unknown or unavailable counters as omitted rather than guessed
+- keep the provider boundary standard-library first and do not add dependencies
 
 Keep out of scope:
 
@@ -66,24 +67,17 @@ Keep out of scope:
 
 Acceptance checks:
 
-- fake provider can emit no intent and still complete without invoking the tool
-- fake provider can emit one safe no-op intent and deterministically invoke the
-  fake/no-op tool
-- unsafe or unsupported intent data becomes a sanitized skipped or failed
-  lifecycle path without storing raw payloads
-- fake-provider tests remain deterministic
-- fake-tool tests remain deterministic
+- normalized provider usage remains metadata-only and privacy-safe
+- fake-provider and OpenAI-provider tests remain deterministic
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, and
   model output are not persisted by default
-- tool payloads, stdout, stderr, diffs, file contents, secrets, and credentials
-  are not persisted by default
+- raw provider responses, tool payloads, stdout, stderr, diffs, file contents,
+  secrets, and credentials are not persisted by default
 
 ## Near Term
 
-- Decide how native provider usage metadata should be normalized without
-  leaking prompt or output contents.
 - Decide whether native run final text should eventually support a structured
   machine-readable stdout mode.
 - Decide when a post-tool provider turn is useful after the fake intent path,

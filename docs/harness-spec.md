@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-5 native loop planning documented
+Status: slice-6 native fake tool-intent implemented
 
 <style>
 .mermaid,
@@ -490,8 +490,9 @@ Concrete adapter examples:
 The native bootstrap slice adds `PipyNativeAdapter` behind the same
 `AgentPort`. It does not shell out to Codex, Claude, Pi, or another coding-agent
 CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
-calls a provider through a minimal `ProviderPort`, and exercises a deterministic
-no-op tool through a minimal `ToolPort`.
+calls a provider through a minimal `ProviderPort`, and invokes a deterministic
+no-op tool through a minimal `ToolPort` only when the provider result contains
+one sanitized supported no-op intent.
 
 The deterministic `fake` provider remains the default for tests and smoke runs.
 It is not a production AI provider and it does not require credentials. A smoke
@@ -517,7 +518,10 @@ interpreter, computer use, conversation state, background mode, streaming,
 retries, model fallback, OAuth, or a provider registry.
 
 The native tool boundary defines explicit request/result/status value objects
-plus approval and sandbox policy data. The only implemented tool is the
+plus approval and sandbox policy data. The native provider-to-tool bridge first
+converts provider metadata into a sanitized internal `NativeToolIntent`; raw
+provider tool-call objects are never archived. The only supported intent in the
+current slice is `noop` / `internal_noop`. The only implemented tool is the
 deterministic fake no-op tool. It does not read, write, edit, delete, diff,
 inspect, or execute anything in the workspace. Its current role is to prove
 event shape, lifecycle, dependency injection, and privacy-safe records before
@@ -529,6 +533,7 @@ Native runs emit only privacy-safe lifecycle metadata:
 - `native.provider.started`
 - `native.provider.completed`
 - `native.provider.failed`
+- `native.tool.intent.detected`
 - `native.tool.started`
 - `native.tool.completed`
 - `native.tool.failed`
@@ -548,15 +553,18 @@ sensitive personal data.
 The native session owns system prompt construction internally. Archive records
 store `system_prompt_id` and `system_prompt_version`, not the prompt text. The
 provider's final text may be printed to stdout by the CLI contract, but it is
-not stored in JSONL or Markdown by default. If the provider fails, the no-op
-tool path is recorded as `native.tool.skipped`; if the no-op tool fails, the
-native run fails without printing provider final text.
+not stored in JSONL or Markdown by default. If the provider succeeds with no
+safe intent, the session completes without emitting tool lifecycle events. If
+the provider fails, the no-op tool path is recorded as `native.tool.skipped`;
+if a safe no-op intent is detected and the no-op tool fails, the native run
+fails without printing provider final text.
 
-### Native Loop Planning
+### Native Fake Tool Intent
 
-The next native runtime shape should be the smallest provider-to-tool loop that
-proves contract and lifecycle behavior without adding real execution powers. It
-should remain bounded, deterministic, and metadata-only in the pipy archive.
+The native fake tool-intent slice implements the smallest provider-to-tool path
+that proves contract and lifecycle behavior without adding real execution
+powers. It remains bounded, deterministic, and metadata-only in the pipy
+archive.
 
 The smallest useful loop is:
 
@@ -573,9 +581,9 @@ The smallest useful loop is:
 6. If provider or tool status is not successful, fail the native session and do
    not print provider final text.
 
-This is intentionally not yet a general model/tool loop. A later real loop may
+This is intentionally not a general model/tool loop. A later real loop may
 feed a sanitized tool-result observation back to a provider for another model
-turn, but this planning slice keeps the first implementation to at most one
+turn, but this slice keeps the first implementation to at most one
 fake provider-emitted intent and one no-op tool invocation.
 
 Provider-owned raw response content remains provider-owned. Pipy may parse a
@@ -585,9 +593,8 @@ provider-native tool-call payloads, function arguments, output text, and
 provider-specific request ids that could reveal payload content must not be
 written to JSONL or Markdown by default.
 
-The future internal tool-request intent should be a sanitized value produced
-after provider parsing, not the raw provider tool-call object. Allowed fields
-are limited to:
+The internal tool-request intent is a sanitized value produced after provider
+parsing, not the raw provider tool-call object. Allowed fields are limited to:
 
 - `request_id`: a pipy-generated opaque id, deterministic in tests. The current
   `native-tool-0001` constant is acceptable only while the no-op path has at
@@ -619,23 +626,20 @@ allowlisted intent in memory and drop the raw payload before emitting events.
 Unsupported or unsafe provider requests should become sanitized failures or
 safe skipped-tool records, not archived payloads.
 
-Deterministic fake behavior should remain the first implementation target. The
-fake provider may gain an explicit fixture field or may reuse the existing
-`ProviderResult.metadata` dictionary with an allowlisted key that asks for one
-no-op intent. That fixture path must not inspect the prompt, echo the prompt,
-or derive archived content from prompt text. The fake no-op tool should
-continue to return deterministic safe metadata showing that the workspace was
-not inspected or mutated and that no stdout, stderr, or tool payloads were
-stored.
+Deterministic fake behavior remains the first implementation target. The fake
+provider has an explicit fixture field that writes one allowlisted
+`ProviderResult.metadata` key asking for a no-op intent. That fixture path does
+not inspect the prompt, echo the prompt, or derive archived content from prompt
+text. The fake no-op tool continues to return deterministic safe metadata
+showing that the workspace was not inspected or mutated and that no stdout,
+stderr, or tool payloads were stored.
 
-The current no-op tool should remain mandatory for native smoke runs until the
-provider-to-tool lifecycle has been implemented and reviewed. After that slice,
-the no-op tool should become an injected smoke-test and unit-test tool rather
-than a mandatory part of every successful native provider run. Production
-native runs should not execute an implicit tool when a provider returns only
-final text; tool invocation should be driven by an explicit sanitized intent.
+The no-op tool is now an injected smoke-test and unit-test tool rather than a
+mandatory part of every successful native provider run. Production native runs
+do not execute an implicit tool when a provider returns only final text; tool
+invocation is driven by an explicit sanitized intent.
 
-The expected lifecycle for the next fake intent slice is:
+The expected lifecycle for a safe fake intent is:
 
 ```text
 native.session.started
