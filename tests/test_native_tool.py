@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, fields
+from pathlib import Path
 
 import pytest
 
 from pipy_harness.native import (
     FakeNoOpNativeTool,
+    NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
+    NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+    NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
     NativeToolApprovalPolicy,
     NativeToolIntent,
     NativeToolObservation,
+    NativeToolObservationReason,
+    NativeToolObservationStatus,
     NativeToolRequest,
     NativeToolRequestIdentity,
     NativeToolResult,
@@ -78,8 +84,8 @@ def test_native_tool_observation_stub_is_metadata_only_and_inert():
         turn_index=0,
         tool_name="noop",
         tool_kind="internal_noop",
-        status=NativeToolStatus.SUCCEEDED,
-        reason_label="safe_noop_completed",
+        status=NativeToolObservationStatus.SUCCEEDED,
+        reason_label=NativeToolObservationReason.TOOL_RESULT_SUCCEEDED,
         duration_seconds=0.003,
     )
 
@@ -90,8 +96,8 @@ def test_native_tool_observation_stub_is_metadata_only_and_inert():
         "turn_index": 0,
         "tool_name": "noop",
         "tool_kind": "internal_noop",
-        "status": NativeToolStatus.SUCCEEDED,
-        "reason_label": "safe_noop_completed",
+        "status": NativeToolObservationStatus.SUCCEEDED,
+        "reason_label": NativeToolObservationReason.TOOL_RESULT_SUCCEEDED,
         "duration_seconds": 0.003,
         "tool_payloads_stored": False,
         "stdout_stored": False,
@@ -133,15 +139,77 @@ def test_native_tool_observation_storage_booleans_default_false():
         turn_index=0,
         tool_name="noop",
         tool_kind="internal_noop",
-        status=NativeToolStatus.SKIPPED,
+        status=NativeToolObservationStatus.SKIPPED,
     )
 
     observation_fields = asdict(observation)
 
-    storage_fields = {key: value for key, value in observation_fields.items() if key.endswith("_stored")}
-    storage_fields["raw_transcript_imported"] = observation_fields["raw_transcript_imported"]
-    assert storage_fields
+    storage_fields = {key: observation_fields[key] for key in NATIVE_TOOL_OBSERVATION_STORAGE_KEYS}
     assert set(storage_fields.values()) == {False}
+
+
+def test_native_tool_observation_event_contract_is_closed_and_metadata_only():
+    observation_field_names = {field.name for field in fields(NativeToolObservation)}
+
+    assert NATIVE_TOOL_OBSERVATION_RECORDED_EVENT == "native.tool.observation.recorded"
+    assert observation_field_names == NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS
+    assert NATIVE_TOOL_OBSERVATION_STORAGE_KEYS == {
+        "tool_payloads_stored",
+        "stdout_stored",
+        "stderr_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    }
+    assert {status.value for status in NativeToolObservationStatus} == {
+        "succeeded",
+        "failed",
+        "skipped",
+    }
+    assert {reason.value for reason in NativeToolObservationReason} == {
+        "tool_result_succeeded",
+        "tool_result_failed",
+        "tool_result_skipped",
+        "unsupported_observation",
+        "unsafe_observation",
+    }
+    forbidden_payload_keys = {
+        "args",
+        "arguments",
+        "command",
+        "credentials",
+        "diff",
+        "file_content",
+        "file_contents",
+        "model_output",
+        "patch",
+        "payload",
+        "private_key",
+        "prompt",
+        "provider_response",
+        "raw_args",
+        "raw_payload",
+        "secret",
+        "stderr",
+        "stdout",
+        "token",
+    }
+    assert forbidden_payload_keys.isdisjoint(NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS)
+
+
+def test_native_tool_observation_contract_is_not_threaded_into_session_runtime():
+    """Flip this guard when a later slice intentionally wires observation emission."""
+
+    session_source = (Path(__file__).parents[1] / "src/pipy_harness/native/session.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "NativeToolObservation" not in session_source
+    assert "NATIVE_TOOL_OBSERVATION" not in session_source
+    assert "native.tool.observation" not in session_source
 
 
 def test_fake_noop_native_tool_is_deterministic_and_side_effect_free():

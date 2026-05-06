@@ -461,17 +461,25 @@ The native fake intent path remains bounded to one provider turn and at most one
 fake no-op tool invocation. After a safe no-op tool result, the native session
 completes; it does not make a second provider call or archive a tool-result
 observation for provider consumption. A future post-tool observation is now
-specified as summary-safe internal metadata anchored to pipy's
-`tool_request_id` and `turn_index`, but a post-tool provider turn is still
-deferred until permission prompts, sandbox enforcement, and real tool execution
-behavior are designed. If that turn is added later, JSONL and Markdown records
-may still contain only summary-safe metadata such as turn index,
-provider/model labels, status, durations, normalized usage counters, storage
-booleans, and safe observation labels. They must not contain raw tool result
-payloads, stdout, stderr, diffs, patches, file contents, prompts, model output,
-provider responses, provider-native tool-call or tool-result payloads,
-function arguments, provider response ids that could reveal payload content,
-raw tool arguments, shell commands, model-selected filesystem paths, secrets,
+specified as one summary-safe terminal event,
+`native.tool.observation.recorded`, anchored to pipy's `tool_request_id` and
+`turn_index`, but a post-tool provider turn is still deferred until permission
+prompts, sandbox enforcement, and real tool execution behavior are designed.
+There is no observation `started` event in the archive contract because the
+observation is derived metadata, not a raw output handling phase.
+
+If that turn is added later, JSONL and Markdown records may still contain only
+the allowlisted observation metadata: `tool_request_id`, `turn_index`, safe
+tool name/kind labels, terminal `status`, safe `reason_label`,
+`duration_seconds`, and explicit storage booleans for tool payloads, stdout,
+stderr, diffs, file contents, prompts, model output, provider responses, and
+raw transcript import. The first observation event shape does not include
+normalized counters or optional metadata; those require a later explicit schema
+update. Observation records must not contain raw tool result payloads, stdout,
+stderr, diffs, patches, file contents, prompts, model output, provider
+responses, provider-native tool-call or tool-result payloads, function
+arguments, provider response ids that could reveal payload content, raw tool
+arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, or sensitive personal data by default.
 
 The native stdout/stderr split is part of the storage privacy contract:
@@ -538,9 +546,11 @@ be copied from provider-native tool-call ids or derived from prompt text, model
 output, provider responses, raw tool arguments, shell commands, filesystem
 paths selected by the model, stdout, stderr, diffs, patches, file contents,
 secrets, credentials, private keys, tokens, or sensitive personal data. Any
-future post-tool observation remains metadata-only: safe labels, policy labels,
-status, duration, storage booleans, normalized counters, and sanitized reason or
-error labels.
+future post-tool observation remains metadata-only: safe labels, terminal
+status, duration, storage booleans, and sanitized reason labels. The first
+future lifecycle shape is a single `native.tool.observation.recorded` event;
+live emission, archive writes for real observations, provider forwarding, and
+post-tool provider turns remain out of scope.
 
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive

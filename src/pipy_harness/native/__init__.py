@@ -2,12 +2,17 @@
 
 from pipy_harness.native.fake import FakeNativeProvider, FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
+    NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+    NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
     NativeRunInput,
     NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
     NativeToolIntent,
     NativeToolObservation,
+    NativeToolObservationReason,
+    NativeToolObservationStatus,
     NativeToolRequest,
     NativeToolRequestIdentity,
     NativeToolResult,
@@ -27,6 +32,9 @@ from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_
 __all__ = [
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
+    "NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS",
+    "NATIVE_TOOL_OBSERVATION_RECORDED_EVENT",
+    "NATIVE_TOOL_OBSERVATION_STORAGE_KEYS",
     "NativeAgentSession",
     "NativeRunInput",
     "NativeRunOutput",
@@ -34,6 +42,8 @@ __all__ = [
     "NativeToolApprovalPolicy",
     "NativeToolIntent",
     "NativeToolObservation",
+    "NativeToolObservationReason",
+    "NativeToolObservationStatus",
     "NativeToolRequest",
     "NativeToolRequestIdentity",
     "NativeToolResult",

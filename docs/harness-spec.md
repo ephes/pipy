@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-15 native tool observation value object stub implemented
+Status: slice-16 sanitized observation lifecycle event shape implemented
 
 <style>
 .mermaid,
@@ -748,6 +748,46 @@ for tool output. The current runtime does not create this value, archive this
 value, call the provider after a tool result, or change the one-provider-turn
 plus optional one-no-op-tool bound.
 
+The selected future lifecycle event shape is deliberately small: one terminal
+event named `native.tool.observation.recorded`. There is no
+`native.tool.observation.started` event, because a sanitized observation is
+derived after a tool result and must not represent raw payload, stdout, stderr,
+diff, patch, prompt, or model-output handling. Separate completed, failed, and
+skipped event names are not used; the terminal outcome is carried by the
+metadata-only `status` label on the single recorded event. This keeps future
+archive compatibility explicit without implying that the current runtime emits
+observations.
+
+The future `native.tool.observation.recorded` payload allowlist is exactly:
+
+- `tool_request_id`
+- `turn_index`
+- `tool_name`
+- `tool_kind`
+- `status`
+- `reason_label`
+- `duration_seconds`
+- `tool_payloads_stored`
+- `stdout_stored`
+- `stderr_stored`
+- `diffs_stored`
+- `file_contents_stored`
+- `prompt_stored`
+- `model_output_stored`
+- `provider_responses_stored`
+- `raw_transcript_imported`
+
+No normalized counters are included in the first observation event payload
+allowlist. A later real tool slice may add finite non-negative counters only
+through an explicit schema update and tests.
+
+Allowed observation status labels are terminal only: `succeeded`, `failed`, and
+`skipped`. Allowed reason labels are closed safe labels:
+`tool_result_succeeded`, `tool_result_failed`, `tool_result_skipped`,
+`unsupported_observation`, and `unsafe_observation`. These labels are represented
+as inert native model enums so later archive writers do not invent ad hoc
+strings.
+
 The identity terms below rely on the pipy-owned request identity defined in
 `Native Tool Request Identity And Turn Index`.
 
@@ -760,25 +800,23 @@ Correlation must use pipy-owned identity only:
   internal tool intent. The current bounded runtime remains `turn_index=0`; a
   later second provider turn must define its own subsequent turn index before it
   emits another `native.provider.started` event.
-- safe observation status or reason labels, such as `succeeded`, `failed`,
-  `skipped`, `unsupported_observation`, or `unsafe_observation`.
+- safe observation status or reason labels from the closed label sets above.
 
-Allowed observation content is limited to summary-safe metadata:
+The first observation event shape is limited to summary-safe metadata:
 
 - safe tool name and kind labels already allowed in current lifecycle events
 - result status labels and safe reason/error labels
-- duration and finite non-negative normalized counters already allowed for
-  native provider events, when applicable
-- booleans and small enum labels derived from approval, sandbox, and storage
-  policy data
+- `duration_seconds`
 - storage booleans that remain explicit, including
   `tool_payloads_stored=false`, `stdout_stored=false`,
   `stderr_stored=false`, `diffs_stored=false`,
   `file_contents_stored=false`, `prompt_stored=false`,
   `model_output_stored=false`, `provider_responses_stored=false`, and
   `raw_transcript_imported=false`
-- optional sanitized metadata containing only counters, booleans, enum labels,
-  and short non-secret identifiers
+
+Finite non-negative counters, approval or sandbox policy labels, and optional
+sanitized metadata are not included in the first event payload allowlist. They
+may be added only through a later explicit observation schema update and tests.
 
 The observation must never contain raw or provider-owned content:
 

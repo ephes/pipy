@@ -12,6 +12,40 @@ from typing import Any, ClassVar
 from pipy_harness.models import HarnessStatus
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
+NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
+NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
+    {
+        "tool_payloads_stored",
+        "stdout_stored",
+        "stderr_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    }
+)
+NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS = frozenset(
+    {
+        "tool_request_id",
+        "turn_index",
+        "tool_name",
+        "tool_kind",
+        "status",
+        "reason_label",
+        "duration_seconds",
+        "tool_payloads_stored",
+        "stdout_stored",
+        "stderr_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +95,24 @@ class NativeToolStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class NativeToolObservationStatus(StrEnum):
+    """Terminal status labels allowed on future sanitized tool observations."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class NativeToolObservationReason(StrEnum):
+    """Closed safe reason labels for future sanitized tool observation events."""
+
+    TOOL_RESULT_SUCCEEDED = "tool_result_succeeded"
+    TOOL_RESULT_FAILED = "tool_result_failed"
+    TOOL_RESULT_SKIPPED = "tool_result_skipped"
+    UNSUPPORTED_OBSERVATION = "unsupported_observation"
+    UNSAFE_OBSERVATION = "unsafe_observation"
 
 
 class NativeToolApprovalMode(StrEnum):
@@ -195,8 +247,8 @@ class NativeToolObservation:
     turn_index: int
     tool_name: str
     tool_kind: str
-    status: NativeToolStatus
-    reason_label: str | None = None
+    status: NativeToolObservationStatus
+    reason_label: NativeToolObservationReason | None = None
     duration_seconds: float | None = None
     tool_payloads_stored: bool = False
     stdout_stored: bool = False

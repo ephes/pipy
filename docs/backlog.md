@@ -91,28 +91,33 @@ reviewable change while keeping the source-of-truth design constraints in
   tool/status/reason labels, optional duration, and false-by-default storage
   booleans. It is test-covered and is not emitted, archived, provider-forwarded,
   or threaded through the runtime.
+- Sanitized observation lifecycle event shape: future sanitized native tool
+  observations now have one inert terminal archive event contract,
+  `native.tool.observation.recorded`, with an explicit metadata-only payload
+  allowlist, terminal status labels, closed safe reason labels, no observation
+  `started` event, no normalized counters in the first shape, and no runtime
+  emission, archive writes, provider forwarding, or post-tool provider turn.
 
 ## Next Slice
 
-### Sanitized Observation Lifecycle Event Shape
+### Provider-Visible Repo Context Policy
 
-Goal: decide the smallest metadata-only lifecycle event shape for future
-sanitized native tool observations, without creating observations in the
-runtime or adding any second provider call.
+Goal: decide the smallest provider-visible repo context policy for future
+bounded native read tools and a later post-tool provider turn, without executing
+real reads, adding provider-visible file contents, or changing the current
+runtime loop.
 
 Selected shape:
 
 - keep the current runtime bounded to one provider turn plus optional one fake
   no-op tool invocation
-- keep `NativeToolObservation` internal and inert until the event policy is
-  explicit
-- define archive event names, summaries, and payload keys for future observation
-  started/completed/failed/skipped metadata
-- preserve the implemented pipy-owned `turn_index` and `tool_request_id`
-  contract unchanged
-- represent only the already documented summary-safe observation fields:
-  correlation keys, status/reason labels, safe tool labels, durations or
-  counters where needed, and explicit storage booleans
+- keep the sanitized observation event contract internal and inert
+- define what repo context may be sent to a provider later, including allowed
+  source types, excerpt limits, redaction expectations, and failure behavior
+- preserve the implemented pipy-owned `turn_index`, `tool_request_id`, and
+  `native.tool.observation.recorded` contracts unchanged
+- preserve metadata-only archives even when future provider-visible context is
+  derived from bounded reads
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 - preserve metadata-only archives and the default native stdout/stderr contract
@@ -128,12 +133,13 @@ Keep out of scope:
 - approval prompts or sandbox enforcement
 - implementing post-tool provider turns or a general model/tool loop
 - emitting, archiving, or provider-forwarding live tool observations
+- emitting, archiving, or provider-forwarding real repo context
 - multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
-- raw provider responses, tool payloads, stdout, stderr, diffs, file contents,
-  secrets, credentials, or sensitive personal data in JSONL, Markdown, or
-  structured stdout
+- raw provider responses, tool payloads, stdout, stderr, diffs, patches, file
+  contents, secrets, credentials, or sensitive personal data in JSONL,
+  Markdown, structured stdout, or provider-visible context
 - Codex, Claude, Pi, or another CLI wrapper as the main product path
 
 Acceptance checks:
@@ -141,10 +147,12 @@ Acceptance checks:
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
-- no post-tool provider call or live observation emission is implemented while
-  the lifecycle event shape is only being decided
-- the lifecycle shape excludes raw payload/output/content fields and keeps
-  storage booleans false by default
+- no post-tool provider call, live observation emission, or live repo-context
+  forwarding is implemented while the context policy is only being decided
+- the provider-visible repo context policy excludes secrets, credentials,
+  tokens, private keys, sensitive personal data, raw provider responses,
+  unbounded file contents, raw tool output, and model-selected paths unless a
+  later explicit bounded-read shape allows sanitized excerpts
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
@@ -164,37 +172,35 @@ and implemented in order.
 
 Small reviewable slices, in intended order:
 
-1. Decide the sanitized observation lifecycle event shape for archives and
-   structured stdout compatibility, still without provider forwarding.
-2. Decide the provider-visible repo context policy: what read-only file
+1. Decide the provider-visible repo context policy: what read-only file
    excerpts, search results, or workspace summaries may be sent to a provider,
    with size limits, redaction rules, and metadata-only archive rules.
-3. Decide the approval and sandbox enforcement baseline before any real tool
+2. Decide the approval and sandbox enforcement baseline before any real tool
    runs: policy data, gate semantics, failure handling, and safe lifecycle
    metadata for read-only tools, write tools, and later verification commands.
-4. Add inert read-only tool request/value-object shapes for bounded repo
+3. Add inert read-only tool request/value-object shapes for bounded repo
    inspection, still without executing real reads or sending file contents to a
    provider.
-5. Add one bounded read-only tool implementation slice, likely `rg`-style
+4. Add one bounded read-only tool implementation slice, likely `rg`-style
    search or explicit file read, implementing the limits, redaction rules, and
    approval/sandbox gates from the policy slices; archives record only safe
    status, duration, counters, labels, and storage booleans, never raw results.
-6. Add one bounded post-tool provider turn against synthetic sanitized
+5. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-7. Wire the bounded read-only tool observation into the one follow-up provider
-   turn, consuming only the sanitized observation shape from step 1 and the
-   provider-visible context shape from step 2.
-8. Add a patch proposal boundary before writes: provider may propose a
+6. Wire the bounded read-only tool observation into the one follow-up provider
+   turn, consuming only the sanitized observation shape from the completed
+   lifecycle-event slice and the provider-visible context shape from step 1.
+7. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-9. Add an explicit patch-apply slice with conservative file scope, no shell
-    execution, metadata-only archives, and focused tests.
-10. Add an allowlisted verification-command slice, starting with `just check`,
+8. Add an explicit patch-apply slice with conservative file scope, no shell
+   execution, metadata-only archives, and focused tests.
+9. Add an allowlisted verification-command slice, starting with `just check`,
     behind explicit policy and with only exit code, status, duration, and safe
     labels recorded; stdout/stderr remain excluded from archives.
-11. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+10. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
     test-only change, with independent review before treating it as usable.
 
 ## Deferred
