@@ -148,22 +148,63 @@ Acceptance checks:
 
 ## Near Term
 
-- Stub a summary-safe native tool observation value object behind tests only,
-  without runtime emission or provider forwarding.
-- Decide a later lifecycle event shape for sanitized observation metadata before
-  implementing any post-tool provider turn.
+The current next slice remains contract/value-object work, but the near-term
+trajectory is now supervised self-bootstrap: make `pipy-native` capable of
+reading bounded repo context, taking one follow-up model turn, and eventually
+making reviewed edits without turning archives into raw transcripts.
+Post-tool provider turns and real tool execution remain deferred until the
+policy, approval, sandbox, and bounded-read prerequisites below are documented
+and implemented in order.
+
+Small reviewable slices, in intended order:
+
+1. Stub a summary-safe native tool observation value object behind tests only,
+   without runtime emission or provider forwarding.
+2. Decide the sanitized observation lifecycle event shape for archives and
+   structured stdout compatibility, still without provider forwarding.
+3. Decide the provider-visible repo context policy: what read-only file
+   excerpts, search results, or workspace summaries may be sent to a provider,
+   with size limits, redaction rules, and metadata-only archive rules.
+4. Decide the approval and sandbox enforcement baseline before any real tool
+   runs: policy data, gate semantics, failure handling, and safe lifecycle
+   metadata for read-only tools, write tools, and later verification commands.
+5. Add inert read-only tool request/value-object shapes for bounded repo
+   inspection, still without executing real reads or sending file contents to a
+   provider.
+6. Add one bounded read-only tool implementation slice, likely `rg`-style
+   search or explicit file read, implementing the limits, redaction rules, and
+   approval/sandbox gates from the policy slices; archives record only safe
+   status, duration, counters, labels, and storage booleans, never raw results.
+7. Add one bounded post-tool provider turn against synthetic sanitized
+   observation fixtures and the provider-visible context shape, with a hard
+   stop after that turn and no real read-tool output or general model/tool loop.
+8. Wire the bounded read-only tool observation into the one follow-up provider
+   turn, consuming only the sanitized observation shape from step 2 and the
+   provider-visible context shape from step 3.
+9. Add a patch proposal boundary before writes: provider may propose a
+   structured edit plan or patch candidate, but applying edits remains separate
+   and human-reviewed; archives record only metadata such as proposal status,
+   file counts, and storage booleans, not raw patch text.
+10. Add an explicit patch-apply slice with conservative file scope, no shell
+    execution, metadata-only archives, and focused tests.
+11. Add an allowlisted verification-command slice, starting with `just check`,
+    behind explicit policy and with only exit code, status, duration, and safe
+    labels recorded; stdout/stderr remain excluded from archives.
+12. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+    test-only change, with independent review before treating it as usable.
 
 ## Deferred
 
 - Full native pipy agent runtime beyond the provider and tool-boundary slices.
-- Native post-tool provider turn.
+- General native model/tool loop beyond a single bounded follow-up turn.
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.
 - Pi-native session inspection beyond metadata references.
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search or SQLite-backed query layer.
-- Repo maps or workspace summaries.
+- Broad repo maps or persistent workspace summaries beyond the first bounded
+  provider-visible context policy.
 - Interactive TUI.
 - RPC mode.
 - Multi-agent task delegation.
@@ -179,8 +220,9 @@ Acceptance checks:
   personal data by default.
 - Building approvals, sandboxing, retries, streaming, OAuth, provider registry,
   raw transcript import, multiple native tool requests, post-tool provider
-  turns, TUI, RPC, compaction, branching, or orchestration in the next native
-  slice.
+  turns, write tools, verification-command execution, TUI, RPC, compaction,
+  branching, or orchestration in the upcoming value-object, lifecycle, and
+  policy slices; real execution work must wait for its named slice.
 
 ## Maintenance Notes
 
