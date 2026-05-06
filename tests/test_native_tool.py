@@ -2,15 +2,30 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+import pytest
+
 from pipy_harness.native import (
     FakeNoOpNativeTool,
     NativeToolApprovalPolicy,
     NativeToolIntent,
     NativeToolRequest,
+    NativeToolRequestIdentity,
     NativeToolResult,
     NativeToolSandboxPolicy,
     NativeToolStatus,
 )
+
+
+def test_native_tool_request_identity_is_pipy_owned_and_bounded():
+    identity = NativeToolRequestIdentity.current_noop()
+
+    assert identity.turn_index == 0
+    assert identity.request_position == 0
+    assert identity.request_id == "native-tool-0001"
+    with pytest.raises(ValueError, match="turn_index"):
+        NativeToolRequestIdentity(turn_index=1, request_position=0)
+    with pytest.raises(ValueError, match="request_position"):
+        NativeToolRequestIdentity(turn_index=0, request_position=1)
 
 
 def test_native_tool_value_objects_do_not_model_payload_or_output_storage():

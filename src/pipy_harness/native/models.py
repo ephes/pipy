@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pipy_harness.models import HarnessStatus
 
@@ -76,6 +76,42 @@ class NativeToolSandboxMode(StrEnum):
     NO_WORKSPACE_ACCESS = "no-workspace-access"
     READ_ONLY_WORKSPACE = "read-only-workspace"
     MUTATING_WORKSPACE = "mutating-workspace"
+
+
+@dataclass(frozen=True, slots=True)
+class NativeToolRequestIdentity:
+    """Pipy-owned identity for the current bounded native tool request.
+
+    The native runtime currently has exactly one provider turn and at most one
+    no-op tool request. Provider-owned ids and turn indexes are parsed only as
+    unsafe/unsupported input; they are not the identity source.
+    """
+
+    turn_index: int
+    request_position: int
+
+    CURRENT_TURN_INDEX: ClassVar[int] = 0
+    CURRENT_REQUEST_POSITION: ClassVar[int] = 0
+
+    @classmethod
+    def current_noop(cls) -> "NativeToolRequestIdentity":
+        return cls(
+            turn_index=cls.CURRENT_TURN_INDEX,
+            request_position=cls.CURRENT_REQUEST_POSITION,
+        )
+
+    def __post_init__(self) -> None:
+        if self.turn_index != self.CURRENT_TURN_INDEX:
+            raise ValueError("native tool turn_index is bounded to 0")
+        if self.request_position != self.CURRENT_REQUEST_POSITION:
+            raise ValueError("native tool request_position is bounded to 0")
+
+    @property
+    def request_id(self) -> str:
+        # This formula is valid only under the current one-turn/one-request bound.
+        # Future multi-turn or multi-request work must replace the identity shape.
+        request_number = self.turn_index + self.request_position + 1
+        return f"native-tool-{request_number:04d}"
 
 
 @dataclass(frozen=True, slots=True)

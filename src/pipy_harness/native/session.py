@@ -17,6 +17,7 @@ from pipy_harness.native.models import (
     NativeToolApprovalPolicy,
     NativeToolIntent,
     NativeToolRequest,
+    NativeToolRequestIdentity,
     NativeToolResult,
     NativeToolSandboxPolicy,
     NativeToolStatus,
@@ -30,10 +31,8 @@ from pipy_harness.native.usage import normalize_provider_usage
 
 SYSTEM_PROMPT_ID = "pipy-native-bootstrap"
 SYSTEM_PROMPT_VERSION = "1"
-NOOP_TOOL_REQUEST_ID = "native-tool-0001"
 NOOP_TOOL_NAME = "noop"
 NOOP_TOOL_KIND = "internal_noop"
-NOOP_TOOL_TURN_INDEX = 0
 TOOL_INTENT_UNSUPPORTED_NAME = "unsupported"
 TOOL_INTENT_UNSUPPORTED_KIND = "unsupported_intent"
 TOOL_INTENT_UNSAFE_NAME = "unsafe"
@@ -268,36 +267,37 @@ def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
     if PROVIDER_TOOL_INTENT_METADATA_KEY not in metadata:
         return _ParsedToolIntent()
 
+    identity = NativeToolRequestIdentity.current_noop()
     raw_intent = metadata[PROVIDER_TOOL_INTENT_METADATA_KEY]
     if not isinstance(raw_intent, Mapping):
         return _ParsedToolIntent(
-            skipped_request=_skipped_intent_tool_request("unsafe_tool_intent_shape"),
+            skipped_request=_skipped_intent_tool_request(identity, "unsafe_tool_intent_shape"),
             reason="unsafe_tool_intent_shape",
         )
 
-    reason = _unsafe_intent_reason(raw_intent)
+    reason = _unsafe_intent_reason(raw_intent, identity)
     if reason is not None:
-        return _ParsedToolIntent(skipped_request=_skipped_intent_tool_request(reason), reason=reason)
+        return _ParsedToolIntent(skipped_request=_skipped_intent_tool_request(identity, reason), reason=reason)
 
     if raw_intent.get("tool_name") != NOOP_TOOL_NAME or raw_intent.get("tool_kind") != NOOP_TOOL_KIND:
         return _ParsedToolIntent(
-            skipped_request=_skipped_intent_tool_request("unsupported_tool_intent"),
+            skipped_request=_skipped_intent_tool_request(identity, "unsupported_tool_intent"),
             reason="unsupported_tool_intent",
         )
 
     metadata_result = _safe_intent_metadata(raw_intent.get("metadata"))
     if metadata_result is None:
         return _ParsedToolIntent(
-            skipped_request=_skipped_intent_tool_request("unsafe_tool_intent_metadata"),
+            skipped_request=_skipped_intent_tool_request(identity, "unsafe_tool_intent_metadata"),
             reason="unsafe_tool_intent_metadata",
         )
 
     return _ParsedToolIntent(
         intent=NativeToolIntent(
-            request_id=NOOP_TOOL_REQUEST_ID,
+            request_id=identity.request_id,
             tool_name=NOOP_TOOL_NAME,
             tool_kind=NOOP_TOOL_KIND,
-            turn_index=NOOP_TOOL_TURN_INDEX,
+            turn_index=identity.turn_index,
             intent_source=str(raw_intent.get("intent_source", "provider_metadata")),
             approval_policy=NativeToolApprovalPolicy(),
             sandbox_policy=NativeToolSandboxPolicy(),
@@ -306,14 +306,17 @@ def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
     )
 
 
-def _unsafe_intent_reason(raw_intent: Mapping[object, object]) -> str | None:
+def _unsafe_intent_reason(
+    raw_intent: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> str | None:
     if any(not isinstance(key, str) for key in raw_intent):
         return "unsafe_tool_intent_keys"
     if set(raw_intent) - _ALLOWED_INTENT_KEYS:
         return "unsafe_tool_intent_keys"
-    if raw_intent.get("request_id", NOOP_TOOL_REQUEST_ID) != NOOP_TOOL_REQUEST_ID:
+    if "request_id" in raw_intent:
         return "unsafe_tool_intent_request_id"
-    if raw_intent.get("turn_index", NOOP_TOOL_TURN_INDEX) != NOOP_TOOL_TURN_INDEX:
+    if raw_intent.get("turn_index", identity.turn_index) != identity.turn_index:
         return "unsafe_tool_intent_turn_index"
     intent_source = raw_intent.get("intent_source", "provider_metadata")
     if intent_source not in _SUPPORTED_INTENT_SOURCES:
@@ -364,8 +367,9 @@ def _safe_intent_metadata(value: object) -> dict[str, object] | None:
 
 
 def _noop_tool_request() -> NativeToolRequest:
+    identity = NativeToolRequestIdentity.current_noop()
     return NativeToolRequest(
-        request_id=NOOP_TOOL_REQUEST_ID,
+        request_id=identity.request_id,
         tool_name=NOOP_TOOL_NAME,
         tool_kind=NOOP_TOOL_KIND,
         approval_policy=NativeToolApprovalPolicy(),
@@ -388,10 +392,13 @@ def _tool_request_from_intent(intent: NativeToolIntent) -> NativeToolRequest:
     )
 
 
-def _skipped_intent_tool_request(reason: str) -> NativeToolRequest:
+def _skipped_intent_tool_request(
+    identity: NativeToolRequestIdentity,
+    reason: str,
+) -> NativeToolRequest:
     unsafe = reason.startswith("unsafe")
     return NativeToolRequest(
-        request_id=NOOP_TOOL_REQUEST_ID,
+        request_id=identity.request_id,
         tool_name=TOOL_INTENT_UNSAFE_NAME if unsafe else TOOL_INTENT_UNSUPPORTED_NAME,
         tool_kind=TOOL_INTENT_UNSAFE_KIND if unsafe else TOOL_INTENT_UNSUPPORTED_KIND,
         approval_policy=NativeToolApprovalPolicy(),

@@ -70,30 +70,32 @@ reviewable change while keeping the source-of-truth design constraints in
   because the current fake no-op path already records one sanitized tool
   request with `request_id` and `turn_index`, while post-tool provider turns,
   real tool observations, and broader loops remain deferred.
+- Native tool request identity and turn-index contract: native sessions now use
+  an explicit pipy-owned identity value object for the current bounded
+  `turn_index=0` and one no-op request position, preserving the archive-facing
+  `tool_request_id` shape while rejecting provider-supplied request ids as
+  unsafe input.
 
 ## Next Slice
 
-### Native Tool Request Identity And Turn-Index Contract
+### Native Post-Tool Observation Contract Decision
 
-Goal: implement the smallest native identity contract for tool requests and
-turn indexes before adding any broader native execution behavior.
+Goal: decide the smallest summary-safe shape for a future native post-tool
+observation before adding any second provider call or broader execution
+behavior.
 
 Selected shape:
 
 - keep the current runtime bounded to one provider turn plus optional one fake
   no-op tool invocation
-- make `turn_index` a pipy-assigned small non-negative integer identifying the
-  provider turn that produced a sanitized internal tool intent; the current
-  bounded fake path uses only `turn_index=0`
-- make `request_id` an opaque pipy-generated per-tool-request id,
-  deterministic in tests and safe for archives, never copied from
-  provider-native tool-call ids, model text, raw arguments, paths,
-  stdout/stderr, diffs, or file contents
-- preserve one safe no-op request per current native session; do not add
-  multiple tool requests, post-tool provider turns, or real tool execution
-- record only the same metadata-only lifecycle fields already allowed for
-  `native.tool.intent.detected`, `native.tool.started`,
-  `native.tool.completed`, `native.tool.failed`, and `native.tool.skipped`
+- keep the implemented pipy-owned `turn_index` and `tool_request_id` contract
+  unchanged
+- design what, if anything, a future provider turn may observe from a tool
+  result without archiving raw tool payloads, stdout, stderr, diffs, file
+  contents, prompts, model output, provider responses, secrets, credentials,
+  tokens, private keys, or sensitive personal data
+- decide summary-safe labels and storage booleans for future tool observations
+  before any post-tool provider call exists
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 - preserve metadata-only archives and the default native stdout/stderr contract
@@ -107,7 +109,7 @@ Keep out of scope:
 - provider registry or OAuth
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
-- post-tool provider turns or a general model/tool loop
+- implementing post-tool provider turns or a general model/tool loop
 - multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
@@ -118,11 +120,11 @@ Keep out of scope:
 
 Acceptance checks:
 
-- native tool request ids and turn indexes are represented by a small explicit
-  pipy-owned contract
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
+- no post-tool provider call is implemented while the observation shape is only
+  being decided
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
@@ -132,11 +134,8 @@ Acceptance checks:
 
 ## Near Term
 
-- Implement the native tool request identity and turn-index contract without
-  expanding into multiple tool requests, post-tool provider turns, real
-  execution, approvals, sandbox enforcement, or provider-side tools.
-- After request identity is stable, decide the summary-safe shape of a future
-  post-tool observation contract before any second provider call exists.
+- Decide the summary-safe shape of a future post-tool observation contract
+  before any second provider call exists.
 
 ## Deferred
 

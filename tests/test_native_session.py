@@ -237,6 +237,7 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
     tool_completed = [event for event in sink.events if event[0] == "native.tool.completed"][0]
     tool_payload = tool_completed[2]
     assert tool_payload is not None
+    assert tool_payload["tool_request_id"] == "native-tool-0001"
     assert tool_payload["tool_name"] == "noop"
     assert tool_payload["tool_kind"] == "internal_noop"
     assert tool_payload["approval_policy"] == "not-required"
@@ -273,6 +274,9 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
     assert output.status == HarnessStatus.SUCCEEDED
     assert output.exit_code == 0
     assert provider.complete_calls == 1
+    assert event_types.count("native.tool.intent.detected") == 1
+    assert event_types.count("native.tool.started") == 1
+    assert event_types.count("native.tool.completed") == 1
     assert event_types == [
         "native.session.started",
         "native.provider.started",
@@ -287,6 +291,20 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
     tool_completed_index = event_types.index("native.tool.completed")
     assert event_types.index("native.provider.completed") < tool_completed_index
     assert not event_types[tool_completed_index + 1 : -1]
+    tool_payloads = [
+        payload for event_type, _, payload in sink.events if event_type.startswith("native.tool.")
+    ]
+    assert [payload["tool_request_id"] for payload in tool_payloads if payload is not None] == [
+        "native-tool-0001",
+        "native-tool-0001",
+        "native-tool-0001",
+    ]
+    intent_turn_indexes = [
+        payload["turn_index"]
+        for event_type, _, payload in sink.events
+        if event_type == "native.tool.intent.detected" and payload is not None
+    ]
+    assert intent_turn_indexes == [0]
 
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "MODEL_OUTPUT_SHOULD_NOT_BE_ARCHIVED_AFTER_TOOL" not in serialized
@@ -426,12 +444,56 @@ def test_native_session_unsafe_intent_reasons_are_sanitized_and_skipped(
     tool_payload = tool_skipped[2]
     assert tool_payload is not None
     assert tool_payload["reason"] == reason
+    assert tool_payload["tool_request_id"] == "native-tool-0001"
     assert tool_payload["tool_name"] == "unsafe"
     assert tool_payload["tool_kind"] == "unsafe_intent"
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SHOULD_NOT_PERSIST" not in serialized
     assert "provider-owned-id" not in serialized
     assert "raw_provider_tool_call" not in serialized
+
+
+def test_native_session_provider_request_like_id_is_not_archived_as_tool_request_id(tmp_path):
+    provider_request_id = "provider-call-secret-like-9999"
+    provider = FakeNativeProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_PROVIDER_ID",
+        metadata={
+            PROVIDER_TOOL_INTENT_METADATA_KEY: {
+                "request_id": provider_request_id,
+                "tool_name": "noop",
+                "tool_kind": "internal_noop",
+                "turn_index": 0,
+                "intent_source": "fake_provider",
+            }
+        },
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    event_types = [event[0] for event in sink.events]
+    assert output.status == HarnessStatus.FAILED
+    assert "native.tool.intent.detected" not in event_types
+    assert "native.tool.started" not in event_types
+    assert [event for event in event_types if event.startswith("native.tool.")] == ["native.tool.skipped"]
+    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    assert tool_skipped[2] is not None
+    assert tool_skipped[2]["reason"] == "unsafe_tool_intent_request_id"
+    assert tool_skipped[2]["tool_request_id"] == "native-tool-0001"
+    assert "turn_index" not in tool_skipped[2]
+
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert provider_request_id not in serialized
 
 
 def test_native_session_unsupported_intent_skips_without_invoking_tool(tmp_path):

@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-12 native runtime boundary decision documented
+Status: slice-13 native tool request identity contract implemented
 
 <style>
 .mermaid,
@@ -653,9 +653,9 @@ The internal tool-request intent is a sanitized value produced after provider
 parsing, not the raw provider tool-call object. Allowed fields are limited to:
 
 - `request_id`: a pipy-generated opaque id, deterministic in tests. The current
-  `native-tool-0001` constant is acceptable only while the no-op path has at
-  most one invocation per native session; later loop work should generate a
-  per-invocation id, likely derived from `turn_index`.
+  `native-tool-0001` value is acceptable only while the no-op path has at most
+  one invocation per native session; later loop work should generate a
+  per-invocation id from pipy-owned turn/request position data.
 - `tool_name`: an allowlisted safe label such as `noop`.
 - `tool_kind`: an allowlisted safe category such as `internal_noop`.
 - `turn_index`: a small integer assigned by pipy.
@@ -739,12 +739,12 @@ prompts, model output, provider responses, provider-native tool-call objects,
 function arguments, secrets, credentials, private keys, tokens, or sensitive
 personal data.
 
-### Selected Next Boundary: Native Tool Request Identity And Turn Index
+### Native Tool Request Identity And Turn Index
 
-The next native implementation boundary is the tool request identity and
-turn-index contract. This is narrower than a post-tool observation contract
-because the current runtime already has one sanitized internal tool intent and
-one fake no-op request. Tightening identity first prevents later loop work from
+The native runtime implements a tool request identity and turn-index contract.
+This is narrower than a post-tool observation contract because the current
+runtime already has one sanitized internal tool intent and one fake no-op
+request. The explicit identity value object prevents later loop work from
 guessing whether ids come from providers, archives, or pipy itself.
 
 The selected boundary remains bounded:
@@ -775,13 +775,12 @@ paths selected by the model, stdout, stderr, diffs, file contents, secrets,
 credentials, private keys, tokens, or sensitive personal data.
 
 The current `native-tool-0001` value remains acceptable only because there is
-at most one tool request in one native session. The next implementation slice
-should make that rule explicit in code, preferably through one small
-pipy-owned identity helper or value object that derives the safe request id
-from the pipy turn/request position rather than from provider metadata. It
-should update tests to prove that unsafe provider-owned ids are still rejected
-or dropped, the archived request id remains safe, and no extra provider/tool
-turns are introduced.
+at most one tool request in one native session. The implementation represents
+that rule with a small pipy-owned identity value object that derives the safe
+request id from the pipy turn/request position rather than from provider
+metadata. Tests prove that provider-supplied request ids are rejected as unsafe
+input, the archived request id remains safe, and no extra provider/tool turns
+are introduced.
 
 Allowed archive fields for this boundary are limited to the existing
 metadata-only lifecycle surface: `tool_request_id`, `turn_index`, safe tool
