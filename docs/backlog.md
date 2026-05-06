@@ -104,30 +104,38 @@ reviewable change while keeping the source-of-truth design constraints in
   metadata-only archive rules, while the current runtime still performs no
   real repo reads, context forwarding, live observation emission, archive writes
   for live context, or post-tool provider turn.
+- Native approval and sandbox enforcement baseline: future native tool gates
+  are documented before real execution exists, with approval decision labels,
+  approval requirements for read, context, write, patch, shell, network, and
+  verification operations, sandbox mode labels, independent capability
+  booleans, fixed gate order, fail-closed behavior, and metadata-only archive
+  rules, while the current runtime still has no live approval prompts, sandbox
+  enforcement, real repo reads, provider-visible context forwarding, live
+  observation emission, archive writes for live context or real execution, or
+  post-tool provider turn.
 
 ## Next Slice
 
-### Approval And Sandbox Enforcement Baseline
+### Add inert read-only tool request/value-object shapes for bounded repo inspection
 
-Goal: decide the smallest approval and sandbox enforcement baseline for future
-native read-only tools, write tools, and later verification commands, without
-executing real tools or changing the current runtime loop.
+Goal: add the smallest inert native read-only request/value-object shapes for
+bounded repo inspection, still without executing real reads, forwarding file
+contents to a provider, or changing the current runtime loop.
 
 Selected shape:
 
 - keep the current runtime bounded to one provider turn plus optional one fake
   no-op tool invocation
-- keep the provider-visible repo context policy documented but not wired into
+- reuse the completed approval and sandbox baseline as data only
+- represent bounded read/search request intent shapes without reading files,
+  resolving model-selected paths, running searches, or archiving raw content
+- keep provider-visible repo context policy documented but not wired into
   runtime
-- define approval gate semantics, sandbox labels, enforcement failure behavior,
-  and safe lifecycle metadata before any real tool runs
 - preserve the implemented pipy-owned `turn_index`, `tool_request_id`, and
   `native.tool.observation.recorded` contracts unchanged
-- preserve metadata-only archives for all approval, sandbox, and future
-  execution lifecycle records
+- preserve metadata-only archives and the default native stdout/stderr contract
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
-- preserve metadata-only archives and the default native stdout/stderr contract
 
 Keep out of scope:
 
@@ -141,6 +149,8 @@ Keep out of scope:
 - implementing post-tool provider turns or a general model/tool loop
 - emitting, archiving, or provider-forwarding live tool observations
 - emitting, archiving, or provider-forwarding real repo context
+- reading files, running search, resolving provider/model-selected paths, or
+  producing real provider-visible file excerpts
 - multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
@@ -155,11 +165,11 @@ Acceptance checks:
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
 - no post-tool provider call, live observation emission, or live repo-context
-  forwarding is implemented while the approval and sandbox baseline is only
-  being decided
-- the approval and sandbox baseline defines how future requests are allowed,
-  denied, skipped, or failed before real tools run
-- approval and sandbox metadata excludes raw prompts, model output, provider
+  forwarding is implemented while read-only request shapes remain inert
+- read-only request/value-object shapes carry only safe labels, bounded limit
+  metadata, pipy-owned identity, approval/sandbox policy data, and storage
+  booleans
+- inert read-only metadata excludes raw prompts, model output, provider
   responses, tool payloads, stdout, stderr, diffs, patches, file contents,
   shell commands, raw args, model-selected paths, secrets, credentials, tokens,
   private keys, and sensitive personal data
@@ -182,32 +192,29 @@ and implemented in order.
 
 Small reviewable slices, in intended order:
 
-1. Decide the approval and sandbox enforcement baseline before any real tool
-   runs: policy data, gate semantics, failure handling, and safe lifecycle
-   metadata for read-only tools, write tools, and later verification commands.
-2. Add inert read-only tool request/value-object shapes for bounded repo
+1. Add inert read-only tool request/value-object shapes for bounded repo
    inspection, still without executing real reads or sending file contents to a
    provider.
-3. Add one bounded read-only tool implementation slice, likely `rg`-style
+2. Add one bounded read-only tool implementation slice, likely `rg`-style
    search or explicit file read, implementing the limits, redaction rules, and
    approval/sandbox gates from the policy slices; archives record only safe
    status, duration, counters, labels, and storage booleans, never raw results.
-4. Add one bounded post-tool provider turn against synthetic sanitized
+3. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-5. Wire the bounded read-only tool observation into the one follow-up provider
+4. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-6. Add a patch proposal boundary before writes: provider may propose a
+5. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-7. Add an explicit patch-apply slice with conservative file scope, no shell
+6. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-8. Add an allowlisted verification-command slice, starting with `just check`,
+7. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-9. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+8. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred

@@ -93,11 +93,11 @@ def test_session_storage_matches_repo_context_archive_boundary():
     assert "The current `pipy-native` runtime still does not read, archive, or forward live repo context" in compact_storage
 
 
-def test_backlog_advances_to_approval_and_sandbox_slice():
+def test_backlog_records_repo_context_policy_as_done():
     backlog = read_repo_file("docs/backlog.md")
+    done = backlog[: backlog.index("## Next Slice")]
 
-    assert "Native provider-visible repo context policy" in backlog
-    assert "### Approval And Sandbox Enforcement Baseline" in backlog
+    assert "Native provider-visible repo context policy" in done
     assert "### Provider-Visible Repo Context Policy" not in backlog
 
 

@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-17 provider-visible repo context policy documented
+Status: slice-18 approval and sandbox baseline documented
 
 <style>
 .mermaid,
@@ -737,6 +737,134 @@ not archive raw tool result payloads, stdout, stderr, diffs, file contents,
 prompts, model output, provider responses, provider-native tool-call objects,
 function arguments, secrets, credentials, private keys, tokens, or sensitive
 personal data.
+
+### Native Approval And Sandbox Enforcement Baseline
+
+Approval and sandbox enforcement are future gates for native tools. This
+baseline defines the contract before real read tools, write tools, shell
+execution, network access, verification commands, live approval prompts, or
+runtime sandbox enforcement exist. The current `pipy-native` runtime remains
+bounded to one provider turn plus optional one fake no-op tool invocation. It
+does not add live approval prompts, sandbox enforcement, real repo reads,
+provider-visible repo context forwarding, live observation emission, archive
+writes for live context or real execution, a post-tool provider call, or a
+general model/tool loop.
+
+Approval decision labels are `pending`, `allowed`, `denied`, `skipped`, and
+`failed`.
+
+- `pending`: approval is required but has not been resolved yet.
+- `allowed`: approval was not required or was granted by a pipy-owned approval
+  authority.
+- `denied`: approval was requested and refused.
+- `skipped`: the request did not reach approval or execution because an earlier
+  policy, capability, sandbox, path, context, or safety gate skipped it.
+- `failed`: approval resolution or gate processing failed without a safe
+  denial or skip decision.
+
+Approval is not delegated to provider output. A future provider may request an
+operation only through a sanitized internal pipy request; pipy decides whether
+approval is required and records only safe decision metadata. The minimum
+future approval posture is:
+
+- no approval required for internal no-op tools with `no-workspace-access`, no
+  shell execution, no network access, no repo context production, no stdout or
+  stderr storage, and no workspace inspection or mutation
+- approval required for read-only workspace tools before any file read, search,
+  directory inspection, or provider-visible repo context production
+- approval required for write tools, patch proposal apply, file creation,
+  deletion, rename, edit, diff application, or any mutating workspace action
+- approval required for shell execution, even when intended to be read-only
+- approval required for network access, even when no workspace access is
+  requested
+- approval required for verification commands such as a future allowlisted
+  `just check`, because they may execute code, inspect the workspace, and emit
+  stdout or stderr even when archives omit that output
+
+Sandbox modes remain the three labels already represented in native value
+objects:
+
+- `no-workspace-access`: the request may not inspect, read, write, diff, patch,
+  list, search, or otherwise resolve workspace paths.
+- `read-only-workspace`: the request may inspect only approved, validated,
+  bounded workspace sources and may not mutate files or execute shell commands
+  unless separate gates explicitly allow those capabilities.
+- `mutating-workspace`: the request may mutate only approved, validated
+  workspace paths and only through the specific future tool contract that
+  requested the capability.
+
+Shell execution and network access are independent capability booleans, not
+implicit consequences of a workspace sandbox mode. The baseline capability
+booleans are `workspace_read_allowed`, `filesystem_mutation_allowed`,
+`shell_execution_allowed`, and `network_access_allowed`. A read-only workspace
+sandbox does not imply shell execution. A mutating workspace sandbox does not
+imply network access. Shell execution does not by itself permit filesystem
+mutation; mutating workspace files through shell execution requires both
+`shell_execution_allowed` and `filesystem_mutation_allowed`. Network access
+does not imply workspace access.
+
+Future tool execution must use this fixed gate order before any real effect:
+
+1. Policy validation: the request must name a supported tool kind, approval
+   policy, sandbox mode, and capability booleans.
+2. Request normalization and identity: raw provider payloads are converted to a
+   sanitized pipy-owned request with pipy's `tool_request_id` and `turn_index`;
+   provider-owned ids, raw args, and provider-native payloads are dropped.
+3. Approval gate: if approval is required, resolve it through a pipy-owned
+   approval path before sandbox or path work proceeds.
+4. Sandbox capability gate: compare the approved request with the selected
+   sandbox mode and independent capability booleans.
+5. Path and context validation: validate pipy-owned scope, workspace-relative
+   path labels, ignore/generated-file boundaries, size limits, encodings, and
+   redaction rules before any read, write, shell, network, verification, or
+   provider-visible context production.
+6. Execution gate: execute only if all earlier gates succeeded; otherwise emit
+   metadata-only skipped or failed lifecycle metadata.
+7. Observation and provider-context gate: derive only sanitized in-memory
+   observations or provider-visible context after execution, and archive only
+   metadata allowed by this spec.
+
+All future gates fail closed. Missing policy, unsupported approval mode,
+unsupported sandbox mode, denied approval, unavailable approval UI, sandbox
+mismatch, unsafe request data, model-selected paths, provider-supplied paths,
+raw args, unsupported encodings, ignored or generated files, oversized sources,
+secret-looking data, and attempted capability escalation must not execute. The
+safe outcome is a metadata-only `skipped`, `denied`, or `failed` decision with
+safe reason labels. Capability escalation includes any request that asks for
+more than its approved policy permits, such as a read tool attempting mutation,
+a verification command attempting network access without the network gate, or a
+shell request attempting workspace mutation without both shell and mutation
+gates.
+
+Future archives, Markdown summaries, and `--native-output json` may record only
+metadata-only approval and sandbox fields:
+
+- policy labels, sandbox mode labels, approval required/resolved booleans, and
+  decision labels
+- safe reason labels and supported capability booleans, including
+  `workspace_read_allowed`, `filesystem_mutation_allowed`,
+  `shell_execution_allowed`, and `network_access_allowed`
+- `tool_request_id`, `turn_index`, safe tool name/kind labels, status,
+  `duration_seconds`, counts, byte and line counts, redaction/skipped booleans,
+  storage booleans, and optional finalized-record references
+
+Archives, Markdown summaries, and default structured stdout must not store raw
+prompts, model output, provider responses, provider-native payloads, raw tool
+payloads, stdout, stderr, diffs, patches, full file contents, shell commands,
+raw args, model-selected paths, provider-selected paths as authority, secrets,
+credentials, API keys, tokens, private keys, or sensitive personal data.
+Storage booleans must remain explicit, and metadata-only archives must not
+become raw execution, transcript, repo-context, stdout, stderr, diff, patch, or
+file-content stores.
+
+This baseline is a prerequisite for bounded read-only tools, provider-visible
+repo context production, write tools, patch application, shell or network
+access, and verification commands. It does not imply that the current runtime
+enforces approvals or sandboxing. Future implementation slices must wire these
+gates explicitly and keep the existing pipy-owned `tool_request_id`,
+`turn_index`, `native.tool.observation.recorded`, `duration_seconds`, storage
+booleans, provider-visible context, and metadata-only archive contracts in
+sync.
 
 ### Native Provider-Visible Repo Context Policy
 

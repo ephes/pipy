@@ -510,6 +510,32 @@ sensitive personal data. The current `pipy-native` runtime still does not read,
 archive, or forward live repo context, and it still does not make a post-tool
 provider call.
 
+Future approval and sandbox records must stay metadata-only. The enforcement
+baseline in `docs/harness-spec.md` defines approval decision labels as
+`pending`, `allowed`, `denied`, `skipped`, and `failed`; sandbox mode labels as
+`no-workspace-access`, `read-only-workspace`, and `mutating-workspace`; and
+independent capability booleans for `workspace_read_allowed`,
+`filesystem_mutation_allowed`, `shell_execution_allowed`, and
+`network_access_allowed`. Approval is required before future read-only tools
+produce provider-visible repo context, before write tools or patch application
+mutate the workspace, before shell execution, before network access, and before
+verification commands such as an allowlisted `just check`.
+
+If approval or sandbox gates are implemented later, JSONL, Markdown, and
+`--native-output json` may record only policy labels, approval
+required/resolved booleans, decision labels, safe reason labels, capability
+booleans, `tool_request_id`, `turn_index`, safe tool name/kind labels, status,
+`duration_seconds`, counts, byte and line counts, storage booleans, and
+optional finalized-record references. They must not store raw prompts, model
+output, provider responses, provider-native payloads, raw tool payloads,
+stdout, stderr, diffs, patches, full file contents, shell commands, raw args,
+model-selected paths, provider-selected paths as authority, secrets,
+credentials, API keys, tokens, private keys, or sensitive personal data.
+Missing policy, unsupported policy or sandbox modes, denied approval,
+unavailable approval UI, sandbox mismatch, unsafe request data, model-selected
+paths, and attempted capability escalation must fail closed before execution
+and before any provider-visible context is produced.
+
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed
