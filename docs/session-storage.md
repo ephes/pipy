@@ -482,6 +482,34 @@ arguments, provider response ids that could reveal payload content, raw tool
 arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, or sensitive personal data by default.
 
+Future provider-visible repo context is not archive content. The context policy
+in `docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
+search-result excerpts, explicit per-turn workspace summaries, short
+user-provided goal metadata, and sanitized tool-observation summaries to become
+provider input later, after approval and sandbox checks exist. It forbids broad
+repo maps, unbounded file contents, persistent workspace summaries, raw diffs
+or patches, raw stdout or stderr, shell command output, raw tool payloads, raw
+tool arguments, provider-native payloads, raw provider responses, model output,
+prompt fragments, model-selected paths, secrets, credentials, API keys, tokens,
+private keys, and sensitive personal data.
+
+If bounded repo context is produced in a later slice, unsafe data must be
+dropped or skipped before provider visibility and before any archive event is
+written. Binary or unreadable content, unsupported encodings, generated files,
+ignored files, oversized files, secret-looking content, and excerpts that
+cannot be proven within limit must fail closed with safe skip or failure
+metadata. JSONL, Markdown, and `--native-output json` may record only
+metadata-only context fields such as source labels, counts, byte and line
+counts, excerpt counts, distinct file counts, redaction and skipped booleans,
+safe reason labels, `duration_seconds`, storage booleans, `tool_request_id`,
+`turn_index`, and finalized-record references. They must not store raw excerpt
+text, file contents, search result text, raw prompts, model output, provider
+responses, raw tool payloads, stdout, stderr, diffs, patches, shell commands,
+raw args, model-selected paths, secrets, credentials, tokens, private keys, or
+sensitive personal data. The current `pipy-native` runtime still does not read,
+archive, or forward live repo context, and it still does not make a post-tool
+provider call.
+
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed

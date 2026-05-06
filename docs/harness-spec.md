@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-16 sanitized observation lifecycle event shape implemented
+Status: slice-17 provider-visible repo context policy documented
 
 <style>
 .mermaid,
@@ -737,6 +737,96 @@ not archive raw tool result payloads, stdout, stderr, diffs, file contents,
 prompts, model output, provider responses, provider-native tool-call objects,
 function arguments, secrets, credentials, private keys, tokens, or sensitive
 personal data.
+
+### Native Provider-Visible Repo Context Policy
+
+Provider-visible repo context is future provider input, not archive content.
+This policy decides the smallest boundary for later bounded native read tools
+and one deferred post-tool provider turn. The current `pipy-native` runtime
+does not construct provider-visible repo context, does not read files or run
+searches for repo context, does not forward repo context to a provider, does not
+emit live observations, and does not add a post-tool provider call.
+
+Allowed future source types are limited to explicitly bounded, sanitized
+context produced after approval and sandbox checks exist:
+
+- bounded explicit file excerpts from approved read-only file requests
+- bounded search-result excerpts from approved read-only search requests
+- explicit per-turn workspace summaries authored by pipy or the user, not broad
+  repo maps or persistent workspace summaries
+- short user-provided goal metadata that is already safe enough to send to the
+  provider for the current run
+- sanitized tool-observation summaries derived from
+  `native.tool.observation.recorded` metadata and safe in-memory observation
+  labels
+
+Forbidden source types and content must never become provider-visible repo
+context through this policy:
+
+- broad repo maps, unbounded file contents, persistent workspace summaries, or
+  arbitrary directory listings
+- raw diffs, patches, stdout, stderr, shell command output, raw tool payloads,
+  raw tool arguments, provider-native tool-call or tool-result payloads, raw
+  provider responses, model output, or prompt fragments
+- model-selected paths or provider-supplied paths as trusted read targets
+- generated files, ignored files, binary or unreadable files, unsupported
+  encodings, and large files unless a later bounded-read shape explicitly
+  permits a sanitized summary
+- secrets, credentials, API keys, tokens, private keys, and sensitive personal
+  data
+
+The first live implementation must encode limits no larger than these values
+before any real read occurs or any context is sent to a provider:
+
+- per excerpt: 4 KiB and 80 lines
+- per source file per provider turn: 8 KiB and 160 lines
+- total provider-visible repo context per provider turn: 24 KiB and 480 lines
+- maximum excerpts per provider turn: 12
+- maximum distinct source files per provider turn: 6
+
+These are upper bounds, not targets. A later slice may choose smaller values for
+the first read tool. Raising any limit requires an explicit docs and test update
+before runtime wiring changes.
+
+Provider-visible paths are labels, not authority. A future read request must be
+authorized from pipy-owned scope and approval data before any path is resolved.
+When a path is included for provider context, prefer a normalized relative
+workspace path only after it has been validated to stay inside the workspace and
+outside ignored or generated areas. If a relative path is sensitive or unsafe to
+show, use a source label plus a stable path hash or omit the path. Raw
+model-selected paths, provider-supplied paths, absolute paths, shell-expanded
+paths, and paths derived from raw tool arguments must not be trusted or
+archived as context identity.
+
+Redaction happens before provider visibility. Unsafe data must be dropped or
+skipped in memory before provider-visible context is produced; it must not be
+archived first and redacted later. Secret-looking keys or values, credentials,
+tokens, private keys, sensitive personal data, unsupported encodings, binary
+content, unreadable content, generated files, ignored files, oversized files,
+and excerpts that cannot be proven within limit must fail closed. The safe
+outcome is to skip the source, record summary-safe skip metadata, and continue
+only if the remaining context is still useful and policy-compliant. Otherwise
+the tool observation or post-tool turn should be skipped or failed with safe
+reason labels.
+
+Archives and structured stdout remain metadata-only when repo context is
+produced later. JSONL, Markdown, and `--native-output json` may record only
+safe metadata such as source labels, counts, byte and line counts, excerpt
+counts, distinct file counts, redaction and skipped booleans, safe skip reason
+labels, `duration_seconds`, storage booleans, `tool_request_id`, `turn_index`,
+and optional finalized-record references. They must not store raw excerpt text,
+file contents, search result text, raw prompts, model output, provider
+responses, raw tool payloads, stdout, stderr, diffs, patches, shell commands,
+raw args, model-selected paths, secrets, credentials, tokens, private keys, or
+sensitive personal data. Storage booleans must make the boundary explicit; raw
+repo context storage remains false by default.
+
+This policy is a prerequisite for future read-only tools and a later post-tool
+provider turn, but it does not implement either one. Future read tools must
+produce sanitized in-memory context under these limits, and a future post-tool
+provider turn may receive only that sanitized provider-visible context plus the
+metadata-only observation shape anchored to pipy's `tool_request_id` and
+`turn_index`.
 
 ### Native Post-Tool Observation Contract Decision
 

@@ -97,27 +97,34 @@ reviewable change while keeping the source-of-truth design constraints in
   allowlist, terminal status labels, closed safe reason labels, no observation
   `started` event, no normalized counters in the first shape, and no runtime
   emission, archive writes, provider forwarding, or post-tool provider turn.
+- Native provider-visible repo context policy: future provider-visible repo
+  context is documented as bounded sanitized provider input rather than archive
+  content, with allowed source types, forbidden source types/content, fixed
+  upper limits, path-label rules, fail-closed redaction behavior, and
+  metadata-only archive rules, while the current runtime still performs no
+  real repo reads, context forwarding, live observation emission, archive writes
+  for live context, or post-tool provider turn.
 
 ## Next Slice
 
-### Provider-Visible Repo Context Policy
+### Approval And Sandbox Enforcement Baseline
 
-Goal: decide the smallest provider-visible repo context policy for future
-bounded native read tools and a later post-tool provider turn, without executing
-real reads, adding provider-visible file contents, or changing the current
-runtime loop.
+Goal: decide the smallest approval and sandbox enforcement baseline for future
+native read-only tools, write tools, and later verification commands, without
+executing real tools or changing the current runtime loop.
 
 Selected shape:
 
 - keep the current runtime bounded to one provider turn plus optional one fake
   no-op tool invocation
-- keep the sanitized observation event contract internal and inert
-- define what repo context may be sent to a provider later, including allowed
-  source types, excerpt limits, redaction expectations, and failure behavior
+- keep the provider-visible repo context policy documented but not wired into
+  runtime
+- define approval gate semantics, sandbox labels, enforcement failure behavior,
+  and safe lifecycle metadata before any real tool runs
 - preserve the implemented pipy-owned `turn_index`, `tool_request_id`, and
   `native.tool.observation.recorded` contracts unchanged
-- preserve metadata-only archives even when future provider-visible context is
-  derived from bounded reads
+- preserve metadata-only archives for all approval, sandbox, and future
+  execution lifecycle records
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 - preserve metadata-only archives and the default native stdout/stderr contract
@@ -130,7 +137,7 @@ Keep out of scope:
 - retries or model fallback
 - provider registry or OAuth
 - real filesystem or shell tool execution
-- approval prompts or sandbox enforcement
+- implementing live approval prompts or sandbox enforcement
 - implementing post-tool provider turns or a general model/tool loop
 - emitting, archiving, or provider-forwarding live tool observations
 - emitting, archiving, or provider-forwarding real repo context
@@ -148,11 +155,14 @@ Acceptance checks:
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
 - no post-tool provider call, live observation emission, or live repo-context
-  forwarding is implemented while the context policy is only being decided
-- the provider-visible repo context policy excludes secrets, credentials,
-  tokens, private keys, sensitive personal data, raw provider responses,
-  unbounded file contents, raw tool output, and model-selected paths unless a
-  later explicit bounded-read shape allows sanitized excerpts
+  forwarding is implemented while the approval and sandbox baseline is only
+  being decided
+- the approval and sandbox baseline defines how future requests are allowed,
+  denied, skipped, or failed before real tools run
+- approval and sandbox metadata excludes raw prompts, model output, provider
+  responses, tool payloads, stdout, stderr, diffs, patches, file contents,
+  shell commands, raw args, model-selected paths, secrets, credentials, tokens,
+  private keys, and sensitive personal data
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
@@ -162,8 +172,8 @@ Acceptance checks:
 
 ## Near Term
 
-The current next slice remains contract/value-object work, but the near-term
-trajectory is now supervised self-bootstrap: make `pipy-native` capable of
+The current next slice remains prerequisite policy work, while the near-term
+trajectory stays supervised self-bootstrap: make `pipy-native` capable of
 reading bounded repo context, taking one follow-up model turn, and eventually
 making reviewed edits without turning archives into raw transcripts.
 Post-tool provider turns and real tool execution remain deferred until the
@@ -172,36 +182,33 @@ and implemented in order.
 
 Small reviewable slices, in intended order:
 
-1. Decide the provider-visible repo context policy: what read-only file
-   excerpts, search results, or workspace summaries may be sent to a provider,
-   with size limits, redaction rules, and metadata-only archive rules.
-2. Decide the approval and sandbox enforcement baseline before any real tool
+1. Decide the approval and sandbox enforcement baseline before any real tool
    runs: policy data, gate semantics, failure handling, and safe lifecycle
    metadata for read-only tools, write tools, and later verification commands.
-3. Add inert read-only tool request/value-object shapes for bounded repo
+2. Add inert read-only tool request/value-object shapes for bounded repo
    inspection, still without executing real reads or sending file contents to a
    provider.
-4. Add one bounded read-only tool implementation slice, likely `rg`-style
+3. Add one bounded read-only tool implementation slice, likely `rg`-style
    search or explicit file read, implementing the limits, redaction rules, and
    approval/sandbox gates from the policy slices; archives record only safe
    status, duration, counters, labels, and storage booleans, never raw results.
-5. Add one bounded post-tool provider turn against synthetic sanitized
+4. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-6. Wire the bounded read-only tool observation into the one follow-up provider
+5. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
-   lifecycle-event slice and the provider-visible context shape from step 1.
-7. Add a patch proposal boundary before writes: provider may propose a
+   lifecycle-event slice and the completed provider-visible context policy.
+6. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-8. Add an explicit patch-apply slice with conservative file scope, no shell
+7. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-9. Add an allowlisted verification-command slice, starting with `just check`,
-    behind explicit policy and with only exit code, status, duration, and safe
-    labels recorded; stdout/stderr remain excluded from archives.
-10. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
-    test-only change, with independent review before treating it as usable.
+8. Add an allowlisted verification-command slice, starting with `just check`,
+   behind explicit policy and with only exit code, status, duration, and safe
+   labels recorded; stdout/stderr remain excluded from archives.
+9. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+   test-only change, with independent review before treating it as usable.
 
 ## Deferred
 
