@@ -185,6 +185,31 @@ class NativeToolResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeToolObservation:
+    """Sanitized internal observation shape for a future post-tool turn.
+
+    The runtime does not emit, archive, or provider-forward this value yet.
+    """
+
+    tool_request_id: str
+    turn_index: int
+    tool_name: str
+    tool_kind: str
+    status: NativeToolStatus
+    reason_label: str | None = None
+    duration_seconds: float | None = None
+    tool_payloads_stored: bool = False
+    stdout_stored: bool = False
+    stderr_stored: bool = False
+    diffs_stored: bool = False
+    file_contents_stored: bool = False
+    prompt_stored: bool = False
+    model_output_stored: bool = False
+    provider_responses_stored: bool = False
+    raw_transcript_imported: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class NativeRunOutput:
     """Native session result before adaptation into the harness result shape."""
 

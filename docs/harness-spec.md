@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-14 native post-tool observation contract decision documented
+Status: slice-15 native tool observation value object stub implemented
 
 <style>
 .mermaid,
@@ -741,11 +741,12 @@ personal data.
 ### Native Post-Tool Observation Contract Decision
 
 A future post-tool observation is an internal sanitized record that may connect
-one native tool result to a later provider turn. It is not a raw transcript item,
-not a provider-native tool result, and not a storage channel for tool output.
-The current runtime does not create this value, archive this value, call the
-provider after a tool result, or change the one-provider-turn plus optional
-one-no-op-tool bound.
+one native tool result to a later provider turn. The implemented
+`NativeToolObservation` value-object stub is inert and internal: it is not a raw
+transcript item, not a provider-native tool result, and not a storage channel
+for tool output. The current runtime does not create this value, archive this
+value, call the provider after a tool result, or change the one-provider-turn
+plus optional one-no-op-tool bound.
 
 The identity terms below rely on the pipy-owned request identity defined in
 `Native Tool Request Identity And Turn Index`.
@@ -759,9 +760,8 @@ Correlation must use pipy-owned identity only:
   internal tool intent. The current bounded runtime remains `turn_index=0`; a
   later second provider turn must define its own subsequent turn index before it
   emits another `native.provider.started` event.
-- optional safe observation status or reason labels, if a future value object
-  needs them, such as `succeeded`, `failed`, `skipped`,
-  `unsupported_observation`, or `unsafe_observation`.
+- safe observation status or reason labels, such as `succeeded`, `failed`,
+  `skipped`, `unsupported_observation`, or `unsafe_observation`.
 
 Allowed observation content is limited to summary-safe metadata:
 
@@ -775,7 +775,8 @@ Allowed observation content is limited to summary-safe metadata:
   `tool_payloads_stored=false`, `stdout_stored=false`,
   `stderr_stored=false`, `diffs_stored=false`,
   `file_contents_stored=false`, `prompt_stored=false`,
-  `model_output_stored=false`, and `raw_transcript_imported=false`
+  `model_output_stored=false`, `provider_responses_stored=false`, and
+  `raw_transcript_imported=false`
 - optional sanitized metadata containing only counters, booleans, enum labels,
   and short non-secret identifiers
 

@@ -8,6 +8,7 @@ from pipy_harness.native import (
     FakeNoOpNativeTool,
     NativeToolApprovalPolicy,
     NativeToolIntent,
+    NativeToolObservation,
     NativeToolRequest,
     NativeToolRequestIdentity,
     NativeToolResult,
@@ -69,6 +70,78 @@ def test_native_tool_intent_value_object_is_metadata_only():
     assert intent_fields["intent_source"] == "fake_provider"
     for forbidden in ("arguments", "payload", "stdout", "stderr", "diff", "file_content", "command", "path"):
         assert forbidden not in intent_fields
+
+
+def test_native_tool_observation_stub_is_metadata_only_and_inert():
+    observation = NativeToolObservation(
+        tool_request_id="native-tool-0001",
+        turn_index=0,
+        tool_name="noop",
+        tool_kind="internal_noop",
+        status=NativeToolStatus.SUCCEEDED,
+        reason_label="safe_noop_completed",
+        duration_seconds=0.003,
+    )
+
+    observation_fields = asdict(observation)
+
+    assert observation_fields == {
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "tool_name": "noop",
+        "tool_kind": "internal_noop",
+        "status": NativeToolStatus.SUCCEEDED,
+        "reason_label": "safe_noop_completed",
+        "duration_seconds": 0.003,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+    }
+    forbidden_fields = {
+        "args",
+        "arguments",
+        "command",
+        "credentials",
+        "diff",
+        "file_content",
+        "file_contents",
+        "model_output",
+        "patch",
+        "payload",
+        "private_key",
+        "prompt",
+        "provider_response",
+        "raw_args",
+        "raw_payload",
+        "secret",
+        "stderr",
+        "stdout",
+        "token",
+    }
+    assert forbidden_fields.isdisjoint(observation_fields)
+
+
+def test_native_tool_observation_storage_booleans_default_false():
+    observation = NativeToolObservation(
+        tool_request_id="native-tool-0001",
+        turn_index=0,
+        tool_name="noop",
+        tool_kind="internal_noop",
+        status=NativeToolStatus.SKIPPED,
+    )
+
+    observation_fields = asdict(observation)
+
+    storage_fields = {key: value for key, value in observation_fields.items() if key.endswith("_stored")}
+    storage_fields["raw_transcript_imported"] = observation_fields["raw_transcript_imported"]
+    assert storage_fields
+    assert set(storage_fields.values()) == {False}
 
 
 def test_fake_noop_native_tool_is_deterministic_and_side_effect_free():
