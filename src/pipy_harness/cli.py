@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from pipy_harness.adapters import PipyNativeAdapter, SubprocessAdapter
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import RunRequest
+from pipy_harness.models import RunRequest, RunResult
 from pipy_harness.native import FakeNativeProvider, OpenAIResponsesProvider
 from pipy_harness.runner import HarnessRunner
 
@@ -45,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_parser.add_argument(
+        "--native-output",
+        choices=["json"],
+        help="Native stdout mode for --agent pipy-native. Only json is supported.",
+    )
+    run_parser.add_argument(
         "--record-files",
         action="store_true",
         help="Record changed git file paths only, not diffs or contents.",
@@ -65,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "run":
+            _validate_native_output(args.agent, args.native_output)
             command = _native_command(args.native_command, agent=args.agent)
             if args.agent == "pipy-native" and not args.goal:
                 raise ValueError("pipy-native runs require --goal")
@@ -79,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                 capture_policy=CapturePolicy(record_file_paths=args.record_files),
                 native_provider=args.native_provider,
                 native_model=args.native_model,
+                native_output=args.native_output,
             )
             result = HarnessRunner(adapter=adapter).run(request)
             if result.error_type is not None:
@@ -93,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"pipy: session finalized at {result.record.jsonl_path}",
                     file=sys.stderr,
                 )
+            if args.native_output == "json":
+                print(json.dumps(_native_json_output(request, result), sort_keys=True))
             return result.exit_code
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
@@ -105,6 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def _validate_native_output(agent: str, native_output: str | None) -> None:
+    if native_output is not None and agent != "pipy-native":
+        raise ValueError("--native-output requires --agent pipy-native")
+
+
 def _native_command(command: list[str], *, agent: str) -> list[str]:
     if command and command[0] == "--":
         command = command[1:]
@@ -115,6 +132,55 @@ def _native_command(command: list[str], *, agent: str) -> list[str]:
     if not command:
         raise ValueError("run requires a command after --")
     return command
+
+
+def _native_json_output(request: RunRequest, result: RunResult) -> dict[str, Any]:
+    metadata = result.metadata or {}
+    output: dict[str, Any] = {
+        "schema": "pipy.native_output",
+        "schema_version": 1,
+        "run_id": result.run_id,
+        "status": result.status.value,
+        "exit_code": result.exit_code,
+        "agent": request.agent,
+        "adapter": _metadata_text(metadata, "adapter") or "pipy-native",
+        "record": {
+            "jsonl_path": str(result.record.jsonl_path),
+            "markdown_path": str(result.record.markdown_path)
+            if result.record.markdown_path is not None
+            else None,
+        },
+        "capture": {
+            "partial": True,
+            "stdout_stored": request.capture_policy.record_stdout,
+            "stderr_stored": request.capture_policy.record_stderr,
+            "prompt_stored": False,
+            "model_output_stored": False,
+            "tool_payloads_stored": False,
+            "raw_transcript_imported": request.capture_policy.import_raw_transcript,
+        },
+    }
+    provider = _metadata_text(metadata, "provider") or request.native_provider or "fake"
+    model_id = (
+        _metadata_text(metadata, "model_id")
+        or request.native_model
+        or ("fake-native-bootstrap" if provider == "fake" else None)
+    )
+    if provider is not None:
+        output["provider"] = provider
+    if model_id is not None:
+        output["model_id"] = model_id
+    if result.duration_seconds is not None:
+        output["duration_seconds"] = result.duration_seconds
+    usage = metadata.get("usage")
+    if isinstance(usage, Mapping) and usage:
+        output["usage"] = dict(usage)
+    return output
+
+
+def _metadata_text(metadata: Mapping[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 def _adapter_for(

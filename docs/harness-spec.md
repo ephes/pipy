@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-10 native structured stdout flag contract documented
+Status: slice-11 native structured stdout JSON mode implemented
 
 <style>
 .mermaid,
@@ -566,55 +566,54 @@ The current native stdout decision is to preserve the human-readable default:
 successful provider final text prints to stdout and nothing else in the native
 success path is written there by the harness. Session finalization notices,
 diagnostics, progress, provider errors, and other harness messages go to
-stderr. Failed native runs do not print provider final text to stdout. A
-structured machine-readable native stdout mode is deferred to a future explicit
-flag or slice; it is not part of the default `pipy run --agent pipy-native`
-contract. The contract below names the selected future flag shape.
+stderr. Failed native runs do not print provider final text to stdout.
+Structured machine-readable native stdout is available only through explicit
+`--native-output json`; it is not part of the default
+`pipy run --agent pipy-native` contract.
 
-### Native Structured Stdout Flag Contract Decision
+### Native Structured Stdout JSON Mode
 
-Structured native stdout is selected as a future explicit opt-in contract, not
-an implemented mode in the current runtime. The default stays unchanged:
-successful `pipy-native` runs print provider final text only, failed native
-runs print no provider final text, and diagnostics, finalization notices,
-provider errors, and harness errors remain on stderr.
+Structured native stdout is an explicit opt-in contract. The default stays
+unchanged: successful `pipy-native` runs print provider final text only, failed
+native runs print no provider final text, and diagnostics, finalization
+notices, provider errors, and harness errors remain on stderr.
 
-When implemented, the preferred flag shape is:
+The implemented flag shape is:
 
 ```sh
 uv run pipy run --agent pipy-native --native-output json ...
 ```
 
-The flag should default to `text`, so omitting it preserves the current
-human-readable stdout mode. The first structured mode should emit one final
-JSON object to stdout after the native run and recorder finalization attempt
-complete. It should not be a JSONL stream, should not interleave progress
-events, and should not change the process exit-code contract. If a later
-streaming protocol is needed, it should use a separate explicit mode or flag
-with its own schema decision.
+Omitting the flag preserves the current human-readable stdout mode. The JSON
+mode emits one final JSON object to stdout after the native run and recorder
+finalization attempt complete. It is not a JSONL stream, does not interleave
+progress events, and does not change the process exit-code contract.
+`--native-output` is rejected for non-native agents before creating a session
+record. If a later streaming protocol is needed, it should use a separate
+explicit mode or flag with its own schema decision.
 
-The future JSON object should be versioned and metadata-only. Allowed fields
-are limited to summary-safe values such as:
+The JSON object is versioned and metadata-only. Current fields are limited to
+summary-safe values:
 
-- `schema`: a stable label such as `pipy.native_output`
-- `schema_version`
-- run/session `status` and `exit_code`
-- adapter, provider, and model labels
-- duration or start/end timestamps
-- normalized usage counters already allowed in archives
+- `schema`: `pipy.native_output`
+- `schema_version`: `1`
+- `run_id`
+- `status` and `exit_code`
+- `agent`, adapter, provider, and model labels
+- `duration_seconds`
+- normalized usage counters already allowed in archives, when available
+- finalized JSONL and Markdown record path references
 - storage booleans such as `prompt_stored=false`,
   `model_output_stored=false`, `raw_transcript_imported=false`, and
   `tool_payloads_stored=false`
-- safe tool lifecycle labels and policy labels when relevant
-- finalized record references that do not expose raw record contents
 
 Structured stdout must remain aligned with the archive privacy policy. It must
 not emit raw system prompts, raw user prompts, model output, provider
 responses, provider-native payloads, tool arguments, tool results, tool
 payloads, stdout, stderr, diffs, patches, file contents, secrets, credentials,
-tokens, private keys, or sensitive personal data by default. The future JSON
-mode is therefore a status and metadata surface, not a replacement transcript
-or a way to expose final model text.
+tokens, private keys, or sensitive personal data by default. JSON mode is
+therefore a status and metadata surface, not a replacement transcript or a way
+to expose final model text.
 
 ### Native Fake Tool Intent
 
@@ -969,9 +968,9 @@ CLI output convention:
 - child process output streams through according to adapter policy
 - native provider final text prints to stdout only when `pipy-native` succeeds
 - `pipy-native` session-finalization messages and errors go to stderr
-- structured machine-readable native stdout is deferred to future
-  `--native-output json`; that mode should emit one final metadata-only JSON
-  object, not a JSONL event stream
+- `--native-output json` emits one final metadata-only JSON object for
+  `pipy-native`, not a JSONL event stream, and is rejected for non-native
+  agents before record creation
 
 The initial CLI should not have:
 

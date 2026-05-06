@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
@@ -23,6 +24,13 @@ from pipy_harness.capture import (
 from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
 
 HARNESS_PROTOCOL_VERSION = 1
+_SAFE_USAGE_COUNTERS = {
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cached_tokens",
+    "reasoning_tokens",
+}
 
 
 class FileSessionRecorder:
@@ -222,6 +230,7 @@ class HarnessRunner:
                 error_message=error_message,
             ),
         )
+        duration_seconds = _duration_seconds(started_at, self.clock())
         return RunResult(
             run_id=run_id,
             status=status,
@@ -229,6 +238,8 @@ class HarnessRunner:
             record=record,
             error_type=error_type,
             error_message=error_message,
+            duration_seconds=duration_seconds,
+            metadata=_adapter_result_metadata(adapter_result),
         )
 
 
@@ -277,6 +288,27 @@ def _initial_session_fields(run_id: str, timestamp: datetime) -> dict[str, Any]:
         "sequence": 0,
         "harness_protocol_version": HARNESS_PROTOCOL_VERSION,
     }
+
+
+def _adapter_result_metadata(adapter_result: AdapterResult | None) -> dict[str, Any] | None:
+    if adapter_result is None or adapter_result.metadata is None:
+        return None
+    metadata = sanitize_metadata(adapter_result.metadata)
+    usage = adapter_result.metadata.get("usage")
+    if isinstance(usage, Mapping):
+        safe_usage: dict[str, int | float] = {}
+        for key, value in usage.items():
+            if (
+                isinstance(key, str)
+                and key in _SAFE_USAGE_COUNTERS
+                and isinstance(value, int | float)
+                and not isinstance(value, bool)
+                and isfinite(value)
+                and value >= 0
+            ):
+                safe_usage[key] = value
+        metadata["usage"] = safe_usage
+    return metadata
 
 
 def _base_payload(

@@ -159,5 +159,6 @@ class NativeRunOutput:
     final_text: str | None = None
     provider_name: str | None = None
     model_id: str | None = None
+    usage: Mapping[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None

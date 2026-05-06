@@ -127,6 +127,7 @@ class NativeAgentSession:
             if provider_result.status == HarnessStatus.SUCCEEDED
             else "native.provider.failed"
         )
+        provider_usage = normalize_provider_usage(provider_result.usage or {})
         event_sink.emit(
             provider_event,
             summary=(
@@ -138,7 +139,7 @@ class NativeAgentSession:
                 **safe_context,
                 "status": provider_result.status.value,
                 "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
-                "usage": normalize_provider_usage(provider_result.usage or {}),
+                "usage": provider_usage,
                 "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
                 "error_type": _safe_optional_text(provider_result.error_type),
                 "error_message": _safe_optional_text(provider_result.error_message),
@@ -200,6 +201,7 @@ class NativeAgentSession:
             final_text=provider_result.final_text if final_status == HarnessStatus.SUCCEEDED else None,
             provider_name=provider_result.provider_name,
             model_id=provider_result.model_id,
+            usage=provider_usage,
             error_type=_native_error_type(provider_result, tool_result),
             error_message=_native_error_message(provider_result, tool_result),
         )

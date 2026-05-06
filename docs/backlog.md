@@ -43,21 +43,28 @@ reviewable change while keeping the source-of-truth design constraints in
 - Native final text stdout mode decision: successful native provider final text
   remains the default human-readable stdout payload, while session
   finalization, diagnostics, progress, and errors stay on stderr; structured
-  machine-readable native stdout is deferred to a future explicit flag, later
-  named as `--native-output json`, and archives remain metadata-only without
-  model output.
+  machine-readable native stdout was reserved for an explicit flag later named
+  `--native-output json`, and archives remain metadata-only without model
+  output.
 - Native post-tool provider turn decision: the current native fake intent path
   remains bounded to one provider turn plus optional one fake no-op tool
   invocation; any post-tool provider turn is deferred until permission prompts,
   sandbox enforcement, and real tool-result observation semantics are designed,
   and future metadata must remain summary-safe and metadata-only.
 - Native structured stdout flag contract decision: current `pipy-native`
-  stdout remains successful provider final text only by default, while future
+  stdout remains successful provider final text only by default, while
   structured automation output is reserved for explicit `--native-output json`
   emitting one final metadata-only JSON object with no raw prompts, model
   output, provider responses, tool payloads, stdout, stderr, diffs, file
   contents, secrets, credentials, tokens, private keys, or sensitive personal
   data.
+- Native structured stdout JSON mode: `pipy run --agent pipy-native
+  --native-output json` emits one final versioned metadata-only JSON object
+  after the native run and recorder finalization attempt complete, suppresses
+  provider final text in JSON mode, includes finalized record references and
+  safe capture booleans, preserves the default final-text stdout contract when
+  omitted, and rejects `--native-output` for non-native agents before creating
+  a record.
 
 ## Next Slice
 
@@ -109,8 +116,8 @@ Acceptance checks:
 
 ## Near Term
 
-- Implement explicit `--native-output json` only after the schema is reviewed
-  against `docs/harness-spec.md` and `docs/session-storage.md`.
+- Select the next narrow native runtime boundary before adding broader
+  execution behavior.
 
 ## Deferred
 

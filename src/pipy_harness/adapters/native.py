@@ -42,6 +42,7 @@ class PipyNativeAdapter:
             goal=request.goal,
             native_provider=request.native_provider or self.provider.name,
             native_model=request.native_model or self.provider.model_id,
+            native_output=request.native_output,
         )
 
     def run(
@@ -62,7 +63,7 @@ class PipyNativeAdapter:
             ),
             event_sink,
         )
-        if run_output.final_text:
+        if prepared.native_output != "json" and run_output.final_text:
             print(run_output.final_text, file=sys.stdout)
 
         return AdapterResult(
@@ -71,6 +72,10 @@ class PipyNativeAdapter:
             started_at=run_output.started_at,
             ended_at=run_output.ended_at,
             metadata={
+                "adapter": self.name,
+                "provider": run_output.provider_name,
+                "model_id": run_output.model_id,
+                "usage": run_output.usage or {},
                 "error_type": run_output.error_type,
                 "error_message": run_output.error_message,
             },

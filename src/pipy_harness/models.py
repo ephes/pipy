@@ -36,6 +36,7 @@ class RunRequest:
     capture_policy: CapturePolicy = CapturePolicy()
     native_provider: str | None = None
     native_model: str | None = None
+    native_output: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,7 @@ class PreparedRun:
     goal: str | None = None
     native_provider: str | None = None
     native_model: str | None = None
+    native_output: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,3 +75,5 @@ class RunResult:
     record: SessionRecord
     error_type: str | None = None
     error_message: str | None = None
+    duration_seconds: float | None = None
+    metadata: dict[str, Any] | None = None

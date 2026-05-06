@@ -75,6 +75,7 @@ partial lifecycle metadata into the session archive:
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
+uv run pipy run --agent pipy-native --native-output json --slug native-json --goal "Native JSON smoke"
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
 ```
 
@@ -92,6 +93,7 @@ Optional flags:
 - `--record-files`: after the child exits, record changed git file paths only
 - `--native-provider fake|openai`: native provider for `--agent pipy-native`, defaulting to `fake`
 - `--native-model <id>`: model label for the native provider; required for `--native-provider openai`
+- `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
@@ -130,20 +132,20 @@ Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
 finalization messages, diagnostics, and errors go to stderr so stdout remains
 usable in shell pipelines. Failed native runs do not print provider final text
-to stdout. A structured machine-readable native stdout mode is deferred to
-future `--native-output json`; this default mode does not emit JSON status
-records.
+to stdout.
 
-The future `--native-output json` mode is a metadata-only status surface, not a
-transcript or final-text channel. Its first shape should be one final versioned
-JSON object on stdout after the native run and recorder finalization attempt,
-with diagnostics and finalization still on stderr. Allowed fields are
-summary-safe values such as schema/version, status, exit code, adapter,
-provider, model, duration, normalized usage counters, storage booleans, safe
-tool lifecycle labels, and finalized-record references. It must not emit raw
-prompts, model output, provider responses, provider-native payloads, tool
-arguments or results, stdout, stderr, diffs, file contents, secrets,
-credentials, tokens, private keys, or sensitive personal data by default.
+Use `--native-output json` with `--agent pipy-native` for structured
+automation output. That mode emits one final versioned JSON object on stdout
+after the native run and recorder finalization attempt, with diagnostics and
+finalization still on stderr. It is a metadata-only status surface, not a
+transcript or final-text channel. The JSON includes summary-safe values such as
+schema/version, run id, status, exit code, agent, adapter, provider, model,
+duration, normalized usage counters when available, storage booleans, and
+finalized-record references. It does not emit raw prompts, model output,
+provider responses, provider-native payloads, tool arguments or results,
+stdout, stderr, diffs, file contents, secrets, credentials, tokens, private
+keys, or sensitive personal data by default. `--native-output` is rejected for
+non-native agents before a run record is created.
 
 By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, raw HTTP payloads, diffs, or file contents. It
