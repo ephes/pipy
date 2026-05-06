@@ -139,14 +139,19 @@ metadata record around another command.
 
 The current native fake intent path does not make a post-tool provider call.
 After one safe no-op tool result, the session completes instead of feeding a
-tool observation back to the provider. A future post-tool provider turn is
-deferred until permission prompts, sandbox enforcement, and tool-result
-observation semantics are designed. Any future turn must remain metadata-only
-in the pipy archive: safe turn/provider/model labels, status, durations,
-normalized usage counters, storage booleans, and safe observation labels may be
-recorded, but raw tool results, stdout, stderr, diffs, file contents, prompts,
-model output, provider responses, secrets, credentials, tokens, and sensitive
-personal data must not be stored by default.
+tool observation back to the provider. A future post-tool observation is
+specified as summary-safe internal metadata anchored to pipy's
+`tool_request_id` and `turn_index`, but a post-tool provider turn is still
+deferred until permission prompts, sandbox enforcement, and real tool execution
+behavior are designed. Any future turn must remain metadata-only in the pipy
+archive: safe turn/provider/model labels, status, durations, normalized usage
+counters, storage booleans, and safe observation labels may be recorded, but
+raw tool results, stdout, stderr, diffs, patches, file contents, prompts,
+model output, provider responses, provider-native tool-call or result objects,
+function arguments, provider response ids that could reveal payload content,
+raw tool arguments, shell commands, model-selected filesystem paths, secrets,
+credentials, tokens, private keys, and sensitive personal data must not be
+stored by default.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session

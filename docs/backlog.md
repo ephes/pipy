@@ -48,9 +48,9 @@ reviewable change while keeping the source-of-truth design constraints in
   output.
 - Native post-tool provider turn decision: the current native fake intent path
   remains bounded to one provider turn plus optional one fake no-op tool
-  invocation; any post-tool provider turn is deferred until permission prompts,
-  sandbox enforcement, and real tool-result observation semantics are designed,
-  and future metadata must remain summary-safe and metadata-only.
+  invocation; any post-tool provider turn is deferred pending permission
+  prompts, sandbox enforcement, and real execution work, and future metadata
+  must remain summary-safe and metadata-only.
 - Native structured stdout flag contract decision: current `pipy-native`
   stdout remains successful provider final text only by default, while
   structured automation output is reserved for explicit `--native-output json`
@@ -75,14 +75,26 @@ reviewable change while keeping the source-of-truth design constraints in
   `turn_index=0` and one no-op request position, preserving the archive-facing
   `tool_request_id` shape while rejecting provider-supplied request ids as
   unsafe input.
+- Native post-tool observation contract decision: future post-tool observations
+  are documented as internal sanitized metadata records anchored to pipy-owned
+  `tool_request_id` and `turn_index`, with only safe labels, counters,
+  durations, storage booleans, and sanitized reason/status metadata allowed;
+  raw tool results, stdout, stderr, diffs, patches, file contents, prompts,
+  model output, provider responses, provider-native tool-call/result objects,
+  function arguments, provider response ids that could reveal payload content,
+  raw tool arguments, shell commands, model-selected paths, secrets,
+  credentials, tokens, private keys, and sensitive personal data remain
+  forbidden, and the current runtime still does not make a post-tool provider
+  call.
 
 ## Next Slice
 
-### Native Post-Tool Observation Contract Decision
+### Native Tool Observation Value Object Stub
 
-Goal: decide the smallest summary-safe shape for a future native post-tool
-observation before adding any second provider call or broader execution
-behavior.
+Goal: add the smallest internal sanitized `NativeToolObservation` value-object
+stub and focused tests for the documented post-tool observation contract,
+without creating observations in the runtime or adding any second provider
+call.
 
 Selected shape:
 
@@ -90,12 +102,11 @@ Selected shape:
   no-op tool invocation
 - keep the implemented pipy-owned `turn_index` and `tool_request_id` contract
   unchanged
-- design what, if anything, a future provider turn may observe from a tool
-  result without archiving raw tool payloads, stdout, stderr, diffs, file
-  contents, prompts, model output, provider responses, secrets, credentials,
-  tokens, private keys, or sensitive personal data
-- decide summary-safe labels and storage booleans for future tool observations
-  before any post-tool provider call exists
+- represent only the already documented summary-safe observation fields:
+  correlation keys, status/reason labels, safe tool labels, durations or
+  counters where needed, and explicit storage booleans
+- keep the value object internal and inert; do not emit it, archive it, forward
+  it to a provider, or thread it through the native session lifecycle yet
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 - preserve metadata-only archives and the default native stdout/stderr contract
@@ -110,6 +121,7 @@ Keep out of scope:
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
 - implementing post-tool provider turns or a general model/tool loop
+- emitting, archiving, or provider-forwarding tool observations
 - multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
@@ -123,8 +135,10 @@ Acceptance checks:
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
-- no post-tool provider call is implemented while the observation shape is only
-  being decided
+- no post-tool provider call or observation emission is implemented while the
+  value object is only being stubbed
+- the value-object tests prove the shape excludes raw payload/output/content
+  fields and keeps storage booleans false by default
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
 - raw system prompts, user prompts beyond the short `--goal` metadata, model
@@ -134,13 +148,15 @@ Acceptance checks:
 
 ## Near Term
 
-- Decide the summary-safe shape of a future post-tool observation contract
-  before any second provider call exists.
+- Stub a summary-safe native tool observation value object behind tests only,
+  without runtime emission or provider forwarding.
+- Decide a later lifecycle event shape for sanitized observation metadata before
+  implementing any post-tool provider turn.
 
 ## Deferred
 
 - Full native pipy agent runtime beyond the provider and tool-boundary slices.
-- Native post-tool observation contract and post-tool provider turn.
+- Native post-tool provider turn.
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.

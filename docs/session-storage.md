@@ -460,15 +460,19 @@ short and non-sensitive.
 The native fake intent path remains bounded to one provider turn and at most one
 fake no-op tool invocation. After a safe no-op tool result, the native session
 completes; it does not make a second provider call or archive a tool-result
-observation for provider consumption. A future post-tool provider turn is
-deferred until permission prompts, sandbox enforcement, and real tool-result
-observation semantics are designed. If that turn is added later, JSONL and
-Markdown records may still contain only summary-safe metadata such as turn
-index, provider/model labels, status, durations, normalized usage counters,
-storage booleans, and safe observation labels. They must not contain raw tool
-result payloads, stdout, stderr, diffs, file contents, prompts, model output,
-provider responses, provider-native tool-call payloads, secrets, credentials,
-tokens, private keys, or sensitive personal data by default.
+observation for provider consumption. A future post-tool observation is now
+specified as summary-safe internal metadata anchored to pipy's
+`tool_request_id` and `turn_index`, but a post-tool provider turn is still
+deferred until permission prompts, sandbox enforcement, and real tool execution
+behavior are designed. If that turn is added later, JSONL and Markdown records
+may still contain only summary-safe metadata such as turn index,
+provider/model labels, status, durations, normalized usage counters, storage
+booleans, and safe observation labels. They must not contain raw tool result
+payloads, stdout, stderr, diffs, patches, file contents, prompts, model output,
+provider responses, provider-native tool-call or tool-result payloads,
+function arguments, provider response ids that could reveal payload content,
+raw tool arguments, shell commands, model-selected filesystem paths, secrets,
+credentials, tokens, private keys, or sensitive personal data by default.
 
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.
@@ -523,19 +527,20 @@ emitting `native.tool.intent.detected` or `native.tool.started`. Safe no-op
 tool success is followed directly by `native.session.completed`; there is no
 post-tool `native.provider.started` event in the current contract.
 
-The next selected native boundary is a tool request identity and turn-index
-contract. It does not change archive lifecycle or privacy policy. `turn_index`
-is a pipy-assigned small non-negative integer for the provider turn that
-produced a sanitized internal tool intent; the current bounded runtime may
-archive only `turn_index=0`. `request_id` is an opaque pipy-generated id used
-to correlate one safe tool intent with its matching no-op lifecycle events
-inside a single record. It must not be copied from provider-native tool-call
-ids or derived from prompt text, model output, provider responses, tool
-arguments, shell commands, filesystem paths selected by the model, stdout,
-stderr, diffs, file contents, secrets, credentials, private keys, tokens, or
-sensitive personal data. The boundary still allows only metadata such as safe
-labels, policy labels, status, duration, storage booleans, normalized counters,
-and sanitized error labels.
+The current native identity and observation planning boundaries do not change
+archive lifecycle or privacy policy. `turn_index` is a pipy-assigned small
+non-negative integer for the provider turn that produced a sanitized internal
+tool intent; the current bounded runtime may archive only `turn_index=0`.
+`request_id` is an opaque pipy-generated id used internally to correlate one
+safe tool intent with its matching no-op lifecycle events inside a single
+record, and lifecycle payloads expose that id as `tool_request_id`. It must not
+be copied from provider-native tool-call ids or derived from prompt text, model
+output, provider responses, raw tool arguments, shell commands, filesystem
+paths selected by the model, stdout, stderr, diffs, patches, file contents,
+secrets, credentials, private keys, tokens, or sensitive personal data. Any
+future post-tool observation remains metadata-only: safe labels, policy labels,
+status, duration, storage booleans, normalized counters, and sanitized reason or
+error labels.
 
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive

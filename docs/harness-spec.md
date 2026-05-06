@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-13 native tool request identity contract implemented
+Status: slice-14 native post-tool observation contract decision documented
 
 <style>
 .mermaid,
@@ -722,12 +722,11 @@ tool invocation. After `native.tool.completed`, the session emits
 `native.session.completed`; it does not call the provider again and does not
 emit another `native.provider.started` event.
 
-A post-tool provider turn is deferred until pipy has designed permission
-prompts, sandbox enforcement, and real tool-result observation semantics. Adding
-that turn would move the native path toward a real agent loop, so the runtime
-must first define what the provider may observe, how approval and sandbox
-decisions are enforced, and how failures or unsafe observations are represented
-without archiving raw content.
+A post-tool provider turn remains deferred even though the summary-safe
+observation boundary is now documented below. Adding that turn would move the
+native path toward a real agent loop, so the runtime must also design approval
+prompts, sandbox enforcement, and real execution behavior before any provider
+can receive an observation from a tool result.
 
 If a future slice adds a post-tool provider turn, the archive may record only
 summary-safe metadata such as turn index, provider and model labels, status,
@@ -738,6 +737,91 @@ not archive raw tool result payloads, stdout, stderr, diffs, file contents,
 prompts, model output, provider responses, provider-native tool-call objects,
 function arguments, secrets, credentials, private keys, tokens, or sensitive
 personal data.
+
+### Native Post-Tool Observation Contract Decision
+
+A future post-tool observation is an internal sanitized record that may connect
+one native tool result to a later provider turn. It is not a raw transcript item,
+not a provider-native tool result, and not a storage channel for tool output.
+The current runtime does not create this value, archive this value, call the
+provider after a tool result, or change the one-provider-turn plus optional
+one-no-op-tool bound.
+
+The identity terms below rely on the pipy-owned request identity defined in
+`Native Tool Request Identity And Turn Index`.
+
+Correlation must use pipy-owned identity only:
+
+- `tool_request_id`: the archive-facing id for the pipy-owned tool request.
+  It corresponds to the internal `NativeToolRequestIdentity.request_id` and must
+  not be copied from provider tool-call ids.
+- `turn_index`: the pipy-assigned provider turn that produced the sanitized
+  internal tool intent. The current bounded runtime remains `turn_index=0`; a
+  later second provider turn must define its own subsequent turn index before it
+  emits another `native.provider.started` event.
+- optional safe observation status or reason labels, if a future value object
+  needs them, such as `succeeded`, `failed`, `skipped`,
+  `unsupported_observation`, or `unsafe_observation`.
+
+Allowed observation content is limited to summary-safe metadata:
+
+- safe tool name and kind labels already allowed in current lifecycle events
+- result status labels and safe reason/error labels
+- duration and finite non-negative normalized counters already allowed for
+  native provider events, when applicable
+- booleans and small enum labels derived from approval, sandbox, and storage
+  policy data
+- storage booleans that remain explicit, including
+  `tool_payloads_stored=false`, `stdout_stored=false`,
+  `stderr_stored=false`, `diffs_stored=false`,
+  `file_contents_stored=false`, `prompt_stored=false`,
+  `model_output_stored=false`, and `raw_transcript_imported=false`
+- optional sanitized metadata containing only counters, booleans, enum labels,
+  and short non-secret identifiers
+
+The observation must never contain raw or provider-owned content:
+
+- raw tool result payloads or tool payloads
+- stdout or stderr
+- diffs, patches, or file contents
+- filesystem paths selected by the model
+- shell commands or raw tool arguments
+- raw system prompts, raw user prompts beyond the short `--goal` session
+  metadata, or prompt fragments
+- model output
+- provider responses, provider-native tool-call objects, provider-native tool
+  result objects, function arguments, or provider response ids that could reveal
+  payload content
+- secrets, credentials, API keys, tokens, private keys, or sensitive personal
+  data
+
+A future provider turn may receive only an explicitly designed sanitized
+observation derived from this contract. It must not receive raw tool output,
+stdout, stderr, diffs, patches, file contents, raw tool arguments,
+provider-native tool-call objects, prompts, model output, or provider responses
+through the observation path. If real filesystem or shell tool execution is
+added later, the observation shape must be implemented alongside approval
+prompts and sandbox enforcement so the provider-visible summary cannot bypass
+those controls.
+
+Unsupported or unsafe observations must fail closed. The runtime should either
+stop the loop safely or emit sanitized skipped/failed lifecycle metadata using
+the existing pipy-owned `tool_request_id`, `turn_index`, safe status, safe
+reason labels, and storage booleans. Unsafe data must be dropped or redacted in
+memory before any archive event, Markdown summary, structured stdout object, or
+future provider-visible observation is produced. It must not be archived first
+and redacted later.
+
+Still deferred for this boundary:
+
+- a second provider call or post-tool provider turn
+- a general model/tool loop
+- real filesystem or shell tool execution
+- approval prompts or sandbox enforcement
+- multiple tool requests per provider turn
+- provider-side built-in tools
+- streaming, retries, model fallback, provider registry, OAuth, or raw
+  transcript import
 
 ### Native Tool Request Identity And Turn Index
 
