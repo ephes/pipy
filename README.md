@@ -7,6 +7,13 @@ durable session-storage policy, a small local session-recorder CLI, an initial
 `pipy run` subprocess harness, a native pipy runtime bootstrap, and explicit
 sync between the `studio` and `atlas` development machines.
 
+Product direction: `pipy-native` is the agent runtime. It should talk directly
+to model providers through pipy's own provider ports, prompt construction, tool
+boundary, and session semantics. Mentions of Codex, Claude Code, or Pi below
+refer to metadata capture, subprocess wrapping, or session-reference workflows
+for external tools. They are not supported product runtime backends and should
+not become the core agent loop.
+
 ## Development Setup
 
 Install the Python tooling with `uv`:
@@ -68,23 +75,32 @@ and product boundaries live in `docs/harness-spec.md`.
 
 ## Pipy Run Harness
 
-Use `pipy run` to execute one native command while pipy records conservative
-partial lifecycle metadata into the session archive:
+Use `pipy run --agent pipy-native` for the native product runtime. It runs one
+minimal native turn through a direct provider boundary while pipy records
+conservative partial lifecycle metadata into the session archive:
 
 ```sh
-uv run pipy run --agent custom --slug smoke -- echo hello
-uv run pipy run --agent codex --slug harness-smoke --cwd . -- codex exec "..."
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
 uv run pipy run --agent pipy-native --native-output json --slug native-json --goal "Native JSON smoke"
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
 ```
 
+The same command can also wrap an arbitrary subprocess for conservative
+lifecycle capture. This is a foundation and smoke-test path, not the long-term
+agent runtime:
+
+```sh
+uv run pipy run --agent custom --slug smoke -- echo hello
+uv run pipy run --agent codex --slug codex-capture --cwd . -- codex exec "..."
+```
+
 Required flags:
 
-- `--agent <name>`: logical agent name, such as `custom`, `codex`, `claude`, or `pi`
+- `--agent <name>`: use `pipy-native` for the product runtime; other names such
+  as `custom`, `codex`, `claude`, or `pi` are subprocess/capture labels only
 - `--slug <slug>`: short run label used in the session filename
 - `--goal <text>`: short goal, required for `--agent pipy-native`
-- command after `--`: native subprocess command to run, required except for `--agent pipy-native`
+- command after `--`: subprocess command to run, required except for `--agent pipy-native`
 
 Optional flags:
 
@@ -98,24 +114,28 @@ Optional flags:
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
 
-For subprocess runs, the harness streams child stdout and stderr to the caller,
-finalizes the pipy record, and then returns the child process exit code. For
-`--agent pipy-native`, pipy runs one minimal native turn through an injected
-provider. The deterministic fake provider remains the default smoke-test
-boundary and does not require credentials. Native tool invocation is driven
-only by one sanitized supported no-op intent from provider metadata; provider
-success with final text and no intent completes without tool events. The
-injected no-op tool proves tool lifecycle and policy records without inspecting
-or mutating the workspace, executing shell commands, storing tool payloads, or
-enforcing approvals/sandboxing. The OpenAI provider calls the Responses API
-through a small standard-library HTTP boundary, reads its API key from
-`OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's internal
-system prompt as `instructions`, sends the short `--goal` as `input`, and
-requests `store: false`. It does not enable provider-side tools, streaming,
+For `--agent pipy-native`, pipy runs one minimal native turn through an
+injected provider. The deterministic fake provider remains the default
+smoke-test boundary and does not require credentials. Native tool invocation is
+driven only by one sanitized supported no-op intent from provider metadata;
+provider success with final text and no intent completes without tool events.
+The injected no-op tool proves tool lifecycle and policy records without
+inspecting or mutating the workspace, executing shell commands, storing tool
+payloads, or enforcing approvals/sandboxing. The OpenAI provider calls the
+Responses API through a small standard-library HTTP boundary, reads its API key
+from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
+internal system prompt as `instructions`, sends the short `--goal` as `input`,
+and requests `store: false`. It does not enable provider-side tools, streaming,
 retries, conversation state, background mode, model fallback, or raw transcript
 import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
 metadata.
+
+For subprocess capture runs, the harness streams child stdout and stderr to the
+caller, finalizes the pipy record, and then returns the child process exit code.
+Pipy does not own the subprocess prompt stack, model calls, tool behavior,
+approval model, or transcript format. Use this path only when you want a
+metadata record around another command.
 
 The current native fake intent path does not make a post-tool provider call.
 After one safe no-op tool result, the session completes instead of feeding a
@@ -307,14 +327,15 @@ ambiguous. The report contains paths, issue kinds, severities, and structural
 details only; it does not print raw JSONL event bodies, prompt text, tool
 output, raw exception text, or transcript payloads.
 
-## Automatic Capture
+## External Tool Capture
 
-Automatic capture is adapter-specific. There is no single hook mechanism that
-reliably covers Claude Code, Codex, and Pi.
+External tool capture is adapter-specific and secondary to `pipy-native`. There
+is no single hook mechanism that reliably covers Claude Code, Codex, and Pi,
+and these capture paths do not make those tools product runtime backends.
 
-Current support matrix:
+Current capture/reference matrix:
 
-| Platform | pipy support | Capture status |
+| Platform | pipy capture/reference path | Capture status |
 | --- | --- | --- |
 | Claude Code | `pipy-session auto hook claude` handles official hook JSON for `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial by default; stores lifecycle and conservative metadata, not raw prompt/tool transcripts. |
 | Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex hooks were rechecked against current OpenAI docs and local CLI support; no pipy Codex hook adapter is installed because the documented `Stop` hook is turn-scoped, not a reliable session finalizer. | Partial. Do not treat this as complete automatic transcript capture. |
@@ -368,9 +389,9 @@ would-remove	/path/to/state.json	active-not-found
 summary	would-remove	1
 ```
 
-### Claude Code Hook Setup
+### Claude Code Hook Capture
 
-Claude Code support is implemented as a hook adapter, but this repository does
+Claude Code capture is implemented as a hook adapter, but this repository does
 not install hooks into your user dotfiles or commit live hook settings. To enable
 it for your local checkout, add `.claude/settings.local.json`:
 
