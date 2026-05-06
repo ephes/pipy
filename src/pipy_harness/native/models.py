@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -130,6 +130,13 @@ class NativeToolSandboxMode(StrEnum):
     MUTATING_WORKSPACE = "mutating-workspace"
 
 
+class NativeReadOnlyToolRequestKind(StrEnum):
+    """Safe labels for future bounded read-only workspace inspection requests."""
+
+    EXPLICIT_FILE_EXCERPT = "explicit-file-excerpt"
+    SEARCH_EXCERPT = "search-excerpt"
+
+
 @dataclass(frozen=True, slots=True)
 class NativeToolRequestIdentity:
     """Pipy-owned identity for the current bounded native tool request.
@@ -182,6 +189,7 @@ class NativeToolSandboxPolicy:
     """Sandbox policy attached to a native tool request."""
 
     mode: NativeToolSandboxMode = NativeToolSandboxMode.NO_WORKSPACE_ACCESS
+    workspace_read_allowed: bool = False
     filesystem_mutation_allowed: bool = False
     shell_execution_allowed: bool = False
     network_access_allowed: bool = False
@@ -201,6 +209,112 @@ class NativeToolRequest:
     approval_policy: NativeToolApprovalPolicy
     sandbox_policy: NativeToolSandboxPolicy
     metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeReadOnlyToolLimits:
+    """Upper-bound metadata for future bounded read-only workspace inspection."""
+
+    per_excerpt_bytes: int = 4 * 1024
+    per_excerpt_lines: int = 80
+    per_source_file_bytes: int = 8 * 1024
+    per_source_file_lines: int = 160
+    total_context_bytes: int = 24 * 1024
+    total_context_lines: int = 480
+    max_excerpts: int = 12
+    max_distinct_source_files: int = 6
+
+    MAX_PER_EXCERPT_BYTES: ClassVar[int] = 4 * 1024
+    MAX_PER_EXCERPT_LINES: ClassVar[int] = 80
+    MAX_PER_SOURCE_FILE_BYTES: ClassVar[int] = 8 * 1024
+    MAX_PER_SOURCE_FILE_LINES: ClassVar[int] = 160
+    MAX_TOTAL_CONTEXT_BYTES: ClassVar[int] = 24 * 1024
+    MAX_TOTAL_CONTEXT_LINES: ClassVar[int] = 480
+    MAX_EXCERPTS: ClassVar[int] = 12
+    MAX_DISTINCT_SOURCE_FILES: ClassVar[int] = 6
+
+    def __post_init__(self) -> None:
+        for field_name, upper_bound in (
+            ("per_excerpt_bytes", self.MAX_PER_EXCERPT_BYTES),
+            ("per_excerpt_lines", self.MAX_PER_EXCERPT_LINES),
+            ("per_source_file_bytes", self.MAX_PER_SOURCE_FILE_BYTES),
+            ("per_source_file_lines", self.MAX_PER_SOURCE_FILE_LINES),
+            ("total_context_bytes", self.MAX_TOTAL_CONTEXT_BYTES),
+            ("total_context_lines", self.MAX_TOTAL_CONTEXT_LINES),
+            ("max_excerpts", self.MAX_EXCERPTS),
+            ("max_distinct_source_files", self.MAX_DISTINCT_SOURCE_FILES),
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{field_name} must be an integer")
+            if value < 0 or value > upper_bound:
+                raise ValueError(f"{field_name} must be between 0 and {upper_bound}")
+
+
+@dataclass(frozen=True, slots=True)
+class NativeReadOnlyToolRequest:
+    """Inert metadata-only request shape for future read-only workspace tools."""
+
+    tool_request_id: str
+    turn_index: int
+    request_kind: NativeReadOnlyToolRequestKind
+    tool_name: str = "read_only_repo_inspection"
+    tool_kind: str = "read_only_workspace"
+    approval_policy: NativeToolApprovalPolicy = field(
+        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+    )
+    sandbox_policy: NativeToolSandboxPolicy = field(
+        default_factory=lambda: NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE,
+            workspace_read_allowed=True,
+        )
+    )
+    limits: NativeReadOnlyToolLimits = field(default_factory=NativeReadOnlyToolLimits)
+    scope_label: str | None = None
+    tool_payloads_stored: bool = False
+    stdout_stored: bool = False
+    stderr_stored: bool = False
+    diffs_stored: bool = False
+    file_contents_stored: bool = False
+    prompt_stored: bool = False
+    model_output_stored: bool = False
+    provider_responses_stored: bool = False
+    raw_transcript_imported: bool = False
+
+    def __post_init__(self) -> None:
+        identity = NativeToolRequestIdentity.current_noop()
+        if self.tool_request_id != identity.request_id:
+            raise ValueError("read-only workspace inspection requires pipy-owned tool_request_id")
+        if self.turn_index != identity.turn_index:
+            raise ValueError("read-only workspace inspection requires pipy-owned turn_index")
+        if self.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
+            raise ValueError("read-only workspace inspection requires approval")
+        if self.sandbox_policy.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:
+            raise ValueError("read-only workspace inspection requires read-only-workspace sandbox")
+        if self.sandbox_policy.workspace_read_allowed is not True:
+            raise ValueError("read-only workspace inspection requires workspace_read_allowed")
+        for field_name in (
+            "filesystem_mutation_allowed",
+            "shell_execution_allowed",
+            "network_access_allowed",
+        ):
+            if getattr(self.sandbox_policy, field_name) is not False:
+                raise ValueError(f"read-only workspace inspection forbids {field_name}")
+        for field_name in (
+            "tool_payloads_stored",
+            "stdout_stored",
+            "stderr_stored",
+            "diffs_stored",
+            "file_contents_stored",
+            "prompt_stored",
+            "model_output_stored",
+            "provider_responses_stored",
+            "raw_transcript_imported",
+        ):
+            if getattr(self, field_name) is not False:
+                raise ValueError(f"{field_name} must remain false for inert read-only requests")
+        if self.scope_label is not None:
+            _validate_scope_label(self.scope_label)
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,3 +389,14 @@ class NativeRunOutput:
     usage: Mapping[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None
+
+
+def _validate_scope_label(value: str) -> None:
+    if not isinstance(value, str):
+        raise ValueError("scope_label must be a string")
+    if not value or len(value) > 80:
+        raise ValueError("scope_label must be a short non-empty label")
+    if any(separator in value for separator in ("/", "\\", "~")):
+        raise ValueError("scope_label must not be a filesystem path")
+    if value in {".", ".."} or value.startswith("."):
+        raise ValueError("scope_label must not be a filesystem path")

@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-18 approval and sandbox baseline documented
+Status: slice-19 inert read-only request shapes documented
 
 <style>
 .mermaid,
@@ -865,6 +865,63 @@ gates explicitly and keep the existing pipy-owned `tool_request_id`,
 `turn_index`, `native.tool.observation.recorded`, `duration_seconds`, storage
 booleans, provider-visible context, and metadata-only archive contracts in
 sync.
+
+### Native Read-Only Tool Request Value Objects
+
+The first bounded read-only implementation needs stable native data contracts
+before it can read files or run searches. The implemented native model surface
+therefore includes inert value objects for future read-only workspace
+inspection, but the current `pipy-native` runtime still does not import, create,
+archive, execute, or provider-forward these requests.
+
+Read-only request kind labels are limited to:
+
+- `explicit-file-excerpt`: a future approved, bounded explicit file excerpt
+  request
+- `search-excerpt`: a future approved, bounded search-result excerpt request
+
+`NativeReadOnlyToolLimits` represents the same upper bounds as the
+provider-visible repo context policy:
+
+- per excerpt: 4 KiB and 80 lines
+- per source file per provider turn: 8 KiB and 160 lines
+- total provider-visible repo context per provider turn: 24 KiB and 480 lines
+- maximum excerpts per provider turn: 12
+- maximum distinct source files per provider turn: 6
+
+The value object validates that the represented limits do not exceed those
+policy caps. These limits remain metadata and do not authorize execution by
+themselves.
+
+`NativeReadOnlyToolRequest` carries only metadata-only contract fields:
+
+- pipy-owned `tool_request_id` and `turn_index`
+- safe request kind, tool name, and tool kind labels
+- `NativeToolApprovalPolicy` with `required` as the read-only default
+- `NativeToolSandboxPolicy` with `read-only-workspace`,
+  `workspace_read_allowed=true`, and `filesystem_mutation_allowed=false`,
+  `shell_execution_allowed=false`, and `network_access_allowed=false`
+- bounded limit metadata
+- optional `scope_label` placeholders that are labels, not path authority
+- storage booleans that remain false for tool payloads, stdout, stderr, diffs,
+  file contents, prompts, model output, provider responses, and raw transcript
+  import
+
+The inert read-only request shape must not include raw prompts, model output,
+provider responses, provider-native payloads, raw tool payloads, stdout,
+stderr, diffs, patches, full file contents, excerpt text, search result text,
+shell commands, raw args, model-selected paths, provider-selected paths as
+authority, secrets, credentials, API keys, tokens, private keys, or sensitive
+personal data. `scope_label` is intentionally not a resolved filesystem path,
+not a provider/model-selected path, and not authority to read anything.
+
+Adding these value objects does not add live approval prompts, sandbox
+enforcement, real repo reads, search execution, path resolution,
+provider-visible repo context forwarding, live observation emission, archive
+writes for live context or real execution, a post-tool provider call, or a
+general model/tool loop. The next implementation slice must explicitly wire
+any real read behavior behind the approval, sandbox, path/context, redaction,
+and limit gates above.
 
 ### Native Provider-Visible Repo Context Policy
 

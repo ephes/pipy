@@ -160,13 +160,14 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "attempted capability escalation must fail closed" in compact_storage
 
 
-def test_backlog_advances_to_inert_read_only_request_slice():
+def test_backlog_records_inert_read_only_request_slice_as_done():
     backlog = read_repo_file("docs/backlog.md")
     done = backlog[: backlog.index("## Next Slice")]
     next_slice = backlog[backlog.index("## Next Slice") : backlog.index("## Near Term")]
 
     assert "Native approval and sandbox enforcement baseline" in done
-    assert "### Add inert read-only tool request/value-object shapes for bounded repo inspection" in next_slice
+    assert "Native inert read-only tool request value objects" in done
+    assert "### Add one bounded read-only tool implementation slice" in next_slice
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
 
 
@@ -183,7 +184,6 @@ def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():
         "SandboxEnforcer",
         "enforce_sandbox",
         "sandbox_check",
-        "workspace_read_allowed",
     }
     native_sources = sorted((ROOT / "src/pipy_harness/native").glob("*.py"))
 

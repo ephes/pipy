@@ -536,6 +536,17 @@ unavailable approval UI, sandbox mismatch, unsafe request data, model-selected
 paths, and attempted capability escalation must fail closed before execution
 and before any provider-visible context is produced.
 
+The inert native read-only request value objects are contract data, not archive
+content and not execution records. They may name safe request kind labels,
+bounded limit metadata, pipy-owned `tool_request_id` and `turn_index`, required
+approval policy, read-only sandbox policy, capability booleans, optional safe
+scope labels, and false storage booleans. They still must not store raw prompts,
+model output, provider responses, raw tool payloads, stdout, stderr, diffs,
+patches, file contents, excerpt text, search result text, shell commands, raw
+args, model-selected paths, provider-selected paths as authority, secrets,
+credentials, API keys, tokens, private keys, or sensitive personal data. The
+current `pipy-native` runtime does not archive or execute these inert requests.
+
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed

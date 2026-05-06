@@ -113,27 +113,43 @@ reviewable change while keeping the source-of-truth design constraints in
   enforcement, real repo reads, provider-visible context forwarding, live
   observation emission, archive writes for live context or real execution, or
   post-tool provider turn.
+- Native inert read-only tool request value objects: native models now export
+  metadata-only request kind labels, bounded limit metadata, a read-only request
+  shape with pipy-owned `tool_request_id` and `turn_index`, required approval
+  policy, read-only workspace sandbox policy, independent capability booleans
+  including `workspace_read_allowed`, false storage booleans, and optional safe
+  scope labels, while the current runtime still does not execute real reads,
+  run searches, resolve paths, forward provider-visible repo context, emit live
+  observations, archive live context, enforce approvals or sandboxing, or make
+  a post-tool provider turn.
 
 ## Next Slice
 
-### Add inert read-only tool request/value-object shapes for bounded repo inspection
+### Add one bounded read-only tool implementation slice
 
-Goal: add the smallest inert native read-only request/value-object shapes for
-bounded repo inspection, still without executing real reads, forwarding file
-contents to a provider, or changing the current runtime loop.
+Goal: implement the first real bounded native read-only workspace tool, likely
+an explicit file excerpt or search excerpt, using the completed policy,
+approval/sandbox data, inert request shapes, and provider-visible context limits
+without widening archives into raw content stores.
 
 Selected shape:
 
 - keep the current runtime bounded to one provider turn plus optional one fake
-  no-op tool invocation
-- reuse the completed approval and sandbox baseline as data only
-- represent bounded read/search request intent shapes without reading files,
-  resolving model-selected paths, running searches, or archiving raw content
-- keep provider-visible repo context policy documented but not wired into
-  runtime
+  no-op tool invocation until this slice explicitly chooses the first bounded
+  read path
+- wire only one narrowly scoped read-only tool implementation behind the
+  documented gates
+- require approval before any workspace read, search, directory inspection, or
+  provider-visible repo context production
+- enforce the read-only workspace sandbox and independent capability booleans
+  before any read
+- apply the documented limits, redaction rules, ignore/generated-file rules,
+  path-label rules, and fail-closed behavior before provider visibility
 - preserve the implemented pipy-owned `turn_index`, `tool_request_id`, and
   `native.tool.observation.recorded` contracts unchanged
-- preserve metadata-only archives and the default native stdout/stderr contract
+- preserve metadata-only archives and the default native stdout/stderr contract:
+  archive only safe status, duration, counters, labels, and storage booleans,
+  never raw read results
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 
@@ -144,14 +160,14 @@ Keep out of scope:
 - streaming
 - retries or model fallback
 - provider registry or OAuth
-- real filesystem or shell tool execution
-- implementing live approval prompts or sandbox enforcement
+- write tools, patch tools, shell execution, network access, and verification
+  command execution
 - implementing post-tool provider turns or a general model/tool loop
-- emitting, archiving, or provider-forwarding live tool observations
-- emitting, archiving, or provider-forwarding real repo context
-- reading files, running search, resolving provider/model-selected paths, or
-  producing real provider-visible file excerpts
-- multiple tool requests per provider turn
+- provider-visible file contents or search result text outside the sanitized
+  bounded context shape
+- emitting or archiving raw live tool observations
+- multiple tool requests per provider turn unless explicitly required by the
+  single selected bounded-read implementation
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
 - raw provider responses, tool payloads, stdout, stderr, diffs, patches, file
@@ -164,21 +180,21 @@ Acceptance checks:
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
-- no post-tool provider call, live observation emission, or live repo-context
-  forwarding is implemented while read-only request shapes remain inert
-- read-only request/value-object shapes carry only safe labels, bounded limit
-  metadata, pipy-owned identity, approval/sandbox policy data, and storage
+- no post-tool provider call or general model/tool loop is introduced
+- the selected read-only tool executes only after approval, sandbox capability,
+  path/context validation, limit, and redaction gates succeed
+- provider-visible context, if produced, is bounded and sanitized before it
+  reaches the provider and never archived as raw content
+- archives record only safe labels, counters, byte and line counts, statuses,
+  reasons, `duration_seconds`, `tool_request_id`, `turn_index`, and storage
   booleans
-- inert read-only metadata excludes raw prompts, model output, provider
-  responses, tool payloads, stdout, stderr, diffs, patches, file contents,
-  shell commands, raw args, model-selected paths, secrets, credentials, tokens,
-  private keys, and sensitive personal data
+- raw prompts, model output, provider responses, tool payloads, stdout, stderr,
+  diffs, patches, full file contents, shell commands, raw args, model-selected
+  paths, provider-selected paths as authority, secrets, credentials, tokens,
+  private keys, and sensitive personal data are not persisted or emitted in
+  automation output by default
 - native records still pass `pipy-session verify`
 - `pipy-session list`, `search`, and `inspect` stay compatible
-- raw system prompts, user prompts beyond the short `--goal` metadata, model
-  output, provider responses, tool payloads, stdout, stderr, diffs, file
-  contents, secrets, credentials, tokens, private keys, and sensitive personal
-  data are not persisted or emitted in automation output by default
 
 ## Near Term
 
@@ -192,29 +208,26 @@ and implemented in order.
 
 Small reviewable slices, in intended order:
 
-1. Add inert read-only tool request/value-object shapes for bounded repo
-   inspection, still without executing real reads or sending file contents to a
-   provider.
-2. Add one bounded read-only tool implementation slice, likely `rg`-style
+1. Add one bounded read-only tool implementation slice, likely `rg`-style
    search or explicit file read, implementing the limits, redaction rules, and
    approval/sandbox gates from the policy slices; archives record only safe
    status, duration, counters, labels, and storage booleans, never raw results.
-3. Add one bounded post-tool provider turn against synthetic sanitized
+2. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-4. Wire the bounded read-only tool observation into the one follow-up provider
+3. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-5. Add a patch proposal boundary before writes: provider may propose a
+4. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-6. Add an explicit patch-apply slice with conservative file scope, no shell
+5. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-7. Add an allowlisted verification-command slice, starting with `just check`,
+6. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-8. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+7. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred

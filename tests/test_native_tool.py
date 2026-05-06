@@ -51,6 +51,7 @@ def test_native_tool_value_objects_do_not_model_payload_or_output_storage():
     assert request.sandbox_policy.label == "no-workspace-access"
     assert request_fields["approval_policy"]["mode"] == "not-required"
     assert request_fields["sandbox_policy"]["mode"] == "no-workspace-access"
+    assert request_fields["sandbox_policy"]["workspace_read_allowed"] is False
     assert request_fields["sandbox_policy"]["filesystem_mutation_allowed"] is False
     assert request_fields["sandbox_policy"]["shell_execution_allowed"] is False
     assert request_fields["sandbox_policy"]["network_access_allowed"] is False
