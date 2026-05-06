@@ -65,34 +65,50 @@ reviewable change while keeping the source-of-truth design constraints in
   safe capture booleans, preserves the default final-text stdout contract when
   omitted, and rejects `--native-output` for non-native agents before creating
   a record.
+- Native runtime boundary decision after structured stdout: the selected next
+  native boundary is a tool request identity and turn-index contract, chosen
+  because the current fake no-op path already records one sanitized tool
+  request with `request_id` and `turn_index`, while post-tool provider turns,
+  real tool observations, and broader loops remain deferred.
 
 ## Next Slice
 
-### Native Runtime Boundary Decision After Structured Stdout
+### Native Tool Request Identity And Turn-Index Contract
 
-Goal: decide the next small native runtime boundary after the structured stdout
-contract, while keeping the current bounded one-provider-turn plus optional
-fake no-op tool path unchanged.
+Goal: implement the smallest native identity contract for tool requests and
+turn indexes before adding any broader native execution behavior.
 
-Candidate shape:
+Selected shape:
 
-- choose one narrow decision slice before adding any broader native execution
-  behavior
+- keep the current runtime bounded to one provider turn plus optional one fake
+  no-op tool invocation
+- make `turn_index` a pipy-assigned small non-negative integer identifying the
+  provider turn that produced a sanitized internal tool intent; the current
+  bounded fake path uses only `turn_index=0`
+- make `request_id` an opaque pipy-generated per-tool-request id,
+  deterministic in tests and safe for archives, never copied from
+  provider-native tool-call ids, model text, raw arguments, paths,
+  stdout/stderr, diffs, or file contents
+- preserve one safe no-op request per current native session; do not add
+  multiple tool requests, post-tool provider turns, or real tool execution
+- record only the same metadata-only lifecycle fields already allowed for
+  `native.tool.intent.detected`, `native.tool.started`,
+  `native.tool.completed`, `native.tool.failed`, and `native.tool.skipped`
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 - preserve metadata-only archives and the default native stdout/stderr contract
-- keep real execution, approvals, sandboxing, post-tool provider turns, and
-  broader model/tool loops deferred unless their contracts are explicitly
-  selected first
 
 Keep out of scope:
 
 - changing the current human-readable default stdout mode
+- changing `--native-output json`
 - streaming
 - retries or model fallback
+- provider registry or OAuth
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
 - post-tool provider turns or a general model/tool loop
+- multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
 - raw provider responses, tool payloads, stdout, stderr, diffs, file contents,
@@ -102,8 +118,8 @@ Keep out of scope:
 
 Acceptance checks:
 
-- docs name the selected next native boundary and explain why it is still
-  bounded
+- native tool request ids and turn indexes are represented by a small explicit
+  pipy-owned contract
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - native behavior still uses the bounded deterministic fake/no-op execution path
@@ -116,12 +132,16 @@ Acceptance checks:
 
 ## Near Term
 
-- Select the next narrow native runtime boundary before adding broader
-  execution behavior.
+- Implement the native tool request identity and turn-index contract without
+  expanding into multiple tool requests, post-tool provider turns, real
+  execution, approvals, sandbox enforcement, or provider-side tools.
+- After request identity is stable, decide the summary-safe shape of a future
+  post-tool observation contract before any second provider call exists.
 
 ## Deferred
 
 - Full native pipy agent runtime beyond the provider and tool-boundary slices.
+- Native post-tool observation contract and post-tool provider turn.
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.
@@ -143,8 +163,9 @@ Acceptance checks:
   tool payloads, secrets, tokens, credentials, private keys, or sensitive
   personal data by default.
 - Building approvals, sandboxing, retries, streaming, OAuth, provider registry,
-  raw transcript import, TUI, RPC, compaction, branching, or orchestration in
-  the next native slice.
+  raw transcript import, multiple native tool requests, post-tool provider
+  turns, TUI, RPC, compaction, branching, or orchestration in the next native
+  slice.
 
 ## Maintenance Notes
 

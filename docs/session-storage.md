@@ -523,6 +523,20 @@ emitting `native.tool.intent.detected` or `native.tool.started`. Safe no-op
 tool success is followed directly by `native.session.completed`; there is no
 post-tool `native.provider.started` event in the current contract.
 
+The next selected native boundary is a tool request identity and turn-index
+contract. It does not change archive lifecycle or privacy policy. `turn_index`
+is a pipy-assigned small non-negative integer for the provider turn that
+produced a sanitized internal tool intent; the current bounded runtime may
+archive only `turn_index=0`. `request_id` is an opaque pipy-generated id used
+to correlate one safe tool intent with its matching no-op lifecycle events
+inside a single record. It must not be copied from provider-native tool-call
+ids or derived from prompt text, model output, provider responses, tool
+arguments, shell commands, filesystem paths selected by the model, stdout,
+stderr, diffs, file contents, secrets, credentials, private keys, tokens, or
+sensitive personal data. The boundary still allows only metadata such as safe
+labels, policy labels, status, duration, storage booleans, normalized counters,
+and sanitized error labels.
+
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive
 under `pipy/YYYY/MM/`. Records produced by `pipy run` are compatible with
