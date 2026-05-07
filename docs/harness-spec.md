@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-21 OpenAI subscription auth decision documented
+Status: slice-22 OpenRouter provider support documented
 
 <style>
 .mermaid,
@@ -517,6 +517,31 @@ does not enable built-in tools, function calling, web search, file search, code
 interpreter, computer use, conversation state, background mode, streaming,
 retries, model fallback, OAuth, or a provider registry.
 
+The second real provider is the OpenRouter Chat Completions provider. It is
+selected explicitly, reads credentials from `OPENROUTER_API_KEY`, requires
+`--native-model`, sends pipy's internally built system prompt and short native
+goal as `system` and `user` chat messages, and makes one non-streaming request
+to `https://openrouter.ai/api/v1/chat/completions`:
+
+```sh
+uv run pipy run --agent pipy-native --native-provider openrouter --native-model <provider/model> --slug openrouter-smoke --goal "Say hello briefly"
+```
+
+Official OpenRouter docs checked on 2026-05-07 document bearer API-key
+authentication, the `/api/v1/chat/completions` endpoint, `model` identifiers
+such as `openai/gpt-5.2` and `google/gemini-2.5-pro-preview`, request
+`messages`, non-streaming `choices` responses with message content, and token
+usage fields such as `prompt_tokens`, `completion_tokens`, and `total_tokens`.
+The OpenRouter provider maps those usage counters to pipy's normalized
+`input_tokens`, `output_tokens`, and `total_tokens` metadata and omits unknown,
+unavailable, negative, non-finite, or provider-native usage fields. It does not
+send OpenRouter app-attribution headers, debug options, provider routing
+preferences, plugins, tools, function calling, streaming, retries, fallback
+routing, OAuth, or provider-side tool settings. It does not store raw request
+bodies, raw provider responses, provider response ids, prompts, model output,
+auth material, or provider-native payloads in JSONL, Markdown, or
+`--native-output json`.
+
 ### OpenAI Subscription-Backed Native Auth Decision
 
 Decision: `blocked-for-now`.
@@ -571,11 +596,12 @@ Rejected approaches:
 - archiving any auth material, raw provider response, prompt, model output, or
   provider-native payload
 
-Provider priority after this decision: implement OpenRouter provider support
-with explicit model selection as the next provider-access slice, then continue
-to the bounded post-tool provider turn work. Local model provider integrations
-remain deferred pending benchmark work, and Anthropic subscription-backed native
-provider support is not promoted to the near-term provider priority.
+Provider priority after this decision: OpenRouter provider support with
+explicit model selection is implemented as the next provider-access path, and
+the backlog can continue to the bounded post-tool provider turn work. Local
+model provider integrations remain deferred pending benchmark work, and
+Anthropic subscription-backed native provider support is not promoted to the
+near-term provider priority.
 
 The native tool boundary defines explicit request/result/status value objects
 plus approval and sandbox policy data. The native provider-to-tool bridge first

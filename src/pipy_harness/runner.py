@@ -276,7 +276,7 @@ class _RecorderEventSink:
                 "summary": sanitize_text(summary),
             }
             if payload:
-                event["payload"] = sanitize_metadata(dict(payload))
+                event["payload"] = _event_payload_metadata(dict(payload))
             self.recorder.append(self.active_path, event, root=self.root)
 
 
@@ -296,19 +296,31 @@ def _adapter_result_metadata(adapter_result: AdapterResult | None) -> dict[str, 
     metadata = sanitize_metadata(adapter_result.metadata)
     usage = adapter_result.metadata.get("usage")
     if isinstance(usage, Mapping):
-        safe_usage: dict[str, int | float] = {}
-        for key, value in usage.items():
-            if (
-                isinstance(key, str)
-                and key in _SAFE_USAGE_COUNTERS
-                and isinstance(value, int | float)
-                and not isinstance(value, bool)
-                and isfinite(value)
-                and value >= 0
-            ):
-                safe_usage[key] = value
-        metadata["usage"] = safe_usage
+        metadata["usage"] = _safe_usage_metadata(usage)
     return metadata
+
+
+def _event_payload_metadata(payload: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = sanitize_metadata(payload)
+    usage = payload.get("usage")
+    if isinstance(usage, Mapping):
+        metadata["usage"] = _safe_usage_metadata(usage)
+    return metadata
+
+
+def _safe_usage_metadata(usage: Mapping[str, Any]) -> dict[str, int | float]:
+    safe_usage: dict[str, int | float] = {}
+    for key, value in usage.items():
+        if (
+            isinstance(key, str)
+            and key in _SAFE_USAGE_COUNTERS
+            and isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and isfinite(value)
+            and value >= 0
+        ):
+            safe_usage[key] = value
+    return safe_usage
 
 
 def _base_payload(

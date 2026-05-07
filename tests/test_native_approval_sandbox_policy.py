@@ -220,6 +220,38 @@ def test_openai_subscription_auth_decision_is_documented():
     )
 
 
+def test_openrouter_provider_baseline_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    runtime_section = markdown_section(spec, "Native Runtime Bootstrap")
+    compact_runtime = collapse_whitespace(runtime_section)
+
+    assert "The second real provider is the OpenRouter Chat Completions provider" in (
+        compact_runtime
+    )
+    assert "--native-provider openrouter --native-model <provider/model>" in compact_runtime
+    assert "`OPENROUTER_API_KEY`" in compact_runtime
+    assert "https://openrouter.ai/api/v1/chat/completions" in runtime_section
+    assert "system` and `user` chat messages" in compact_runtime
+    assert "`prompt_tokens`, `completion_tokens`, and `total_tokens`" in compact_runtime
+    assert "`input_tokens`, `output_tokens`, and `total_tokens`" in compact_runtime
+    for forbidden in (
+        "provider routing preferences",
+        "plugins",
+        "tools",
+        "function calling",
+        "streaming",
+        "retries",
+        "fallback routing",
+        "OAuth",
+        "provider-side tool settings",
+        "raw request bodies",
+        "raw provider responses",
+        "provider response ids",
+        "auth material",
+    ):
+        assert forbidden in compact_runtime
+
+
 def test_backlog_records_done_completion_and_provider_priority_order():
     backlog = read_repo_file("docs/backlog.md")
     done = backlog[: backlog.index("## Next Slice")]
@@ -227,6 +259,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     near_term = backlog[backlog.index("## Near Term") : backlog.index("## Deferred")]
     compact_done = collapse_whitespace(done)
     compact_next_slice = collapse_whitespace(next_slice)
+    compact_near_term = collapse_whitespace(near_term)
 
     assert "Native approval and sandbox enforcement baseline" in done
     assert "Native inert read-only tool request value objects" in done
@@ -235,23 +268,26 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`blocked-for-now` on 2026-05-07" in compact_done
     assert "unsupported credential scraping" in compact_done
     assert "CLI/product wrapping are rejected" in compact_done
-    assert "### Add OpenRouter provider support with explicit model selection" in next_slice
+    assert "Native OpenRouter Chat Completions provider" in compact_done
+    assert "`--native-provider openrouter --native-model <provider/model>`" in compact_done
+    assert "`OPENROUTER_API_KEY`" in compact_done
     assert (
-        "OpenAI subscription auth decision was recorded as `blocked-for-now`"
-        in compact_next_slice
+        "### Add bounded post-tool provider turn against synthetic sanitized observations"
+        in next_slice
     )
-    assert "OpenRouter provider support with explicit model selection" in near_term
-    assert "bounded post-tool provider turn against synthetic sanitized" in near_term
+    assert "synthetic sanitized observation fixtures" in compact_next_slice
+    assert "OpenRouter support with explicit model selection" in compact_near_term
+    assert "bounded post-tool provider turn against synthetic sanitized" in compact_near_term
     assert_terms_in_order(
         near_term,
         [
-            "OpenRouter provider support with explicit model selection",
             "bounded post-tool provider turn against synthetic sanitized",
+            "bounded read-only tool observation",
         ],
     )
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
-    assert "### Add bounded post-tool provider turn against synthetic sanitized observations" not in next_slice
+    assert "### Add OpenRouter provider support with explicit model selection" not in next_slice
 
 
 def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():

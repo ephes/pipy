@@ -12,7 +12,11 @@ from typing import Any
 from pipy_harness.adapters import PipyNativeAdapter, SubprocessAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest, RunResult
-from pipy_harness.native import FakeNativeProvider, OpenAIResponsesProvider
+from pipy_harness.native import (
+    FakeNativeProvider,
+    OpenAIResponsesProvider,
+    OpenRouterChatCompletionsProvider,
+)
 from pipy_harness.runner import HarnessRunner
 
 
@@ -35,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=["fake", "openai"],
+        choices=["fake", "openai", "openrouter"],
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -44,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-model",
         help=(
             "Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap "
-            "for --native-provider fake and is required for --native-provider openai."
+            "for --native-provider fake and is required for --native-provider openai or openrouter."
         ),
     )
     run_parser.add_argument(
@@ -189,12 +193,18 @@ def _adapter_for(
     native_model: str | None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
-        if native_provider not in (None, "fake", "openai"):
+        if native_provider not in (None, "fake", "openai", "openrouter"):
             raise ValueError(f"unsupported native provider: {native_provider}")
         if native_provider == "openai":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openai")
             return PipyNativeAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
+        if native_provider == "openrouter":
+            if not native_model:
+                raise ValueError("--native-model is required for --native-provider openrouter")
+            return PipyNativeAdapter(
+                provider=OpenRouterChatCompletionsProvider(model_id=native_model)
+            )
         return PipyNativeAdapter(
             provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap")
         )

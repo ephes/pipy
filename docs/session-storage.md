@@ -410,6 +410,7 @@ the adapter exit code.
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent custom --slug smoke --root /tmp/pipy-sessions --cwd . -- echo hello
 uv run pipy run --agent pipy-native --slug native-smoke --root /tmp/pipy-sessions --goal "Native bootstrap smoke"
+uv run pipy run --agent pipy-native --native-provider openrouter --native-model <provider/model> --slug openrouter-smoke --goal "Say hello briefly"
 ```
 
 `pipy run` creates partial records. The harness does not import raw transcripts
@@ -448,7 +449,10 @@ sanitized supported no-op intent. The fake provider and fake no-op tool are for
 tests and smoke runs, not a production AI/tool runtime. The no-op tool does not
 inspect or mutate the workspace and does not execute shell commands. Provider
 final text prints to stdout through the explicit CLI contract when the native
-run succeeds, but the JSONL and Markdown archive records store only
+run succeeds. API-key providers currently include `openai` with
+`OPENAI_API_KEY` and `openrouter` with `OPENROUTER_API_KEY`; both require an
+explicit `--native-model` and do not add credential storage. JSONL and Markdown
+archive records store only
 provider/session/tool lifecycle metadata, safe labels, durations, normalized
 usage counters, policy labels, and storage booleans. Normalized provider usage
 is limited to finite non-negative `input_tokens`, `output_tokens`,

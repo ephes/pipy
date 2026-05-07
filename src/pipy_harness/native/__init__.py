@@ -27,6 +27,7 @@ from pipy_harness.native.models import (
     ProviderResult,
 )
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
+from pipy_harness.native.openrouter_provider import OpenRouterChatCompletionsProvider
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptReason,
@@ -74,6 +75,7 @@ __all__ = [
     "NativeToolStatus",
     "NORMALIZED_PROVIDER_USAGE_KEYS",
     "OpenAIResponsesProvider",
+    "OpenRouterChatCompletionsProvider",
     "PROVIDER_TOOL_INTENT_METADATA_KEY",
     "ProviderPort",
     "ProviderRequest",

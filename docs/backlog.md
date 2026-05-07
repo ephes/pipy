@@ -144,69 +144,69 @@ reviewable change while keeping the source-of-truth design constraints in
   scraping, token/cache reuse, reverse engineering, and CLI/product wrapping are
   rejected. OpenRouter provider support with explicit model selection is
   promoted as the next provider-access slice.
+- Native OpenRouter Chat Completions provider behind `ProviderPort`, selected
+  with `--native-provider openrouter --native-model <provider/model>`, using
+  `OPENROUTER_API_KEY`, an injectable standard-library HTTP boundary, one
+  non-streaming chat-completion request with pipy-owned system/user messages,
+  normalized usage mapping from `prompt_tokens`, `completion_tokens`, and
+  `total_tokens`, stdout-only final text on successful default runs, and
+  metadata-only archives/JSON output without raw prompts, model output, request
+  bodies, provider responses, auth material, provider-native payloads, tools,
+  streaming, retries, fallback, OAuth, provider registry, or post-tool turns.
 
 ## Next Slice
 
-### Add OpenRouter provider support with explicit model selection
+### Add bounded post-tool provider turn against synthetic sanitized observations
 
-Goal: add the next native provider-access path after the OpenAI subscription
-auth decision was recorded as `blocked-for-now`. Implement OpenRouter as an
-explicitly selected native provider with explicit model selection, preserving
-the current metadata-only archive and stdout contracts.
+Goal: add exactly one follow-up native provider turn after a supported
+sanitized tool observation fixture, without wiring real read-tool output or
+building a general model/tool loop.
 
 Selected shape:
 
-- add a narrow `openrouter` native provider behind `ProviderPort`
-- require `--native-provider openrouter --native-model <provider/model>` or
-  another explicit model identifier shape chosen during implementation
-- read credentials from an environment variable such as `OPENROUTER_API_KEY`;
-  do not add credential storage
-- keep existing `fake` and API-key `openai` provider behavior compatible
-- preserve the current default stdout final-text behavior and
-  `--native-output json` metadata-only behavior
-- keep archives metadata-only: normalized usage counters and safe provider
-  labels only, not prompts, model output, raw provider responses, request
-  bodies, tool payloads, auth material, or provider-native payloads
-- do not enable provider-side tools, streaming, retries, fallback, broad
-  provider registry, OAuth, post-tool provider turns, shell/network execution,
-  write tools, patch tools, or verification-command execution
+- keep one initial provider turn and at most one current no-op tool request
+- use synthetic sanitized observation fixtures anchored to pipy's
+  `tool_request_id` and `turn_index`
+- make one bounded post-tool provider call only when the fixture is safe and
+  explicitly supported
+- keep the hard stop after the follow-up provider turn
+- preserve the default stdout final-text contract and `--native-output json`
+  metadata-only contract
+- keep archives metadata-only: safe turn labels, observation labels, counters,
+  durations, normalized usage counters, storage booleans, and safe status/error
+  labels only
+- do not wire real read-tool observations, execute shell/network/write/patch
+  tools, add verification command execution, or create a general tool loop
 
 Keep out of scope:
 
-- unsupported auth extraction, browser-cookie reuse, reverse engineering,
-  scraping Codex/ChatGPT/Claude session stores, or copying credentials from
-  another product
-- implementing OpenAI subscription-backed auth while it remains
-  `blocked-for-now`
-- changing the current human-readable default stdout mode
-- changing `--native-output json`
-- streaming
-- retries or model fallback
-- broad provider registry
+- real read-tool output or live repo context forwarding
+- provider-side built-in tools or function calling
+- multiple tool requests or unbounded turns
+- streaming, retries, fallback, OAuth, provider registry, and provider routing
 - write tools, patch tools, shell execution, network access, and verification
   command execution
-- post-tool provider turns or a general model/tool loop
-- wiring real read-tool observations into provider calls
-- provider-side built-in tools
-- raw prompt/model output storage in JSONL, Markdown, or structured stdout
-- raw provider responses, tool payloads, stdout, stderr, diffs, patches, file
+- raw prompts, model output, raw provider responses, provider-native tool
+  payloads, raw tool observations, stdout, stderr, diffs, patches, file
   contents, auth material, secrets, credentials, tokens, private keys, or
   sensitive personal data in JSONL, Markdown, structured stdout, or
   provider-visible context
-- Codex, Claude, Pi, or another CLI wrapper as the main product path
 
 Acceptance checks:
 
-- OpenRouter provider selection is explicit and requires an explicit model
-  identifier
-- missing credentials fail safely before network calls where practical and do
-  not create or archive credential material
-- existing `fake` and API-key `openai` provider behavior remains compatible
+- the follow-up provider turn is possible only for explicitly supported
+  synthetic sanitized observation fixtures
+- unsupported or unsafe observation fixture data fails closed or is skipped
+  before provider visibility
+- records preserve pipy-owned `tool_request_id` and `turn_index`
+- existing `fake`, API-key `openai`, and API-key `openrouter` provider
+  behavior remains compatible
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
-  raw prompts, model output, provider responses, request bodies, auth tokens,
-  cookies, credentials, secrets, private keys, or sensitive personal data
+  raw prompts, model output, provider responses, request bodies, raw tool
+  observations, auth tokens, cookies, credentials, secrets, private keys, or
+  sensitive personal data
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
@@ -217,35 +217,33 @@ now has priority before more native loop depth. OpenAI subscription-backed
 native provider auth is `blocked-for-now` because the official docs checked on
 2026-05-07 document ChatGPT/Codex subscription auth for OpenAI product clients,
 not a generic third-party native provider auth path. OpenRouter support with
-explicit model selection is now the preferred next provider-access slice.
-Pay-by-token OpenAI API access remains implemented as a baseline but is not the
-preferred usage path for this project. Anthropic subscription access is not a
-near-term native provider target because subscription-backed coding-agent usage
-is expected to stay within Claude Code. Local-model providers remain interesting
-but deferred until benchmark work in a separate repo clarifies whether Ollama,
-llama.cpp, MLX, LM Studio, or another runtime should be the first local
-integration.
+explicit model selection is now implemented as the preferred provider-access
+path after that decision. Pay-by-token OpenAI API access remains implemented as
+a baseline but is not the preferred usage path for this project. Anthropic
+subscription access is not a near-term native provider target because
+subscription-backed coding-agent usage is expected to stay within Claude Code.
+Local-model providers remain interesting but deferred until benchmark work in a
+separate repo clarifies whether Ollama, llama.cpp, MLX, LM Studio, or another
+runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add OpenRouter provider support with explicit model selection, metadata-only
-   archives, no provider-side tools, and no raw provider response storage.
-2. Add one bounded post-tool provider turn against synthetic sanitized
+1. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-3. Wire the bounded read-only tool observation into the one follow-up provider
+2. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-4. Add a patch proposal boundary before writes: provider may propose a
+3. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-5. Add an explicit patch-apply slice with conservative file scope, no shell
+4. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-6. Add an allowlisted verification-command slice, starting with `just check`,
+5. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-7. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+6. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred
