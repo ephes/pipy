@@ -493,22 +493,23 @@ tool arguments, provider-native payloads, raw provider responses, model output,
 prompt fragments, model-selected paths, secrets, credentials, API keys, tokens,
 private keys, and sensitive personal data.
 
-If bounded repo context is produced in a later slice, unsafe data must be
-dropped or skipped before provider visibility and before any archive event is
-written. Binary or unreadable content, unsupported encodings, generated files,
-ignored files, oversized files, secret-looking content, and excerpts that
-cannot be proven within limit must fail closed with safe skip or failure
-metadata. JSONL, Markdown, and `--native-output json` may record only
-metadata-only context fields such as source labels, counts, byte and line
-counts, excerpt counts, distinct file counts, redaction and skipped booleans,
-safe reason labels, `duration_seconds`, storage booleans, `tool_request_id`,
-`turn_index`, and finalized-record references. They must not store raw excerpt
-text, file contents, search result text, raw prompts, model output, provider
-responses, raw tool payloads, stdout, stderr, diffs, patches, shell commands,
-raw args, model-selected paths, secrets, credentials, tokens, private keys, or
-sensitive personal data. The current `pipy-native` runtime still does not read,
-archive, or forward live repo context, and it still does not make a post-tool
-provider call.
+When bounded repo context is produced, unsafe data must be dropped or skipped
+before provider visibility and before any archive event is written. Binary or
+unreadable content, unsupported encodings, generated files, ignored files,
+oversized files, secret-looking content, and excerpts that cannot be proven
+within limit must fail closed with safe skip or failure metadata. JSONL,
+Markdown, and `--native-output json` may record only metadata-only context
+fields such as source labels, counts, byte and line counts, excerpt counts,
+distinct file counts, redaction and skipped booleans, safe reason labels,
+`duration_seconds`, storage booleans, `tool_request_id`, `turn_index`, and
+finalized-record references. They must not store raw excerpt text, file
+contents, search result text, raw prompts, model output, provider responses,
+raw tool payloads, stdout, stderr, diffs, patches, shell commands, raw args,
+model-selected paths, secrets, credentials, tokens, private keys, or sensitive
+personal data. The direct native explicit file excerpt tool keeps successful
+excerpt text in memory only and exposes a separate metadata-only helper; the
+default `NativeAgentSession` runtime still does not read, archive, or forward
+live repo context, and it still does not make a post-tool provider call.
 
 Future approval and sandbox records must stay metadata-only. The enforcement
 baseline in `docs/harness-spec.md` defines approval decision labels as
@@ -536,7 +537,7 @@ unavailable approval UI, sandbox mismatch, unsafe request data, model-selected
 paths, and attempted capability escalation must fail closed before execution
 and before any provider-visible context is produced.
 
-The inert native read-only request value objects are contract data, not archive
+The native read-only request value objects are contract data, not archive
 content and not execution records. They may name safe request kind labels,
 bounded limit metadata, pipy-owned `tool_request_id` and `turn_index`, required
 approval policy, read-only sandbox policy, capability booleans, optional safe
@@ -545,7 +546,9 @@ model output, provider responses, raw tool payloads, stdout, stderr, diffs,
 patches, file contents, excerpt text, search result text, shell commands, raw
 args, model-selected paths, provider-selected paths as authority, secrets,
 credentials, API keys, tokens, private keys, or sensitive personal data. The
-current `pipy-native` runtime does not archive or execute these inert requests.
+direct native explicit file excerpt tool consumes these request objects only
+with explicit pipy-owned gate and target data; default `pipy-native` session
+records do not archive or execute read-only requests.
 
 The native stdout/stderr split is part of the storage privacy contract:
 successful provider final text is terminal output, not archived session data.

@@ -122,34 +122,41 @@ reviewable change while keeping the source-of-truth design constraints in
   run searches, resolve paths, forward provider-visible repo context, emit live
   observations, archive live context, enforce approvals or sandboxing, or make
   a post-tool provider turn.
+- Native explicit file excerpt read-only tool implementation: a direct native
+  `NativeExplicitFileExcerptTool` can perform one real bounded UTF-8 text file
+  read only from explicit pipy-owned request, gate, and target data. It enforces
+  required approval, `read-only-workspace`, `workspace_read_allowed=true`, no
+  mutation, no shell, no network, workspace-relative target validation,
+  conservative ignored/generated-file rejection, binary/unreadable/unsupported
+  encoding checks, secret-looking content rejection, documented byte and line
+  limits, and metadata-only archive helper output that includes
+  `workspace_read_allowed` only on the new read-tool metadata surface. Raw
+  excerpt text stays in memory on the result object and is not wired into
+  `NativeAgentSession`, provider calls, stdout, JSON output, Markdown, or JSONL.
 
 ## Next Slice
 
-### Add one bounded read-only tool implementation slice
+### Add bounded post-tool provider turn against synthetic sanitized observations
 
-Goal: implement the first real bounded native read-only workspace tool, likely
-an explicit file excerpt or search excerpt, using the completed policy,
-approval/sandbox data, inert request shapes, and provider-visible context limits
-without widening archives into raw content stores.
+Goal: add one bounded post-tool provider turn using only synthetic sanitized
+observation fixtures and the documented provider-visible context shape, with a
+hard stop after that turn and no real read-tool output or general model/tool
+loop.
 
 Selected shape:
 
-- keep the current runtime bounded to one provider turn plus optional one fake
-  no-op tool invocation until this slice explicitly chooses the first bounded
-  read path
-- wire only one narrowly scoped read-only tool implementation behind the
-  documented gates
-- require approval before any workspace read, search, directory inspection, or
-  provider-visible repo context production
-- enforce the read-only workspace sandbox and independent capability booleans
-  before any read
-- apply the documented limits, redaction rules, ignore/generated-file rules,
-  path-label rules, and fail-closed behavior before provider visibility
-- preserve the implemented pipy-owned `turn_index`, `tool_request_id`, and
-  `native.tool.observation.recorded` contracts unchanged
-- preserve metadata-only archives and the default native stdout/stderr contract:
-  archive only safe status, duration, counters, labels, and storage booleans,
-  never raw read results
+- use synthetic sanitized observation fixtures, not live read-tool output
+- preserve the direct explicit-file-excerpt implementation as an unwired tool
+  boundary until a later slice intentionally connects it to observations
+- add at most one post-tool provider turn and stop after that turn
+- forward only the synthetic bounded provider-visible context shape to the
+  provider; do not forward raw file contents, search text, tool payloads, stdout,
+  stderr, diffs, patches, prompts, model output, provider responses, secrets,
+  credentials, tokens, private keys, or sensitive personal data
+- preserve the implemented pipy-owned `turn_index`, `tool_request_id`,
+  metadata-only `native.tool.observation.recorded`, and `duration_seconds`
+  contracts unchanged
+- preserve metadata-only archives and the default native stdout/stderr contract
 - keep `pipy-native` as the product runtime direction rather than wrapping
   Codex, Claude, Pi, or another CLI as the main path
 
@@ -162,12 +169,12 @@ Keep out of scope:
 - provider registry or OAuth
 - write tools, patch tools, shell execution, network access, and verification
   command execution
-- implementing post-tool provider turns or a general model/tool loop
-- provider-visible file contents or search result text outside the sanitized
-  bounded context shape
+- real read-tool observation wiring
+- a general model/tool loop
+- provider-visible live file contents or search result text outside synthetic
+  sanitized fixtures
 - emitting or archiving raw live tool observations
-- multiple tool requests per provider turn unless explicitly required by the
-  single selected bounded-read implementation
+- multiple tool requests per provider turn
 - provider-side built-in tools
 - raw prompt/model output storage in JSONL, Markdown, or structured stdout
 - raw provider responses, tool payloads, stdout, stderr, diffs, patches, file
@@ -179,12 +186,14 @@ Acceptance checks:
 
 - native default stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
-- native behavior still uses the bounded deterministic fake/no-op execution path
-- no post-tool provider call or general model/tool loop is introduced
-- the selected read-only tool executes only after approval, sandbox capability,
-  path/context validation, limit, and redaction gates succeed
-- provider-visible context, if produced, is bounded and sanitized before it
-  reaches the provider and never archived as raw content
+- existing native behavior without the synthetic fixture still uses the bounded
+  deterministic fake/no-op execution path
+- exactly one post-tool provider call is made only for the synthetic sanitized
+  observation fixture path, with no general model/tool loop
+- the direct explicit-file-excerpt tool remains unwired from the default session
+  path unless a later slice explicitly changes that boundary
+- provider-visible context is bounded and sanitized before it reaches the
+  provider and is never archived as raw content
 - archives record only safe labels, counters, byte and line counts, statuses,
   reasons, `duration_seconds`, `tool_request_id`, `turn_index`, and storage
   booleans
@@ -208,26 +217,22 @@ and implemented in order.
 
 Small reviewable slices, in intended order:
 
-1. Add one bounded read-only tool implementation slice, likely `rg`-style
-   search or explicit file read, implementing the limits, redaction rules, and
-   approval/sandbox gates from the policy slices; archives record only safe
-   status, duration, counters, labels, and storage booleans, never raw results.
-2. Add one bounded post-tool provider turn against synthetic sanitized
+1. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-3. Wire the bounded read-only tool observation into the one follow-up provider
+2. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-4. Add a patch proposal boundary before writes: provider may propose a
+3. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-5. Add an explicit patch-apply slice with conservative file scope, no shell
+4. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-6. Add an allowlisted verification-command slice, starting with `just check`,
+5. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-7. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+6. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred

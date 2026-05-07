@@ -28,6 +28,15 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.read_only_tool import (
+    NativeExplicitFileExcerptReason,
+    NativeExplicitFileExcerptResult,
+    NativeExplicitFileExcerptTarget,
+    NativeExplicitFileExcerptTool,
+    NativeInMemoryFileExcerpt,
+    NativeReadOnlyApprovalDecision,
+    NativeReadOnlyGateDecision,
+)
 from pipy_harness.native.session import NativeAgentSession
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
@@ -39,6 +48,13 @@ __all__ = [
     "NATIVE_TOOL_OBSERVATION_RECORDED_EVENT",
     "NATIVE_TOOL_OBSERVATION_STORAGE_KEYS",
     "NativeAgentSession",
+    "NativeExplicitFileExcerptReason",
+    "NativeExplicitFileExcerptResult",
+    "NativeExplicitFileExcerptTarget",
+    "NativeExplicitFileExcerptTool",
+    "NativeInMemoryFileExcerpt",
+    "NativeReadOnlyApprovalDecision",
+    "NativeReadOnlyGateDecision",
     "NativeReadOnlyToolLimits",
     "NativeReadOnlyToolRequest",
     "NativeReadOnlyToolRequestKind",

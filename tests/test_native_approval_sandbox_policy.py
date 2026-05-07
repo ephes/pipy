@@ -167,7 +167,8 @@ def test_backlog_records_inert_read_only_request_slice_as_done():
 
     assert "Native approval and sandbox enforcement baseline" in done
     assert "Native inert read-only tool request value objects" in done
-    assert "### Add one bounded read-only tool implementation slice" in next_slice
+    assert "Native explicit file excerpt read-only tool implementation" in done
+    assert "### Add bounded post-tool provider turn against synthetic sanitized observations" in next_slice
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
 
 

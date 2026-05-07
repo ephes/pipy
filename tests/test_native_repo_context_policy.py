@@ -90,7 +90,8 @@ def test_session_storage_matches_repo_context_archive_boundary():
     assert "dropped or skipped before provider visibility" in compact_storage
     assert "metadata-only context fields" in compact_storage
     assert "raw excerpt text" in compact_storage
-    assert "The current `pipy-native` runtime still does not read, archive, or forward live repo context" in compact_storage
+    assert "The direct native explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage
+    assert "default `NativeAgentSession` runtime still does not read, archive, or forward live repo context" in compact_storage
 
 
 def test_backlog_records_repo_context_policy_as_done():
