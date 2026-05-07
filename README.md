@@ -107,8 +107,8 @@ Optional flags:
 - `--cwd <path>`: child process working directory, defaulting to the current directory
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
-- `--native-provider fake|openai`: native provider for `--agent pipy-native`, defaulting to `fake`
-- `--native-model <id>`: model label for the native provider; required for `--native-provider openai`
+- `--native-provider fake|openai|openrouter`: native provider for `--agent pipy-native`, defaulting to `fake`
+- `--native-model <id>`: model label for the native provider; required for `--native-provider openai` or `openrouter`
 - `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
@@ -137,21 +137,20 @@ Pipy does not own the subprocess prompt stack, model calls, tool behavior,
 approval model, or transcript format. Use this path only when you want a
 metadata record around another command.
 
-The current native fake intent path does not make a post-tool provider call.
-After one safe no-op tool result, the session completes instead of feeding a
-tool observation back to the provider. A future post-tool observation is
-specified as summary-safe internal metadata anchored to pipy's
-`tool_request_id` and `turn_index`, but a post-tool provider turn is still
-deferred until permission prompts, sandbox enforcement, and real tool execution
-behavior are designed. Any future turn must remain metadata-only in the pipy
-archive: safe turn/provider/model labels, status, durations, normalized usage
-counters, storage booleans, and safe observation labels may be recorded, but
-raw tool results, stdout, stderr, diffs, patches, file contents, prompts,
-model output, provider responses, provider-native tool-call or result objects,
-function arguments, provider response ids that could reveal payload content,
-raw tool arguments, shell commands, model-selected filesystem paths, secrets,
-credentials, tokens, private keys, and sensitive personal data must not be
-stored by default.
+The current native fake intent path can make exactly one bounded post-tool
+provider call when the first provider result carries both a supported safe no-op
+intent and an explicitly supported synthetic sanitized observation fixture.
+That follow-up turn receives only generated observation metadata anchored to
+pipy's `tool_request_id` and `turn_index`; it does not receive real read-tool
+output, raw tool payloads, the original model output, or a general transcript.
+Archives remain metadata-only: safe turn/provider/model labels, status,
+durations, normalized usage counters, storage booleans, and safe observation
+labels may be recorded, but raw tool results, stdout, stderr, diffs, patches,
+file contents, prompts, model output, provider responses, provider-native
+tool-call or result objects, function arguments, provider response ids that
+could reveal payload content, raw tool arguments, shell commands, model-selected
+filesystem paths, secrets, credentials, tokens, private keys, and sensitive
+personal data must not be stored by default.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -193,10 +192,11 @@ agent runtime. The native bootstrap path establishes that pipy owns its system
 prompt, provider boundary, tool boundary, and session semantics instead of
 delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
 small OpenAI Responses provider boundary and one bounded fake no-op tool-intent
-path that ends after the optional no-op tool result. It does not yet implement
-a post-tool provider turn, general model/tool loop, real tool execution,
-approval prompts, sandbox enforcement, retries, streaming, provider registry,
-OAuth, or raw transcript import.
+path that may make one follow-up provider turn only from a synthetic sanitized
+observation fixture. It does not yet implement real read-tool observation
+forwarding, a general model/tool loop, real tool execution, approval prompts,
+sandbox enforcement, retries, streaming, provider registry, OAuth, or raw
+transcript import.
 
 ## Session Recorder CLI
 

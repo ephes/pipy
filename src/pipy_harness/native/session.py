@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Mapping
 
 from pipy_harness.adapters.base import EventSink
@@ -11,16 +12,22 @@ from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
+    NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
     NativeRunInput,
     NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
     NativeToolIntent,
+    NativeToolObservation,
+    NativeToolObservationReason,
+    NativeToolObservationStatus,
     NativeToolRequest,
     NativeToolRequestIdentity,
     NativeToolResult,
     NativeToolSandboxPolicy,
     NativeToolStatus,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
@@ -38,6 +45,10 @@ TOOL_INTENT_UNSUPPORTED_KIND = "unsupported_intent"
 TOOL_INTENT_UNSAFE_NAME = "unsafe"
 TOOL_INTENT_UNSAFE_KIND = "unsafe_intent"
 _SUPPORTED_INTENT_SOURCES = {"fake_provider", "provider_metadata"}
+_SUPPORTED_OBSERVATION_FIXTURE_SOURCE = "synthetic_safe_noop"
+_SUPPORTED_OBSERVATION_STATUSES = {
+    (NativeToolObservationStatus.SUCCEEDED.value, NativeToolObservationReason.TOOL_RESULT_SUCCEEDED.value)
+}
 _SAFE_INTENT_METADATA_KEYS = {
     "fixture",
     "internal_noop",
@@ -65,6 +76,7 @@ _ALLOWED_INTENT_KEYS = {
     "file_contents_stored",
     "metadata",
 }
+_ALLOWED_OBSERVATION_FIXTURE_KEYS = set(NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS) | {"fixture_source"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +84,12 @@ class _ParsedToolIntent:
     intent: NativeToolIntent | None = None
     skipped_request: NativeToolRequest | None = None
     reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedToolObservationFixture:
+    observation: NativeToolObservation | None = None
+    skipped_observation: NativeToolObservation | None = None
 
 
 @dataclass(slots=True)
@@ -95,62 +113,50 @@ class NativeAgentSession:
                 "status": HarnessStatus.RUNNING.value,
             },
         )
-        event_sink.emit(
-            "native.provider.started",
-            summary=(
-                "Native provider call started: "
-                f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}."
-            ),
-            payload={
-                **safe_context,
-                "status": HarnessStatus.RUNNING.value,
-            },
-        )
 
-        provider_started_at = _utc_now()
-        try:
-            provider_result = self.provider.complete(
-                ProviderRequest(
-                    system_prompt=_build_system_prompt(),
-                    user_prompt=run_input.goal,
-                    provider_name=run_input.provider_name,
-                    model_id=run_input.model_id,
-                    cwd=run_input.cwd,
-                )
-            )
-        except Exception as exc:
-            provider_result = _failed_provider_result(run_input, exc, started_at=provider_started_at)
-
-        provider_event = (
-            "native.provider.completed"
-            if provider_result.status == HarnessStatus.SUCCEEDED
-            else "native.provider.failed"
-        )
-        provider_usage = normalize_provider_usage(provider_result.usage or {})
-        event_sink.emit(
-            provider_event,
-            summary=(
-                "Native provider call finished: "
-                f"status={provider_result.status.value}, provider={sanitize_text(provider_result.provider_name)}, "
-                f"model={sanitize_text(provider_result.model_id)}."
-            ),
-            payload={
-                **safe_context,
-                "status": provider_result.status.value,
-                "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
-                "usage": provider_usage,
-                "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
-                "error_type": _safe_optional_text(provider_result.error_type),
-                "error_message": _safe_optional_text(provider_result.error_message),
-            },
+        provider_result, provider_usage = self._call_provider_turn(
+            run_input,
+            event_sink,
+            safe_context,
+            user_prompt=run_input.goal,
+            provider_turn_index=0,
+            provider_turn_label="initial",
+            tool_observation=None,
         )
 
         tool_result: NativeToolResult | None = None
+        observation_failure_reason: NativeToolObservationReason | None = None
+        follow_up_provider_result: ProviderResult | None = None
+        follow_up_provider_usage: dict[str, int | float] = {}
         if provider_result.status == HarnessStatus.SUCCEEDED:
             parsed_intent = _parse_tool_intent(provider_result)
             if parsed_intent.intent is not None:
                 _emit_tool_intent_detected(event_sink, safe_context, parsed_intent.intent)
                 tool_result = self._invoke_noop_tool(event_sink, safe_context, parsed_intent.intent)
+                if tool_result.status == NativeToolStatus.SUCCEEDED:
+                    parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
+                    if parsed_observation.observation is not None:
+                        _emit_tool_observation_recorded(
+                            event_sink,
+                            safe_context,
+                            parsed_observation.observation,
+                        )
+                        follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
+                            run_input,
+                            event_sink,
+                            safe_context,
+                            user_prompt=_build_post_tool_user_prompt(parsed_observation.observation),
+                            provider_turn_index=1,
+                            provider_turn_label="post_tool_observation",
+                            tool_observation=parsed_observation.observation,
+                        )
+                    elif parsed_observation.skipped_observation is not None:
+                        observation_failure_reason = parsed_observation.skipped_observation.reason_label
+                        _emit_tool_observation_recorded(
+                            event_sink,
+                            safe_context,
+                            parsed_observation.skipped_observation,
+                        )
             elif parsed_intent.skipped_request is not None:
                 tool_result = _skipped_tool_result(
                     parsed_intent.skipped_request,
@@ -179,8 +185,15 @@ class NativeAgentSession:
                 reason="provider_not_succeeded",
             )
 
+        final_provider_result = follow_up_provider_result or provider_result
+        final_usage = _merge_provider_usage(provider_usage, follow_up_provider_usage)
         ended_at = _utc_now()
-        final_status = _final_status(provider_result, tool_result)
+        final_status = _final_status(
+            provider_result,
+            tool_result,
+            observation_failure_reason=observation_failure_reason,
+            follow_up_provider_result=follow_up_provider_result,
+        )
         exit_code = 0 if final_status == HarnessStatus.SUCCEEDED else 1
         event_sink.emit(
             "native.session.completed",
@@ -197,13 +210,95 @@ class NativeAgentSession:
             exit_code=exit_code,
             started_at=started_at,
             ended_at=ended_at,
-            final_text=provider_result.final_text if final_status == HarnessStatus.SUCCEEDED else None,
-            provider_name=provider_result.provider_name,
-            model_id=provider_result.model_id,
-            usage=provider_usage,
-            error_type=_native_error_type(provider_result, tool_result),
-            error_message=_native_error_message(provider_result, tool_result),
+            final_text=final_provider_result.final_text if final_status == HarnessStatus.SUCCEEDED else None,
+            provider_name=final_provider_result.provider_name,
+            model_id=final_provider_result.model_id,
+            usage=final_usage,
+            error_type=_native_error_type(
+                provider_result,
+                tool_result,
+                observation_failure_reason=observation_failure_reason,
+                follow_up_provider_result=follow_up_provider_result,
+            ),
+            error_message=_native_error_message(
+                provider_result,
+                tool_result,
+                observation_failure_reason=observation_failure_reason,
+                follow_up_provider_result=follow_up_provider_result,
+            ),
         )
+
+    def _call_provider_turn(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        *,
+        user_prompt: str,
+        provider_turn_index: int,
+        provider_turn_label: str,
+        tool_observation: NativeToolObservation | None,
+    ) -> tuple[ProviderResult, dict[str, int | float]]:
+        provider_turn_context = {
+            "provider_turn_index": provider_turn_index,
+            "provider_turn_label": provider_turn_label,
+        }
+        event_sink.emit(
+            "native.provider.started",
+            summary=(
+                "Native provider call started: "
+                f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}, "
+                f"turn={sanitize_text(provider_turn_label)}."
+            ),
+            payload={
+                **safe_context,
+                **provider_turn_context,
+                "status": HarnessStatus.RUNNING.value,
+            },
+        )
+
+        provider_started_at = _utc_now()
+        try:
+            provider_result = self.provider.complete(
+                ProviderRequest(
+                    system_prompt=_build_system_prompt(),
+                    user_prompt=user_prompt,
+                    provider_name=run_input.provider_name,
+                    model_id=run_input.model_id,
+                    cwd=run_input.cwd,
+                    provider_turn_index=provider_turn_index,
+                    provider_turn_label=provider_turn_label,
+                    tool_observation=tool_observation,
+                )
+            )
+        except Exception as exc:
+            provider_result = _failed_provider_result(run_input, exc, started_at=provider_started_at)
+
+        provider_event = (
+            "native.provider.completed"
+            if provider_result.status == HarnessStatus.SUCCEEDED
+            else "native.provider.failed"
+        )
+        provider_usage = normalize_provider_usage(provider_result.usage or {})
+        event_sink.emit(
+            provider_event,
+            summary=(
+                "Native provider call finished: "
+                f"status={provider_result.status.value}, provider={sanitize_text(provider_result.provider_name)}, "
+                f"model={sanitize_text(provider_result.model_id)}, turn={sanitize_text(provider_turn_label)}."
+            ),
+            payload={
+                **safe_context,
+                **provider_turn_context,
+                "status": provider_result.status.value,
+                "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
+                "usage": provider_usage,
+                "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
+                "error_type": _safe_optional_text(provider_result.error_type),
+                "error_message": _safe_optional_text(provider_result.error_message),
+            },
+        )
+        return provider_result, provider_usage
 
     def _invoke_noop_tool(
         self,
@@ -259,6 +354,9 @@ def _safe_provider_metadata(metadata: Mapping[str, object]) -> dict[str, object]
     if PROVIDER_TOOL_INTENT_METADATA_KEY in safe_metadata:
         safe_metadata.pop(PROVIDER_TOOL_INTENT_METADATA_KEY)
         safe_metadata["tool_intent_metadata_present"] = True
+    if PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY in safe_metadata:
+        safe_metadata.pop(PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY)
+        safe_metadata["tool_observation_fixture_metadata_present"] = True
     return sanitize_metadata(safe_metadata)
 
 
@@ -364,6 +462,129 @@ def _safe_intent_metadata(value: object) -> dict[str, object] | None:
     safe_metadata.setdefault("internal_noop", True)
     safe_metadata.setdefault("tool_payloads_stored", False)
     return safe_metadata
+
+
+def _parse_tool_observation_fixture(
+    provider_result: ProviderResult,
+    tool_result: NativeToolResult,
+) -> _ParsedToolObservationFixture:
+    metadata = provider_result.metadata or {}
+    if PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY not in metadata:
+        return _ParsedToolObservationFixture()
+
+    identity = NativeToolRequestIdentity.current_noop()
+    raw_fixture = metadata[PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY]
+    if not isinstance(raw_fixture, Mapping):
+        return _ParsedToolObservationFixture(
+            skipped_observation=_skipped_observation(identity, NativeToolObservationReason.UNSAFE_OBSERVATION)
+        )
+
+    if _unsafe_observation_fixture(raw_fixture, identity):
+        return _ParsedToolObservationFixture(
+            skipped_observation=_skipped_observation(identity, NativeToolObservationReason.UNSAFE_OBSERVATION)
+        )
+    if _unsupported_observation_fixture(raw_fixture):
+        return _ParsedToolObservationFixture(
+            skipped_observation=_skipped_observation(identity, NativeToolObservationReason.UNSUPPORTED_OBSERVATION)
+        )
+
+    return _ParsedToolObservationFixture(
+        observation=NativeToolObservation(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            tool_name=NOOP_TOOL_NAME,
+            tool_kind=NOOP_TOOL_KIND,
+            status=NativeToolObservationStatus.SUCCEEDED,
+            reason_label=NativeToolObservationReason.TOOL_RESULT_SUCCEEDED,
+            duration_seconds=_safe_duration_value(raw_fixture.get("duration_seconds"), tool_result),
+            tool_payloads_stored=False,
+            stdout_stored=False,
+            stderr_stored=False,
+            diffs_stored=False,
+            file_contents_stored=False,
+            prompt_stored=False,
+            model_output_stored=False,
+            provider_responses_stored=False,
+            raw_transcript_imported=False,
+        )
+    )
+
+
+def _unsafe_observation_fixture(
+    raw_fixture: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> bool:
+    if any(not isinstance(key, str) for key in raw_fixture):
+        return True
+    if set(raw_fixture) - _ALLOWED_OBSERVATION_FIXTURE_KEYS:
+        return True
+    if raw_fixture.get("tool_request_id") != identity.request_id:
+        return True
+    if raw_fixture.get("turn_index") != identity.turn_index:
+        return True
+    for key in (
+        "tool_payloads_stored",
+        "stdout_stored",
+        "stderr_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    ):
+        if raw_fixture.get(key, False) is not False:
+            return True
+    return False
+
+
+def _unsupported_observation_fixture(raw_fixture: Mapping[object, object]) -> bool:
+    if raw_fixture.get("fixture_source") != _SUPPORTED_OBSERVATION_FIXTURE_SOURCE:
+        return True
+    if raw_fixture.get("tool_name") != NOOP_TOOL_NAME or raw_fixture.get("tool_kind") != NOOP_TOOL_KIND:
+        return True
+    status = raw_fixture.get("status")
+    reason_label = raw_fixture.get("reason_label")
+    if (status, reason_label) not in _SUPPORTED_OBSERVATION_STATUSES:
+        return True
+    duration = raw_fixture.get("duration_seconds")
+    if duration is not None and (
+        not isinstance(duration, int | float) or isinstance(duration, bool) or duration < 0 or not isfinite(duration)
+    ):
+        return True
+    return False
+
+
+def _skipped_observation(
+    identity: NativeToolRequestIdentity,
+    reason_label: NativeToolObservationReason,
+) -> NativeToolObservation:
+    if reason_label == NativeToolObservationReason.UNSAFE_OBSERVATION:
+        tool_name = "unsafe"
+        tool_kind = "unsafe_observation"
+    else:
+        tool_name = "unsupported"
+        tool_kind = "unsupported_observation"
+    return NativeToolObservation(
+        tool_request_id=identity.request_id,
+        turn_index=identity.turn_index,
+        tool_name=tool_name,
+        tool_kind=tool_kind,
+        status=NativeToolObservationStatus.SKIPPED,
+        reason_label=reason_label,
+        duration_seconds=0.0,
+    )
+
+
+def _safe_duration_value(raw_duration: object, tool_result: NativeToolResult) -> float:
+    if (
+        isinstance(raw_duration, int | float)
+        and not isinstance(raw_duration, bool)
+        and raw_duration >= 0
+        and isfinite(raw_duration)
+    ):
+        return float(raw_duration)
+    return _duration_seconds(tool_result.started_at, tool_result.ended_at)
 
 
 def _noop_tool_request() -> NativeToolRequest:
@@ -496,6 +717,63 @@ def _emit_tool_result_event(
     )
 
 
+def _emit_tool_observation_recorded(
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    observation: NativeToolObservation,
+) -> None:
+    payload = {
+        **safe_context,
+        **_safe_observation_context(observation),
+    }
+    event_sink.emit(
+        NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+        summary=(
+            "Native tool observation recorded: "
+            f"status={observation.status.value}, tool={sanitize_text(observation.tool_name)}."
+        ),
+        payload=payload,
+    )
+
+
+def _safe_observation_context(observation: NativeToolObservation) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "tool_request_id": observation.tool_request_id,
+        "turn_index": observation.turn_index,
+        "tool_name": observation.tool_name,
+        "tool_kind": observation.tool_kind,
+        "status": observation.status.value,
+        "reason_label": observation.reason_label.value if observation.reason_label is not None else None,
+        "duration_seconds": observation.duration_seconds,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+    }
+    return payload
+
+
+def _build_post_tool_user_prompt(observation: NativeToolObservation) -> str:
+    return (
+        "Continue from this sanitized native tool observation only. "
+        f"tool_request_id={observation.tool_request_id}; "
+        f"turn_index={observation.turn_index}; "
+        f"tool_name={observation.tool_name}; "
+        f"tool_kind={observation.tool_kind}; "
+        f"status={observation.status.value}; "
+        f"reason_label={observation.reason_label.value if observation.reason_label is not None else 'none'}; "
+        f"duration_seconds={observation.duration_seconds}; "
+        "tool_payloads_stored=false; stdout_stored=false; stderr_stored=false; "
+        "diffs_stored=false; file_contents_stored=false; prompt_stored=false; "
+        "model_output_stored=false; provider_responses_stored=false; raw_transcript_imported=false."
+    )
+
+
 def _tool_event_type(status: NativeToolStatus) -> str:
     if status == NativeToolStatus.SUCCEEDED:
         return "native.tool.completed"
@@ -549,33 +827,70 @@ def _failed_tool_result(
     )
 
 
-def _final_status(provider_result: ProviderResult, tool_result: NativeToolResult | None) -> HarnessStatus:
+def _merge_provider_usage(
+    first: Mapping[str, int | float],
+    second: Mapping[str, int | float],
+) -> dict[str, int | float]:
+    merged: dict[str, int | float] = dict(first)
+    for key, value in second.items():
+        if key in merged:
+            merged[key] += value
+        else:
+            merged[key] = value
+    return merged
+
+
+def _final_status(
+    provider_result: ProviderResult,
+    tool_result: NativeToolResult | None,
+    *,
+    observation_failure_reason: NativeToolObservationReason | None,
+    follow_up_provider_result: ProviderResult | None,
+) -> HarnessStatus:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return provider_result.status
     if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return HarnessStatus.FAILED
+    if observation_failure_reason is not None:
+        return HarnessStatus.FAILED
+    if follow_up_provider_result is not None:
+        return follow_up_provider_result.status
     return HarnessStatus.SUCCEEDED
 
 
 def _native_error_type(
     provider_result: ProviderResult,
     tool_result: NativeToolResult | None,
+    *,
+    observation_failure_reason: NativeToolObservationReason | None,
+    follow_up_provider_result: ProviderResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_type)
     if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return _safe_optional_text(tool_result.error_type) or "NativeToolError"
+    if observation_failure_reason is not None:
+        return "NativeToolObservationSkipped"
+    if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
+        return _safe_optional_text(follow_up_provider_result.error_type)
     return None
 
 
 def _native_error_message(
     provider_result: ProviderResult,
     tool_result: NativeToolResult | None,
+    *,
+    observation_failure_reason: NativeToolObservationReason | None,
+    follow_up_provider_result: ProviderResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_message)
     if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
         return _safe_optional_text(tool_result.error_message)
+    if observation_failure_reason is not None:
+        return observation_failure_reason.value
+    if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
+        return _safe_optional_text(follow_up_provider_result.error_message)
     return None
 
 

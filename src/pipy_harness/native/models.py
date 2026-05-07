@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 from pipy_harness.models import HarnessStatus
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
+PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
 NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
 NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
     {
@@ -69,6 +70,9 @@ class ProviderRequest:
     provider_name: str
     model_id: str
     cwd: Path
+    provider_turn_index: int = 0
+    provider_turn_label: str = "initial"
+    tool_observation: NativeToolObservation | None = None
 
 
 @dataclass(frozen=True, slots=True)

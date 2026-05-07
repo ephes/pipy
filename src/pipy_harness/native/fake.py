@@ -11,6 +11,7 @@ from pipy_harness.native.models import (
     NativeToolRequest,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
@@ -26,6 +27,7 @@ class FakeNativeProvider:
     status: HarnessStatus = HarnessStatus.SUCCEEDED
     metadata: dict[str, Any] | None = None
     tool_intent: dict[str, Any] | None = None
+    tool_observation_fixture: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -38,6 +40,8 @@ class FakeNativeProvider:
         metadata = dict(self.metadata or {})
         if self.tool_intent is not None:
             metadata[PROVIDER_TOOL_INTENT_METADATA_KEY] = dict(self.tool_intent)
+        if self.tool_observation_fixture is not None:
+            metadata[PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY] = dict(self.tool_observation_fixture)
         return ProviderResult(
             status=self.status,
             provider_name=self.name,

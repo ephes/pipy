@@ -41,8 +41,8 @@ def test_native_approval_and_sandbox_baseline_is_documented():
     assert "sandbox enforcement" in compact_policy
     assert "real repo reads" in compact_policy
     assert "provider-visible repo context forwarding" in compact_policy
-    assert "live observation emission" in compact_policy
-    assert "post-tool provider call" in compact_policy
+    assert "synthetic sanitized observation fixtures" in compact_policy
+    assert "one follow-up provider turn" in compact_policy
 
     for decision in ("`pending`", "`allowed`", "`denied`", "`skipped`", "`failed`"):
         assert decision in compact_policy
@@ -271,18 +271,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native OpenRouter Chat Completions provider" in compact_done
     assert "`--native-provider openrouter --native-model <provider/model>`" in compact_done
     assert "`OPENROUTER_API_KEY`" in compact_done
-    assert (
-        "### Add bounded post-tool provider turn against synthetic sanitized observations"
-        in next_slice
-    )
-    assert "synthetic sanitized observation fixtures" in compact_next_slice
+    assert "Native bounded post-tool provider turn against synthetic sanitized observations" in compact_done
+    assert "### Wire bounded read-only tool observation into the follow-up provider turn" in next_slice
+    assert "bounded explicit-file-excerpt tool" in compact_next_slice
     assert "OpenRouter support with explicit model selection" in compact_near_term
-    assert "bounded post-tool provider turn against synthetic sanitized" in compact_near_term
+    assert "bounded read-only tool observation" in compact_near_term
     assert_terms_in_order(
         near_term,
         [
-            "bounded post-tool provider turn against synthetic sanitized",
             "bounded read-only tool observation",
+            "patch proposal boundary before writes",
         ],
     )
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice

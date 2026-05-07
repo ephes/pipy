@@ -442,14 +442,18 @@ The subprocess adapter inherits stdin from the parent process. This keeps
 generic commands and future agent CLIs usable when they intentionally read from
 stdin, but stdin content is not captured by pipy.
 
-The native bootstrap adapter is selected with `--agent pipy-native`. In this
-slice it owns system prompt construction, calls one provider, and invokes the
+The native bootstrap adapter is selected with `--agent pipy-native`. It owns
+system prompt construction, calls one initial provider, and invokes the
 deterministic fake no-op tool boundary only when the provider returns one
-sanitized supported no-op intent. The fake provider and fake no-op tool are for
-tests and smoke runs, not a production AI/tool runtime. The no-op tool does not
-inspect or mutate the workspace and does not execute shell commands. Provider
-final text prints to stdout through the explicit CLI contract when the native
-run succeeds. API-key providers currently include `openai` with
+sanitized supported no-op intent. If that no-op tool succeeds and the first
+provider result includes an explicitly supported synthetic sanitized observation
+fixture, the runtime emits one metadata-only observation event and makes exactly
+one follow-up provider call with generated observation metadata only. The fake
+provider and fake no-op tool are for tests and smoke runs, not a production
+AI/tool runtime. The no-op tool does not inspect or mutate the workspace and
+does not execute shell commands. Provider final text prints to stdout through
+the explicit CLI contract when the native run succeeds. API-key providers
+currently include `openai` with
 `OPENAI_API_KEY` and `openrouter` with `OPENROUTER_API_KEY`; both require an
 explicit `--native-model` and do not add credential storage. JSONL and Markdown
 archive records store only
@@ -461,27 +465,23 @@ provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
 
-The native fake intent path remains bounded to one provider turn and at most one
-fake no-op tool invocation. After a safe no-op tool result, the native session
-completes; it does not make a second provider call or archive a tool-result
-observation for provider consumption. A future post-tool observation is now
-specified as one summary-safe terminal event,
-`native.tool.observation.recorded`, anchored to pipy's `tool_request_id` and
-`turn_index`, but a post-tool provider turn is still deferred until permission
-prompts, sandbox enforcement, and real tool execution behavior are designed.
-There is no observation `started` event in the archive contract because the
-observation is derived metadata, not a raw output handling phase.
+The native fake intent path remains bounded to one initial provider turn, at
+most one fake no-op tool invocation, and at most one fixture-gated follow-up
+provider turn. The `native.tool.observation.recorded` event is anchored to
+pipy's `tool_request_id` and `turn_index`; there is no observation `started`
+event because the observation is derived metadata, not a raw output handling
+phase. Unsafe or unsupported observation fixture data is skipped and fails
+closed before provider visibility.
 
-If that turn is added later, JSONL and Markdown records may still contain only
-the allowlisted observation metadata: `tool_request_id`, `turn_index`, safe
-tool name/kind labels, terminal `status`, safe `reason_label`,
-`duration_seconds`, and explicit storage booleans for tool payloads, stdout,
-stderr, diffs, file contents, prompts, model output, provider responses, and
-raw transcript import. The first observation event shape does not include
-normalized counters or optional metadata; those require a later explicit schema
-update. Observation records must not contain raw tool result payloads, stdout,
-stderr, diffs, patches, file contents, prompts, model output, provider
-responses, provider-native tool-call or tool-result payloads, function
+JSONL and Markdown records may contain only the allowlisted observation
+metadata: `tool_request_id`, `turn_index`, safe tool name/kind labels, terminal
+`status`, safe `reason_label`, `duration_seconds`, and explicit storage booleans
+for tool payloads, stdout, stderr, diffs, file contents, prompts, model output,
+provider responses, and raw transcript import. The first observation event shape
+does not include normalized counters or optional metadata; those require a later
+explicit schema update. Observation records must not contain raw tool result
+payloads, stdout, stderr, diffs, patches, file contents, prompts, model output,
+provider responses, provider-native tool-call or tool-result payloads, function
 arguments, provider response ids that could reveal payload content, raw tool
 arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, or sensitive personal data by default.
@@ -513,7 +513,7 @@ model-selected paths, secrets, credentials, tokens, private keys, or sensitive
 personal data. The direct native explicit file excerpt tool keeps successful
 excerpt text in memory only and exposes a separate metadata-only helper; the
 default `NativeAgentSession` runtime still does not read, archive, or forward
-live repo context, and it still does not make a post-tool provider call.
+live repo context into the post-tool provider turn.
 
 Future approval and sandbox records must stay metadata-only. The enforcement
 baseline in `docs/harness-spec.md` defines approval decision labels as

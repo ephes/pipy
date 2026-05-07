@@ -201,16 +201,17 @@ def test_native_tool_observation_event_contract_is_closed_and_metadata_only():
     assert forbidden_payload_keys.isdisjoint(NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS)
 
 
-def test_native_tool_observation_contract_is_not_threaded_into_session_runtime():
-    """Flip this guard when a later slice intentionally wires observation emission."""
+def test_native_tool_observation_contract_is_threaded_only_as_sanitized_session_metadata():
+    """The runtime may use sanitized observations, but not raw result surfaces."""
 
     session_source = (Path(__file__).parents[1] / "src/pipy_harness/native/session.py").read_text(
         encoding="utf-8"
     )
 
-    assert "NativeToolObservation" not in session_source
-    assert "NATIVE_TOOL_OBSERVATION" not in session_source
-    assert "native.tool.observation" not in session_source
+    assert "NativeToolObservation" in session_source
+    assert "NATIVE_TOOL_OBSERVATION_RECORDED_EVENT" in session_source
+    for forbidden in ("raw_tool_observation", "provider_response_body", "file_contents_text", "stdout_text", "stderr_text"):
+        assert forbidden not in session_source
 
 
 def test_fake_noop_native_tool_is_deterministic_and_side_effect_free():

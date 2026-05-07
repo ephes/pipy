@@ -16,8 +16,12 @@ from pipy_harness.native import (
     FakeNoOpNativeTool,
     NativeRunInput,
     NativeToolRequest,
+    NativeToolObservation,
+    NativeToolObservationReason,
+    NativeToolObservationStatus,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
@@ -74,6 +78,28 @@ class CapturingProvider:
         )
 
 
+@dataclass(slots=True)
+class SequentialCapturingProvider:
+    results: list[ProviderResult]
+    captured_requests: list[ProviderRequest] | None = None
+
+    @property
+    def name(self) -> str:
+        return "capturing-fake"
+
+    @property
+    def model_id(self) -> str:
+        return "capturing-model"
+
+    def complete(self, request: ProviderRequest) -> ProviderResult:
+        if self.captured_requests is None:
+            self.captured_requests = []
+        self.captured_requests.append(request)
+        if not self.results:
+            raise RuntimeError("unexpected extra provider call")
+        return self.results.pop(0)
+
+
 class ExplodingProvider:
     name = "exploding-fake"
     model_id = "exploding-model"
@@ -113,6 +139,48 @@ def safe_noop_intent() -> dict[str, object]:
         "file_contents_stored": False,
         "metadata": {"fixture": "safe-noop", "safe_count": 1},
     }
+
+
+def safe_synthetic_observation_fixture() -> dict[str, object]:
+    return {
+        "fixture_source": "synthetic_safe_noop",
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "tool_name": "noop",
+        "tool_kind": "internal_noop",
+        "status": "succeeded",
+        "reason_label": "tool_result_succeeded",
+        "duration_seconds": 0.001,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+    }
+
+
+def provider_result(
+    *,
+    final_text: str,
+    metadata: dict[str, object] | None = None,
+    usage: dict[str, object] | None = None,
+    status: HarnessStatus = HarnessStatus.SUCCEEDED,
+) -> ProviderResult:
+    now = datetime(2026, 5, 3, 12, 0, tzinfo=UTC)
+    return ProviderResult(
+        status=status,
+        provider_name="capturing-fake",
+        model_id="capturing-model",
+        started_at=now,
+        ended_at=now,
+        final_text=final_text if status == HarnessStatus.SUCCEEDED else None,
+        usage=usage,
+        metadata=metadata,
+    )
 
 
 def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):
@@ -319,6 +387,213 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
             assert payload["stderr_stored"] is False
             assert payload["diffs_stored"] is False
             assert payload["file_contents_stored"] is False
+
+
+def test_native_session_supported_synthetic_observation_fixture_makes_one_follow_up_turn(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+                    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: safe_synthetic_observation_fixture(),
+                },
+                usage={"input_tokens": 3, "output_tokens": 5, "total_tokens": 8},
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                usage={"input_tokens": 7, "output_tokens": 11, "total_tokens": 18},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert output.final_text == "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY"
+    assert output.usage == {"input_tokens": 10, "output_tokens": 16, "total_tokens": 26}
+    assert provider.captured_requests is not None
+    assert len(provider.captured_requests) == 2
+    initial_request, follow_up_request = provider.captured_requests
+    assert initial_request.provider_turn_index == 0
+    assert initial_request.provider_turn_label == "initial"
+    assert initial_request.tool_observation is None
+    assert follow_up_request.provider_turn_index == 1
+    assert follow_up_request.provider_turn_label == "post_tool_observation"
+    assert follow_up_request.user_prompt != "SAFE_GOAL_METADATA"
+    assert "native-tool-0001" in follow_up_request.user_prompt
+    assert "tool_result_succeeded" in follow_up_request.user_prompt
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in follow_up_request.user_prompt
+    assert isinstance(follow_up_request.tool_observation, NativeToolObservation)
+    assert follow_up_request.tool_observation.tool_request_id == "native-tool-0001"
+    assert follow_up_request.tool_observation.turn_index == 0
+    assert follow_up_request.tool_observation.status == NativeToolObservationStatus.SUCCEEDED
+    assert follow_up_request.tool_observation.reason_label == NativeToolObservationReason.TOOL_RESULT_SUCCEEDED
+
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.tool.observation.recorded",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.session.completed",
+    ]
+    provider_payloads = [payload for event_type, _, payload in sink.events if event_type.startswith("native.provider.")]
+    assert [payload["provider_turn_index"] for payload in provider_payloads if payload is not None] == [
+        0,
+        0,
+        1,
+        1,
+    ]
+    assert [payload["provider_turn_label"] for payload in provider_payloads if payload is not None] == [
+        "initial",
+        "initial",
+        "post_tool_observation",
+        "post_tool_observation",
+    ]
+    observation_event = [event for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    observation_payload = observation_event[2]
+    assert observation_payload == {
+        "adapter": "pipy-native",
+        "provider": "capturing-fake",
+        "model_id": "capturing-model",
+        "system_prompt_id": SYSTEM_PROMPT_ID,
+        "system_prompt_version": SYSTEM_PROMPT_VERSION,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "tool_payloads_stored": False,
+        "raw_transcript_imported": False,
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "tool_name": "noop",
+        "tool_kind": "internal_noop",
+        "status": "succeeded",
+        "reason_label": "tool_result_succeeded",
+        "duration_seconds": 0.001,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "provider_responses_stored": False,
+    }
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SAFE_GOAL_METADATA" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected_reason"),
+    [
+        ({"fixture_source": "synthetic_safe_noop", "payload": "SHOULD_NOT_PERSIST"}, "unsafe_observation"),
+        (
+            {
+                **safe_synthetic_observation_fixture(),
+                "fixture_source": "raw_provider_observation",
+            },
+            "unsupported_observation",
+        ),
+        (
+            {
+                **safe_synthetic_observation_fixture(),
+                "tool_request_id": "provider-owned-id",
+            },
+            "unsafe_observation",
+        ),
+        (
+            {
+                **safe_synthetic_observation_fixture(),
+                "status": "failed",
+                "reason_label": "tool_result_failed",
+            },
+            "unsupported_observation",
+        ),
+        (
+            {
+                **safe_synthetic_observation_fixture(),
+                "duration_seconds": float("inf"),
+            },
+            "unsupported_observation",
+        ),
+        (
+            {
+                **safe_synthetic_observation_fixture(),
+                "duration_seconds": float("nan"),
+            },
+            "unsupported_observation",
+        ),
+    ],
+)
+def test_native_session_unsafe_or_unsupported_observation_fixture_skips_before_follow_up_provider(
+    tmp_path,
+    fixture: object,
+    expected_reason: str,
+):
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_SKIPPED_OBSERVATION",
+        metadata={
+            PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+            PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: fixture,
+        },
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_message == expected_reason
+    assert provider.complete_calls == 1
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.tool.observation.recorded",
+        "native.session.completed",
+    ]
+    observation_payload = [event[2] for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    assert observation_payload is not None
+    assert observation_payload["tool_request_id"] == "native-tool-0001"
+    assert observation_payload["turn_index"] == 0
+    assert observation_payload["status"] == "skipped"
+    assert observation_payload["reason_label"] == expected_reason
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_PERSIST" not in serialized
+    assert "provider-owned-id" not in serialized
+    assert "raw_provider_observation" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
 
 
 def test_native_session_unsafe_intent_skips_without_detected_or_started_events(tmp_path):

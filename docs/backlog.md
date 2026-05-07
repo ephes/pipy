@@ -153,51 +153,65 @@ reviewable change while keeping the source-of-truth design constraints in
   metadata-only archives/JSON output without raw prompts, model output, request
   bodies, provider responses, auth material, provider-native payloads, tools,
   streaming, retries, fallback, OAuth, provider registry, or post-tool turns.
+- Native bounded post-tool provider turn against synthetic sanitized
+  observations: after one safe supported no-op tool intent and successful no-op
+  tool result, native sessions can consume an explicitly supported synthetic
+  observation fixture, emit one metadata-only
+  `native.tool.observation.recorded` event anchored to pipy's
+  `tool_request_id` and `turn_index`, make exactly one follow-up provider call
+  with generated observation metadata only, aggregate normalized provider usage
+  counters, and hard-stop after that turn. Unsafe or unsupported fixtures fail
+  closed before provider visibility, existing no-fixture fake/OpenAI/OpenRouter
+  behavior remains compatible, default stdout remains final text only on
+  successful text mode, and archives/JSON output still omit raw prompts, model
+  output, raw provider responses, request bodies, raw tool observations,
+  provider-native payloads, auth material, secrets, credentials, tokens, private
+  keys, and sensitive personal data.
 
 ## Next Slice
 
-### Add bounded post-tool provider turn against synthetic sanitized observations
+### Wire bounded read-only tool observation into the follow-up provider turn
 
-Goal: add exactly one follow-up native provider turn after a supported
-sanitized tool observation fixture, without wiring real read-tool output or
-building a general model/tool loop.
+Goal: feed the existing bounded explicit-file-excerpt tool through the sanitized
+observation/provider-visible context boundary, without exposing raw excerpts to
+archives, stdout, JSON output, Markdown, or a general model/tool loop.
 
 Selected shape:
 
-- keep one initial provider turn and at most one current no-op tool request
-- use synthetic sanitized observation fixtures anchored to pipy's
-  `tool_request_id` and `turn_index`
-- make one bounded post-tool provider call only when the fixture is safe and
-  explicitly supported
+- keep one initial provider turn, at most one read-only tool request, and one
+  bounded follow-up provider turn
+- consume only pipy-owned read-tool requests, gate decisions, and sanitized
+  observation/context metadata
+- forward bounded provider-visible context in memory only, under the documented
+  repo context policy
 - keep the hard stop after the follow-up provider turn
 - preserve the default stdout final-text contract and `--native-output json`
   metadata-only contract
-- keep archives metadata-only: safe turn labels, observation labels, counters,
-  durations, normalized usage counters, storage booleans, and safe status/error
-  labels only
-- do not wire real read-tool observations, execute shell/network/write/patch
-  tools, add verification command execution, or create a general tool loop
+- keep archives metadata-only: safe turn labels, observation labels, context
+  counts/limits, durations, normalized usage counters, storage booleans, and
+  safe status/error labels only
+- do not execute shell/network/write/patch tools, add verification command
+  execution, or create a general tool loop
 
 Keep out of scope:
 
-- real read-tool output or live repo context forwarding
+- raw read-tool output in archives/stdout/JSON/Markdown
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
 - write tools, patch tools, shell execution, network access, and verification
   command execution
 - raw prompts, model output, raw provider responses, provider-native tool
-  payloads, raw tool observations, stdout, stderr, diffs, patches, file
-  contents, auth material, secrets, credentials, tokens, private keys, or
-  sensitive personal data in JSONL, Markdown, structured stdout, or
-  provider-visible context
+  payloads, raw tool observations, stdout, stderr, diffs, patches, auth
+  material, secrets, credentials, tokens, private keys, or sensitive personal
+  data in JSONL, Markdown, structured stdout, or provider-visible context
 
 Acceptance checks:
 
-- the follow-up provider turn is possible only for explicitly supported
-  synthetic sanitized observation fixtures
-- unsupported or unsafe observation fixture data fails closed or is skipped
-  before provider visibility
+- the follow-up provider turn receives only bounded sanitized read-only context
+  derived from explicit pipy-owned request/gate/target data
+- unsupported or unsafe read-tool observation/context data fails closed or is
+  skipped before provider visibility
 - records preserve pipy-owned `tool_request_id` and `turn_index`
 - existing `fake`, API-key `openai`, and API-key `openrouter` provider
   behavior remains compatible
@@ -212,14 +226,16 @@ Acceptance checks:
 
 ## Near Term
 
-The near-term trajectory stays supervised self-bootstrap, but provider access
-now has priority before more native loop depth. OpenAI subscription-backed
-native provider auth is `blocked-for-now` because the official docs checked on
-2026-05-07 document ChatGPT/Codex subscription auth for OpenAI product clients,
-not a generic third-party native provider auth path. OpenRouter support with
-explicit model selection is now implemented as the preferred provider-access
-path after that decision. Pay-by-token OpenAI API access remains implemented as
-a baseline but is not the preferred usage path for this project. Anthropic
+The near-term trajectory stays supervised self-bootstrap. With OpenRouter access
+and the synthetic post-tool provider turn implemented, the next priority is
+wiring bounded read-only context into that existing follow-up boundary. OpenAI
+subscription-backed native provider auth is `blocked-for-now` because the
+official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
+OpenAI product clients, not a generic third-party native provider auth path.
+OpenRouter support with explicit model selection is implemented as the preferred
+provider-access path after that decision. Pay-by-token OpenAI API access remains
+implemented as a baseline but is not the preferred usage path for this project.
+Anthropic
 subscription access is not a near-term native provider target because
 subscription-backed coding-agent usage is expected to stay within Claude Code.
 Local-model providers remain interesting but deferred until benchmark work in a
@@ -228,19 +244,16 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add one bounded post-tool provider turn against synthetic sanitized
-   observation fixtures and the provider-visible context shape, with a hard
-   stop after that turn and no real read-tool output or general model/tool loop.
-2. Wire the bounded read-only tool observation into the one follow-up provider
+1. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-3. Add a patch proposal boundary before writes: provider may propose a
+2. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-4. Add an explicit patch-apply slice with conservative file scope, no shell
+3. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-5. Add an allowlisted verification-command slice, starting with `just check`,
+4. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
 6. Run the first human-supervised self-bootstrap trial on a tiny docs-only or

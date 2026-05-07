@@ -463,6 +463,7 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
 
     done = backlog[: backlog.index("## Next Slice")]
     assert "Native explicit file excerpt read-only tool implementation" in done
-    assert "bounded post-tool provider turn against synthetic sanitized observation fixtures" in compact_backlog
+    assert "bounded post-tool provider turn against synthetic sanitized observations" in compact_backlog
+    assert "Wire the bounded read-only tool observation into the one follow-up provider turn" in compact_backlog
 
     assert "explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage

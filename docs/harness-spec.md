@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-22 OpenRouter provider support documented
+Status: slice-23 bounded synthetic post-tool provider turn documented
 
 <style>
 .mermaid,
@@ -597,11 +597,11 @@ Rejected approaches:
   provider-native payload
 
 Provider priority after this decision: OpenRouter provider support with
-explicit model selection is implemented as the next provider-access path, and
-the backlog can continue to the bounded post-tool provider turn work. Local
-model provider integrations remain deferred pending benchmark work, and
-Anthropic subscription-backed native provider support is not promoted to the
-near-term provider priority.
+explicit model selection is implemented as the provider-access path, and the
+backlog can continue to wiring bounded read-only observations into the existing
+post-tool provider turn. Local model provider integrations remain deferred
+pending benchmark work, and Anthropic subscription-backed native provider
+support is not promoted to the near-term provider priority.
 
 The native tool boundary defines explicit request/result/status value objects
 plus approval and sandbox policy data. The native provider-to-tool bridge first
@@ -718,15 +718,19 @@ The smallest useful loop is:
 4. If there is no tool intent, complete the native session and print provider
    final text only on success.
 5. If there is one supported tool intent, invoke only the injected no-op
-   `ToolPort`, record privacy-safe tool lifecycle metadata, and then complete
-   the session with a bounded fake result path.
-6. If provider or tool status is not successful, fail the native session and do
-   not print provider final text.
+   `ToolPort` and record privacy-safe tool lifecycle metadata.
+6. If the first provider result also carries an explicitly supported synthetic
+   sanitized observation fixture and the no-op tool succeeds, emit one
+   metadata-only `native.tool.observation.recorded` event and make exactly one
+   follow-up provider call with generated observation metadata only.
+7. Hard-stop after the follow-up provider turn. If provider, tool, or supported
+   observation validation status is not successful, fail the native session and
+   do not print provider final text.
 
-This is intentionally not a general model/tool loop. A later real loop may
-feed a sanitized tool-result observation back to a provider for another model
-turn, but this slice keeps the first implementation to at most one
-fake provider-emitted intent and one no-op tool invocation.
+This is intentionally not a general model/tool loop. The current implementation
+allows at most one fake provider-emitted intent, one no-op tool invocation, and
+one follow-up provider turn from a synthetic sanitized observation fixture. It
+does not forward real read-tool output or model-generated tool observations.
 
 Provider-owned raw response content remains provider-owned. Pipy may parse a
 provider response inside the provider boundary, but the archive must store only
@@ -769,12 +773,13 @@ Unsupported or unsafe provider requests should become sanitized failures or
 safe skipped-tool records, not archived payloads.
 
 Deterministic fake behavior remains the first implementation target. The fake
-provider has an explicit fixture field that writes one allowlisted
-`ProviderResult.metadata` key asking for a no-op intent. That fixture path does
-not inspect the prompt, echo the prompt, or derive archived content from prompt
-text. The fake no-op tool continues to return deterministic safe metadata
-showing that the workspace was not inspected or mutated and that no stdout,
-stderr, or tool payloads were stored.
+provider has explicit fixture fields that write allowlisted
+`ProviderResult.metadata` keys for a no-op intent and, when requested by tests,
+a synthetic sanitized observation fixture. Those fixture paths do not inspect
+the prompt, echo the prompt, or derive archived content from prompt text. The
+fake no-op tool continues to return deterministic safe metadata showing that the
+workspace was not inspected or mutated and that no stdout, stderr, or tool
+payloads were stored.
 
 The no-op tool is now an injected smoke-test and unit-test tool rather than a
 mandatory part of every successful native provider run. Production native runs
@@ -790,6 +795,9 @@ native.provider.completed
 native.tool.intent.detected        # metadata-only, emitted only for a safe intent
 native.tool.started
 native.tool.completed | native.tool.failed | native.tool.skipped
+native.tool.observation.recorded   # metadata-only, fixture-gated
+native.provider.started            # optional bounded follow-up turn
+native.provider.completed | native.provider.failed
 native.session.completed
 ```
 
@@ -802,27 +810,29 @@ lifecycle event with safe labels and no raw payload.
 
 ### Native Post-Tool Provider Turn Decision
 
-The current native runtime remains bounded to one provider turn plus, only when
-the provider result exposes one safe supported intent, one injected fake no-op
-tool invocation. After `native.tool.completed`, the session emits
-`native.session.completed`; it does not call the provider again and does not
-emit another `native.provider.started` event.
+The current native runtime remains bounded to one initial provider turn plus,
+only when the provider result exposes one safe supported intent, one injected
+fake no-op tool invocation. It can then make exactly one follow-up provider call
+only when the same provider result includes an explicitly supported synthetic
+sanitized observation fixture anchored to pipy's `tool_request_id` and
+`turn_index`.
 
-A post-tool provider turn remains deferred even though the summary-safe
-observation boundary is now documented below. Adding that turn would move the
-native path toward a real agent loop, so the runtime must also design approval
-prompts, sandbox enforcement, and real execution behavior before any provider
-can receive an observation from a tool result.
+The follow-up provider request is generated by pipy from metadata-only
+observation labels. It does not include the original user prompt, raw model
+output, raw provider response, provider-native tool result, raw tool payload,
+stdout, stderr, diffs, patches, file contents, shell commands, filesystem paths,
+secrets, credentials, tokens, private keys, or sensitive personal data. Unsafe
+or unsupported observation fixture data emits a sanitized skipped observation
+record and fails closed before provider visibility.
 
-If a future slice adds a post-tool provider turn, the archive may record only
-summary-safe metadata such as turn index, provider and model labels, status,
-duration, normalized usage counters, provider response storage booleans, prompt
-and model-output storage booleans, safe tool-observation labels, and storage
-booleans for tool payloads, stdout, stderr, diffs, and file contents. It must
-not archive raw tool result payloads, stdout, stderr, diffs, file contents,
-prompts, model output, provider responses, provider-native tool-call objects,
-function arguments, secrets, credentials, private keys, tokens, or sensitive
-personal data.
+The archive records only summary-safe metadata such as provider turn index and
+label, provider and model labels, status, duration, normalized usage counters,
+provider response storage booleans, prompt and model-output storage booleans,
+safe tool-observation labels, and storage booleans for tool payloads, stdout,
+stderr, diffs, and file contents. Real read-tool output, live repo context,
+general model/tool loops, provider-side tools, approval prompts, sandbox
+enforcement, retries, streaming, fallback, provider registry, OAuth, and raw
+transcript import remain deferred.
 
 ### Native Approval And Sandbox Enforcement Baseline
 
@@ -830,11 +840,12 @@ Approval and sandbox enforcement are future gates for native tools. This
 baseline defines the contract before real read tools, write tools, shell
 execution, network access, verification commands, live approval prompts, or
 runtime sandbox enforcement exist. The current `pipy-native` runtime remains
-bounded to one provider turn plus optional one fake no-op tool invocation. It
-does not add live approval prompts, sandbox enforcement, real repo reads,
-provider-visible repo context forwarding, live observation emission, archive
-writes for live context or real execution, a post-tool provider call, or a
-general model/tool loop.
+bounded to one initial provider turn plus optional one fake no-op tool
+invocation and, for explicitly supported synthetic sanitized observation
+fixtures only, one follow-up provider turn. It does not add live approval
+prompts, sandbox enforcement, real repo reads, provider-visible repo context
+forwarding, archive writes for live context or real execution, or a general
+model/tool loop.
 
 Approval decision labels are `pending`, `allowed`, `denied`, `skipped`, and
 `failed`.
@@ -1162,13 +1173,14 @@ metadata-only observation shape anchored to pipy's `tool_request_id` and
 
 ### Native Post-Tool Observation Contract Decision
 
-A future post-tool observation is an internal sanitized record that may connect
-one native tool result to a later provider turn. The implemented
-`NativeToolObservation` value-object stub is inert and internal: it is not a raw
-transcript item, not a provider-native tool result, and not a storage channel
-for tool output. The current runtime does not create this value, archive this
-value, call the provider after a tool result, or change the one-provider-turn
-plus optional one-no-op-tool bound.
+A post-tool observation is an internal sanitized record that may connect one
+native tool result to one bounded follow-up provider turn. The implemented
+`NativeToolObservation` value object is not a raw transcript item, not a
+provider-native tool result, and not a storage channel for tool output. The
+current runtime creates and archives this value only from explicitly supported
+synthetic sanitized observation fixtures after a supported no-op tool result.
+It does not create observations from real read-tool output or provider-native
+tool result payloads.
 
 The selected future lifecycle event shape is deliberately small: one terminal
 event named `native.tool.observation.recorded`. There is no
@@ -1177,8 +1189,8 @@ derived after a tool result and must not represent raw payload, stdout, stderr,
 diff, patch, prompt, or model-output handling. Separate completed, failed, and
 skipped event names are not used; the terminal outcome is carried by the
 metadata-only `status` label on the single recorded event. This keeps future
-archive compatibility explicit without implying that the current runtime emits
-observations.
+archive compatibility explicit while preserving the current metadata-only
+archive surface.
 
 The future `native.tool.observation.recorded` payload allowlist is exactly:
 
@@ -1220,8 +1232,8 @@ Correlation must use pipy-owned identity only:
   not be copied from provider tool-call ids.
 - `turn_index`: the pipy-assigned provider turn that produced the sanitized
   internal tool intent. The current bounded runtime remains `turn_index=0`; a
-  later second provider turn must define its own subsequent turn index before it
-  emits another `native.provider.started` event.
+  bounded follow-up provider turn records its provider turn separately as
+  `provider_turn_index=1`; it does not create a second tool request identity.
 - safe observation status or reason labels from the closed label sets above.
 
 The first observation event shape is limited to summary-safe metadata:
@@ -1275,7 +1287,7 @@ and redacted later.
 
 Still deferred for this boundary:
 
-- a second provider call or post-tool provider turn
+- real read-tool observation forwarding into the post-tool provider turn
 - a general model/tool loop
 - real filesystem or shell tool execution
 - approval prompts or sandbox enforcement
@@ -1294,20 +1306,22 @@ guessing whether ids come from providers, archives, or pipy itself.
 
 The selected boundary remains bounded:
 
-- the runtime still makes one provider call
+- the runtime still makes one initial provider call
 - the current fake path still allows at most one no-op tool invocation
-- `turn_index` remains `0` until multiple provider turns are explicitly
-  designed
+- `turn_index` for the pipy-owned tool request remains `0`
+- an optional synthetic-observation follow-up provider turn is recorded with
+  `provider_turn_index=1`
 - `request_id` remains an opaque pipy-owned id, deterministic in tests
-- no second provider call, real tool execution, approval prompt, sandbox
-  enforcement, retry, streaming, fallback, provider registry, OAuth, or
-  provider-side built-in tool is added
+- no real tool execution, approval prompt, sandbox enforcement, retry,
+  streaming, fallback, provider registry, OAuth, or provider-side built-in tool
+  is added
 
 `turn_index` identifies the provider turn that produced the sanitized internal
 tool intent. It is assigned by pipy as a small non-negative integer. In the
-current bounded runtime there is only one provider turn, so the only valid
-archived value is `0`. A later post-tool provider turn must define the next
-turn indexes before it can emit another `native.provider.started` event.
+current bounded tool-request identity there is only one tool-producing provider
+turn, so the only valid archived tool `turn_index` value is `0`. Provider call
+lifecycle events use separate `provider_turn_index` metadata, where the bounded
+synthetic-observation follow-up turn is `1`.
 
 `request_id` identifies one pipy tool request within the native session. It is
 generated by pipy after provider parsing, not copied from provider-native
