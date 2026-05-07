@@ -251,52 +251,57 @@ reviewable change while keeping the source-of-truth design constraints in
   turn plus at most one follow-up provider turn after a supported observation,
   with no new archive event types, CLI controls, stdout/JSON behavior changes,
   or provider/tool behavior changes.
+- Native minimal no-tool REPL: `pipy repl --agent pipy-native` now runs a
+  bounded interactive shell over the same native provider/session/conversation
+  core. Each non-empty input line makes one provider call, the first turn uses
+  the conversation-state `initial` label, subsequent turns use the closed
+  `no_tool_repl` label, provider final text prints to stdout, prompts and
+  finalization stay on stderr, and `/exit`, `/quit`, EOF, interrupt, or the
+  fixed turn bound terminate cleanly. The REPL does not parse, execute, archive,
+  or provider-forward tool intents, tool observations, read-only context,
+  patches, patch apply requests, shell commands, verification requests, or
+  provider metadata; archives remain metadata-only and one-shot
+  `pipy run --agent pipy-native` stdout/JSON behavior remains unchanged.
 
 ## Next Slice
 
-### Add a minimal no-tool `pipy-native` REPL over the same core
+### Add visible approval and sandbox prompts before interactive tools
 
-Goal: add a small interactive native shell over the same provider/session/turn
-core after the one-shot path has proven it can allocate bounded provider turns
-through conversation state without changing privacy or archive contracts.
+Goal: define and implement the smallest pipy-owned visible approval and sandbox
+prompt path needed before any real read/write/shell tool loop is exposed to
+interactive use.
 
 Selected shape:
 
-- build the REPL as a thin UI over the native provider/session/turn core, not a
-  separate runtime path and not a wrapper around another agent CLI
-- keep the first REPL no-tool: repeated provider turns only, no filesystem,
-  patch, shell, network, provider-selected tool, or verification execution
-- preserve metadata-only capture defaults and keep raw prompts/model output out
-  of JSONL, Markdown, structured stdout, and catalog surfaces
-- define the minimal lifecycle and exit behavior before adding TUI rendering,
-  prompt editing, history, streaming, retries, or tool execution
-- keep one-shot `pipy run --agent pipy-native` behavior compatible
+- keep prompts pipy-owned and metadata-only in archives
+- make approval decisions and sandbox posture visible before execution
+- start with the narrowest operation class needed for the next interactive
+  tool-capable shell slice
+- keep fail-closed behavior for missing approval UI, denied approval,
+  unsupported policies, sandbox mismatches, unsafe request data, and attempted
+  capability escalation
+- preserve the no-tool REPL and one-shot native stdout/JSON/archive contracts
 
 Keep out of scope:
 
-- TUI rendering, rich prompt editing, history, and slash-command surfaces beyond
-  the minimum needed to exit cleanly
-- arbitrary shell execution and network access
-- provider-side built-in tools or function calling
-- multiple tool requests or unbounded turns
-- conversation or turn archive export beyond an explicitly documented
-  metadata-only lifecycle shape
-- streaming, retries, fallback, OAuth, provider registry, and provider routing
-- raw prompts, model output, raw provider responses, provider-native payloads,
-  raw tool observations, stdout, stderr, raw diffs, full file contents,
-  command output, auth material, secrets, credentials, tokens, private keys, or
-  sensitive personal data in JSONL, Markdown, structured stdout, or
-  provider-visible context
+- arbitrary shell execution, network access, and provider-side built-in tools
+- broad TUI rendering, persistent history, rich prompt editing, and arbitrary
+  slash-command surfaces
+- multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
+  provider registry, and provider routing
+- raw approval prompts, raw tool arguments, raw tool results, stdout, stderr,
+  diffs, full file contents, command output, auth material, secrets,
+  credentials, tokens, private keys, or sensitive personal data in JSONL,
+  Markdown, structured stdout, or catalog surfaces
 
 Acceptance checks:
 
-- REPL turns use the same native conversation/turn value objects as the one-shot
-  runtime
-- the first REPL slice does not execute tools, mutate the workspace, run shell
-  commands, or expose provider-selected tool calls
+- approval decisions and sandbox checks have tested visible behavior before
+  any real interactive tool execution
+- denied, unavailable, unsupported, and mismatched policy cases fail closed
 - archive records remain metadata-only and compatible with `pipy-session
   verify`, `list`, `search`, and `inspect`
-- one-shot stdout and `--native-output json` behavior remain unchanged
+- one-shot native and no-tool REPL stdout/JSON behavior remain unchanged
 
 ## Near Term
 
@@ -308,15 +313,15 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Add a minimal interactive REPL only after the turn core is stable enough for
-   repeated no-tool provider turns.
-2. Add visible approval and sandbox prompts before any real read/write/shell
+1. Add visible approval and sandbox prompts before any real read/write/shell
    tool loop is exposed to interactive use.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
-text is stdout, finalization is stderr, and the process exits. A persistent
-shell is intentionally not present yet.
+text is stdout, finalization is stderr, and the process exits. The persistent
+no-tool shell is available through `pipy repl --agent pipy-native`, but it does
+not read files, apply patches, execute commands, verify changes, or expose
+tools yet.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -332,8 +337,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add a minimal no-tool `pipy-native` REPL over the same core.
-2. Add visible approval and sandbox prompts before any real read/write/shell
+1. Add visible approval and sandbox prompts before any real read/write/shell
    tool loop is exposed to interactive use.
 
 Foundation gates toward an interactive shell:
@@ -343,8 +347,9 @@ Foundation gates toward an interactive shell:
 - Conversation-state gate: available now in the one-shot runtime; provider turn
   indexes and labels are allocated from per-run in-memory conversation state
   without changing archive or stdout contracts.
-- No-tool REPL gate: next. It should reuse the same conversation state instead
-  of introducing a parallel runtime path.
+- No-tool REPL gate: available now through `pipy repl --agent pipy-native`.
+  It reuses the same conversation state for repeated no-tool provider turns and
+  keeps archives metadata-only.
 - Tool-capable shell gate: deferred until live approval prompts, sandbox
   enforcement, and metadata-only observation handling exist for interactive
   use.

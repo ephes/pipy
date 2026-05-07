@@ -404,13 +404,16 @@ The top-level `pipy` CLI is the initial product harness surface. Its first
 implemented command is `pipy run`. It can run one arbitrary subprocess command
 or one minimal native pipy bootstrap turn, records conservative lifecycle
 metadata through the same recorder lifecycle, finalizes the record, and returns
-the adapter exit code.
+the adapter exit code. The first interactive native shell is `pipy repl
+--agent pipy-native`; it uses the same recorder lifecycle for a bounded
+no-tool provider REPL.
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent custom --slug smoke --root /tmp/pipy-sessions --cwd . -- echo hello
 uv run pipy run --agent pipy-native --slug native-smoke --root /tmp/pipy-sessions --goal "Native bootstrap smoke"
 uv run pipy run --agent pipy-native --native-provider openrouter --native-model <provider/model> --slug openrouter-smoke --goal "Say hello briefly"
+uv run pipy repl --agent pipy-native --slug native-repl --root /tmp/pipy-sessions
 ```
 
 `pipy run` creates partial records. The harness does not import raw transcripts
@@ -465,6 +468,21 @@ is limited to finite non-negative `input_tokens`, `output_tokens`,
 provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
+
+The native no-tool REPL is selected with `pipy repl --agent pipy-native`.
+It reads input lines from stdin, sends each non-empty line to the selected
+provider as one provider turn, prints successful provider final text to stdout,
+and keeps prompts, diagnostics, finalization, interrupt handling, and
+turn-limit notices on stderr. `/exit` and `/quit` are the only parsed commands;
+EOF and interrupt also terminate cleanly. REPL session records use the same
+metadata-only lifecycle vocabulary and do not archive raw input lines, provider
+final text, provider metadata, provider-returned tool intent markers, stdout,
+stderr, prompts, model output, provider responses, provider-native payloads,
+tool arguments, tool results, repo context, patches, command output, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data. The REPL does not read files, produce provider-visible repo context,
+execute tools, apply patches, run shell commands, run verification, enable
+provider-side tools, or emit tool lifecycle events.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -586,6 +604,11 @@ successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed
 native runs do not print provider final text to stdout.
 
+For the no-tool REPL, each successful provider turn follows the same split:
+provider final text prints to stdout, while the `pipy-native>` prompt and all
+harness/session messages stay on stderr. The REPL does not add structured
+stdout, JSONL event streaming, transcript export, or raw conversation storage.
+
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject
 `--native-output` before creating a record. JSON mode follows the same
@@ -613,8 +636,8 @@ harness.run.completed | harness.run.failed | harness.run.aborted
 session.finalized
 ```
 
-Native runs add a small native lifecycle vocabulary before the final harness
-completion event:
+One-shot native runs add a small native lifecycle vocabulary before the final
+harness completion event:
 
 ```text
 native.session.started
@@ -635,6 +658,21 @@ intent data record `native.tool.skipped` with safe reason metadata instead of
 emitting `native.tool.intent.detected` or `native.tool.started`. Safe no-op
 tool success is followed directly by `native.session.completed`; there is no
 post-tool `native.provider.started` event in the current contract.
+
+No-tool REPL records use the existing session and provider lifecycle events
+without tool, patch, or verification events:
+
+```text
+native.session.started
+native.provider.started              # once per non-empty input line
+native.provider.completed | native.provider.failed
+native.session.completed
+```
+
+REPL provider lifecycle payloads include provider turn indexes and labels from
+`NativeConversationState`, but they intentionally store
+`provider_metadata={}` so provider-returned tool intent markers or raw provider
+details cannot become archive content.
 
 The current native identity and observation planning boundaries do not change
 archive lifecycle or privacy policy. `turn_index` is a pipy-assigned small

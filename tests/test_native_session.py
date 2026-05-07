@@ -6,6 +6,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,12 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
-from pipy_harness.native.session import NativeAgentSession, SYSTEM_PROMPT_ID, SYSTEM_PROMPT_VERSION
+from pipy_harness.native.session import (
+    NativeAgentSession,
+    NativeNoToolReplSession,
+    SYSTEM_PROMPT_ID,
+    SYSTEM_PROMPT_VERSION,
+)
 from pipy_harness.runner import HarnessRunner
 from pipy_session import verify_session_archive
 
@@ -307,6 +313,61 @@ def provider_result(
         usage=usage,
         metadata=metadata,
     )
+
+
+def test_native_no_tool_repl_stops_at_turn_limit(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(final_text="SECOND_REPL_OUTPUT"),
+            provider_result(final_text="THIRD_REPL_OUTPUT_SHOULD_NOT_BE_CALLED"),
+        ]
+    )
+    sink = RecordingSink()
+    output_stream = StringIO()
+    error_stream = StringIO()
+
+    output = NativeNoToolReplSession(provider=provider, max_turns=2).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("first\nsecond\nthird\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert output_stream.getvalue() == "FIRST_REPL_OUTPUT\nSECOND_REPL_OUTPUT\n"
+    assert "turn limit reached" in error_stream.getvalue()
+    assert provider.captured_requests is not None
+    assert [
+        (request.provider_turn_index, request.provider_turn_label, request.user_prompt)
+        for request in provider.captured_requests
+    ] == [
+        (0, "initial", "first"),
+        (1, "no_tool_repl", "second"),
+    ]
+    assert provider.results and provider.results[0].final_text == "THIRD_REPL_OUTPUT_SHOULD_NOT_BE_CALLED"
+    event_types = [event[0] for event in sink.events]
+    assert event_types.count("native.provider.started") == 2
+    assert event_types.count("native.provider.completed") == 2
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        payload for event_type, _, payload in sink.events if event_type == "native.session.completed"
+    ][0]
+    assert completed_payload is not None
+    assert completed_payload["exit_reason"] == "turn_limit"
+    assert completed_payload["turn_count"] == 2
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "first" not in serialized
+    assert "SECOND_REPL_OUTPUT" not in serialized
 
 
 def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):

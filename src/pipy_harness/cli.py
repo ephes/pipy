@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.adapters import PipyNativeAdapter, SubprocessAdapter
+from pipy_harness.adapters import PipyNativeAdapter, PipyNativeReplAdapter, SubprocessAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest, RunResult
 from pipy_harness.native import (
@@ -68,6 +68,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("native_command", nargs=argparse.REMAINDER, help="Command to run after --.")
 
+    repl_parser = subparsers.add_parser(
+        "repl",
+        help="Run the minimal no-tool pipy-native REPL.",
+    )
+    repl_parser.add_argument("--agent", required=True, help="Logical agent name. Only pipy-native is supported.")
+    repl_parser.add_argument("--slug", required=True, help="Short run label for the session filename.")
+    repl_parser.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path.cwd(),
+        help="Working directory for the native provider. Defaults to the current directory.",
+    )
+    repl_parser.add_argument(
+        "--goal",
+        help="Optional short goal for the REPL run record. Conversation turns are not archived.",
+    )
+    repl_parser.add_argument(
+        "--native-provider",
+        choices=["fake", "openai", "openrouter"],
+        help=(
+            "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
+        ),
+    )
+    repl_parser.add_argument(
+        "--native-model",
+        help=(
+            "Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap "
+            "for --native-provider fake and is required for --native-provider openai or openrouter."
+        ),
+    )
+    repl_parser.add_argument(
+        "--root",
+        type=Path,
+        help="Session root. Defaults to PIPY_SESSION_DIR or ~/.local/state/pipy/sessions.",
+    )
+
     return parser
 
 
@@ -109,6 +145,35 @@ def main(argv: list[str] | None = None) -> int:
                 )
             if args.native_output == "json":
                 print(json.dumps(_native_json_output(request, result), sort_keys=True))
+            return result.exit_code
+        if args.command == "repl":
+            if args.agent != "pipy-native":
+                raise ValueError("pipy repl currently requires --agent pipy-native")
+            repl_adapter = _repl_adapter_for(args.native_provider, args.native_model)
+            request = RunRequest(
+                agent=args.agent,
+                slug=args.slug,
+                command=[],
+                cwd=args.cwd,
+                goal=args.goal or "Native no-tool REPL",
+                root=args.root,
+                capture_policy=CapturePolicy(),
+                native_provider=args.native_provider,
+                native_model=args.native_model,
+            )
+            result = HarnessRunner(adapter=repl_adapter).run(request)
+            if result.error_type is not None:
+                detail = f": {result.error_message}" if result.error_message else ""
+                print(
+                    f"pipy: repl ended with {result.error_type}{detail}; session finalized at "
+                    f"{result.record.jsonl_path}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"pipy: session finalized at {result.record.jsonl_path}",
+                    file=sys.stderr,
+                )
             return result.exit_code
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
@@ -211,6 +276,27 @@ def _adapter_for(
     if native_provider is not None or native_model is not None:
         raise ValueError("--native-provider and --native-model require --agent pipy-native")
     return SubprocessAdapter()
+
+
+def _repl_adapter_for(
+    native_provider: str | None,
+    native_model: str | None,
+) -> PipyNativeReplAdapter:
+    if native_provider not in (None, "fake", "openai", "openrouter"):
+        raise ValueError(f"unsupported native provider: {native_provider}")
+    if native_provider == "openai":
+        if not native_model:
+            raise ValueError("--native-model is required for --native-provider openai")
+        return PipyNativeReplAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
+    if native_provider == "openrouter":
+        if not native_model:
+            raise ValueError("--native-model is required for --native-provider openrouter")
+        return PipyNativeReplAdapter(
+            provider=OpenRouterChatCompletionsProvider(model_id=native_model)
+        )
+    return PipyNativeReplAdapter(
+        provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap")
+    )
 
 
 if __name__ == "__main__":

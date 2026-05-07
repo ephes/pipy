@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-29 one-shot native run uses conversation state
+Status: slice-30 no-tool native REPL
 
 <style>
 .mermaid,
@@ -658,6 +658,63 @@ stderr. Failed native runs do not print provider final text to stdout.
 Structured machine-readable native stdout is available only through explicit
 `--native-output json`; it is not part of the default
 `pipy run --agent pipy-native` contract.
+
+### Native No-Tool REPL
+
+The first interactive native shell is available as:
+
+```sh
+uv run pipy repl --agent pipy-native --slug native-repl
+```
+
+It is intentionally a thin REPL over the same native provider/session/turn core
+used by one-shot `pipy run --agent pipy-native`. The CLI validates the same
+native provider choices, uses the same OpenAI/OpenRouter model requirements,
+creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
+with one fresh pipy-owned `NativeConversationState`.
+
+Each non-empty input line becomes one provider turn. `/exit` and `/quit` are
+the only parsed commands. EOF exits cleanly, interrupt exits with code `130`,
+and the fixed in-memory turn bound stops the loop before it can become
+unbounded. The first provider request uses the conversation-state turn index
+`0` and label `initial`; later no-tool REPL provider requests use subsequent
+conversation-state turn indexes and the closed label `no_tool_repl`. These
+turn indexes and labels are pipy-owned; they are not copied from provider
+metadata and are not derived from prompts, model output, filesystem paths,
+stdout, stderr, secrets, or credentials.
+
+The REPL stdout/stderr convention is conservative: provider final text from
+successful turns prints to stdout, while prompts, diagnostics, finalization,
+errors, interrupt handling, and the turn-limit notice stay on stderr. This is
+separate from one-shot `--native-output json`; the REPL does not add structured
+stdout, a transcript stream, or conversation export.
+
+This REPL is no-tool. It does not parse, execute, archive, or provider-forward
+tool intents, tool observations, read-only repo context, patch proposals, patch
+apply requests, shell commands, verification requests, provider-side built-in
+tools, function calls, or provider metadata. Provider metadata is intentionally
+omitted from REPL provider lifecycle payloads so provider-returned tool intent
+markers cannot become archive content. The only provider-visible content added
+by the REPL is the current input line sent as the user prompt for that turn;
+pipy does not read files or synthesize repo context for it.
+
+REPL archives reuse existing safe lifecycle event names:
+
+- `native.session.started`
+- `native.provider.started`
+- `native.provider.completed` or `native.provider.failed`
+- `native.session.completed`
+
+No conversation or turn export event is emitted. REPL lifecycle payloads remain
+metadata-only and may include safe labels and counters such as provider, model,
+mode `repl`, `tools_enabled=false`, `provider_visible_context_enabled=false`,
+provider turn index/label, status, exit code, duration, normalized usage,
+turn count, and an exit reason label. JSONL, Markdown, catalog/search/inspect
+surfaces, and one-shot `--native-output json` must still omit raw prompts,
+model output, provider responses, provider-native payloads, provider metadata,
+tool arguments, tool results, stdout, stderr, diffs, patches, file contents,
+command output, auth material, secrets, credentials, tokens, private keys, and
+sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 
@@ -1930,10 +1987,16 @@ observation.
 
 This rebase does not emit new conversation or turn archive events. Existing
 `pipy run --agent pipy-native` text stdout, `--native-output json`,
-metadata-only archive, and provider/tool behavior remain unchanged. The next
-foundation step is a minimal no-tool REPL over the same conversation/turn core;
-a tool-capable shell or TUI should not be introduced before approval and
-sandbox boundaries are ready for interactive use.
+metadata-only archive, and provider/tool behavior remain unchanged.
+
+`pipy repl --agent pipy-native` now uses the same conversation/turn core for a
+bounded no-tool interactive shell. Its provider turns are allocated from
+`NativeConversationState`, with `initial` for the first turn and
+`no_tool_repl` for later REPL turns. It does not expose tools, provider
+metadata, repo context, patching, verification, streaming, retries, fallback,
+TUI rendering, or conversation export. A tool-capable shell should not be
+introduced before approval and sandbox boundaries are ready for interactive
+use.
 
 ## Deferred Work
 

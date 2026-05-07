@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from io import StringIO
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -48,6 +49,315 @@ def parse_single_json_stdout(stdout: str) -> dict[str, object]:
     parsed = json.loads(lines[0])
     assert isinstance(parsed, dict)
     return parsed
+
+
+def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=f"REPL_OUTPUT_{request.provider_turn_index}",
+                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: {"raw_args": "SHOULD_NOT_PERSIST"},
+                    "raw_provider_response": "SHOULD_NOT_PERSIST",
+                },
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("FIRST_REPL_PROMPT\nSECOND_REPL_PROMPT\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "REPL_OUTPUT_0\nREPL_OUTPUT_1\n"
+    assert "pipy-native>" in captured.err
+    assert "session finalized" in captured.err
+    assert [
+        (request.provider_turn_index, request.provider_turn_label, request.user_prompt)
+        for request in captured_requests
+    ] == [
+        (0, "initial", "FIRST_REPL_PROMPT"),
+        (1, "no_tool_repl", "SECOND_REPL_PROMPT"),
+    ]
+    assert all(request.tool_observation is None for request in captured_requests)
+
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 2
+    assert event_types.count("native.provider.completed") == 2
+    assert not [event_type for event_type in event_types if str(event_type).startswith("native.tool.")]
+    assert "native.patch.proposal.recorded" not in event_types
+    assert "native.verification.recorded" not in event_types
+    provider_payloads = [
+        event["payload"] for event in events if event["type"] == "native.provider.completed"
+    ]
+    assert [payload["provider_turn_index"] for payload in provider_payloads] == [0, 1]
+    assert [payload["provider_turn_label"] for payload in provider_payloads] == [
+        "initial",
+        "no_tool_repl",
+    ]
+    assert provider_payloads[0]["provider_metadata"] == {}
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["mode"] == "repl"
+    assert completed_payload["tools_enabled"] is False
+    assert completed_payload["turn_count"] == 2
+    assert completed_payload["exit_reason"] == "explicit_exit"
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_REPL_PROMPT" not in combined
+    assert "SECOND_REPL_PROMPT" not in combined
+    assert "REPL_OUTPUT_0" not in combined
+    assert "REPL_OUTPUT_1" not in combined
+    assert "SHOULD_NOT_PERSIST" not in combined
+    assert verify_session_archive(root=root).ok is True
+    assert list_finalized_sessions(root=root)[0].jsonl_path == finalized[0]
+    assert search_finalized_sessions("native.provider.completed", root=root)
+    assert not search_finalized_sessions("FIRST_REPL_PROMPT", root=root)
+    inspection = inspect_finalized_session(finalized[0], root=root)
+    assert inspection.event_types["native.session.completed"] == 1
+
+
+def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("provider should not be called on immediate EOF")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO(""))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-eof",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert provider_calls == 0
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    assert "native.provider.started" not in [event["type"] for event in events]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["exit_reason"] == "eof"
+    assert completed_payload["turn_count"] == 0
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_interrupt_finalizes_aborted_record(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+
+    class InterruptingStdin:
+        def readline(self) -> str:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(sys, "stdin", InterruptingStdin())
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-interrupt",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 130
+    assert captured.out == ""
+    assert "KeyboardInterrupt" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["status"] == "aborted"
+    assert completed_payload["exit_code"] == 130
+    assert completed_payload["exit_reason"] == "interrupt"
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ONLY_NON_BLANK_INPUT_PRODUCES_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("\n   \nhello\n/quit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-quit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "ONLY_NON_BLANK_INPUT_PRODUCES_OUTPUT\n"
+    assert [(request.provider_turn_index, request.provider_turn_label, request.user_prompt) for request in captured_requests] == [
+        (0, "initial", "hello")
+    ]
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["exit_reason"] == "explicit_exit"
+    assert completed_payload["turn_count"] == 1
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_provider_failure_stops_without_printing_final_text(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+
+    class CliFailingReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.FAILED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="FAILED_REPL_OUTPUT_SHOULD_NOT_PRINT",
+                error_type="ReplProviderFailure",
+                error_message="provider failed safely",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFailingReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("hello\nSECOND_PROMPT_SHOULD_NOT_BE_READ\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-provider-failed",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "ReplProviderFailure" in captured.err
+    assert "FAILED_REPL_OUTPUT_SHOULD_NOT_PRINT" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.failed") == 1
+    assert not [event_type for event_type in event_types if str(event_type).startswith("native.tool.")]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["status"] == "failed"
+    assert completed_payload["exit_reason"] == "provider_failed"
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FAILED_REPL_OUTPUT_SHOULD_NOT_PRINT" not in combined
+    assert "SECOND_PROMPT_SHOULD_NOT_BE_READ" not in combined
+    assert verify_session_archive(root=root).ok is True
 
 
 def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capfd):

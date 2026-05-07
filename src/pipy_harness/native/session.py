@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
-from typing import Mapping
+from typing import Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
@@ -175,6 +175,8 @@ _UNSAFE_PROVIDER_METADATA_KEYS = {
 }
 INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
+NO_TOOL_REPL_PROVIDER_TURN_LABEL = "no_tool_repl"
+NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +236,8 @@ class NativeAgentSession:
             conversation_state,
             provider_turn_label=INITIAL_PROVIDER_TURN_LABEL,
         )
-        provider_result, provider_usage = self._call_provider_turn(
+        provider_result, provider_usage = _call_provider_turn(
+            self.provider,
             run_input,
             event_sink,
             safe_context,
@@ -272,7 +275,8 @@ class NativeAgentSession:
                             conversation_state,
                             provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
                         )
-                        follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
+                        follow_up_provider_result, follow_up_provider_usage = _call_provider_turn(
+                            self.provider,
                             run_input,
                             event_sink,
                             safe_context,
@@ -318,7 +322,8 @@ class NativeAgentSession:
                                 conversation_state,
                                 provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
                             )
-                            follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
+                            follow_up_provider_result, follow_up_provider_usage = _call_provider_turn(
+                                self.provider,
                                 run_input,
                                 event_sink,
                                 safe_context,
@@ -409,81 +414,6 @@ class NativeAgentSession:
                 verification_result=verification_result,
             ),
         )
-
-    def _call_provider_turn(
-        self,
-        run_input: NativeRunInput,
-        event_sink: EventSink,
-        safe_context: Mapping[str, object],
-        *,
-        user_prompt: str,
-        provider_turn: NativeTurnMetadata,
-        tool_observation: NativeToolObservation | None,
-    ) -> tuple[ProviderResult, dict[str, int | float]]:
-        provider_turn_label = _required_provider_turn_label(provider_turn)
-        provider_turn_context = {
-            "provider_turn_index": provider_turn.turn_index,
-            "provider_turn_label": provider_turn_label,
-        }
-        event_sink.emit(
-            "native.provider.started",
-            summary=(
-                "Native provider call started: "
-                f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}, "
-                f"turn={sanitize_text(provider_turn_label)}."
-            ),
-            payload={
-                **safe_context,
-                **provider_turn_context,
-                "status": HarnessStatus.RUNNING.value,
-            },
-        )
-
-        provider_started_at = _utc_now()
-        try:
-            provider_result = self.provider.complete(
-                ProviderRequest(
-                    system_prompt=_build_system_prompt(),
-                    user_prompt=user_prompt,
-                    provider_name=run_input.provider_name,
-                    model_id=run_input.model_id,
-                    cwd=run_input.cwd,
-                    provider_turn_index=provider_turn.turn_index,
-                    provider_turn_label=provider_turn_label,
-                    tool_observation=tool_observation,
-                )
-            )
-        except Exception as exc:
-            provider_result = _failed_provider_result(run_input, exc, started_at=provider_started_at)
-
-        provider_event = (
-            "native.provider.completed"
-            if provider_result.status == HarnessStatus.SUCCEEDED
-            else "native.provider.failed"
-        )
-        provider_usage = normalize_provider_usage(provider_result.usage or {})
-        event_sink.emit(
-            provider_event,
-            summary=(
-                "Native provider call finished: "
-                f"status={provider_result.status.value}, provider={sanitize_text(provider_result.provider_name)}, "
-                f"model={sanitize_text(provider_result.model_id)}, turn={sanitize_text(provider_turn_label)}."
-            ),
-            payload={
-                **safe_context,
-                **provider_turn_context,
-                "status": provider_result.status.value,
-                "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
-                "usage": provider_usage,
-                "provider_metadata": _safe_provider_metadata(
-                    provider_result.metadata or {},
-                    patch_proposal_supported=_supports_patch_proposal_metadata(tool_observation),
-                ),
-                "error_type": _safe_optional_text(provider_result.error_type),
-                "error_message": _safe_optional_text(provider_result.error_message),
-            },
-        )
-        return provider_result, provider_usage
 
     def _invoke_noop_tool(
         self,
@@ -611,11 +541,228 @@ class NativeAgentSession:
         return result
 
 
+@dataclass(slots=True)
+class NativeNoToolReplSession:
+    """Owns one bounded no-tool native REPL session."""
+
+    provider: ProviderPort
+    max_turns: int = NativeConversationState.MAX_TURNS
+
+    def run(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        *,
+        input_stream: TextIO,
+        output_stream: TextIO,
+        error_stream: TextIO,
+    ) -> NativeRunOutput:
+        started_at = _utc_now()
+        conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
+        safe_context = {
+            **_safe_context(run_input),
+            "mode": "repl",
+            "tools_enabled": False,
+            "provider_visible_context_enabled": False,
+            "max_turns": self.max_turns,
+        }
+        event_sink.emit(
+            "native.session.started",
+            summary=(
+                "Native pipy no-tool REPL started: "
+                f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}."
+            ),
+            payload={
+                **safe_context,
+                "status": HarnessStatus.RUNNING.value,
+            },
+        )
+
+        status = HarnessStatus.SUCCEEDED
+        exit_code = 0
+        final_provider_result: ProviderResult | None = None
+        final_usage: dict[str, int | float] = {}
+        error_type: str | None = None
+        error_message: str | None = None
+        exit_reason = "eof"
+
+        while conversation_state.turn_count < self.max_turns:
+            try:
+                print("pipy-native> ", end="", file=error_stream, flush=True)
+                line = input_stream.readline()
+            except KeyboardInterrupt:
+                print(file=error_stream)
+                status = HarnessStatus.ABORTED
+                exit_code = 130
+                error_type = "KeyboardInterrupt"
+                exit_reason = "interrupt"
+                break
+
+            if line == "":
+                exit_reason = "eof"
+                break
+
+            user_prompt = line.rstrip("\r\n")
+            command = user_prompt.strip()
+            if not command:
+                continue
+            if command in NO_TOOL_REPL_EXIT_COMMANDS:
+                exit_reason = "explicit_exit"
+                break
+
+            provider_turn_label = (
+                INITIAL_PROVIDER_TURN_LABEL
+                if conversation_state.provider_turn_count == 0
+                else NO_TOOL_REPL_PROVIDER_TURN_LABEL
+            )
+            conversation_state, provider_turn = _append_provider_turn(
+                conversation_state,
+                provider_turn_label=provider_turn_label,
+            )
+            provider_result, provider_usage = _call_provider_turn(
+                self.provider,
+                run_input,
+                event_sink,
+                safe_context,
+                user_prompt=user_prompt,
+                provider_turn=provider_turn,
+                tool_observation=None,
+                archive_provider_metadata=False,
+            )
+            final_provider_result = provider_result
+            final_usage = _merge_provider_usage(final_usage, provider_usage)
+            if provider_result.status != HarnessStatus.SUCCEEDED:
+                status = provider_result.status
+                exit_code = 130 if status == HarnessStatus.ABORTED else 1
+                error_type = _safe_optional_text(provider_result.error_type)
+                error_message = _safe_optional_text(provider_result.error_message)
+                exit_reason = "provider_failed"
+                break
+            if provider_result.final_text:
+                print(provider_result.final_text, file=output_stream, flush=True)
+        else:
+            exit_reason = "turn_limit"
+            print("pipy: native REPL turn limit reached.", file=error_stream)
+
+        ended_at = _utc_now()
+        event_sink.emit(
+            "native.session.completed",
+            summary=f"Native pipy no-tool REPL completed: status={status.value}.",
+            payload={
+                **safe_context,
+                "status": status.value,
+                "exit_code": exit_code,
+                "turn_count": conversation_state.provider_turn_count,
+                "exit_reason": exit_reason,
+                "duration_seconds": _duration_seconds(started_at, ended_at),
+            },
+        )
+        return NativeRunOutput(
+            status=status,
+            exit_code=exit_code,
+            started_at=started_at,
+            ended_at=ended_at,
+            final_text=None,
+            provider_name=(
+                final_provider_result.provider_name
+                if final_provider_result is not None
+                else run_input.provider_name
+            ),
+            model_id=(
+                final_provider_result.model_id if final_provider_result is not None else run_input.model_id
+            ),
+            usage=final_usage,
+            error_type=error_type,
+            error_message=error_message,
+        )
+
+
 def _build_system_prompt() -> str:
     return (
         "You are the native pipy runtime bootstrap. Complete exactly one minimal "
         "provider turn and do not execute tools."
     )
+
+
+def _call_provider_turn(
+    provider: ProviderPort,
+    run_input: NativeRunInput,
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    *,
+    user_prompt: str,
+    provider_turn: NativeTurnMetadata,
+    tool_observation: NativeToolObservation | None,
+    archive_provider_metadata: bool = True,
+) -> tuple[ProviderResult, dict[str, int | float]]:
+    provider_turn_label = _required_provider_turn_label(provider_turn)
+    provider_turn_context = {
+        "provider_turn_index": provider_turn.turn_index,
+        "provider_turn_label": provider_turn_label,
+    }
+    event_sink.emit(
+        "native.provider.started",
+        summary=(
+            "Native provider call started: "
+            f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}, "
+            f"turn={sanitize_text(provider_turn_label)}."
+        ),
+        payload={
+            **safe_context,
+            **provider_turn_context,
+            "status": HarnessStatus.RUNNING.value,
+        },
+    )
+
+    provider_started_at = _utc_now()
+    try:
+        provider_result = provider.complete(
+            ProviderRequest(
+                system_prompt=_build_system_prompt(),
+                user_prompt=user_prompt,
+                provider_name=run_input.provider_name,
+                model_id=run_input.model_id,
+                cwd=run_input.cwd,
+                provider_turn_index=provider_turn.turn_index,
+                provider_turn_label=provider_turn_label,
+                tool_observation=tool_observation,
+            )
+        )
+    except Exception as exc:
+        provider_result = _failed_provider_result(run_input, exc, started_at=provider_started_at)
+
+    provider_event = (
+        "native.provider.completed"
+        if provider_result.status == HarnessStatus.SUCCEEDED
+        else "native.provider.failed"
+    )
+    provider_usage = normalize_provider_usage(provider_result.usage or {})
+    event_sink.emit(
+        provider_event,
+        summary=(
+            "Native provider call finished: "
+            f"status={provider_result.status.value}, provider={sanitize_text(provider_result.provider_name)}, "
+            f"model={sanitize_text(provider_result.model_id)}, turn={sanitize_text(provider_turn_label)}."
+        ),
+        payload={
+            **safe_context,
+            **provider_turn_context,
+            "status": provider_result.status.value,
+            "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
+            "usage": provider_usage,
+            "provider_metadata": (
+                _safe_provider_metadata(
+                    provider_result.metadata or {},
+                    patch_proposal_supported=_supports_patch_proposal_metadata(tool_observation),
+                )
+                if archive_provider_metadata
+                else {}
+            ),
+            "error_type": _safe_optional_text(provider_result.error_type),
+            "error_message": _safe_optional_text(provider_result.error_message),
+        },
+    )
+    return provider_result, provider_usage
 
 
 def _append_provider_turn(

@@ -76,7 +76,7 @@ from pipy_harness.native.read_only_tool import (
     NativeReadOnlyApprovalDecision,
     NativeReadOnlyGateDecision,
 )
-from pipy_harness.native.session import NativeAgentSession
+from pipy_harness.native.session import NativeAgentSession, NativeNoToolReplSession
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 from pipy_harness.native.verification import (
@@ -104,6 +104,7 @@ __all__ = [
     "NATIVE_VERIFICATION_RECORDED_EVENT",
     "NATIVE_VERIFICATION_STORAGE_KEYS",
     "NativeAgentSession",
+    "NativeNoToolReplSession",
     "NativeConversationIdentity",
     "NativeConversationState",
     "NativeConversationTurn",

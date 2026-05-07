@@ -297,14 +297,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native one-shot run rebased on conversation state" in compact_done
     assert "provider turn indexes and labels" in compact_done
     assert "per-run in-memory native conversation identity/state" in compact_done
-    assert "### Add a minimal no-tool `pipy-native` REPL over the same core" in next_slice
-    assert "same provider/session/turn core" in compact_next_slice
-    assert "repeated provider turns only" in compact_next_slice
-    assert "one-shot `pipy run --agent pipy-native` behavior compatible" in compact_next_slice
+    assert "Native minimal no-tool REPL" in compact_done
+    assert "`pipy repl --agent pipy-native`" in compact_done
+    assert "`no_tool_repl`" in compact_done
+    assert "### Add visible approval and sandbox prompts before interactive tools" in next_slice
+    assert "pipy-owned visible approval and sandbox prompt path" in compact_next_slice
+    assert "fail-closed behavior" in compact_next_slice
+    assert "one-shot native and no-tool REPL stdout/JSON behavior remain unchanged" in (
+        compact_next_slice
+    )
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
-    assert "No-tool REPL gate: next" in compact_near_term
+    assert "No-tool REPL gate: available now" in compact_near_term
+    assert "`pipy repl --agent pipy-native`" in compact_near_term
     assert "Tool-capable shell gate" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -318,6 +324,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice
     assert "### Add an allowlisted verification-command slice" not in next_slice
     assert "### Define native conversation state and turn loop" not in next_slice
+    assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
 
 
 def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():
