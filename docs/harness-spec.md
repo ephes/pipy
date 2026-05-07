@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-23 bounded synthetic post-tool provider turn documented
+Status: slice-24 bounded read-only provider context documented
 
 <style>
 .mermaid,
@@ -969,8 +969,9 @@ The first bounded read-only implementation needed stable native data contracts
 before it could read files or run searches. The implemented native model
 surface includes read-only workspace inspection value objects. These value
 objects are now consumed by the direct explicit file excerpt tool described
-below, but the default `NativeAgentSession` runtime still does not create,
-archive, execute, or provider-forward these requests.
+below. `NativeAgentSession` creates and executes one of these requests only
+through the supported fixture-gated explicit-file-excerpt path; no-fixture runs
+still do not create, archive, execute, or provider-forward read-only requests.
 
 Read-only request kind labels are limited to:
 
@@ -1021,9 +1022,10 @@ execution, a post-tool provider call, or a general model/tool loop.
 ### Native Explicit File Excerpt Tool
 
 The first real bounded native read-only workspace tool is the direct
-`NativeExplicitFileExcerptTool`. It is not wired into `NativeAgentSession` by
-default. Tests and future slices can exercise it directly with explicit
-pipy-owned data:
+`NativeExplicitFileExcerptTool`. It can be exercised directly in tests and is
+also wired into `NativeAgentSession` only through the bounded fixture-gated
+read-only provider-context path. Both entry points require explicit pipy-owned
+data:
 
 - `NativeReadOnlyToolRequest` with request kind `explicit-file-excerpt`,
   pipy-owned `tool_request_id="native-tool-0001"`, `turn_index=0`, required
@@ -1058,11 +1060,11 @@ limit, the result is skipped with a safe reason label. Oversized files fail
 closed rather than being partially streamed in this first slice.
 
 Successful reads return `NativeExplicitFileExcerptResult` with a
-`NativeInMemoryFileExcerpt` containing the sanitized excerpt text. That text is
-an in-memory candidate for a later provider-visible context slice only. It is
-not archived, not emitted as a native lifecycle event, not printed to stdout,
-not included in `--native-output json`, not sent to the provider by the current
-runtime, and not converted into `native.tool.observation.recorded`.
+`NativeInMemoryFileExcerpt` containing the sanitized excerpt text. That text may
+be sent only as in-memory provider-visible context during the one bounded
+read-only follow-up provider turn. It is not archived, not emitted as a native
+lifecycle event, not printed to stdout, and not included in
+`--native-output json`.
 
 Archive/event-facing metadata for this direct tool is available only through
 the result's metadata helper. That helper includes safe labels, status, reason,
@@ -1074,24 +1076,25 @@ contents, search result text, stdout, stderr, diffs, patches, shell commands,
 raw args, prompts, model output, provider responses, provider-native payloads,
 secrets, credentials, tokens, private keys, and sensitive personal data.
 
-The default native runtime remains unchanged by this direct tool boundary: no
-live approval prompts, no default repo reads, no default search execution, no
-provider-visible context forwarding, no live observation emission, no archive
-writes for live context or real execution, no post-tool provider call, and no
-general model/tool loop.
+The default no-fixture native runtime remains unchanged by this direct tool
+boundary: no live approval prompts, no default repo reads, no default search
+execution, no archive writes for live context, and no general model/tool loop.
+The read-only runtime path is available only when the first provider result
+carries a supported safe read-only intent and the supported pipy-owned explicit
+file excerpt fixture.
 
 ### Native Provider-Visible Repo Context Policy
 
-Provider-visible repo context is future provider input, not archive content.
-This policy decides the smallest boundary for bounded native read tools and one
-deferred post-tool provider turn. The direct explicit-file-excerpt tool can now
-produce an in-memory excerpt result, but the default `NativeAgentSession`
-runtime does not construct provider-visible repo context, does not read files or
-run searches for repo context, does not forward repo context to a provider,
-does not emit live observations, and does not add a post-tool provider call.
+Provider-visible repo context is provider input, not archive content. The first
+implemented boundary is narrow: after one safe supported read-only intent and
+one supported pipy-owned explicit-file-excerpt fixture, `NativeAgentSession`
+may read one bounded UTF-8 text file, emit metadata-only tool and observation
+events, forward the successful excerpt only in memory to exactly one follow-up
+provider turn, and hard-stop. No-fixture fake/OpenAI/OpenRouter runs still
+perform no repo reads and complete without tool events.
 
-Allowed future source types are limited to explicitly bounded, sanitized
-context produced after approval and sandbox checks exist:
+Allowed source types are limited to explicitly bounded, sanitized context
+produced after approval and sandbox checks exist:
 
 - bounded explicit file excerpts from approved read-only file requests
 - bounded search-result excerpts from approved read-only search requests
@@ -1164,12 +1167,11 @@ raw args, model-selected paths, secrets, credentials, tokens, private keys, or
 sensitive personal data. Storage booleans must make the boundary explicit; raw
 repo context storage remains false by default.
 
-This policy is a prerequisite for future read-only tools and a later post-tool
-provider turn, but it does not implement either one. Future read tools must
-produce sanitized in-memory context under these limits, and a future post-tool
-provider turn may receive only that sanitized provider-visible context plus the
-metadata-only observation shape anchored to pipy's `tool_request_id` and
-`turn_index`.
+The implemented explicit-file-excerpt path produces sanitized in-memory context
+under these limits, and the post-tool provider turn may receive only that
+bounded context plus the metadata-only observation shape anchored to pipy's
+`tool_request_id` and `turn_index`. Search-result excerpts, broad repo maps,
+multiple sources, and persistent workspace summaries remain deferred.
 
 ### Native Post-Tool Observation Contract Decision
 
@@ -1177,10 +1179,11 @@ A post-tool observation is an internal sanitized record that may connect one
 native tool result to one bounded follow-up provider turn. The implemented
 `NativeToolObservation` value object is not a raw transcript item, not a
 provider-native tool result, and not a storage channel for tool output. The
-current runtime creates and archives this value only from explicitly supported
-synthetic sanitized observation fixtures after a supported no-op tool result.
-It does not create observations from real read-tool output or provider-native
-tool result payloads.
+current runtime creates and archives this value from explicitly supported
+synthetic sanitized observation fixtures after a supported no-op tool result,
+or from one successful bounded explicit-file-excerpt result after safe
+pipy-owned read request, gate, and target data. It does not create observations
+from provider-native tool result payloads.
 
 The selected future lifecycle event shape is deliberately small: one terminal
 event named `native.tool.observation.recorded`. There is no
@@ -1287,10 +1290,10 @@ and redacted later.
 
 Still deferred for this boundary:
 
-- real read-tool observation forwarding into the post-tool provider turn
+- additional read-only request kinds such as search excerpts
 - a general model/tool loop
-- real filesystem or shell tool execution
-- approval prompts or sandbox enforcement
+- write, patch, shell, or network tool execution
+- live approval prompts or broader sandbox enforcement
 - multiple tool requests per provider turn
 - provider-side built-in tools
 - streaming, retries, model fallback, provider registry, OAuth, or raw

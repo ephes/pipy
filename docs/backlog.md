@@ -167,40 +167,50 @@ reviewable change while keeping the source-of-truth design constraints in
   output, raw provider responses, request bodies, raw tool observations,
   provider-native payloads, auth material, secrets, credentials, tokens, private
   keys, and sensitive personal data.
+- Native bounded read-only tool observation into follow-up provider turn: after
+  one safe supported explicit-file-excerpt read-only intent and one supported
+  pipy-owned read fixture, native sessions run the existing bounded
+  `NativeExplicitFileExcerptTool`, emit metadata-only tool and observation
+  events, forward the successful excerpt only as in-memory provider-visible
+  context to exactly one follow-up provider turn, aggregate normalized usage,
+  and hard-stop. Unsafe, unsupported, denied, ignored/generated, oversized,
+  binary, unreadable, unsupported-encoding, secret-looking, or limit-exceeding
+  read data fails closed before provider visibility. Archives, Markdown,
+  default stdout, and `--native-output json` remain metadata-only and omit raw
+  excerpts, file contents, prompts, model output, provider responses, request
+  bodies, provider-native payloads, auth material, secrets, credentials, tokens,
+  private keys, and sensitive personal data.
 
 ## Next Slice
 
-### Wire bounded read-only tool observation into the follow-up provider turn
+### Add a patch proposal boundary before writes
 
-Goal: feed the existing bounded explicit-file-excerpt tool through the sanitized
-observation/provider-visible context boundary, without exposing raw excerpts to
-archives, stdout, JSON output, Markdown, or a general model/tool loop.
+Goal: let the native provider propose a structured edit plan or patch
+candidate after bounded read-only context, while keeping application of edits as
+a separate, human-reviewed operation.
 
 Selected shape:
 
-- keep one initial provider turn, at most one read-only tool request, and one
-  bounded follow-up provider turn
-- consume only pipy-owned read-tool requests, gate decisions, and sanitized
-  observation/context metadata
-- forward bounded provider-visible context in memory only, under the documented
-  repo context policy
-- keep the hard stop after the follow-up provider turn
+- keep one initial provider turn, at most one bounded read-only tool request,
+  one follow-up provider turn, and no automatic writes
+- accept only a structured proposal shape owned by pipy, not provider-native
+  tool calls or raw patch payloads
+- record only proposal metadata such as status, file counts, operation labels,
+  storage booleans, and safe reason/error labels
 - preserve the default stdout final-text contract and `--native-output json`
   metadata-only contract
-- keep archives metadata-only: safe turn labels, observation labels, context
-  counts/limits, durations, normalized usage counters, storage booleans, and
-  safe status/error labels only
+- keep the proposal separate from patch application and human review
 - do not execute shell/network/write/patch tools, add verification command
   execution, or create a general tool loop
 
 Keep out of scope:
 
-- raw read-tool output in archives/stdout/JSON/Markdown
+- applying edits or mutating files
+- raw patch text, raw diffs, or file contents in archives/stdout/JSON/Markdown
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
-- write tools, patch tools, shell execution, network access, and verification
-  command execution
+- shell execution, network access, and verification command execution
 - raw prompts, model output, raw provider responses, provider-native tool
   payloads, raw tool observations, stdout, stderr, diffs, patches, auth
   material, secrets, credentials, tokens, private keys, or sensitive personal
@@ -208,27 +218,26 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the follow-up provider turn receives only bounded sanitized read-only context
-  derived from explicit pipy-owned request/gate/target data
-- unsupported or unsafe read-tool observation/context data fails closed or is
-  skipped before provider visibility
-- records preserve pipy-owned `tool_request_id` and `turn_index`
+- structured proposal parsing accepts only the documented bounded shape
+- unsupported or unsafe proposal data fails closed before persistence
+- records preserve existing pipy-owned `tool_request_id`, `turn_index`, and
+  provider turn metadata
 - existing `fake`, API-key `openai`, and API-key `openrouter` provider
   behavior remains compatible
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
-  raw prompts, model output, provider responses, request bodies, raw tool
-  observations, auth tokens, cookies, credentials, secrets, private keys, or
-  sensitive personal data
+  raw prompts, model output, provider responses, request bodies, raw patch text,
+  diffs, file contents, raw tool observations, auth tokens, cookies,
+  credentials, secrets, private keys, or sensitive personal data
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
 ## Near Term
 
 The near-term trajectory stays supervised self-bootstrap. With OpenRouter access
-and the synthetic post-tool provider turn implemented, the next priority is
-wiring bounded read-only context into that existing follow-up boundary. OpenAI
+and bounded read-only context wired into the follow-up provider turn, the next
+priority is a patch proposal boundary before writes. OpenAI
 subscription-backed native provider auth is `blocked-for-now` because the
 official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
 OpenAI product clients, not a generic third-party native provider auth path.
@@ -244,19 +253,16 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Wire the bounded read-only tool observation into the one follow-up provider
-   turn, consuming only the sanitized observation shape from the completed
-   lifecycle-event slice and the completed provider-visible context policy.
-2. Add a patch proposal boundary before writes: provider may propose a
+1. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-3. Add an explicit patch-apply slice with conservative file scope, no shell
+2. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-4. Add an allowlisted verification-command slice, starting with `just check`,
+3. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-6. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+4. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred

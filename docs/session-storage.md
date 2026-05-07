@@ -443,17 +443,18 @@ generic commands and future agent CLIs usable when they intentionally read from
 stdin, but stdin content is not captured by pipy.
 
 The native bootstrap adapter is selected with `--agent pipy-native`. It owns
-system prompt construction, calls one initial provider, and invokes the
-deterministic fake no-op tool boundary only when the provider returns one
-sanitized supported no-op intent. If that no-op tool succeeds and the first
-provider result includes an explicitly supported synthetic sanitized observation
-fixture, the runtime emits one metadata-only observation event and makes exactly
-one follow-up provider call with generated observation metadata only. The fake
-provider and fake no-op tool are for tests and smoke runs, not a production
-AI/tool runtime. The no-op tool does not inspect or mutate the workspace and
-does not execute shell commands. Provider final text prints to stdout through
-the explicit CLI contract when the native run succeeds. API-key providers
-currently include `openai` with
+system prompt construction, calls one initial provider, and invokes a native
+tool boundary only when the provider returns one sanitized supported intent.
+The no-op path remains fixture-gated and uses the deterministic fake no-op
+tool. The read-only path is also fixture-gated: one supported pipy-owned
+explicit-file-excerpt fixture can run the bounded read-only file tool, emit
+metadata-only tool and observation events, and send the successful excerpt only
+as in-memory provider-visible context to exactly one follow-up provider call.
+The fake provider and fake no-op tool are for tests and smoke runs, not a
+production AI/tool runtime. The runtime does not execute shell commands, mutate
+the workspace, or run provider-side tools. Provider final text prints to stdout
+through the explicit CLI contract when the native run succeeds. API-key
+providers currently include `openai` with
 `OPENAI_API_KEY` and `openrouter` with `OPENROUTER_API_KEY`; both require an
 explicit `--native-model` and do not add credential storage. JSONL and Markdown
 archive records store only
@@ -465,13 +466,14 @@ provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
 
-The native fake intent path remains bounded to one initial provider turn, at
-most one fake no-op tool invocation, and at most one fixture-gated follow-up
-provider turn. The `native.tool.observation.recorded` event is anchored to
-pipy's `tool_request_id` and `turn_index`; there is no observation `started`
-event because the observation is derived metadata, not a raw output handling
-phase. Unsafe or unsupported observation fixture data is skipped and fails
-closed before provider visibility.
+The native intent path remains bounded to one initial provider turn, at most
+one no-op or explicit-file-excerpt read-only tool invocation, and at most one
+fixture-gated follow-up provider turn. The
+`native.tool.observation.recorded` event is anchored to pipy's
+`tool_request_id` and `turn_index`; there is no observation `started` event
+because the observation is derived metadata, not a raw output handling phase.
+Unsafe or unsupported observation or read-only context fixture data is skipped
+and fails closed before provider visibility.
 
 JSONL and Markdown records may contain only the allowlisted observation
 metadata: `tool_request_id`, `turn_index`, safe tool name/kind labels, terminal
@@ -486,11 +488,13 @@ arguments, provider response ids that could reveal payload content, raw tool
 arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, or sensitive personal data by default.
 
-Future provider-visible repo context is not archive content. The context policy
-in `docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
+Provider-visible repo context is not archive content. The context policy in
+`docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
 search-result excerpts, explicit per-turn workspace summaries, short
 user-provided goal metadata, and sanitized tool-observation summaries to become
-provider input later, after approval and sandbox checks exist. It forbids broad
+provider input after approval and sandbox checks exist. The implemented native
+runtime path currently supports only one bounded explicit file excerpt through
+supported pipy-owned fixture data. It forbids broad
 repo maps, unbounded file contents, persistent workspace summaries, raw diffs
 or patches, raw stdout or stderr, shell command output, raw tool payloads, raw
 tool arguments, provider-native payloads, raw provider responses, model output,
@@ -512,8 +516,8 @@ raw tool payloads, stdout, stderr, diffs, patches, shell commands, raw args,
 model-selected paths, secrets, credentials, tokens, private keys, or sensitive
 personal data. The direct native explicit file excerpt tool keeps successful
 excerpt text in memory only and exposes a separate metadata-only helper; the
-default `NativeAgentSession` runtime still does not read, archive, or forward
-live repo context into the post-tool provider turn.
+runtime may forward that text only to the one bounded follow-up provider turn
+and never archives it.
 
 Future approval and sandbox records must stay metadata-only. The enforcement
 baseline in `docs/harness-spec.md` defines approval decision labels as

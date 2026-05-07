@@ -5,6 +5,7 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     ProviderRequest,
@@ -86,5 +87,30 @@ def test_fake_native_provider_uses_explicit_observation_fixture(tmp_path):
     result = provider.complete(request)
 
     assert result.metadata == {PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: fixture}
+    assert "SYSTEM_PROMPT" not in str(result.metadata)
+    assert "USER_PROMPT" not in str(result.metadata)
+
+
+def test_fake_native_provider_uses_explicit_read_only_tool_fixture(tmp_path):
+    fixture = {
+        "fixture_source": "pipy_owned_explicit_file_excerpt",
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "request_kind": "explicit-file-excerpt",
+        "approval_decision": "allowed",
+        "workspace_relative_path": "README.md",
+    }
+    provider = FakeNativeProvider(read_only_tool_fixture=fixture)
+    request = ProviderRequest(
+        system_prompt="SYSTEM_PROMPT_SHOULD_NOT_BE_RETURNED",
+        user_prompt="USER_PROMPT_SHOULD_NOT_BE_RETURNED",
+        provider_name=provider.name,
+        model_id=provider.model_id,
+        cwd=Path(tmp_path),
+    )
+
+    result = provider.complete(request)
+
+    assert result.metadata == {PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: fixture}
     assert "SYSTEM_PROMPT" not in str(result.metadata)
     assert "USER_PROMPT" not in str(result.metadata)

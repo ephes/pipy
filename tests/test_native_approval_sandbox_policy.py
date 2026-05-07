@@ -272,15 +272,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`--native-provider openrouter --native-model <provider/model>`" in compact_done
     assert "`OPENROUTER_API_KEY`" in compact_done
     assert "Native bounded post-tool provider turn against synthetic sanitized observations" in compact_done
-    assert "### Wire bounded read-only tool observation into the follow-up provider turn" in next_slice
-    assert "bounded explicit-file-excerpt tool" in compact_next_slice
+    assert "Native bounded read-only tool observation into follow-up provider turn" in compact_done
+    assert "### Add a patch proposal boundary before writes" in next_slice
+    assert "structured edit plan or patch candidate" in compact_next_slice
     assert "OpenRouter support with explicit model selection" in compact_near_term
-    assert "bounded read-only tool observation" in compact_near_term
+    assert "patch proposal boundary before writes" in compact_near_term
     assert_terms_in_order(
         near_term,
         [
-            "bounded read-only tool observation",
             "patch proposal boundary before writes",
+            "explicit patch-apply slice",
         ],
     )
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice

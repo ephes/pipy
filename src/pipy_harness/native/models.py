@@ -13,6 +13,7 @@ from pipy_harness.models import HarnessStatus
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
 PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
+PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY = "pipy_native_read_only_tool_fixture"
 NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
 NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
     {
@@ -358,7 +359,8 @@ class NativeToolResult:
 class NativeToolObservation:
     """Sanitized internal observation shape for a future post-tool turn.
 
-    The runtime does not emit, archive, or provider-forward this value yet.
+    The runtime emits and forwards this value only through explicitly bounded
+    metadata-only post-tool paths.
     """
 
     tool_request_id: str

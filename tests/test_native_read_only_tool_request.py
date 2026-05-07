@@ -199,14 +199,19 @@ def test_read_only_tool_request_scope_label_is_not_path_authority(scope_label: s
         current_read_only_request(scope_label=scope_label)
 
 
-def test_read_only_tool_request_contract_is_not_threaded_into_session_runtime():
+def test_read_only_tool_request_contract_is_threaded_only_through_fixture_gated_session_path():
     session_source = (Path(__file__).parents[1] / "src/pipy_harness/native/session.py").read_text(
         encoding="utf-8"
     )
 
-    assert "NativeReadOnlyTool" not in session_source
-    assert "read_only_repo_inspection" not in session_source
-    assert "workspace_read_allowed" not in session_source
+    assert "NativeReadOnlyToolRequest" in session_source
+    assert "PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY" in session_source
+    assert "NativeExplicitFileExcerptTool(run_input.cwd).invoke" in session_source
+    assert "read_only_repo_inspection" in session_source
+    assert "workspace_read_allowed" in session_source
+    assert "shell_execution_allowed" in session_source
+    assert "network_access_allowed" in session_source
+    assert "filesystem_mutation_allowed" in session_source
 
 
 def test_read_only_tool_request_field_names_are_closed_for_first_inert_shape():

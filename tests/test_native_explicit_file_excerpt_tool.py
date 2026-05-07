@@ -455,7 +455,7 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
     assert "`NativeReadOnlyGateDecision`" in spec
     assert "`NativeExplicitFileExcerptTarget`" in spec
     assert "`workspace_read_allowed`" in spec
-    assert "not wired into `NativeAgentSession` by default" in compact_spec
+    assert "wired into `NativeAgentSession` only through the bounded fixture-gated" in compact_spec
     assert "Oversized files fail closed" in compact_spec
     assert "fuller ignore semantics remain deferred" in spec
     assert "metadata helper" in spec
@@ -464,6 +464,6 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
     done = backlog[: backlog.index("## Next Slice")]
     assert "Native explicit file excerpt read-only tool implementation" in done
     assert "bounded post-tool provider turn against synthetic sanitized observations" in compact_backlog
-    assert "Wire the bounded read-only tool observation into the one follow-up provider turn" in compact_backlog
+    assert "Native bounded read-only tool observation into follow-up provider turn" in done
 
     assert "explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage

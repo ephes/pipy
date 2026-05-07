@@ -29,7 +29,8 @@ def test_native_provider_visible_repo_context_policy_is_documented():
     compact_policy = collapse_whitespace(policy_section)
 
     assert "### Native Provider-Visible Repo Context Policy" in compact_policy
-    assert "Provider-visible repo context is future provider input, not archive content." in compact_policy
+    assert "Provider-visible repo context is provider input, not archive content." in compact_policy
+    assert "exactly one follow-up provider turn" in compact_policy
     assert "bounded explicit file excerpts" in compact_policy
     assert "bounded search-result excerpts" in compact_policy
     assert "explicit per-turn workspace summaries" in compact_policy
@@ -72,14 +73,14 @@ def test_native_provider_visible_repo_context_policy_is_documented():
     assert "`tool_request_id`" in compact_policy
     assert "`turn_index`" in compact_policy
     assert "`native.tool.observation.recorded`" in compact_policy
-    assert "does not add a post-tool provider call" in compact_policy
+    assert "No-fixture fake/OpenAI/OpenRouter runs still perform no repo reads" in compact_policy
 
 
 def test_session_storage_matches_repo_context_archive_boundary():
     storage = read_repo_file("docs/session-storage.md")
     compact_storage = collapse_whitespace(storage)
 
-    assert "Future provider-visible repo context is not archive content." in compact_storage
+    assert "Provider-visible repo context is not archive content." in compact_storage
     assert "bounded explicit file excerpts" in compact_storage
     assert "bounded search-result excerpts" in compact_storage
     assert "explicit per-turn workspace summaries" in compact_storage
@@ -91,7 +92,7 @@ def test_session_storage_matches_repo_context_archive_boundary():
     assert "metadata-only context fields" in compact_storage
     assert "raw excerpt text" in compact_storage
     assert "The direct native explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage
-    assert "default `NativeAgentSession` runtime still does not read, archive, or forward live repo context" in compact_storage
+    assert "runtime may forward that text only to the one bounded follow-up provider turn" in compact_storage
 
 
 def test_backlog_records_repo_context_policy_as_done():
@@ -102,14 +103,11 @@ def test_backlog_records_repo_context_policy_as_done():
     assert "### Provider-Visible Repo Context Policy" not in backlog
 
 
-def test_provider_visible_repo_context_policy_is_not_threaded_into_native_runtime():
+def test_provider_visible_repo_context_policy_remains_narrow_in_native_runtime():
     forbidden_runtime_terms = {
-        "provider-visible repo context",
         "repo_context",
-        "provider_visible_context",
         "RepoContext",
         "NativeRepoContext",
-        "bounded explicit file excerpts",
         "search-result excerpts",
     }
     native_sources = sorted((ROOT / "src/pipy_harness/native").glob("*.py"))

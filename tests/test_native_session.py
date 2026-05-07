@@ -21,6 +21,7 @@ from pipy_harness.native import (
     NativeToolObservationStatus,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
@@ -109,6 +110,28 @@ class ExplodingProvider:
         raise RuntimeError("provider exploded")
 
 
+@dataclass(slots=True)
+class FollowUpExplodingProvider:
+    initial_result: ProviderResult
+    captured_requests: list[ProviderRequest] | None = None
+
+    @property
+    def name(self) -> str:
+        return "exploding-follow-up"
+
+    @property
+    def model_id(self) -> str:
+        return "exploding-follow-up-model"
+
+    def complete(self, request: ProviderRequest) -> ProviderResult:
+        if self.captured_requests is None:
+            self.captured_requests = []
+        self.captured_requests.append(request)
+        if len(self.captured_requests) == 1:
+            return self.initial_result
+        raise RuntimeError("provider echoed provider only context")
+
+
 class ExplodingTool:
     name = "noop"
 
@@ -160,6 +183,42 @@ def safe_synthetic_observation_fixture() -> dict[str, object]:
         "model_output_stored": False,
         "provider_responses_stored": False,
         "raw_transcript_imported": False,
+    }
+
+
+def safe_read_only_intent() -> dict[str, object]:
+    return {
+        "tool_name": "read_only_repo_inspection",
+        "tool_kind": "read_only_workspace",
+        "turn_index": 0,
+        "intent_source": "fake_provider",
+        "approval_policy": "required",
+        "approval_required": True,
+        "sandbox_policy": "read-only-workspace",
+        "workspace_read_allowed": True,
+        "filesystem_mutation_allowed": False,
+        "shell_execution_allowed": False,
+        "network_access_allowed": False,
+        "tool_payloads_stored": False,
+        "stdout_stored": False,
+        "stderr_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "metadata": {"fixture": "safe-read-only", "request_kind": "explicit-file-excerpt"},
+    }
+
+
+def safe_read_only_tool_fixture(path: str) -> dict[str, object]:
+    return {
+        "fixture_source": "pipy_owned_explicit_file_excerpt",
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "request_kind": "explicit-file-excerpt",
+        "approval_decision": "allowed",
+        "decision_authority": "pipy-owned",
+        "workspace_relative_path": path,
+        "target_authority": "pipy-owned",
+        "scope_label": "single-explicit-file",
     }
 
 
@@ -497,6 +556,282 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
     assert "SAFE_GOAL_METADATA" not in serialized
     assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+
+
+def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_in_memory(tmp_path):
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+                usage={"input_tokens": 3, "output_tokens": 5, "total_tokens": 8},
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                usage={"input_tokens": 7, "output_tokens": 11, "total_tokens": 18},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert output.final_text == "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY"
+    assert output.usage == {"input_tokens": 10, "output_tokens": 16, "total_tokens": 26}
+    assert provider.captured_requests is not None
+    assert len(provider.captured_requests) == 2
+    follow_up_request = provider.captured_requests[1]
+    assert follow_up_request.provider_turn_index == 1
+    assert follow_up_request.provider_turn_label == "post_tool_observation"
+    assert "source_label=example.py" in follow_up_request.user_prompt
+    assert "provider only context" in follow_up_request.user_prompt
+    assert isinstance(follow_up_request.tool_observation, NativeToolObservation)
+    assert follow_up_request.tool_observation.tool_request_id == "native-tool-0001"
+    assert follow_up_request.tool_observation.tool_name == "read_only_repo_inspection"
+    assert follow_up_request.tool_observation.tool_kind == "read_only_workspace"
+
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.tool.observation.recorded",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.session.completed",
+    ]
+    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert provider_completed[2]["provider_metadata"] == {
+        "read_only_tool_fixture_metadata_present": True,
+        "tool_intent_metadata_present": True,
+    }
+    tool_completed = [event for event in sink.events if event[0] == "native.tool.completed"][0]
+    tool_payload = tool_completed[2]
+    assert tool_payload is not None
+    assert tool_payload["tool_name"] == "read_only_repo_inspection"
+    assert tool_payload["tool_kind"] == "read_only_workspace"
+    assert tool_payload["approval_policy"] == "required"
+    assert tool_payload["approval_required"] is True
+    assert tool_payload["sandbox_policy"] == "read-only-workspace"
+    assert tool_payload["workspace_read_allowed"] is True
+    assert tool_payload["file_contents_stored"] is False
+    assert tool_payload["tool_metadata"]["source_label"] == "example.py"
+    assert tool_payload["tool_metadata"]["excerpt_count"] == 1
+    observation_payload = [event[2] for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    assert observation_payload is not None
+    assert observation_payload["tool_name"] == "read_only_repo_inspection"
+    assert observation_payload["tool_kind"] == "read_only_workspace"
+    assert observation_payload["status"] == "succeeded"
+    assert observation_payload["reason_label"] == "tool_result_succeeded"
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "provider only context" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_read_only_follow_up_provider_exception_does_not_archive_context(tmp_path):
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    provider = FollowUpExplodingProvider(
+        initial_result=provider_result(
+            final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+            metadata={
+                PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                    "src/example.py"
+                ),
+            },
+        )
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_type == "RuntimeError"
+    assert output.error_message == "RuntimeError"
+    assert provider.captured_requests is not None
+    assert len(provider.captured_requests) == 2
+    assert "provider only context" in provider.captured_requests[1].user_prompt
+    provider_failed = [event for event in sink.events if event[0] == "native.provider.failed"][0]
+    assert provider_failed[2] is not None
+    assert provider_failed[2]["error_message"] == "RuntimeError"
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "provider only context" not in serialized
+    assert "provider echoed" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_read_only_tool_skips_generated_target_before_provider_visibility(tmp_path):
+    generated = tmp_path / "node_modules" / "package" / "index.js"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("module.exports = 'SHOULD_NOT_REACH_PROVIDER';\n", encoding="utf-8")
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_SKIPPED_READ",
+        metadata={
+            PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+            PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                "node_modules/package/index.js"
+            ),
+        },
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_message == "ignored_or_generated_file"
+    assert provider.complete_calls == 1
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.skipped",
+        "native.session.completed",
+    ]
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_REACH_PROVIDER" not in serialized
+    assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_SKIPPED_READ" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_unsafe_read_only_fixture_skips_before_read_or_follow_up(tmp_path):
+    (tmp_path / "example.txt").write_text("SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8")
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_READ",
+        metadata={
+            PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+            PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: {
+                **safe_read_only_tool_fixture("example.txt"),
+                "raw_payload": "SHOULD_NOT_PERSIST",
+            },
+        },
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_message == "unsafe_read_only_context"
+    assert provider.complete_calls == 1
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.skipped",
+        "native.session.completed",
+    ]
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_REACH_PROVIDER" not in serialized
+    assert "SHOULD_NOT_PERSIST" not in serialized
+    assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_READ" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_read_only_intent_without_fixture_skips_before_read_or_follow_up(tmp_path):
+    (tmp_path / "example.txt").write_text("SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8")
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_MISSING_READ_FIXTURE",
+        metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent()},
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_message == "missing_read_only_context"
+    assert provider.complete_calls == 1
+    assert [event[0] for event in sink.events] == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.skipped",
+        "native.session.completed",
+    ]
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_REACH_PROVIDER" not in serialized
+    assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_MISSING_READ_FIXTURE" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
 
 
 @pytest.mark.parametrize(

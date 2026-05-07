@@ -117,11 +117,13 @@ secrets, credentials, or sensitive personal data into it.
 For `--agent pipy-native`, pipy runs one minimal native turn through an
 injected provider. The deterministic fake provider remains the default
 smoke-test boundary and does not require credentials. Native tool invocation is
-driven only by one sanitized supported no-op intent from provider metadata;
-provider success with final text and no intent completes without tool events.
-The injected no-op tool proves tool lifecycle and policy records without
-inspecting or mutating the workspace, executing shell commands, storing tool
-payloads, or enforcing approvals/sandboxing. The OpenAI provider calls the
+driven only by one sanitized supported intent from provider metadata; provider
+success with final text and no intent completes without tool events. The no-op
+tool path proves tool lifecycle and policy records without inspecting or
+mutating the workspace. The explicit-file-excerpt read-only path is
+fixture-gated, consumes only supported pipy-owned request/gate/target data,
+forwards a successful bounded excerpt only in memory to one follow-up provider
+turn, and never archives raw excerpt text. The OpenAI provider calls the
 Responses API through a small standard-library HTTP boundary, reads its API key
 from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
 internal system prompt as `instructions`, sends the short `--goal` as `input`,
@@ -137,20 +139,21 @@ Pipy does not own the subprocess prompt stack, model calls, tool behavior,
 approval model, or transcript format. Use this path only when you want a
 metadata record around another command.
 
-The current native fake intent path can make exactly one bounded post-tool
-provider call when the first provider result carries both a supported safe no-op
-intent and an explicitly supported synthetic sanitized observation fixture.
-That follow-up turn receives only generated observation metadata anchored to
-pipy's `tool_request_id` and `turn_index`; it does not receive real read-tool
-output, raw tool payloads, the original model output, or a general transcript.
+The current native intent path can make exactly one bounded post-tool provider
+call when the first provider result carries either a supported safe no-op intent
+plus an explicitly supported synthetic sanitized observation fixture, or a
+supported read-only explicit-file-excerpt intent plus a supported pipy-owned
+read fixture. That follow-up turn receives only generated observation metadata
+and, for the read-only path, bounded in-memory provider-visible context.
 Archives remain metadata-only: safe turn/provider/model labels, status,
-durations, normalized usage counters, storage booleans, and safe observation
-labels may be recorded, but raw tool results, stdout, stderr, diffs, patches,
-file contents, prompts, model output, provider responses, provider-native
-tool-call or result objects, function arguments, provider response ids that
-could reveal payload content, raw tool arguments, shell commands, model-selected
-filesystem paths, secrets, credentials, tokens, private keys, and sensitive
-personal data must not be stored by default.
+durations, normalized usage counters, storage booleans, safe observation
+labels, and read-tool counts/source labels may be recorded, but raw excerpts,
+raw tool results, stdout, stderr, diffs, patches, file contents, prompts, model
+output, provider responses, provider-native tool-call or result objects,
+function arguments, provider response ids that could reveal payload content,
+raw tool arguments, shell commands, model-selected filesystem paths, secrets,
+credentials, tokens, private keys, and sensitive personal data must not be
+stored by default.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session

@@ -14,7 +14,10 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     NativeRunInput,
+    NativeReadOnlyToolRequest,
+    NativeReadOnlyToolRequestKind,
     NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
@@ -26,6 +29,7 @@ from pipy_harness.native.models import (
     NativeToolRequestIdentity,
     NativeToolResult,
     NativeToolSandboxPolicy,
+    NativeToolSandboxMode,
     NativeToolStatus,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
@@ -33,6 +37,13 @@ from pipy_harness.native.models import (
     ProviderResult,
 )
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.read_only_tool import (
+    NativeExplicitFileExcerptResult,
+    NativeExplicitFileExcerptTarget,
+    NativeExplicitFileExcerptTool,
+    NativeReadOnlyApprovalDecision,
+    NativeReadOnlyGateDecision,
+)
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
 
@@ -40,6 +51,9 @@ SYSTEM_PROMPT_ID = "pipy-native-bootstrap"
 SYSTEM_PROMPT_VERSION = "1"
 NOOP_TOOL_NAME = "noop"
 NOOP_TOOL_KIND = "internal_noop"
+READ_ONLY_TOOL_NAME = "read_only_repo_inspection"
+READ_ONLY_TOOL_KIND = "read_only_workspace"
+_SUPPORTED_READ_ONLY_FIXTURE_SOURCE = "pipy_owned_explicit_file_excerpt"
 TOOL_INTENT_UNSUPPORTED_NAME = "unsupported"
 TOOL_INTENT_UNSUPPORTED_KIND = "unsupported_intent"
 TOOL_INTENT_UNSAFE_NAME = "unsafe"
@@ -52,7 +66,10 @@ _SUPPORTED_OBSERVATION_STATUSES = {
 _SAFE_INTENT_METADATA_KEYS = {
     "fixture",
     "internal_noop",
+    "provider_visible_context",
+    "request_kind",
     "safe_count",
+    "scope_label",
     "tool_payloads_stored",
     "workspace_inspected",
     "workspace_mutated",
@@ -69,6 +86,7 @@ _ALLOWED_INTENT_KEYS = {
     "filesystem_mutation_allowed",
     "shell_execution_allowed",
     "network_access_allowed",
+    "workspace_read_allowed",
     "tool_payloads_stored",
     "stdout_stored",
     "stderr_stored",
@@ -77,6 +95,18 @@ _ALLOWED_INTENT_KEYS = {
     "metadata",
 }
 _ALLOWED_OBSERVATION_FIXTURE_KEYS = set(NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS) | {"fixture_source"}
+_ALLOWED_READ_ONLY_FIXTURE_KEYS = {
+    "fixture_source",
+    "tool_request_id",
+    "turn_index",
+    "request_kind",
+    "approval_decision",
+    "decision_authority",
+    "decision_reason_label",
+    "workspace_relative_path",
+    "target_authority",
+    "scope_label",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +120,14 @@ class _ParsedToolIntent:
 class _ParsedToolObservationFixture:
     observation: NativeToolObservation | None = None
     skipped_observation: NativeToolObservation | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedReadOnlyToolFixture:
+    request: NativeReadOnlyToolRequest | None = None
+    gate_decision: NativeReadOnlyGateDecision | None = None
+    target: NativeExplicitFileExcerptTarget | None = None
+    reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -125,6 +163,7 @@ class NativeAgentSession:
         )
 
         tool_result: NativeToolResult | None = None
+        read_only_result: NativeExplicitFileExcerptResult | None = None
         observation_failure_reason: NativeToolObservationReason | None = None
         follow_up_provider_result: ProviderResult | None = None
         follow_up_provider_usage: dict[str, int | float] = {}
@@ -132,31 +171,53 @@ class NativeAgentSession:
             parsed_intent = _parse_tool_intent(provider_result)
             if parsed_intent.intent is not None:
                 _emit_tool_intent_detected(event_sink, safe_context, parsed_intent.intent)
-                tool_result = self._invoke_noop_tool(event_sink, safe_context, parsed_intent.intent)
+                if _is_read_only_intent(parsed_intent.intent):
+                    tool_result, read_only_result = self._invoke_read_only_tool(
+                        run_input,
+                        event_sink,
+                        safe_context,
+                        provider_result,
+                        parsed_intent.intent,
+                    )
+                else:
+                    tool_result = self._invoke_noop_tool(event_sink, safe_context, parsed_intent.intent)
                 if tool_result.status == NativeToolStatus.SUCCEEDED:
-                    parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
-                    if parsed_observation.observation is not None:
-                        _emit_tool_observation_recorded(
-                            event_sink,
-                            safe_context,
-                            parsed_observation.observation,
-                        )
+                    if read_only_result is not None:
+                        observation = _read_only_observation(read_only_result)
+                        _emit_tool_observation_recorded(event_sink, safe_context, observation)
                         follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
                             run_input,
                             event_sink,
                             safe_context,
-                            user_prompt=_build_post_tool_user_prompt(parsed_observation.observation),
+                            user_prompt=_build_post_tool_user_prompt(observation, read_only_result),
                             provider_turn_index=1,
                             provider_turn_label="post_tool_observation",
-                            tool_observation=parsed_observation.observation,
+                            tool_observation=observation,
                         )
-                    elif parsed_observation.skipped_observation is not None:
-                        observation_failure_reason = parsed_observation.skipped_observation.reason_label
-                        _emit_tool_observation_recorded(
-                            event_sink,
-                            safe_context,
-                            parsed_observation.skipped_observation,
-                        )
+                    else:
+                        parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
+                        if parsed_observation.observation is not None:
+                            _emit_tool_observation_recorded(
+                                event_sink,
+                                safe_context,
+                                parsed_observation.observation,
+                            )
+                            follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
+                                run_input,
+                                event_sink,
+                                safe_context,
+                                user_prompt=_build_post_tool_user_prompt(parsed_observation.observation),
+                                provider_turn_index=1,
+                                provider_turn_label="post_tool_observation",
+                                tool_observation=parsed_observation.observation,
+                            )
+                        elif parsed_observation.skipped_observation is not None:
+                            observation_failure_reason = parsed_observation.skipped_observation.reason_label
+                            _emit_tool_observation_recorded(
+                                event_sink,
+                                safe_context,
+                                parsed_observation.skipped_observation,
+                            )
             elif parsed_intent.skipped_request is not None:
                 tool_result = _skipped_tool_result(
                     parsed_intent.skipped_request,
@@ -327,6 +388,64 @@ class NativeAgentSession:
         _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
         return tool_result
 
+    def _invoke_read_only_tool(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        provider_result: ProviderResult,
+        intent: NativeToolIntent,
+    ) -> tuple[NativeToolResult, NativeExplicitFileExcerptResult | None]:
+        tool_request = _tool_request_from_intent(intent)
+        parsed_fixture = _parse_read_only_tool_fixture(provider_result)
+        if (
+            parsed_fixture.request is None
+            or parsed_fixture.gate_decision is None
+            or parsed_fixture.target is None
+        ):
+            tool_result = _skipped_tool_result(
+                tool_request,
+                error_type="NativeReadOnlyToolSkipped",
+                error_message=parsed_fixture.reason or "unsafe_read_only_context",
+            )
+            _emit_tool_result_event(
+                event_sink,
+                safe_context,
+                tool_request,
+                tool_result,
+                reason=parsed_fixture.reason or "unsafe_read_only_context",
+            )
+            return tool_result, None
+
+        event_sink.emit(
+            "native.tool.started",
+            summary=(
+                "Native tool invocation started: "
+                f"tool={sanitize_text(tool_request.tool_name)}, kind={sanitize_text(tool_request.tool_kind)}."
+            ),
+            payload={
+                **safe_context,
+                **_safe_tool_context(tool_request),
+                "status": NativeToolStatus.RUNNING.value,
+            },
+        )
+        try:
+            read_only_result = NativeExplicitFileExcerptTool(run_input.cwd).invoke(
+                parsed_fixture.request,
+                parsed_fixture.gate_decision,
+                parsed_fixture.target,
+            )
+        except Exception as exc:
+            tool_result = _failed_tool_result(tool_request, exc, started_at=_utc_now())
+            _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
+            return tool_result, None
+
+        tool_result = _tool_result_from_read_only_result(read_only_result)
+        _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
+        if read_only_result.status != NativeToolStatus.SUCCEEDED or read_only_result.excerpt is None:
+            return tool_result, None
+        return tool_result, read_only_result
+
 
 def _build_system_prompt() -> str:
     return (
@@ -357,6 +476,9 @@ def _safe_provider_metadata(metadata: Mapping[str, object]) -> dict[str, object]
     if PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY in safe_metadata:
         safe_metadata.pop(PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY)
         safe_metadata["tool_observation_fixture_metadata_present"] = True
+    if PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY in safe_metadata:
+        safe_metadata.pop(PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY)
+        safe_metadata["read_only_tool_fixture_metadata_present"] = True
     return sanitize_metadata(safe_metadata)
 
 
@@ -377,7 +499,12 @@ def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
     if reason is not None:
         return _ParsedToolIntent(skipped_request=_skipped_intent_tool_request(identity, reason), reason=reason)
 
-    if raw_intent.get("tool_name") != NOOP_TOOL_NAME or raw_intent.get("tool_kind") != NOOP_TOOL_KIND:
+    tool_name = raw_intent.get("tool_name")
+    tool_kind = raw_intent.get("tool_kind")
+    if (tool_name, tool_kind) not in {
+        (NOOP_TOOL_NAME, NOOP_TOOL_KIND),
+        (READ_ONLY_TOOL_NAME, READ_ONLY_TOOL_KIND),
+    }:
         return _ParsedToolIntent(
             skipped_request=_skipped_intent_tool_request(identity, "unsupported_tool_intent"),
             reason="unsupported_tool_intent",
@@ -393,12 +520,12 @@ def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
     return _ParsedToolIntent(
         intent=NativeToolIntent(
             request_id=identity.request_id,
-            tool_name=NOOP_TOOL_NAME,
-            tool_kind=NOOP_TOOL_KIND,
+            tool_name=str(tool_name),
+            tool_kind=str(tool_kind),
             turn_index=identity.turn_index,
             intent_source=str(raw_intent.get("intent_source", "provider_metadata")),
-            approval_policy=NativeToolApprovalPolicy(),
-            sandbox_policy=NativeToolSandboxPolicy(),
+            approval_policy=_intent_approval_policy(str(tool_name), str(tool_kind)),
+            sandbox_policy=_intent_sandbox_policy(str(tool_name), str(tool_kind)),
             metadata=metadata_result,
         )
     )
@@ -419,12 +546,24 @@ def _unsafe_intent_reason(
     intent_source = raw_intent.get("intent_source", "provider_metadata")
     if intent_source not in _SUPPORTED_INTENT_SOURCES:
         return "unsafe_tool_intent_source"
-    if raw_intent.get("approval_policy", NativeToolApprovalPolicy().label) != NativeToolApprovalPolicy().label:
-        return "unsafe_tool_intent_policy"
-    if raw_intent.get("approval_required", False) is not False:
-        return "unsafe_tool_intent_policy"
-    if raw_intent.get("sandbox_policy", NativeToolSandboxPolicy().label) != NativeToolSandboxPolicy().label:
-        return "unsafe_tool_intent_policy"
+    if raw_intent.get("tool_name") == READ_ONLY_TOOL_NAME and raw_intent.get("tool_kind") == READ_ONLY_TOOL_KIND:
+        if raw_intent.get("approval_policy", NativeToolApprovalMode.REQUIRED.value) != NativeToolApprovalMode.REQUIRED.value:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("approval_required", True) is not True:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("sandbox_policy", NativeToolSandboxMode.READ_ONLY_WORKSPACE.value) != NativeToolSandboxMode.READ_ONLY_WORKSPACE.value:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("workspace_read_allowed", True) is not True:
+            return "unsafe_tool_intent_policy"
+    else:
+        if raw_intent.get("approval_policy", NativeToolApprovalPolicy().label) != NativeToolApprovalPolicy().label:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("approval_required", False) is not False:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("sandbox_policy", NativeToolSandboxPolicy().label) != NativeToolSandboxPolicy().label:
+            return "unsafe_tool_intent_policy"
+        if raw_intent.get("workspace_read_allowed", False) is not False:
+            return "unsafe_tool_intent_policy"
     for key in (
         "filesystem_mutation_allowed",
         "shell_execution_allowed",
@@ -462,6 +601,25 @@ def _safe_intent_metadata(value: object) -> dict[str, object] | None:
     safe_metadata.setdefault("internal_noop", True)
     safe_metadata.setdefault("tool_payloads_stored", False)
     return safe_metadata
+
+
+def _intent_approval_policy(tool_name: str, tool_kind: str) -> NativeToolApprovalPolicy:
+    if tool_name == READ_ONLY_TOOL_NAME and tool_kind == READ_ONLY_TOOL_KIND:
+        return NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+    return NativeToolApprovalPolicy()
+
+
+def _intent_sandbox_policy(tool_name: str, tool_kind: str) -> NativeToolSandboxPolicy:
+    if tool_name == READ_ONLY_TOOL_NAME and tool_kind == READ_ONLY_TOOL_KIND:
+        return NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE,
+            workspace_read_allowed=True,
+        )
+    return NativeToolSandboxPolicy()
+
+
+def _is_read_only_intent(intent: NativeToolIntent) -> bool:
+    return intent.tool_name == READ_ONLY_TOOL_NAME and intent.tool_kind == READ_ONLY_TOOL_KIND
 
 
 def _parse_tool_observation_fixture(
@@ -508,6 +666,65 @@ def _parse_tool_observation_fixture(
             raw_transcript_imported=False,
         )
     )
+
+
+def _parse_read_only_tool_fixture(provider_result: ProviderResult) -> _ParsedReadOnlyToolFixture:
+    metadata = provider_result.metadata or {}
+    identity = NativeToolRequestIdentity.current_noop()
+    raw_fixture = metadata.get(PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY)
+    if raw_fixture is None:
+        return _ParsedReadOnlyToolFixture(reason="missing_read_only_context")
+    if not isinstance(raw_fixture, Mapping):
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    if any(not isinstance(key, str) for key in raw_fixture):
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    if set(raw_fixture) - _ALLOWED_READ_ONLY_FIXTURE_KEYS:
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    if raw_fixture.get("fixture_source") != _SUPPORTED_READ_ONLY_FIXTURE_SOURCE:
+        return _ParsedReadOnlyToolFixture(reason="unsupported_read_only_context")
+    if raw_fixture.get("tool_request_id") != identity.request_id:
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    if raw_fixture.get("turn_index") != identity.turn_index:
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    if raw_fixture.get("request_kind") != NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT.value:
+        return _ParsedReadOnlyToolFixture(reason="unsupported_read_only_context")
+
+    try:
+        approval_decision = NativeReadOnlyApprovalDecision(str(raw_fixture.get("approval_decision")))
+        gate_decision = NativeReadOnlyGateDecision(
+            approval_decision=approval_decision,
+            decision_authority=str(raw_fixture.get("decision_authority", "pipy-owned")),
+            reason_label=_read_only_fixture_optional_text(raw_fixture.get("decision_reason_label")),
+        )
+        target_path = raw_fixture.get("workspace_relative_path")
+        if not isinstance(target_path, str):
+            return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+        target = NativeExplicitFileExcerptTarget(
+            workspace_relative_path=target_path,
+            target_authority=str(raw_fixture.get("target_authority", "pipy-owned")),
+        )
+        request = NativeReadOnlyToolRequest(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            request_kind=NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT,
+            scope_label=_read_only_fixture_optional_text(raw_fixture.get("scope_label")),
+        )
+    except ValueError:
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+
+    return _ParsedReadOnlyToolFixture(
+        request=request,
+        gate_decision=gate_decision,
+        target=target,
+    )
+
+
+def _read_only_fixture_optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("optional read-only fixture text must be a string")
+    return value
 
 
 def _unsafe_observation_fixture(
@@ -587,6 +804,49 @@ def _safe_duration_value(raw_duration: object, tool_result: NativeToolResult) ->
     return _duration_seconds(tool_result.started_at, tool_result.ended_at)
 
 
+def _tool_result_from_read_only_result(read_only_result: NativeExplicitFileExcerptResult) -> NativeToolResult:
+    error_type: str | None = None
+    if read_only_result.status == NativeToolStatus.SKIPPED:
+        error_type = "NativeReadOnlyToolSkipped"
+    elif read_only_result.status == NativeToolStatus.FAILED:
+        error_type = "NativeReadOnlyToolFailed"
+    return NativeToolResult(
+        request_id=read_only_result.tool_request_id,
+        tool_name=READ_ONLY_TOOL_NAME,
+        status=read_only_result.status,
+        started_at=read_only_result.started_at,
+        ended_at=read_only_result.ended_at,
+        metadata=read_only_result.archive_metadata(),
+        error_type=None
+        if read_only_result.status == NativeToolStatus.SUCCEEDED
+        else error_type or "NativeReadOnlyToolError",
+        error_message=None
+        if read_only_result.status == NativeToolStatus.SUCCEEDED
+        else read_only_result.reason_label.value,
+    )
+
+
+def _read_only_observation(read_only_result: NativeExplicitFileExcerptResult) -> NativeToolObservation:
+    return NativeToolObservation(
+        tool_request_id=read_only_result.tool_request_id,
+        turn_index=read_only_result.turn_index,
+        tool_name=READ_ONLY_TOOL_NAME,
+        tool_kind=READ_ONLY_TOOL_KIND,
+        status=NativeToolObservationStatus.SUCCEEDED,
+        reason_label=NativeToolObservationReason.TOOL_RESULT_SUCCEEDED,
+        duration_seconds=_duration_seconds(read_only_result.started_at, read_only_result.ended_at),
+        tool_payloads_stored=False,
+        stdout_stored=False,
+        stderr_stored=False,
+        diffs_stored=False,
+        file_contents_stored=False,
+        prompt_stored=False,
+        model_output_stored=False,
+        provider_responses_stored=False,
+        raw_transcript_imported=False,
+    )
+
+
 def _noop_tool_request() -> NativeToolRequest:
     identity = NativeToolRequestIdentity.current_noop()
     return NativeToolRequest(
@@ -637,6 +897,7 @@ def _safe_intent_context(intent: NativeToolIntent) -> dict[str, object]:
         "approval_policy": intent.approval_policy.label,
         "approval_required": intent.approval_policy.mode == NativeToolApprovalMode.REQUIRED,
         "sandbox_policy": intent.sandbox_policy.label,
+        "workspace_read_allowed": intent.sandbox_policy.workspace_read_allowed,
         "filesystem_mutation_allowed": intent.sandbox_policy.filesystem_mutation_allowed,
         "shell_execution_allowed": intent.sandbox_policy.shell_execution_allowed,
         "network_access_allowed": intent.sandbox_policy.network_access_allowed,
@@ -657,6 +918,7 @@ def _safe_tool_context(tool_request: NativeToolRequest) -> dict[str, object]:
         "approval_policy": tool_request.approval_policy.label,
         "approval_required": tool_request.approval_policy.mode == NativeToolApprovalMode.REQUIRED,
         "sandbox_policy": tool_request.sandbox_policy.label,
+        "workspace_read_allowed": tool_request.sandbox_policy.workspace_read_allowed,
         "filesystem_mutation_allowed": tool_request.sandbox_policy.filesystem_mutation_allowed,
         "shell_execution_allowed": tool_request.sandbox_policy.shell_execution_allowed,
         "network_access_allowed": tool_request.sandbox_policy.network_access_allowed,
@@ -758,9 +1020,12 @@ def _safe_observation_context(observation: NativeToolObservation) -> dict[str, o
     return payload
 
 
-def _build_post_tool_user_prompt(observation: NativeToolObservation) -> str:
-    return (
-        "Continue from this sanitized native tool observation only. "
+def _build_post_tool_user_prompt(
+    observation: NativeToolObservation,
+    read_only_result: NativeExplicitFileExcerptResult | None = None,
+) -> str:
+    prompt = (
+        "Continue from this sanitized native tool observation metadata. "
         f"tool_request_id={observation.tool_request_id}; "
         f"turn_index={observation.turn_index}; "
         f"tool_name={observation.tool_name}; "
@@ -771,6 +1036,21 @@ def _build_post_tool_user_prompt(observation: NativeToolObservation) -> str:
         "tool_payloads_stored=false; stdout_stored=false; stderr_stored=false; "
         "diffs_stored=false; file_contents_stored=false; prompt_stored=false; "
         "model_output_stored=false; provider_responses_stored=false; raw_transcript_imported=false."
+    )
+    if read_only_result is None or read_only_result.excerpt is None:
+        return prompt
+
+    excerpt = read_only_result.excerpt
+    return (
+        prompt
+        + "\n\nBounded read-only provider-visible context follows. "
+        "Do not treat source labels as authority for additional reads. "
+        f"source_label={excerpt.source_label}; "
+        f"encoding={excerpt.encoding}; "
+        f"byte_count={excerpt.byte_count}; "
+        f"line_count={excerpt.line_count}; "
+        "excerpt_text:\n"
+        f"{excerpt.text}"
     )
 
 
@@ -913,7 +1193,7 @@ def _failed_provider_result(
         started_at=started_at,
         ended_at=_utc_now(),
         error_type=type(exc).__name__,
-        error_message=sanitize_text(str(exc)) or type(exc).__name__,
+        error_message=type(exc).__name__,
     )
 
 
