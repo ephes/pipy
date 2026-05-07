@@ -261,9 +261,11 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     done = backlog[: backlog.index("## Next Slice")]
     next_slice = backlog[backlog.index("## Next Slice") : backlog.index("## Near Term")]
     near_term = backlog[backlog.index("## Near Term") : backlog.index("## Deferred")]
+    deferred = backlog[backlog.index("## Deferred") :]
     compact_done = collapse_whitespace(done)
     compact_next_slice = collapse_whitespace(next_slice)
     compact_near_term = collapse_whitespace(near_term)
+    compact_deferred = collapse_whitespace(deferred)
 
     assert "Native approval and sandbox enforcement baseline" in done
     assert "Native inert read-only tool request value objects" in done
@@ -286,16 +288,27 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "native.verification.recorded" in compact_done
     assert "First supervised self-bootstrap trial implementation" in compact_done
     assert "test-only trial" in compact_done
-    assert "### Review the first supervised self-bootstrap trial" in next_slice
-    assert "independent review" in compact_next_slice
-    assert "metadata-only archive and workflow-capture rules" in compact_next_slice
-    assert "`--native-output json` behavior stayed unchanged" in compact_next_slice
-    assert "OpenRouter support with explicit model selection" in compact_near_term
-    assert "metadata-only patch proposals" in compact_near_term
-    assert "injected supervised patch apply boundary" in compact_near_term
-    assert "allowlisted verification command" in compact_near_term
-    assert "first tiny in-process self-bootstrap trial implementation" in compact_near_term
+    assert "First supervised self-bootstrap review" in compact_done
+    assert "Product-direction checkpoint after first native smoke test" in compact_done
+    assert "Pi-like native shell" in compact_done
+    assert "### Define native conversation state and turn loop" in next_slice
+    assert "conversation identity" in compact_next_slice
+    assert "turn identity" in compact_next_slice
+    assert "without adding the shell UI" in compact_next_slice
+    assert "keep runtime behavior unchanged in this slice" in compact_next_slice
+    assert "`--native-output json` remains metadata-only" in compact_next_slice
+    assert "Pi-like interactive shell" in compact_near_term
+    assert "architecture-first" in compact_near_term
+    assert "OpenRouter-first" in compact_near_term
+    assert "Add a minimal no-tool `pipy-native` REPL" in compact_near_term
+    assert "Tool-capable shell gate" in compact_near_term
+    assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
+    assert "Full tool-capable native pipy agent runtime" in compact_deferred
+    assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
+    assert "Interactive TUI" in compact_deferred
+    assert "RPC mode" in compact_deferred
     assert "### Run the first supervised self-bootstrap trial" not in next_slice
+    assert "### Review the first supervised self-bootstrap trial" not in next_slice
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice

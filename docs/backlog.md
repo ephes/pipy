@@ -231,26 +231,39 @@ reviewable change while keeping the source-of-truth design constraints in
   data pipy-owned and human-reviewed, adds no public CLI automation controls,
   and asserts that events remain metadata-only without raw prompts, model
   output, patch text, diffs, file contents, command output, stdout, or stderr.
+- First supervised self-bootstrap review: the trial received an independent
+  review, and the accepted stale-doc finding was fixed before commit.
+- Product-direction checkpoint after first native smoke test: manual `pipy run
+  --agent pipy-native` smoke testing clarified that the eventual product target
+  is a real Pi-like native shell, while the next safe implementation work is
+  still conversation and turn-loop foundation rather than a rushed UI.
 
 ## Next Slice
 
-### Review the first supervised self-bootstrap trial
+### Define native conversation state and turn loop
 
-Goal: independently review the first human-supervised self-bootstrap trial and
-use the outcome to pick the next small, reviewable native-runtime slice.
+Goal: define the minimal native conversation/session state and bounded
+provider-turn loop needed for an eventual interactive `pipy-native` shell,
+without adding the shell UI or broad tool automation yet.
 
 Selected shape:
 
-- review the focused in-process trial test and backlog update
-- confirm the trial target remained tiny and low risk
-- confirm injected patch/verification data stayed pipy-owned and
-  human-reviewed
-- confirm default stdout and `--native-output json` behavior stayed unchanged
-- confirm metadata-only archive and workflow-capture rules stayed intact
-- record only summary-safe review outcome metadata
+- introduce small internal value objects for conversation identity, turn
+  identity, turn role/status labels, and safe per-turn metadata
+- define how a bounded sequence of provider turns is represented in memory
+  without storing raw prompts, model output, provider payloads, or tool
+  observations in archives
+- keep runtime behavior unchanged in this slice; rebase the current one-shot
+  native run on the new conversation/turn core in the following slice
+- preserve existing one-shot `pipy run --agent pipy-native` stdout behavior and
+  `--native-output json` metadata-only behavior
+- document how a future minimal REPL can sit on top of the same core instead of
+  becoming a separate runtime path
 
 Keep out of scope:
 
+- interactive shell, TUI, REPL commands, prompt editing, history, and terminal
+  rendering
 - arbitrary shell execution and network access
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
@@ -263,11 +276,94 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the trial implementation receives one independent review pass
-- any accepted findings are fixed in a follow-up change before treating the
-  path as usable
-- proposal/apply/verification data used by the trial is pipy-owned and
-  human-reviewed
+- conversation and turn state are explicit native runtime concepts rather than
+  ad hoc counters in CLI code
+- any new archive-facing events or metadata are allowlisted and summary-safe
+- default native stdout remains successful final text only on success, with
+  diagnostics, finalization, progress, and errors on stderr
+- `--native-output json` remains metadata-only and does not become a transcript
+  or conversation export
+- no public CLI controls are added for patch apply, verification, shell
+  execution, or provider-selected tools
+- provider-visible data remains bounded and internal; archives never include
+  raw prompts, model output, provider responses, request bodies, raw patch text,
+  raw diffs, file contents, raw tool observations, command stdout, command
+  stderr, auth tokens, cookies, credentials, secrets, private keys, or
+  sensitive personal data
+- native records still pass `pipy-session verify`, and `pipy-session list`,
+  `search`, and `inspect` stay compatible
+
+## Near Term
+
+The near-term product direction is still a real `pipy-native` runtime with a
+Pi-like interactive shell. The shell should be a thin user interface over
+pipy-owned provider, session, turn, approval, sandbox, and archive boundaries,
+not a separate runtime and not a wrapper around Codex, Claude, Pi, or another
+agent CLI.
+
+The immediate implementation path stays architecture-first:
+
+1. Define native conversation state and a bounded provider-turn loop.
+2. Thread the existing one-shot native run through that state without changing
+   stdout, JSON output, or archive privacy contracts.
+3. Add a minimal interactive REPL only after the turn core is stable enough for
+   repeated no-tool provider turns.
+4. Add visible approval and sandbox prompts before any real read/write/shell
+   tool loop is exposed to interactive use.
+
+Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
+but today they exercise a one-shot runner: `--goal` is the input, provider final
+text is stdout, finalization is stderr, and the process exits. A persistent
+shell is intentionally not present yet.
+
+Provider access remains OpenRouter-first for near-term manual smoke testing.
+OpenAI subscription-backed native provider auth is `blocked-for-now` because
+the official docs checked on 2026-05-07 document ChatGPT/Codex subscription
+auth for OpenAI product clients, not a generic third-party native provider auth
+path. Pay-by-token OpenAI API access remains implemented as a baseline but is
+not the preferred usage path for this project. Anthropic subscription access
+is not a near-term native provider target because subscription-backed
+coding-agent usage is expected to stay within Claude Code. Local-model
+providers remain interesting but deferred until benchmark work in a separate
+repo clarifies whether Ollama, llama.cpp, MLX, LM Studio, or another runtime
+should be the first local integration.
+
+Small reviewable slices, in intended order:
+
+1. Define native conversation state and bounded provider-turn loop.
+2. Rebase the current one-shot native run on the conversation/turn core.
+3. Add a minimal no-tool `pipy-native` REPL over the same core.
+
+Foundation gates toward an interactive shell:
+
+- One-shot provider gate: available now through `pipy run --agent
+  pipy-native`; useful for provider smoke tests but not an interactive shell.
+- Conversation-state gate: next. Pipy needs explicit in-memory conversation and
+  turn state before repeated provider turns can be cleanly exposed.
+- No-tool REPL gate: available only after conversation state exists and the
+  one-shot run uses it without changing privacy contracts.
+- Tool-capable shell gate: deferred until live approval prompts, sandbox
+  enforcement, and metadata-only observation handling exist for interactive
+  use.
+
+Self-bootstrap readiness gates remain historical context for supervised writes:
+
+- Proposal-only trial: available after the patch proposal boundary exists.
+  Pipy may use the existing bounded read-only context and propose structured
+  edit metadata, but writes remain manual and archives stay metadata-only.
+- Human-applied patch trial: available once proposal output is useful enough
+  for a human to apply or translate manually. No new slice is required for this
+  gate, but independent review is still required before trusting the result.
+- Pipy-applied patch trial: available after the explicit patch-apply slice,
+  with conservative file scope, no arbitrary shell execution, and metadata-only
+  archives.
+- Verified patch trial: exercised by the first supervised self-bootstrap trial
+  using the allowlisted verification-command boundary, starting with `just
+  check` and recording only safe status, exit-code, duration, and label
+  metadata; stdout/stderr remain excluded from archives.
+
+Do not move to a tool-capable shell until these existing invariants still hold:
+
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
@@ -278,55 +374,12 @@ Acceptance checks:
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
-## Near Term
-
-The near-term trajectory stays supervised self-bootstrap. With OpenRouter
-access, bounded read-only context, metadata-only patch proposals, an injected
-supervised patch apply boundary, an allowlisted verification command, and a
-first tiny in-process self-bootstrap trial implementation in place, the next
-priority is independent review of that trial and then selecting the next small
-native-runtime slice.
-OpenAI
-subscription-backed native provider auth is `blocked-for-now` because the
-official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
-OpenAI product clients, not a generic third-party native provider auth path.
-OpenRouter support with explicit model selection is implemented as the preferred
-provider-access path after that decision. Pay-by-token OpenAI API access remains
-implemented as a baseline but is not the preferred usage path for this project.
-Anthropic
-subscription access is not a near-term native provider target because
-subscription-backed coding-agent usage is expected to stay within Claude Code.
-Local-model providers remain interesting but deferred until benchmark work in a
-separate repo clarifies whether Ollama, llama.cpp, MLX, LM Studio, or another
-runtime should be the first local integration.
-
-Small reviewable slices, in intended order:
-
-1. Independently review the first human-supervised self-bootstrap trial and use
-   the findings to choose the next small native-runtime slice.
-
-Self-bootstrap readiness gates. The first supervised trial used the verified
-patch gate because the patch-apply and allowlisted verification-command
-boundaries were already available:
-
-- Proposal-only trial: available after the patch proposal boundary exists.
-  Pipy may use the existing bounded read-only context and propose structured
-  edit metadata, but writes remain manual and archives stay metadata-only.
-- Human-applied patch trial: available once proposal output is useful enough
-  for a human to apply or translate manually. No new slice is required for this
-  gate, but independent review is still required before trusting the result.
-- Pipy-applied patch trial: available only after the explicit patch-apply slice
-  exists, with conservative file scope, no arbitrary shell execution, and
-  metadata-only archives.
-- Verified patch trial: available now that allowlisted verification-command
-  execution exists, starting with `just check` and recording only safe status,
-  exit-code, duration, and label metadata; stdout/stderr remain excluded from
-  archives.
-
 ## Deferred
 
-- Full native pipy agent runtime beyond the provider and tool-boundary slices.
-- General native model/tool loop beyond a single bounded follow-up turn.
+- Full tool-capable native pipy agent runtime beyond the provider,
+  conversation, approval, sandbox, and tool-boundary slices.
+- General native model/tool loop beyond bounded provider turns and explicitly
+  approved tool boundaries.
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.

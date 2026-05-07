@@ -1900,6 +1900,14 @@ registries, retries, approval prompts, sandbox enforcement, external-agent
 adapters, raw transcript import, TUI/RPC modes, indexed search, compaction,
 branching, or multi-agent orchestration.
 
+The product direction remains a Pi-like native agent surface, eventually with
+an interactive shell. That shell should sit above pipy-owned provider,
+conversation, turn, approval, sandbox, and archive boundaries. The next
+foundation step is explicit native conversation state and a bounded
+provider-turn loop; a REPL or TUI should not be introduced before that core
+exists and preserves the current stdout, JSON, and metadata-only archive
+contracts.
+
 ## Deferred Work
 
 For the current task-slice backlog and next-step ordering, see
