@@ -160,16 +160,27 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "attempted capability escalation must fail closed" in compact_storage
 
 
-def test_backlog_records_inert_read_only_request_slice_as_done():
+def test_backlog_records_done_completion_and_provider_priority_order():
     backlog = read_repo_file("docs/backlog.md")
     done = backlog[: backlog.index("## Next Slice")]
     next_slice = backlog[backlog.index("## Next Slice") : backlog.index("## Near Term")]
+    near_term = backlog[backlog.index("## Near Term") : backlog.index("## Deferred")]
 
     assert "Native approval and sandbox enforcement baseline" in done
     assert "Native inert read-only tool request value objects" in done
     assert "Native explicit file excerpt read-only tool implementation" in done
-    assert "### Add bounded post-tool provider turn against synthetic sanitized observations" in next_slice
+    assert "### Decide OpenAI subscription-backed native auth path" in next_slice
+    assert "OpenRouter provider support with explicit model selection" in near_term
+    assert "bounded post-tool provider turn against synthetic sanitized" in near_term
+    assert_terms_in_order(
+        near_term,
+        [
+            "OpenRouter provider support with explicit model selection",
+            "bounded post-tool provider turn against synthetic sanitized",
+        ],
+    )
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
+    assert "### Add bounded post-tool provider turn against synthetic sanitized observations" not in next_slice
 
 
 def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():
