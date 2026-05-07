@@ -475,6 +475,18 @@ because the observation is derived metadata, not a raw output handling phase.
 Unsafe or unsupported observation or read-only context fixture data is skipped
 and fails closed before provider visibility.
 
+After a successful explicit-file-excerpt read-only observation and successful
+follow-up provider turn, the native runtime may record one metadata-only patch
+proposal event before writes. `native.patch.proposal.recorded` stores only
+pipy-owned `tool_request_id`, `turn_index`, proposal `status`, safe
+`reason_label`, file and operation counts, closed operation labels, and storage
+booleans such as `patch_text_stored=false`, `diffs_stored=false`,
+`file_contents_stored=false`, `prompt_stored=false`,
+`model_output_stored=false`, `provider_responses_stored=false`,
+`raw_transcript_imported=false`, and `workspace_mutated=false`. It does not
+apply edits, mutate files, run shell commands, run verification commands, or
+create another provider turn.
+
 JSONL and Markdown records may contain only the allowlisted observation
 metadata: `tool_request_id`, `turn_index`, safe tool name/kind labels, terminal
 `status`, safe `reason_label`, `duration_seconds`, and explicit storage booleans
@@ -487,6 +499,14 @@ provider responses, provider-native tool-call or tool-result payloads, function
 arguments, provider response ids that could reveal payload content, raw tool
 arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, or sensitive personal data by default.
+
+Patch proposal records must also remain metadata-only. They must not contain
+raw patch text, raw diffs, file contents, model-selected paths, raw prompts,
+model output, provider responses, provider-native payloads, raw tool payloads,
+stdout, stderr, shell commands, auth material, secrets, credentials, tokens,
+private keys, or sensitive personal data. Unsafe or unsupported proposal data
+is dropped before persistence and may be represented only by a skipped proposal
+event with a safe reason label.
 
 Provider-visible repo context is not archive content. The context policy in
 `docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
@@ -600,6 +620,8 @@ native.provider.completed | native.provider.failed
 native.tool.intent.detected        # only for a safe supported intent
 native.tool.started
 native.tool.completed | native.tool.failed | native.tool.skipped
+native.tool.observation.recorded   # only for bounded supported observations
+native.patch.proposal.recorded     # only after read-only follow-up metadata
 native.session.completed
 ```
 

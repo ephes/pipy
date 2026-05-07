@@ -14,7 +14,9 @@ from pipy_harness.models import HarnessStatus
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
 PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
 PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY = "pipy_native_read_only_tool_fixture"
+PROVIDER_PATCH_PROPOSAL_METADATA_KEY = "pipy_native_patch_proposal"
 NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
+NATIVE_PATCH_PROPOSAL_RECORDED_EVENT = "native.patch.proposal.recorded"
 NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
     {
         "tool_payloads_stored",
@@ -26,6 +28,18 @@ NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
         "model_output_stored",
         "provider_responses_stored",
         "raw_transcript_imported",
+    }
+)
+NATIVE_PATCH_PROPOSAL_STORAGE_KEYS = frozenset(
+    {
+        "patch_text_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+        "workspace_mutated",
     }
 )
 NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS = frozenset(
@@ -46,6 +60,25 @@ NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS = frozenset(
         "model_output_stored",
         "provider_responses_stored",
         "raw_transcript_imported",
+    }
+)
+NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS = frozenset(
+    {
+        "tool_request_id",
+        "turn_index",
+        "status",
+        "reason_label",
+        "file_count",
+        "operation_count",
+        "operation_labels",
+        "patch_text_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+        "workspace_mutated",
     }
 )
 
@@ -140,6 +173,30 @@ class NativeReadOnlyToolRequestKind(StrEnum):
 
     EXPLICIT_FILE_EXCERPT = "explicit-file-excerpt"
     SEARCH_EXCERPT = "search-excerpt"
+
+
+class NativePatchProposalStatus(StrEnum):
+    """Terminal status labels for metadata-only patch proposal records."""
+
+    PROPOSED = "proposed"
+    SKIPPED = "skipped"
+
+
+class NativePatchProposalReason(StrEnum):
+    """Closed safe reason labels for patch proposal parsing."""
+
+    STRUCTURED_PROPOSAL_ACCEPTED = "structured_proposal_accepted"
+    UNSUPPORTED_PROPOSAL = "unsupported_proposal"
+    UNSAFE_PROPOSAL = "unsafe_proposal"
+
+
+class NativePatchProposalOperation(StrEnum):
+    """Safe operation labels allowed in metadata-only patch proposals."""
+
+    CREATE = "create"
+    MODIFY = "modify"
+    DELETE = "delete"
+    RENAME = "rename"
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +436,59 @@ class NativeToolObservation:
     model_output_stored: bool = False
     provider_responses_stored: bool = False
     raw_transcript_imported: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class NativePatchProposal:
+    """Sanitized proposal metadata recorded before any future write boundary.
+
+    This is not a patch, diff, provider tool payload, or file-content carrier.
+    It stores only closed labels, bounded counts, and false storage booleans.
+    """
+
+    tool_request_id: str
+    turn_index: int
+    status: NativePatchProposalStatus
+    reason_label: NativePatchProposalReason | None = None
+    file_count: int = 0
+    operation_count: int = 0
+    operation_labels: tuple[NativePatchProposalOperation, ...] = ()
+    patch_text_stored: bool = False
+    diffs_stored: bool = False
+    file_contents_stored: bool = False
+    prompt_stored: bool = False
+    model_output_stored: bool = False
+    provider_responses_stored: bool = False
+    raw_transcript_imported: bool = False
+    workspace_mutated: bool = False
+
+    MAX_FILE_COUNT: ClassVar[int] = 50
+    MAX_OPERATION_COUNT: ClassVar[int] = 200
+    MAX_OPERATION_LABELS: ClassVar[int] = 8
+
+    def __post_init__(self) -> None:
+        identity = NativeToolRequestIdentity.current_noop()
+        if self.tool_request_id != identity.request_id:
+            raise ValueError("patch proposal requires pipy-owned tool_request_id")
+        if self.turn_index != identity.turn_index:
+            raise ValueError("patch proposal requires pipy-owned turn_index")
+        for field_name, upper_bound in (
+            ("file_count", self.MAX_FILE_COUNT),
+            ("operation_count", self.MAX_OPERATION_COUNT),
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{field_name} must be an integer")
+            if value < 0 or value > upper_bound:
+                raise ValueError(f"{field_name} must be between 0 and {upper_bound}")
+        if len(self.operation_labels) > self.MAX_OPERATION_LABELS:
+            raise ValueError("operation_labels exceeds the bounded metadata limit")
+        for operation_label in self.operation_labels:
+            if not isinstance(operation_label, NativePatchProposalOperation):
+                raise ValueError("operation_labels must use native patch proposal labels")
+        for field_name in NATIVE_PATCH_PROPOSAL_STORAGE_KEYS:
+            if getattr(self, field_name) is not False:
+                raise ValueError(f"{field_name} must remain false for patch proposals")
 
 
 @dataclass(frozen=True, slots=True)

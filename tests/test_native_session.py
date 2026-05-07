@@ -14,6 +14,7 @@ from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
     FakeNativeProvider,
     FakeNoOpNativeTool,
+    NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NativeRunInput,
     NativeToolRequest,
     NativeToolObservation,
@@ -21,6 +22,7 @@ from pipy_harness.native import (
     NativeToolObservationStatus,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
@@ -222,6 +224,27 @@ def safe_read_only_tool_fixture(path: str) -> dict[str, object]:
     }
 
 
+def safe_patch_proposal() -> dict[str, object]:
+    return {
+        "proposal_source": "pipy_owned_patch_proposal",
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "status": "proposed",
+        "reason_label": "structured_proposal_accepted",
+        "file_count": 2,
+        "operation_count": 3,
+        "operation_labels": ["modify", "create"],
+        "patch_text_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+        "workspace_mutated": False,
+    }
+
+
 def provider_result(
     *,
     final_text: str,
@@ -318,6 +341,38 @@ def test_native_session_normalizes_provider_usage_before_archiving(tmp_path):
     }
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "input_characters" not in serialized
+    assert "SHOULD_NOT_PERSIST" not in serialized
+
+
+def test_native_session_drops_raw_content_provider_metadata_before_archiving(tmp_path):
+    provider = CapturingProvider(
+        metadata={
+            "response_status": "completed",
+            "raw_patch_text": "SHOULD_NOT_PERSIST",
+            "raw_diff": "SHOULD_NOT_PERSIST",
+            "file_contents": "SHOULD_NOT_PERSIST",
+            "stdout": "SHOULD_NOT_PERSIST",
+            "stderr": "SHOULD_NOT_PERSIST",
+            "request_body": "SHOULD_NOT_PERSIST",
+        }
+    )
+    sink = RecordingSink()
+
+    NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert provider_completed[2]["provider_metadata"] == {"response_status": "completed"}
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SHOULD_NOT_PERSIST" not in serialized
 
 
@@ -651,6 +706,297 @@ def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_i
     assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
     assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_records_patch_proposal_metadata_after_read_only_follow_up(tmp_path):
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={
+                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: {
+                        **safe_patch_proposal(),
+                        "raw_patch_text": "SHOULD_NOT_PERSIST",
+                    }
+                },
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert output.final_text == "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY"
+    event_types = [event[0] for event in sink.events]
+    assert event_types == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.completed",
+        "native.tool.intent.detected",
+        "native.tool.started",
+        "native.tool.completed",
+        "native.tool.observation.recorded",
+        "native.provider.started",
+        "native.provider.completed",
+        NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
+        "native.session.completed",
+    ]
+    follow_up_completed = [event for event in sink.events if event[0] == "native.provider.completed"][1]
+    assert follow_up_completed[2]["provider_metadata"] == {"patch_proposal_metadata_present": True}
+    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    assert proposal_payload == {
+        "adapter": "pipy-native",
+        "provider": "capturing-fake",
+        "model_id": "capturing-model",
+        "system_prompt_id": SYSTEM_PROMPT_ID,
+        "system_prompt_version": SYSTEM_PROMPT_VERSION,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "tool_payloads_stored": False,
+        "raw_transcript_imported": False,
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "status": "skipped",
+        "reason_label": "unsafe_proposal",
+        "file_count": 0,
+        "operation_count": 0,
+        "operation_labels": [],
+        "patch_text_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "provider_responses_stored": False,
+        "workspace_mutated": False,
+    }
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SHOULD_NOT_PERSIST" not in serialized
+    assert "provider only context" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_records_supported_patch_proposal_metadata_only(tmp_path):
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    assert proposal_payload is not None
+    assert proposal_payload["tool_request_id"] == "native-tool-0001"
+    assert proposal_payload["turn_index"] == 0
+    assert proposal_payload["status"] == "proposed"
+    assert proposal_payload["reason_label"] == "structured_proposal_accepted"
+    assert proposal_payload["file_count"] == 2
+    assert proposal_payload["operation_count"] == 3
+    assert proposal_payload["operation_labels"] == ["modify", "create"]
+    assert proposal_payload["patch_text_stored"] is False
+    assert proposal_payload["diffs_stored"] is False
+    assert proposal_payload["file_contents_stored"] is False
+    assert proposal_payload["workspace_mutated"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "provider only context" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_drops_initial_patch_proposal_metadata_without_presence_flag(tmp_path):
+    provider = CapturingProvider(
+        final_text="MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+        metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert provider.complete_calls == 1
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [event[0] for event in sink.events]
+    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert provider_completed[2]["provider_metadata"] == {}
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "pipy_native_patch_proposal" not in serialized
+    assert "patch_proposal_metadata_present" not in serialized
+    assert "MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_without_presence_flag(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+                    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: safe_synthetic_observation_fixture(),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [event[0] for event in sink.events]
+    follow_up_completed = [event for event in sink.events if event[0] == "native.provider.completed"][1]
+    assert follow_up_completed[2]["provider_metadata"] == {}
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "pipy_native_patch_proposal" not in serialized
+    assert "patch_proposal_metadata_present" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("proposal", "expected_reason"),
+    [
+        ("not-a-mapping", "unsafe_proposal"),
+        ({**safe_patch_proposal(), "proposal_source": "provider_native_tool_call"}, "unsupported_proposal"),
+        ({**safe_patch_proposal(), "status": "raw_diff"}, "unsupported_proposal"),
+        ({**safe_patch_proposal(), "tool_request_id": "provider-owned-id"}, "unsafe_proposal"),
+        ({**safe_patch_proposal(), "operation_labels": ["modify", "shell"]}, "unsupported_proposal"),
+        ({**safe_patch_proposal(), "patch_text_stored": True}, "unsafe_proposal"),
+        ({**safe_patch_proposal(), "diffs_stored": True}, "unsafe_proposal"),
+        ({**safe_patch_proposal(), "file_contents_stored": True}, "unsafe_proposal"),
+    ],
+)
+def test_native_session_unsafe_or_unsupported_patch_proposal_records_skipped_metadata_only(
+    tmp_path,
+    proposal: object,
+    expected_reason: str,
+):
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: proposal},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    assert proposal_payload is not None
+    assert proposal_payload["status"] == "skipped"
+    assert proposal_payload["reason_label"] == expected_reason
+    assert proposal_payload["file_count"] == 0
+    assert proposal_payload["operation_count"] == 0
+    assert proposal_payload["operation_labels"] == []
+    assert proposal_payload["patch_text_stored"] is False
+    assert proposal_payload["diffs_stored"] is False
+    assert proposal_payload["file_contents_stored"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "provider-owned-id" not in serialized
+    assert "provider_native_tool_call" not in serialized
+    assert "raw_diff" not in serialized
+    assert "provider only context" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
 
 
 def test_native_session_read_only_follow_up_provider_exception_does_not_archive_context(tmp_path):

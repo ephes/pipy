@@ -180,46 +180,52 @@ reviewable change while keeping the source-of-truth design constraints in
   excerpts, file contents, prompts, model output, provider responses, request
   bodies, provider-native payloads, auth material, secrets, credentials, tokens,
   private keys, and sensitive personal data.
+- Native patch proposal boundary before writes: after one successful bounded
+  read-only tool observation and one successful follow-up provider turn, native
+  sessions may parse a pipy-owned structured patch proposal fixture from
+  provider metadata, emit one metadata-only
+  `native.patch.proposal.recorded` event, and hard-stop without applying edits.
+  Supported proposal metadata is limited to status, file and operation counts,
+  closed operation labels, pipy-owned `tool_request_id` and `turn_index`, false
+  storage booleans, and safe reason labels. Unsafe or unsupported proposal data
+  is recorded only as skipped metadata and raw patch text, diffs, file contents,
+  provider-native payloads, prompts, model output, provider responses, stdout,
+  stderr, secrets, credentials, tokens, private keys, and sensitive personal
+  data remain out of JSONL, Markdown, default stdout, and
+  `--native-output json`.
 
 ## Next Slice
 
-### Add a patch proposal boundary before writes
+### Add an explicit patch-apply slice
 
-Goal: let the native provider propose a structured edit plan or patch
-candidate after bounded read-only context, while keeping application of edits as
-a separate, human-reviewed operation.
+Goal: add the first supervised patch application boundary after proposal
+metadata exists, while keeping file scope conservative and human-reviewed.
 
 Selected shape:
 
-- keep one initial provider turn, at most one bounded read-only tool request,
-  one follow-up provider turn, and no automatic writes
-- accept only a structured proposal shape owned by pipy, not provider-native
-  tool calls or raw patch payloads
-- record only proposal metadata such as status, file counts, operation labels,
-  storage booleans, and safe reason/error labels
-- preserve the default stdout final-text contract and `--native-output json`
-  metadata-only contract
-- keep the proposal separate from patch application and human review
-- do not execute shell/network/write/patch tools, add verification command
-  execution, or create a general tool loop
+- consume only a pipy-owned, human-reviewed patch apply request, not raw
+  provider-native tool payloads
+- require conservative file scope and explicit approval before mutation
+- keep shell, network, and verification command execution out of scope
+- record only metadata such as status, counts, operation labels, storage
+  booleans, and safe reason/error labels
+- preserve default stdout and `--native-output json` metadata-only behavior
 
 Keep out of scope:
 
-- applying edits or mutating files
-- raw patch text, raw diffs, or file contents in archives/stdout/JSON/Markdown
+- shell execution, network access, and verification command execution
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
-- shell execution, network access, and verification command execution
-- raw prompts, model output, raw provider responses, provider-native tool
-  payloads, raw tool observations, stdout, stderr, diffs, patches, auth
+- raw prompts, model output, raw provider responses, provider-native payloads,
+  raw tool observations, stdout, stderr, raw diffs, full file contents, auth
   material, secrets, credentials, tokens, private keys, or sensitive personal
   data in JSONL, Markdown, structured stdout, or provider-visible context
 
 Acceptance checks:
 
-- structured proposal parsing accepts only the documented bounded shape
-- unsupported or unsafe proposal data fails closed before persistence
+- patch apply accepts only the documented pipy-owned request shape
+- unsupported or unsafe apply data fails closed before mutation
 - records preserve existing pipy-owned `tool_request_id`, `turn_index`, and
   provider turn metadata
 - existing `fake`, API-key `openai`, and API-key `openrouter` provider
@@ -228,7 +234,7 @@ Acceptance checks:
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
   raw prompts, model output, provider responses, request bodies, raw patch text,
-  diffs, file contents, raw tool observations, auth tokens, cookies,
+  raw diffs, file contents, raw tool observations, auth tokens, cookies,
   credentials, secrets, private keys, or sensitive personal data
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
@@ -236,8 +242,9 @@ Acceptance checks:
 ## Near Term
 
 The near-term trajectory stays supervised self-bootstrap. With OpenRouter access
-and bounded read-only context wired into the follow-up provider turn, the next
-priority is a patch proposal boundary before writes. OpenAI
+and bounded read-only context plus metadata-only patch proposals wired into the
+follow-up provider turn, the next priority is an explicit patch-apply boundary.
+OpenAI
 subscription-backed native provider auth is `blocked-for-now` because the
 official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
 OpenAI product clients, not a generic third-party native provider auth path.
@@ -253,16 +260,12 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add a patch proposal boundary before writes: provider may propose a
-   structured edit plan or patch candidate, but applying edits remains separate
-   and human-reviewed; archives record only metadata such as proposal status,
-   file counts, and storage booleans, not raw patch text.
-2. Add an explicit patch-apply slice with conservative file scope, no shell
+1. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-3. Add an allowlisted verification-command slice, starting with `just check`,
+2. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-4. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+3. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 Self-bootstrap readiness gates. Slice 4 picks whichever gate has been reached

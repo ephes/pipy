@@ -7,7 +7,13 @@ from pathlib import Path
 
 from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native import (
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
+    ProviderRequest,
+    ProviderResult,
+)
 from pipy_session import (
     inspect_finalized_session,
     list_finalized_sessions,
@@ -155,6 +161,128 @@ def test_cli_native_json_mode_uses_fake_provider_and_finalizes_record(tmp_path, 
     assert search_finalized_sessions("native.provider.completed", root=root)
     inspection = inspect_finalized_session(finalized, root=root)
     assert inspection.event_types["native.session.completed"] == 1
+
+
+def test_cli_native_json_mode_omits_patch_proposal_raw_content(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+
+    class CliFakeProposalProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            if request.provider_turn_index == 0:
+                metadata = {
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: {
+                        "tool_name": "read_only_repo_inspection",
+                        "tool_kind": "read_only_workspace",
+                        "turn_index": 0,
+                        "intent_source": "fake_provider",
+                        "approval_policy": "required",
+                        "approval_required": True,
+                        "sandbox_policy": "read-only-workspace",
+                        "workspace_read_allowed": True,
+                        "filesystem_mutation_allowed": False,
+                        "shell_execution_allowed": False,
+                        "network_access_allowed": False,
+                        "tool_payloads_stored": False,
+                        "stdout_stored": False,
+                        "stderr_stored": False,
+                        "diffs_stored": False,
+                        "file_contents_stored": False,
+                        "metadata": {
+                            "fixture": "safe-read-only",
+                            "request_kind": "explicit-file-excerpt",
+                        },
+                    },
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: {
+                        "fixture_source": "pipy_owned_explicit_file_excerpt",
+                        "tool_request_id": "native-tool-0001",
+                        "turn_index": 0,
+                        "request_kind": "explicit-file-excerpt",
+                        "approval_decision": "allowed",
+                        "decision_authority": "pipy-owned",
+                        "workspace_relative_path": "src/example.py",
+                        "target_authority": "pipy-owned",
+                    },
+                }
+                return ProviderResult(
+                    status=HarnessStatus.SUCCEEDED,
+                    provider_name=self.name,
+                    model_id=self.model_id,
+                    started_at=now,
+                    ended_at=now,
+                    final_text="INITIAL_OUTPUT_SHOULD_NOT_PRINT",
+                    metadata=metadata,
+                )
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
+                metadata={
+                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: {
+                        "proposal_source": "pipy_owned_patch_proposal",
+                        "tool_request_id": "native-tool-0001",
+                        "turn_index": 0,
+                        "status": "proposed",
+                        "reason_label": "structured_proposal_accepted",
+                        "file_count": 1,
+                        "operation_count": 1,
+                        "operation_labels": ["modify"],
+                        "patch_text_stored": False,
+                        "diffs_stored": False,
+                        "file_contents_stored": False,
+                        "raw_patch_text": "SHOULD_NOT_PERSIST",
+                    }
+                },
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposalProvider)
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-output",
+            "json",
+            "--slug",
+            "native-json-proposal",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Native JSON proposal smoke",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    output = parse_single_json_stdout(captured.out)
+    assert exit_code == 0
+    assert output["status"] == "succeeded"
+    assert "FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
+    assert "SHOULD_NOT_PERSIST" not in captured.out
+    finalized = Path(output["record"]["jsonl_path"])
+    events = read_jsonl(finalized)
+    assert "native.patch.proposal.recorded" in [event["type"] for event in events]
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "SHOULD_NOT_PERSIST" not in combined
+    assert "provider only context" not in combined
+    assert "FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
+    assert "Native JSON proposal smoke" not in captured.out
+    assert verify_session_archive(root=root).ok is True
 
 
 def test_cli_native_rejects_command_after_separator(tmp_path, capsys):

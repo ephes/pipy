@@ -12,9 +12,15 @@ from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    NativePatchProposal,
+    NativePatchProposalOperation,
+    NativePatchProposalReason,
+    NativePatchProposalStatus,
     NativeRunInput,
     NativeReadOnlyToolRequest,
     NativeReadOnlyToolRequestKind,
@@ -54,6 +60,7 @@ NOOP_TOOL_KIND = "internal_noop"
 READ_ONLY_TOOL_NAME = "read_only_repo_inspection"
 READ_ONLY_TOOL_KIND = "read_only_workspace"
 _SUPPORTED_READ_ONLY_FIXTURE_SOURCE = "pipy_owned_explicit_file_excerpt"
+_SUPPORTED_PATCH_PROPOSAL_SOURCE = "pipy_owned_patch_proposal"
 TOOL_INTENT_UNSUPPORTED_NAME = "unsupported"
 TOOL_INTENT_UNSUPPORTED_KIND = "unsupported_intent"
 TOOL_INTENT_UNSAFE_NAME = "unsafe"
@@ -62,6 +69,9 @@ _SUPPORTED_INTENT_SOURCES = {"fake_provider", "provider_metadata"}
 _SUPPORTED_OBSERVATION_FIXTURE_SOURCE = "synthetic_safe_noop"
 _SUPPORTED_OBSERVATION_STATUSES = {
     (NativeToolObservationStatus.SUCCEEDED.value, NativeToolObservationReason.TOOL_RESULT_SUCCEEDED.value)
+}
+_SUPPORTED_PATCH_PROPOSAL_STATUSES = {
+    (NativePatchProposalStatus.PROPOSED.value, NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED.value)
 }
 _SAFE_INTENT_METADATA_KEYS = {
     "fixture",
@@ -107,6 +117,42 @@ _ALLOWED_READ_ONLY_FIXTURE_KEYS = {
     "target_authority",
     "scope_label",
 }
+_ALLOWED_PATCH_PROPOSAL_KEYS = {
+    "proposal_source",
+    "tool_request_id",
+    "turn_index",
+    "status",
+    "reason_label",
+    "file_count",
+    "operation_count",
+    "operation_labels",
+    "patch_text_stored",
+    "diffs_stored",
+    "file_contents_stored",
+    "prompt_stored",
+    "model_output_stored",
+    "provider_responses_stored",
+    "raw_transcript_imported",
+    "workspace_mutated",
+}
+_UNSAFE_PROVIDER_METADATA_KEYS = {
+    "diff",
+    "diffs",
+    "file_content",
+    "file_contents",
+    "model_output",
+    "patch",
+    "patch_text",
+    "prompt",
+    "provider_response",
+    "raw_diff",
+    "raw_patch",
+    "raw_patch_text",
+    "raw_provider_response",
+    "request_body",
+    "stderr",
+    "stdout",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +174,11 @@ class _ParsedReadOnlyToolFixture:
     gate_decision: NativeReadOnlyGateDecision | None = None
     target: NativeExplicitFileExcerptTarget | None = None
     reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedPatchProposal:
+    proposal: NativePatchProposal | None = None
 
 
 @dataclass(slots=True)
@@ -194,6 +245,14 @@ class NativeAgentSession:
                             provider_turn_label="post_tool_observation",
                             tool_observation=observation,
                         )
+                        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED:
+                            parsed_proposal = _parse_patch_proposal(follow_up_provider_result)
+                            if parsed_proposal.proposal is not None:
+                                _emit_patch_proposal_recorded(
+                                    event_sink,
+                                    safe_context,
+                                    parsed_proposal.proposal,
+                                )
                     else:
                         parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
                         if parsed_observation.observation is not None:
@@ -354,7 +413,10 @@ class NativeAgentSession:
                 "status": provider_result.status.value,
                 "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
                 "usage": provider_usage,
-                "provider_metadata": _safe_provider_metadata(provider_result.metadata or {}),
+                "provider_metadata": _safe_provider_metadata(
+                    provider_result.metadata or {},
+                    patch_proposal_supported=_supports_patch_proposal_metadata(tool_observation),
+                ),
                 "error_type": _safe_optional_text(provider_result.error_type),
                 "error_message": _safe_optional_text(provider_result.error_message),
             },
@@ -468,7 +530,20 @@ def _safe_context(run_input: NativeRunInput) -> dict[str, object]:
     }
 
 
-def _safe_provider_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+def _supports_patch_proposal_metadata(tool_observation: NativeToolObservation | None) -> bool:
+    return (
+        tool_observation is not None
+        and tool_observation.tool_name == READ_ONLY_TOOL_NAME
+        and tool_observation.tool_kind == READ_ONLY_TOOL_KIND
+        and tool_observation.status == NativeToolObservationStatus.SUCCEEDED
+    )
+
+
+def _safe_provider_metadata(
+    metadata: Mapping[str, object],
+    *,
+    patch_proposal_supported: bool,
+) -> dict[str, object]:
     safe_metadata = dict(metadata)
     if PROVIDER_TOOL_INTENT_METADATA_KEY in safe_metadata:
         safe_metadata.pop(PROVIDER_TOOL_INTENT_METADATA_KEY)
@@ -479,6 +554,12 @@ def _safe_provider_metadata(metadata: Mapping[str, object]) -> dict[str, object]
     if PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY in safe_metadata:
         safe_metadata.pop(PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY)
         safe_metadata["read_only_tool_fixture_metadata_present"] = True
+    if PROVIDER_PATCH_PROPOSAL_METADATA_KEY in safe_metadata:
+        safe_metadata.pop(PROVIDER_PATCH_PROPOSAL_METADATA_KEY)
+        if patch_proposal_supported:
+            safe_metadata["patch_proposal_metadata_present"] = True
+    for unsafe_key in _UNSAFE_PROVIDER_METADATA_KEYS:
+        safe_metadata.pop(unsafe_key, None)
     return sanitize_metadata(safe_metadata)
 
 
@@ -725,6 +806,131 @@ def _read_only_fixture_optional_text(value: object) -> str | None:
     if not isinstance(value, str):
         raise ValueError("optional read-only fixture text must be a string")
     return value
+
+
+def _parse_patch_proposal(provider_result: ProviderResult) -> _ParsedPatchProposal:
+    metadata = provider_result.metadata or {}
+    if PROVIDER_PATCH_PROPOSAL_METADATA_KEY not in metadata:
+        return _ParsedPatchProposal()
+
+    identity = NativeToolRequestIdentity.current_noop()
+    raw_proposal = metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY]
+    if not isinstance(raw_proposal, Mapping):
+        return _ParsedPatchProposal(
+            proposal=_skipped_patch_proposal(identity, NativePatchProposalReason.UNSAFE_PROPOSAL)
+        )
+
+    unsafe_reason = _unsafe_patch_proposal_reason(raw_proposal, identity)
+    if unsafe_reason is not None:
+        return _ParsedPatchProposal(proposal=_skipped_patch_proposal(identity, unsafe_reason))
+    unsupported_or_unsafe_reason = _unsupported_or_unsafe_patch_proposal_reason(raw_proposal)
+    if unsupported_or_unsafe_reason is not None:
+        return _ParsedPatchProposal(proposal=_skipped_patch_proposal(identity, unsupported_or_unsafe_reason))
+
+    try:
+        operation_labels = tuple(
+            NativePatchProposalOperation(str(label))
+            for label in raw_proposal.get("operation_labels", ())
+        )
+        proposal = NativePatchProposal(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            status=NativePatchProposalStatus.PROPOSED,
+            reason_label=NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED,
+            file_count=int(raw_proposal.get("file_count", 0)),
+            operation_count=int(raw_proposal.get("operation_count", 0)),
+            operation_labels=operation_labels,
+        )
+    except (TypeError, ValueError):
+        return _ParsedPatchProposal(
+            proposal=_skipped_patch_proposal(identity, NativePatchProposalReason.UNSAFE_PROPOSAL)
+        )
+    return _ParsedPatchProposal(proposal=proposal)
+
+
+def _unsafe_patch_proposal_reason(
+    raw_proposal: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> NativePatchProposalReason | None:
+    if any(not isinstance(key, str) for key in raw_proposal):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if set(raw_proposal) - _ALLOWED_PATCH_PROPOSAL_KEYS:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if raw_proposal.get("tool_request_id") != identity.request_id:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if raw_proposal.get("turn_index") != identity.turn_index:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    for key in (
+        "patch_text_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+        "workspace_mutated",
+    ):
+        if raw_proposal.get(key, False) is not False:
+            return NativePatchProposalReason.UNSAFE_PROPOSAL
+    for key in ("file_count", "operation_count"):
+        value = raw_proposal.get(key, 0)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return NativePatchProposalReason.UNSAFE_PROPOSAL
+    operation_labels = raw_proposal.get("operation_labels", ())
+    if not isinstance(operation_labels, list | tuple):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if any(not isinstance(label, str) for label in operation_labels):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    return None
+
+
+def _unsupported_or_unsafe_patch_proposal_reason(
+    raw_proposal: Mapping[object, object],
+) -> NativePatchProposalReason | None:
+    if raw_proposal.get("proposal_source") != _SUPPORTED_PATCH_PROPOSAL_SOURCE:
+        return NativePatchProposalReason.UNSUPPORTED_PROPOSAL
+    status = raw_proposal.get("status")
+    reason_label = raw_proposal.get("reason_label")
+    if (status, reason_label) not in _SUPPORTED_PATCH_PROPOSAL_STATUSES:
+        return NativePatchProposalReason.UNSUPPORTED_PROPOSAL
+    raw_operation_labels = raw_proposal.get("operation_labels", ())
+    if not isinstance(raw_operation_labels, list | tuple):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    try:
+        operation_labels = [
+            NativePatchProposalOperation(str(label))
+            for label in raw_operation_labels
+        ]
+    except ValueError:
+        return NativePatchProposalReason.UNSUPPORTED_PROPOSAL
+    if len(operation_labels) > NativePatchProposal.MAX_OPERATION_LABELS:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    file_count = raw_proposal.get("file_count", 0)
+    operation_count = raw_proposal.get("operation_count", 0)
+    if not isinstance(file_count, int) or isinstance(file_count, bool):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if not isinstance(operation_count, int) or isinstance(operation_count, bool):
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if file_count > NativePatchProposal.MAX_FILE_COUNT:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    if operation_count > NativePatchProposal.MAX_OPERATION_COUNT:
+        return NativePatchProposalReason.UNSAFE_PROPOSAL
+    return None
+
+
+def _skipped_patch_proposal(
+    identity: NativeToolRequestIdentity,
+    reason_label: NativePatchProposalReason,
+) -> NativePatchProposal:
+    return NativePatchProposal(
+        tool_request_id=identity.request_id,
+        turn_index=identity.turn_index,
+        status=NativePatchProposalStatus.SKIPPED,
+        reason_label=reason_label,
+        file_count=0,
+        operation_count=0,
+        operation_labels=(),
+    )
 
 
 def _unsafe_observation_fixture(
@@ -998,6 +1204,24 @@ def _emit_tool_observation_recorded(
     )
 
 
+def _emit_patch_proposal_recorded(
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    proposal: NativePatchProposal,
+) -> None:
+    event_sink.emit(
+        NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
+        summary=(
+            "Native patch proposal recorded: "
+            f"status={proposal.status.value}, file_count={proposal.file_count}."
+        ),
+        payload={
+            **safe_context,
+            **_safe_patch_proposal_context(proposal),
+        },
+    )
+
+
 def _safe_observation_context(observation: NativeToolObservation) -> dict[str, object]:
     payload: dict[str, object] = {
         "tool_request_id": observation.tool_request_id,
@@ -1018,6 +1242,26 @@ def _safe_observation_context(observation: NativeToolObservation) -> dict[str, o
         "raw_transcript_imported": False,
     }
     return payload
+
+
+def _safe_patch_proposal_context(proposal: NativePatchProposal) -> dict[str, object]:
+    return {
+        "tool_request_id": proposal.tool_request_id,
+        "turn_index": proposal.turn_index,
+        "status": proposal.status.value,
+        "reason_label": proposal.reason_label.value if proposal.reason_label is not None else None,
+        "file_count": proposal.file_count,
+        "operation_count": proposal.operation_count,
+        "operation_labels": [label.value for label in proposal.operation_labels],
+        "patch_text_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+        "workspace_mutated": False,
+    }
 
 
 def _build_post_tool_user_prompt(

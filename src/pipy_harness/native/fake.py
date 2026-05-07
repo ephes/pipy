@@ -11,6 +11,7 @@ from pipy_harness.native.models import (
     NativeToolRequest,
     NativeToolResult,
     NativeToolStatus,
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
@@ -30,6 +31,7 @@ class FakeNativeProvider:
     tool_intent: dict[str, Any] | None = None
     tool_observation_fixture: dict[str, Any] | None = None
     read_only_tool_fixture: dict[str, Any] | None = None
+    patch_proposal: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -46,6 +48,8 @@ class FakeNativeProvider:
             metadata[PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY] = dict(self.tool_observation_fixture)
         if self.read_only_tool_fixture is not None:
             metadata[PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY] = dict(self.read_only_tool_fixture)
+        if self.patch_proposal is not None:
+            metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY] = dict(self.patch_proposal)
         return ProviderResult(
             status=self.status,
             provider_name=self.name,

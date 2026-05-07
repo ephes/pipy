@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-24 bounded read-only provider context documented
+Status: slice-25 patch proposal boundary implemented
 
 <style>
 .mermaid,
@@ -798,6 +798,7 @@ native.tool.completed | native.tool.failed | native.tool.skipped
 native.tool.observation.recorded   # metadata-only, fixture-gated
 native.provider.started            # optional bounded follow-up turn
 native.provider.completed | native.provider.failed
+native.patch.proposal.recorded     # metadata-only, read-only follow-up only
 native.session.completed
 ```
 
@@ -1172,6 +1173,71 @@ under these limits, and the post-tool provider turn may receive only that
 bounded context plus the metadata-only observation shape anchored to pipy's
 `tool_request_id` and `turn_index`. Search-result excerpts, broad repo maps,
 multiple sources, and persistent workspace summaries remain deferred.
+
+### Native Patch Proposal Boundary
+
+The native patch proposal boundary is a metadata-only step before any write
+capability exists. After one successful bounded read-only tool observation and
+one successful follow-up provider turn, `NativeAgentSession` may parse a single
+pipy-owned structured proposal from provider result metadata and emit
+`native.patch.proposal.recorded`. The runtime then hard-stops. It does not
+apply edits, mutate files, run a patch tool, run shell commands, run
+verification commands, request network access, or create another provider turn.
+
+The accepted provider metadata key is pipy-owned and bounded:
+`pipy_native_patch_proposal`. Its value must be a mapping with only these
+fields:
+
+- `proposal_source`: `pipy_owned_patch_proposal`
+- `tool_request_id`: the current pipy-owned `native-tool-0001`
+- `turn_index`: `0`
+- `status`: `proposed`
+- `reason_label`: `structured_proposal_accepted`
+- `file_count`: finite integer metadata, currently at most 50
+- `operation_count`: finite integer metadata, currently at most 200
+- `operation_labels`: at most 8 closed labels from `create`, `modify`,
+  `delete`, and `rename`
+- storage booleans that must remain false: `patch_text_stored`,
+  `diffs_stored`, `file_contents_stored`, `prompt_stored`,
+  `model_output_stored`, `provider_responses_stored`,
+  `raw_transcript_imported`, and `workspace_mutated`
+
+The proposal parser does not accept provider-native tool calls, raw model text,
+raw diffs, patch text, file contents, filesystem paths, shell commands,
+provider response ids, function arguments, or arbitrary provider payloads as
+archiveable proposal content. Unknown fields, provider-owned ids, bad counts,
+storage booleans set to true, unsupported source/status/reason labels, or
+unsupported operation labels fail closed. When a proposal key is present but
+unsafe or unsupported, the archive may record a skipped proposal event with
+`reason_label` set to `unsafe_proposal` or `unsupported_proposal`; counts are
+zero, operation labels are empty, and all storage booleans remain false.
+
+The `native.patch.proposal.recorded` payload allowlist is exactly:
+
+- `tool_request_id`
+- `turn_index`
+- `status`
+- `reason_label`
+- `file_count`
+- `operation_count`
+- `operation_labels`
+- `patch_text_stored`
+- `diffs_stored`
+- `file_contents_stored`
+- `prompt_stored`
+- `model_output_stored`
+- `provider_responses_stored`
+- `raw_transcript_imported`
+- `workspace_mutated`
+
+Proposal archive and structured stdout boundaries stay metadata-only. JSONL,
+Markdown, and `--native-output json` must not include raw patch text, raw
+diffs, file contents, file paths proposed by the model, raw prompts, model
+output, provider responses, provider-native payloads, tool payloads, stdout,
+stderr, shell commands, auth material, secrets, credentials, tokens, private
+keys, or sensitive personal data. The current JSON stdout schema does not
+include proposal detail; proposal metadata is represented only by finalized
+archive events.
 
 ### Native Post-Tool Observation Contract Decision
 

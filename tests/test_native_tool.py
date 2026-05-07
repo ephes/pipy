@@ -6,10 +6,17 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native import (
+    NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS,
+    NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
+    NATIVE_PATCH_PROPOSAL_STORAGE_KEYS,
     FakeNoOpNativeTool,
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
+    NativePatchProposal,
+    NativePatchProposalOperation,
+    NativePatchProposalReason,
+    NativePatchProposalStatus,
     NativeToolApprovalPolicy,
     NativeToolIntent,
     NativeToolObservation,
@@ -199,6 +206,111 @@ def test_native_tool_observation_event_contract_is_closed_and_metadata_only():
         "token",
     }
     assert forbidden_payload_keys.isdisjoint(NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS)
+
+
+def test_native_patch_proposal_value_object_is_metadata_only_and_bounded():
+    proposal = NativePatchProposal(
+        tool_request_id="native-tool-0001",
+        turn_index=0,
+        status=NativePatchProposalStatus.PROPOSED,
+        reason_label=NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED,
+        file_count=2,
+        operation_count=3,
+        operation_labels=(NativePatchProposalOperation.MODIFY, NativePatchProposalOperation.CREATE),
+    )
+
+    proposal_fields = asdict(proposal)
+
+    assert proposal_fields == {
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "status": NativePatchProposalStatus.PROPOSED,
+        "reason_label": NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED,
+        "file_count": 2,
+        "operation_count": 3,
+        "operation_labels": (NativePatchProposalOperation.MODIFY, NativePatchProposalOperation.CREATE),
+        "patch_text_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+        "workspace_mutated": False,
+    }
+    forbidden_fields = {
+        "args",
+        "arguments",
+        "command",
+        "credentials",
+        "diff",
+        "file_content",
+        "file_contents",
+        "model_output",
+        "patch",
+        "payload",
+        "private_key",
+        "prompt",
+        "provider_response",
+        "raw_args",
+        "raw_payload",
+        "secret",
+        "stderr",
+        "stdout",
+        "token",
+    }
+    assert forbidden_fields.isdisjoint(proposal_fields)
+
+
+def test_native_patch_proposal_event_contract_is_closed_and_metadata_only():
+    proposal_field_names = {field.name for field in fields(NativePatchProposal)}
+
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT == "native.patch.proposal.recorded"
+    assert proposal_field_names == NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS
+    assert NATIVE_PATCH_PROPOSAL_STORAGE_KEYS == {
+        "patch_text_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+        "workspace_mutated",
+    }
+    assert {status.value for status in NativePatchProposalStatus} == {"proposed", "skipped"}
+    assert {reason.value for reason in NativePatchProposalReason} == {
+        "structured_proposal_accepted",
+        "unsupported_proposal",
+        "unsafe_proposal",
+    }
+    assert {operation.value for operation in NativePatchProposalOperation} == {
+        "create",
+        "modify",
+        "delete",
+        "rename",
+    }
+    forbidden_payload_keys = {
+        "args",
+        "arguments",
+        "command",
+        "credentials",
+        "diff",
+        "file_content",
+        "file_contents",
+        "model_output",
+        "patch",
+        "payload",
+        "private_key",
+        "prompt",
+        "provider_response",
+        "raw_args",
+        "raw_payload",
+        "secret",
+        "stderr",
+        "stdout",
+        "token",
+    }
+    assert forbidden_payload_keys.isdisjoint(NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS)
 
 
 def test_native_tool_observation_contract_is_threaded_only_as_sanitized_session_metadata():
