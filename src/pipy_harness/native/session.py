@@ -10,6 +10,7 @@ from typing import Mapping
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.conversation import NativeConversationState, NativeTurnMetadata
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
@@ -172,6 +173,8 @@ _UNSAFE_PROVIDER_METADATA_KEYS = {
     "stderr",
     "stdout",
 }
+INITIAL_PROVIDER_TURN_LABEL = "initial"
+POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +216,7 @@ class NativeAgentSession:
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = _utc_now()
+        conversation_state = NativeConversationState.for_native_run(max_turns=2)
         safe_context = _safe_context(run_input)
         event_sink.emit(
             "native.session.started",
@@ -226,13 +230,16 @@ class NativeAgentSession:
             },
         )
 
+        conversation_state, provider_turn = _append_provider_turn(
+            conversation_state,
+            provider_turn_label=INITIAL_PROVIDER_TURN_LABEL,
+        )
         provider_result, provider_usage = self._call_provider_turn(
             run_input,
             event_sink,
             safe_context,
             user_prompt=run_input.goal,
-            provider_turn_index=0,
-            provider_turn_label="initial",
+            provider_turn=provider_turn,
             tool_observation=None,
         )
 
@@ -261,13 +268,16 @@ class NativeAgentSession:
                     if read_only_result is not None:
                         observation = _read_only_observation(read_only_result)
                         _emit_tool_observation_recorded(event_sink, safe_context, observation)
+                        conversation_state, follow_up_provider_turn = _append_provider_turn(
+                            conversation_state,
+                            provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
+                        )
                         follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
                             run_input,
                             event_sink,
                             safe_context,
                             user_prompt=_build_post_tool_user_prompt(observation, read_only_result),
-                            provider_turn_index=1,
-                            provider_turn_label="post_tool_observation",
+                            provider_turn=follow_up_provider_turn,
                             tool_observation=observation,
                         )
                         if follow_up_provider_result.status == HarnessStatus.SUCCEEDED:
@@ -304,13 +314,16 @@ class NativeAgentSession:
                                 safe_context,
                                 parsed_observation.observation,
                             )
+                            conversation_state, follow_up_provider_turn = _append_provider_turn(
+                                conversation_state,
+                                provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
+                            )
                             follow_up_provider_result, follow_up_provider_usage = self._call_provider_turn(
                                 run_input,
                                 event_sink,
                                 safe_context,
                                 user_prompt=_build_post_tool_user_prompt(parsed_observation.observation),
-                                provider_turn_index=1,
-                                provider_turn_label="post_tool_observation",
+                                provider_turn=follow_up_provider_turn,
                                 tool_observation=parsed_observation.observation,
                             )
                         elif parsed_observation.skipped_observation is not None:
@@ -404,12 +417,12 @@ class NativeAgentSession:
         safe_context: Mapping[str, object],
         *,
         user_prompt: str,
-        provider_turn_index: int,
-        provider_turn_label: str,
+        provider_turn: NativeTurnMetadata,
         tool_observation: NativeToolObservation | None,
     ) -> tuple[ProviderResult, dict[str, int | float]]:
+        provider_turn_label = _required_provider_turn_label(provider_turn)
         provider_turn_context = {
-            "provider_turn_index": provider_turn_index,
+            "provider_turn_index": provider_turn.turn_index,
             "provider_turn_label": provider_turn_label,
         }
         event_sink.emit(
@@ -435,7 +448,7 @@ class NativeAgentSession:
                     provider_name=run_input.provider_name,
                     model_id=run_input.model_id,
                     cwd=run_input.cwd,
-                    provider_turn_index=provider_turn_index,
+                    provider_turn_index=provider_turn.turn_index,
                     provider_turn_label=provider_turn_label,
                     tool_observation=tool_observation,
                 )
@@ -603,6 +616,23 @@ def _build_system_prompt() -> str:
         "You are the native pipy runtime bootstrap. Complete exactly one minimal "
         "provider turn and do not execute tools."
     )
+
+
+def _append_provider_turn(
+    conversation_state: NativeConversationState,
+    *,
+    provider_turn_label: str,
+) -> tuple[NativeConversationState, NativeTurnMetadata]:
+    next_state = conversation_state.append_provider_turn(
+        provider_turn_label=provider_turn_label,
+    )
+    return next_state, next_state.turns[-1].metadata
+
+
+def _required_provider_turn_label(provider_turn: NativeTurnMetadata) -> str:
+    if provider_turn.provider_turn_label is None:
+        raise ValueError("provider turn metadata requires a provider turn label")
+    return provider_turn.provider_turn_label
 
 
 def _safe_context(run_input: NativeRunInput) -> dict[str, object]:

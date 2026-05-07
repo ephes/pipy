@@ -41,6 +41,22 @@ def test_native_conversation_identity_is_pipy_owned_and_safe():
         NativeConversationIdentity("c" * (NativeConversationIdentity.MAX_LENGTH + 1))
 
 
+def test_native_conversation_identity_new_run_is_per_run_and_safe():
+    first = NativeConversationIdentity.new_run()
+    second = NativeConversationIdentity.new_run()
+    state = NativeConversationState.for_native_run(max_turns=2)
+
+    assert first.value.startswith("native-conversation-")
+    assert second.value.startswith("native-conversation-")
+    assert state.conversation_id.value.startswith("native-conversation-")
+    assert first.value != NativeConversationIdentity.bootstrap().value
+    assert second.value != NativeConversationIdentity.bootstrap().value
+    assert first.value != second.value
+    assert state.conversation_id.value != NativeConversationIdentity.bootstrap().value
+    assert state.max_turns == 2
+    assert state.turns == ()
+
+
 def test_native_turn_identity_is_bounded_and_correlates_with_conversation():
     conversation_id = NativeConversationIdentity.bootstrap()
     identity = NativeTurnIdentity(conversation_id=conversation_id, turn_index=1)

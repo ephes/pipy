@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-28 native conversation state implemented
+Status: slice-29 one-shot native run uses conversation state
 
 <style>
 .mermaid,
@@ -1889,7 +1889,9 @@ Implementation note: the first native slices are implemented as
 - explicit in-memory native conversation and turn value objects for
   conversation identity, turn identity, role/status labels, safe per-turn
   metadata, and bounded provider-turn state
-- `NativeAgentSession` that owns system prompt construction
+- `NativeAgentSession` that owns system prompt construction and allocates its
+  bounded provider turn indexes and labels from per-run in-memory conversation
+  state
 - normalized provider usage metadata limited to finite non-negative
   `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and
   `reasoning_tokens`
@@ -1916,13 +1918,22 @@ provider responses, provider-native payloads, raw tool observations, stdout,
 stderr, diffs, file contents, command output, auth material, secrets,
 credentials, tokens, private keys, or sensitive personal data.
 
-This slice does not emit new archive events and does not rebase
-`NativeAgentSession` onto the new objects yet. Existing `pipy run --agent
-pipy-native` text stdout, `--native-output json`, metadata-only archive, and
-provider/tool behavior remain unchanged. The next foundation step is to thread
-the current one-shot native run through the conversation/turn core without
-changing those contracts; a REPL or TUI should not be introduced before that
-rebase is complete.
+`NativeAgentSession.run` now creates a fresh in-memory conversation identity for
+each native run and appends provider turns to `NativeConversationState` before
+calling the provider. The initial provider request and existing
+`native.provider.*` event payloads use turn index `0` and label `initial` from
+that state. The optional post-tool provider request and matching provider event
+payloads use turn index `1` and label `post_tool_observation` from the same
+state. The runtime remains structurally bounded to the existing one initial
+provider turn plus at most one follow-up provider turn after a supported
+observation.
+
+This rebase does not emit new conversation or turn archive events. Existing
+`pipy run --agent pipy-native` text stdout, `--native-output json`,
+metadata-only archive, and provider/tool behavior remain unchanged. The next
+foundation step is a minimal no-tool REPL over the same conversation/turn core;
+a tool-capable shell or TUI should not be introduced before approval and
+sandbox boundaries are ready for interactive use.
 
 ## Deferred Work
 

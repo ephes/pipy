@@ -294,16 +294,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native conversation state and bounded provider-turn loop foundation" in compact_done
     assert "pipy_harness.native.conversation" in compact_done
     assert "metadata-only per-turn payloads" in compact_done
-    assert "### Rebase one-shot native run on conversation state" in next_slice
-    assert "provider-turn indexes and labels" in compact_next_slice
-    assert "native conversation state" in compact_next_slice
-    assert "one initial provider turn plus at most one bounded follow-up provider turn" in compact_next_slice
-    assert "new archive event types for conversation or turn export" in compact_next_slice
-    assert "`--native-output json` remains metadata-only" in compact_next_slice
+    assert "Native one-shot run rebased on conversation state" in compact_done
+    assert "provider turn indexes and labels" in compact_done
+    assert "per-run in-memory native conversation identity/state" in compact_done
+    assert "### Add a minimal no-tool `pipy-native` REPL over the same core" in next_slice
+    assert "same provider/session/turn core" in compact_next_slice
+    assert "repeated provider turns only" in compact_next_slice
+    assert "one-shot `pipy run --agent pipy-native` behavior compatible" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
-    assert "Add a minimal no-tool `pipy-native` REPL" in compact_near_term
+    assert "No-tool REPL gate: next" in compact_near_term
     assert "Tool-capable shell gate" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred

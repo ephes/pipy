@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from math import isfinite
 from typing import ClassVar
+from uuid import uuid4
 
 from pipy_harness.capture import sanitize_text
 
@@ -75,6 +76,10 @@ class NativeConversationIdentity:
     @classmethod
     def bootstrap(cls) -> "NativeConversationIdentity":
         return cls("native-conversation-0001")
+
+    @classmethod
+    def new_run(cls) -> "NativeConversationIdentity":
+        return cls(f"native-conversation-{uuid4().hex}")
 
     def __post_init__(self) -> None:
         _validate_safe_label("conversation_id", self.value, max_length=self.MAX_LENGTH)
@@ -302,6 +307,13 @@ class NativeConversationState:
     @property
     def provider_turn_count(self) -> int:
         return sum(1 for turn in self.turns if turn.role == NativeTurnRole.PROVIDER)
+
+    @classmethod
+    def for_native_run(cls, *, max_turns: int = 2) -> "NativeConversationState":
+        return cls(
+            conversation_id=NativeConversationIdentity.new_run(),
+            max_turns=max_turns,
+        )
 
     def next_turn_identity(self) -> NativeTurnIdentity:
         if len(self.turns) >= self.max_turns:

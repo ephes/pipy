@@ -244,37 +244,43 @@ reviewable change while keeping the source-of-truth design constraints in
   in-memory provider-turn state. No runtime behavior, stdout contract,
   structured JSON output, archive event shape, provider calls, tool execution,
   shell UI, or public CLI controls changed in this slice.
+- Native one-shot run rebased on conversation state: `NativeAgentSession.run`
+  now creates a per-run in-memory native conversation identity/state and
+  allocates the initial and optional post-tool provider turn indexes and labels
+  from that state. The current runtime remains bounded to one initial provider
+  turn plus at most one follow-up provider turn after a supported observation,
+  with no new archive event types, CLI controls, stdout/JSON behavior changes,
+  or provider/tool behavior changes.
 
 ## Next Slice
 
-### Rebase one-shot native run on conversation state
+### Add a minimal no-tool `pipy-native` REPL over the same core
 
-Goal: thread the existing one-shot `pipy run --agent pipy-native` path through
-the explicit native conversation and turn state without changing user-visible
-behavior, archive privacy contracts, or the current bounded tool behavior.
+Goal: add a small interactive native shell over the same provider/session/turn
+core after the one-shot path has proven it can allocate bounded provider turns
+through conversation state without changing privacy or archive contracts.
 
 Selected shape:
 
-- create a native conversation state when `NativeAgentSession.run` starts
-- allocate provider turn identities from the conversation state instead of
-  passing ad hoc provider-turn indexes and labels through session helpers
-- keep the current maximum behavior: one initial provider turn plus at most one
-  bounded follow-up provider turn after a supported observation
-- keep conversation and turn state in memory only unless a future slice defines
-  an explicit archive event shape
-- preserve existing one-shot `pipy run --agent pipy-native` stdout behavior and
-  `--native-output json` metadata-only behavior
-- document how a future minimal REPL can sit on top of the same core instead of
-  becoming a separate runtime path
+- build the REPL as a thin UI over the native provider/session/turn core, not a
+  separate runtime path and not a wrapper around another agent CLI
+- keep the first REPL no-tool: repeated provider turns only, no filesystem,
+  patch, shell, network, provider-selected tool, or verification execution
+- preserve metadata-only capture defaults and keep raw prompts/model output out
+  of JSONL, Markdown, structured stdout, and catalog surfaces
+- define the minimal lifecycle and exit behavior before adding TUI rendering,
+  prompt editing, history, streaming, retries, or tool execution
+- keep one-shot `pipy run --agent pipy-native` behavior compatible
 
 Keep out of scope:
 
-- interactive shell, TUI, REPL commands, prompt editing, history, and terminal
-  rendering
+- TUI rendering, rich prompt editing, history, and slash-command surfaces beyond
+  the minimum needed to exit cleanly
 - arbitrary shell execution and network access
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
-- new archive event types for conversation or turn export
+- conversation or turn archive export beyond an explicitly documented
+  metadata-only lifecycle shape
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
 - raw prompts, model output, raw provider responses, provider-native payloads,
   raw tool observations, stdout, stderr, raw diffs, full file contents,
@@ -284,22 +290,13 @@ Keep out of scope:
 
 Acceptance checks:
 
-- provider-turn indexes and labels used by `NativeAgentSession` come from the
-  native conversation state
-- any new archive-facing events or metadata are allowlisted and summary-safe
-- default native stdout remains successful final text only on success, with
-  diagnostics, finalization, progress, and errors on stderr
-- `--native-output json` remains metadata-only and does not become a transcript
-  or conversation export
-- no public CLI controls are added for patch apply, verification, shell
-  execution, or provider-selected tools
-- provider-visible data remains bounded and internal; archives never include
-  raw prompts, model output, provider responses, request bodies, raw patch text,
-  raw diffs, file contents, raw tool observations, command stdout, command
-  stderr, auth tokens, cookies, credentials, secrets, private keys, or
-  sensitive personal data
-- native records still pass `pipy-session verify`, and `pipy-session list`,
-  `search`, and `inspect` stay compatible
+- REPL turns use the same native conversation/turn value objects as the one-shot
+  runtime
+- the first REPL slice does not execute tools, mutate the workspace, run shell
+  commands, or expose provider-selected tool calls
+- archive records remain metadata-only and compatible with `pipy-session
+  verify`, `list`, `search`, and `inspect`
+- one-shot stdout and `--native-output json` behavior remain unchanged
 
 ## Near Term
 
@@ -311,11 +308,9 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Thread the existing one-shot native run through conversation state without changing
-   stdout, JSON output, or archive privacy contracts.
-2. Add a minimal interactive REPL only after the turn core is stable enough for
+1. Add a minimal interactive REPL only after the turn core is stable enough for
    repeated no-tool provider turns.
-3. Add visible approval and sandbox prompts before any real read/write/shell
+2. Add visible approval and sandbox prompts before any real read/write/shell
    tool loop is exposed to interactive use.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
@@ -337,17 +332,19 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Rebase the current one-shot native run on the conversation/turn core.
-2. Add a minimal no-tool `pipy-native` REPL over the same core.
+1. Add a minimal no-tool `pipy-native` REPL over the same core.
+2. Add visible approval and sandbox prompts before any real read/write/shell
+   tool loop is exposed to interactive use.
 
 Foundation gates toward an interactive shell:
 
 - One-shot provider gate: available now through `pipy run --agent
   pipy-native`; useful for provider smoke tests but not an interactive shell.
-- Conversation-state gate: available now as inert internal value objects. The
-  next gate is rebasing the one-shot native run onto that state.
-- No-tool REPL gate: available only after conversation state exists and the
-  one-shot run uses it without changing privacy contracts.
+- Conversation-state gate: available now in the one-shot runtime; provider turn
+  indexes and labels are allocated from per-run in-memory conversation state
+  without changing archive or stdout contracts.
+- No-tool REPL gate: next. It should reuse the same conversation state instead
+  of introducing a parallel runtime path.
 - Tool-capable shell gate: deferred until live approval prompts, sandbox
   enforcement, and metadata-only observation handling exist for interactive
   use.

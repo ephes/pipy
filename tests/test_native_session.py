@@ -18,6 +18,7 @@ from pipy_harness.native import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NATIVE_VERIFICATION_RECORDED_EVENT,
+    NativeConversationState,
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,
     NativePatchApplyOperation,
@@ -31,6 +32,8 @@ from pipy_harness.native import (
     NativeToolObservationStatus,
     NativeToolResult,
     NativeToolStatus,
+    NativeTurnMetadata,
+    NativeTurnStatus,
     NativeVerificationApprovalDecision,
     NativeVerificationCommand,
     NativeVerificationGateDecision,
@@ -652,6 +655,86 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
     assert "SAFE_GOAL_METADATA" not in serialized
     assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+
+
+def test_native_session_allocates_bounded_provider_turns_from_conversation_state(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    allocated_turns: list[NativeTurnMetadata] = []
+    original_append_provider_turn = NativeConversationState.append_provider_turn
+
+    def recording_append_provider_turn(
+        self: NativeConversationState,
+        *,
+        provider_turn_label: str,
+        status: NativeTurnStatus = NativeTurnStatus.RUNNING,
+        provider_name: str | None = None,
+        model_id: str | None = None,
+    ) -> NativeConversationState:
+        next_state = original_append_provider_turn(
+            self,
+            provider_turn_label=provider_turn_label,
+            status=status,
+            provider_name=provider_name,
+            model_id=model_id,
+        )
+        allocated_turns.append(next_state.turns[-1].metadata)
+        return next_state
+
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativeConversationState.append_provider_turn",
+        recording_append_provider_turn,
+    )
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+                    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: safe_synthetic_observation_fixture(),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+                    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: safe_synthetic_observation_fixture(),
+                },
+            ),
+            provider_result(final_text="THIRD_MODEL_OUTPUT_SHOULD_NOT_BE_CALLED"),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(provider=provider).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert provider.captured_requests is not None
+    assert provider.results and provider.results[0].final_text == "THIRD_MODEL_OUTPUT_SHOULD_NOT_BE_CALLED"
+    assert [(turn.turn_index, turn.provider_turn_label) for turn in allocated_turns] == [
+        (0, "initial"),
+        (1, "post_tool_observation"),
+    ]
+    assert [
+        (request.provider_turn_index, request.provider_turn_label)
+        for request in provider.captured_requests
+    ] == [(turn.turn_index, turn.provider_turn_label) for turn in allocated_turns]
+    event_types = [event[0] for event in sink.events]
+    assert event_types.count("native.provider.started") == 2
+    assert event_types.count("native.provider.completed") == 2
+    assert event_types.count("native.tool.intent.detected") == 1
+    assert event_types.count("native.tool.completed") == 1
 
 
 def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_in_memory(tmp_path):
