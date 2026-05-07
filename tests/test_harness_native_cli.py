@@ -135,7 +135,9 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
         event["payload"] for event in events if event["type"] == "native.session.completed"
     ][0]
     assert completed_payload["mode"] == "repl"
-    assert completed_payload["tools_enabled"] is False
+    assert completed_payload["tools_enabled"] is True
+    assert completed_payload["read_only_commands_enabled"] is True
+    assert completed_payload["read_command_used"] is False
     assert completed_payload["turn_count"] == 2
     assert completed_payload["exit_reason"] == "explicit_exit"
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
@@ -198,6 +200,7 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     ][0]
     assert completed_payload["exit_reason"] == "eof"
     assert completed_payload["turn_count"] == 0
+    assert completed_payload["read_command_used"] is False
     assert verify_session_archive(root=root).ok is True
 
 
@@ -236,6 +239,7 @@ def test_cli_native_repl_interrupt_finalizes_aborted_record(tmp_path, capfd, mon
     assert completed_payload["status"] == "aborted"
     assert completed_payload["exit_code"] == 130
     assert completed_payload["exit_reason"] == "interrupt"
+    assert completed_payload["read_command_used"] is False
     assert verify_session_archive(root=root).ok is True
 
 
@@ -291,6 +295,370 @@ def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, mon
     ][0]
     assert completed_payload["exit_reason"] == "explicit_exit"
     assert completed_payload["turn_count"] == 1
+    assert completed_payload["read_command_used"] is False
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_to_stdout(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "visible.txt"
+    source.parent.mkdir()
+    source.write_text("APPROVED_EXCERPT_TEXT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("read command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/visible.txt\nyes\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "APPROVED_EXCERPT_TEXT\n"
+    assert "pipy approval required" in captured.err
+    assert "workspace_read_allowed=true" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert event_types.count("native.tool.started") == 1
+    assert event_types.count("native.tool.completed") == 1
+    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.completed"][0]
+    assert tool_payload["status"] == "succeeded"
+    assert tool_payload["file_contents_stored"] is False
+    assert tool_payload["tool_metadata"]["file_contents_stored"] is False
+    assert tool_payload["tool_metadata"]["approval_decision"] == "allowed"
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 0
+    assert completed_payload["read_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "APPROVED_EXCERPT_TEXT" not in combined
+    assert verify_session_archive(root=root).ok is True
+    assert search_finalized_sessions("native.tool.completed", root=root)
+    assert not search_finalized_sessions("APPROVED_EXCERPT_TEXT", root=root)
+
+
+def test_cli_native_repl_read_command_denied_does_not_read(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "denied.txt"
+    source.parent.mkdir()
+    source.write_text("DENIED_EXCERPT_TEXT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("denied read command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/denied.txt\nno\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-denied",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "read command skipped: approval_not_allowed" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert event_types.count("native.tool.started") == 1
+    assert event_types.count("native.tool.skipped") == 1
+    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.skipped"][0]
+    assert tool_payload["tool_metadata"]["approval_decision"] == "denied"
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "DENIED_EXCERPT_TEXT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_read_command_unavailable_prompt_fails_closed(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "unavailable.txt"
+    source.parent.mkdir()
+    source.write_text("UNAVAILABLE_EXCERPT_TEXT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unavailable read command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/unavailable.txt\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-unavailable",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "Approve? [y/N]:" in captured.err
+    assert "read command skipped: approval_not_allowed" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.skipped"][0]
+    assert tool_payload["tool_metadata"]["approval_decision"] == "skipped"
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["exit_reason"] == "eof"
+    assert completed_payload["read_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "UNAVAILABLE_EXCERPT_TEXT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_read_command_rejects_unsafe_target_before_prompt(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unsafe read target should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/read ../outside.txt\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-unsafe-target",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy approval required" not in captured.err
+    assert "unsafe_repl_read_target" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert "native.tool.started" not in event_types
+    assert event_types.count("native.tool.skipped") == 1
+    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.skipped"][0]
+    assert tool_payload["reason"] == "unsafe_repl_read_target"
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert "../outside.txt" not in finalized[0].read_text(encoding="utf-8")
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_unsafe_read_target_consumes_the_one_read_limit(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    valid = tmp_path / "docs" / "valid.txt"
+    valid.parent.mkdir()
+    valid.write_text("VALID_EXCERPT_SHOULD_NOT_PRINT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unsafe read target limit should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/read ../outside.txt\n/read docs/valid.txt\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-unsafe-target-limit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "unsafe_repl_read_target" in captured.err
+    assert "read_command_limit_reached" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.skipped") == 1
+    assert "native.tool.completed" not in event_types
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "VALID_EXCERPT_SHOULD_NOT_PRINT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_EXCERPT_TEXT\n", encoding="utf-8")
+    second.write_text("SECOND_EXCERPT_TEXT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("read command limit should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/read docs/first.txt\nyes\n/read docs/second.txt\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-limit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "FIRST_EXCERPT_TEXT\n"
+    assert "read_command_limit_reached" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_EXCERPT_TEXT" not in combined
+    assert "SECOND_EXCERPT_TEXT" not in combined
     assert verify_session_archive(root=root).ok is True
 
 

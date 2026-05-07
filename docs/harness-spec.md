@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-31 visible native approval prompt foundation
+Status: slice-32 interactive read-only REPL command
 
 <style>
 .mermaid,
@@ -659,7 +659,7 @@ Structured machine-readable native stdout is available only through explicit
 `--native-output json`; it is not part of the default
 `pipy run --agent pipy-native` contract.
 
-### Native No-Tool REPL
+### Native Interactive REPL
 
 The first interactive native shell is available as:
 
@@ -673,48 +673,68 @@ native provider choices, uses the same OpenAI/OpenRouter model requirements,
 creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
 with one fresh pipy-owned `NativeConversationState`.
 
-Each non-empty input line becomes one provider turn. `/exit` and `/quit` are
-the only parsed commands. EOF exits cleanly, interrupt exits with code `130`,
-and the fixed in-memory turn bound stops the loop before it can become
-unbounded. The first provider request uses the conversation-state turn index
-`0` and label `initial`; later no-tool REPL provider requests use subsequent
-conversation-state turn indexes and the closed label `no_tool_repl`. These
-turn indexes and labels are pipy-owned; they are not copied from provider
-metadata and are not derived from prompts, model output, filesystem paths,
-stdout, stderr, secrets, or credentials.
+Each non-empty non-command input line becomes one provider turn. `/exit` and
+`/quit` terminate the session. `/read <workspace-relative-path>` is the only
+interactive workspace command in this slice. EOF exits cleanly, interrupt exits
+with code `130`, and the fixed in-memory turn bound stops provider turns before
+they can become unbounded. The first provider request uses the
+conversation-state turn index `0` and label `initial`; later no-tool REPL
+provider requests use subsequent conversation-state turn indexes and the closed
+label `no_tool_repl`. These turn indexes and labels are pipy-owned; they are
+not copied from provider metadata and are not derived from prompts, model
+output, filesystem paths, stdout, stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
-successful turns prints to stdout, while prompts, diagnostics, finalization,
-errors, interrupt handling, and the turn-limit notice stay on stderr. This is
-separate from one-shot `--native-output json`; the REPL does not add structured
-stdout, a transcript stream, or conversation export.
+successful turns and successful `/read` excerpt text print to stdout, while
+prompts, approval prompts, diagnostics, finalization, errors, interrupt
+handling, command-skip messages, and the turn-limit notice stay on stderr. This
+is separate from one-shot `--native-output json`; the REPL does not add
+structured stdout, a transcript stream, or conversation export.
 
-This REPL is no-tool. It does not parse, execute, archive, or provider-forward
-tool intents, tool observations, read-only repo context, patch proposals, patch
-apply requests, shell commands, verification requests, provider-side built-in
-tools, function calls, or provider metadata. Provider metadata is intentionally
-omitted from REPL provider lifecycle payloads so provider-returned tool intent
-markers cannot become archive content. The only provider-visible content added
-by the REPL is the current input line sent as the user prompt for that turn;
-pipy does not read files or synthesize repo context for it.
+The `/read` command builds one pipy-owned `NativeReadOnlyToolRequest` with
+request kind `explicit-file-excerpt`, a pipy-owned
+`NativeExplicitFileExcerptTarget`, and the existing read-only workspace sandbox
+policy. It resolves the visible approval/sandbox prompt with
+`NativeInteractiveApprovalPromptResolver` before invoking
+`NativeExplicitFileExcerptTool`. The prompt displays only safe operation,
+tool, policy, sandbox, capability, and scope labels. It does not display or
+archive raw prompts, provider output, raw tool arguments, workspace paths,
+command text, stdout, stderr, diffs, patches, file contents, or excerpt text.
+Denied, unavailable, unsupported, mismatched, unsafe-target, skipped, failed,
+and repeated read-command cases fail closed before any read or before any
+second read request.
+
+Provider metadata is intentionally omitted from REPL provider lifecycle payloads
+so provider-returned tool intent markers cannot become archive content. The
+only provider-visible content added by ordinary REPL turns is the current input
+line sent as the user prompt for that turn. Successful `/read` excerpts are
+printed only to the interactive stdout stream in this slice; they are not
+provider-forwarded, archived, included in Markdown, included in catalog/search
+surfaces, or included in one-shot `--native-output json`.
 
 REPL archives reuse existing safe lifecycle event names:
 
 - `native.session.started`
 - `native.provider.started`
 - `native.provider.completed` or `native.provider.failed`
+- `native.tool.started`
+- `native.tool.completed`, `native.tool.skipped`, or `native.tool.failed`
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
 metadata-only and may include safe labels and counters such as provider, model,
-mode `repl`, `tools_enabled=false`, `provider_visible_context_enabled=false`,
-provider turn index/label, status, exit code, duration, normalized usage,
-turn count, and an exit reason label. JSONL, Markdown, catalog/search/inspect
-surfaces, and one-shot `--native-output json` must still omit raw prompts,
-model output, provider responses, provider-native payloads, provider metadata,
-tool arguments, tool results, stdout, stderr, diffs, patches, file contents,
-command output, auth material, secrets, credentials, tokens, private keys, and
-sensitive personal data.
+mode `repl`, `tools_enabled=true`, `read_only_commands_enabled=true`,
+`provider_visible_context_enabled=false`, provider turn index/label, status,
+exit code, duration, normalized usage, turn count, read-command-used state, and
+an exit reason label. Tool lifecycle payloads remain metadata-only and may
+include safe read-tool status, reason labels, approval/sandbox labels,
+capability booleans, counts, source labels, path hashes, and storage booleans.
+JSONL, Markdown, catalog/search/inspect surfaces, and one-shot
+`--native-output json` must still omit raw prompts, model output, provider
+responses, provider-native payloads, provider metadata, raw approval prompts,
+raw tool arguments, raw tool results, stdout, stderr, diffs, patches, full file
+contents, command output, auth material, secrets, credentials, tokens, private
+keys, and sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 
@@ -900,14 +920,14 @@ Approval and sandbox enforcement are native gates for tool-capable behavior.
 This baseline defines the contract before broad interactive read tools, write
 tools, shell execution, network access, verification commands, provider-side
 tools, or runtime sandbox enforcement exist. The current `pipy-native` runtime
-remains bounded to one initial provider turn plus optional one fake no-op tool
-invocation and, for explicitly supported sanitized fixtures only, one
-follow-up provider turn. The first visible approval prompt foundation described
-below exists as an injected native helper for read-only workspace inspection;
-the public no-tool REPL still does not parse or execute tools, and this
-baseline still does not add broad interactive tools, network access, provider
-tool use, live shell execution, archive writes for live context beyond existing
-metadata-only events, or a general model/tool loop.
+remains bounded to one initial provider turn plus optional one no-op or
+read-only explicit-file-excerpt tool invocation and, for explicitly supported
+sanitized fixtures only, one follow-up provider turn. The visible approval
+prompt foundation described below is wired only into the explicit interactive
+`/read` command for read-only workspace inspection; this baseline still does
+not add broad interactive tools, network access, provider tool use, live shell
+execution, archive writes for live context beyond existing metadata-only
+events, or a general model/tool loop.
 
 Approval decision labels are `pending`, `allowed`, `denied`, `skipped`, and
 `failed`.
@@ -1064,12 +1084,11 @@ UI and unsupported request kinds map to `SKIPPED`; unsupported policies,
 sandbox mismatches, unsafe data, capability escalation, and resolver failures
 map to `FAILED`.
 
-This slice adds no new archive event type and no new `--native-output json`
-fields. The helper exposes `safe_metadata()` methods for future archive wiring,
-but current one-shot `pipy run --agent pipy-native` behavior and
-`pipy repl --agent pipy-native` no-tool behavior remain unchanged. The next
-interactive slice must explicitly wire this resolver before any read-only
-workspace operation is exposed from the shell.
+This foundation slice added no new archive event type and no new
+`--native-output json` fields. The helper exposes `safe_metadata()` methods for
+future archive wiring. A later interactive slice wired this resolver into the
+single explicit `/read` command before any read-only workspace operation is
+exposed from the shell.
 
 ### Native Read-Only Tool Request Value Objects
 
@@ -2005,10 +2024,10 @@ Implementation note: the first native slices are implemented as
 - focused provider, tool, session, runner, CLI, and catalog compatibility tests
 
 These slices deliberately remain partial. They do not implement a full
-model/tool loop, real filesystem or shell tool execution, OAuth, provider
-registries, retries, approval prompts, sandbox enforcement, external-agent
-adapters, raw transcript import, TUI/RPC modes, indexed search, compaction,
-branching, or multi-agent orchestration.
+model/tool loop, broad filesystem or shell tool execution, OAuth, provider
+registries, retries, broad approval prompts, runtime sandbox enforcement,
+external-agent adapters, raw transcript import, TUI/RPC modes, indexed search,
+compaction, branching, or multi-agent orchestration.
 
 The native conversation state slice defines inert runtime concepts under
 `pipy_harness.native.conversation`. `NativeConversationIdentity`,
@@ -2038,11 +2057,13 @@ This rebase does not emit new conversation or turn archive events. Existing
 metadata-only archive, and provider/tool behavior remain unchanged.
 
 `pipy repl --agent pipy-native` now uses the same conversation/turn core for a
-bounded no-tool interactive shell. Its provider turns are allocated from
+bounded interactive shell. Its ordinary provider turns are allocated from
 `NativeConversationState`, with `initial` for the first turn and
-`no_tool_repl` for later REPL turns. It does not expose tools, provider
-metadata, repo context, patching, verification, streaming, retries, fallback,
-TUI rendering, or conversation export. A tool-capable shell should not be
+`no_tool_repl` for later REPL turns. It exposes only one approved read-only
+`/read` command and does not provider-forward its excerpt. It still does not
+expose provider metadata, patching, verification, streaming, retries, fallback,
+TUI rendering, conversation export, or a general model/tool loop. A broader
+tool-capable shell should not be
 introduced before approval and sandbox boundaries are ready for interactive
 use.
 

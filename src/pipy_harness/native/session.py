@@ -47,6 +47,11 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.approval_prompt import (
+    NativeApprovalPromptResolver,
+    NativeInteractiveApprovalPromptResolver,
+    resolve_read_only_workspace_approval,
+)
 from pipy_harness.native.patch_apply import (
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,
@@ -177,6 +182,7 @@ INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
 NO_TOOL_REPL_PROVIDER_TURN_LABEL = "no_tool_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
+READ_ONLY_REPL_COMMAND = "/read"
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,7 +549,7 @@ class NativeAgentSession:
 
 @dataclass(slots=True)
 class NativeNoToolReplSession:
-    """Owns one bounded no-tool native REPL session."""
+    """Owns one bounded native REPL session with one explicit read command."""
 
     provider: ProviderPort
     max_turns: int = NativeConversationState.MAX_TURNS
@@ -562,7 +568,8 @@ class NativeNoToolReplSession:
         safe_context = {
             **_safe_context(run_input),
             "mode": "repl",
-            "tools_enabled": False,
+            "tools_enabled": True,
+            "read_only_commands_enabled": True,
             "provider_visible_context_enabled": False,
             "max_turns": self.max_turns,
         }
@@ -585,6 +592,7 @@ class NativeNoToolReplSession:
         error_type: str | None = None
         error_message: str | None = None
         exit_reason = "eof"
+        read_command_used = False
 
         while conversation_state.turn_count < self.max_turns:
             try:
@@ -609,6 +617,23 @@ class NativeNoToolReplSession:
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
                 exit_reason = "explicit_exit"
                 break
+            if command == READ_ONLY_REPL_COMMAND or command.startswith(f"{READ_ONLY_REPL_COMMAND} "):
+                if read_command_used:
+                    print(
+                        "pipy: read command skipped: read_command_limit_reached.",
+                        file=error_stream,
+                    )
+                    continue
+                read_command_used = _handle_repl_read_command(
+                    command,
+                    run_input,
+                    event_sink,
+                    safe_context,
+                    input_stream=input_stream,
+                    output_stream=output_stream,
+                    error_stream=error_stream,
+                )
+                continue
 
             provider_turn_label = (
                 INITIAL_PROVIDER_TURN_LABEL
@@ -653,6 +678,7 @@ class NativeNoToolReplSession:
                 "status": status.value,
                 "exit_code": exit_code,
                 "turn_count": conversation_state.provider_turn_count,
+                "read_command_used": read_command_used,
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
             },
@@ -675,6 +701,92 @@ class NativeNoToolReplSession:
             error_type=error_type,
             error_message=error_message,
         )
+
+
+def _handle_repl_read_command(
+    command: str,
+    run_input: NativeRunInput,
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    *,
+    input_stream: TextIO,
+    output_stream: TextIO,
+    error_stream: TextIO,
+) -> bool:
+    raw_target = command[len(READ_ONLY_REPL_COMMAND) :].strip()
+    if not raw_target:
+        print("pipy: /read requires a workspace-relative path.", file=error_stream)
+        return False
+
+    identity = NativeToolRequestIdentity.current_noop()
+    try:
+        request = NativeReadOnlyToolRequest(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            request_kind=NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT,
+            scope_label="interactive_read",
+        )
+        target = NativeExplicitFileExcerptTarget(workspace_relative_path=raw_target)
+    except ValueError:
+        tool_request = _repl_read_tool_request()
+        tool_result = _skipped_tool_result(
+            tool_request,
+            error_type="NativeReadOnlyToolSkipped",
+            error_message="unsafe_repl_read_target",
+        )
+        _emit_tool_result_event(
+            event_sink,
+            safe_context,
+            tool_request,
+            tool_result,
+            reason="unsafe_repl_read_target",
+        )
+        print("pipy: read command skipped: unsafe_repl_read_target.", file=error_stream)
+        return True
+
+    resolver: NativeApprovalPromptResolver = NativeInteractiveApprovalPromptResolver(
+        input_stream=input_stream,
+        output_stream=error_stream,
+    )
+    resolution = resolve_read_only_workspace_approval(request, resolver)
+    tool_request = _repl_read_tool_request()
+    event_sink.emit(
+        "native.tool.started",
+        summary=(
+            "Native tool invocation started: "
+            f"tool={sanitize_text(tool_request.tool_name)}, kind={sanitize_text(tool_request.tool_kind)}."
+        ),
+        payload={
+            **safe_context,
+            **_safe_tool_context(tool_request),
+            "status": NativeToolStatus.RUNNING.value,
+        },
+    )
+    try:
+        read_only_result = NativeExplicitFileExcerptTool(run_input.cwd).invoke(
+            request,
+            resolution.gate_decision,
+            target,
+        )
+    except Exception as exc:
+        tool_result = _failed_tool_result(tool_request, exc, started_at=_utc_now())
+        _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
+        print("pipy: read command failed: read_failed.", file=error_stream)
+        return True
+
+    tool_result = _tool_result_from_read_only_result(read_only_result)
+    _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
+    if read_only_result.status != NativeToolStatus.SUCCEEDED or read_only_result.excerpt is None:
+        print(
+            f"pipy: read command skipped: {read_only_result.reason_label.value}.",
+            file=error_stream,
+        )
+        return True
+
+    print(read_only_result.excerpt.text, end="", file=output_stream, flush=True)
+    if not read_only_result.excerpt.text.endswith("\n"):
+        print(file=output_stream, flush=True)
+    return True
 
 
 def _build_system_prompt() -> str:
@@ -1331,6 +1443,20 @@ def _noop_tool_request() -> NativeToolRequest:
             "internal_noop": True,
             "tool_payloads_stored": False,
         },
+    )
+
+
+def _repl_read_tool_request() -> NativeToolRequest:
+    identity = NativeToolRequestIdentity.current_noop()
+    return NativeToolRequest(
+        request_id=identity.request_id,
+        tool_name=READ_ONLY_TOOL_NAME,
+        tool_kind=READ_ONLY_TOOL_KIND,
+        approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED),
+        sandbox_policy=NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE,
+            workspace_read_allowed=True,
+        ),
     )
 
 

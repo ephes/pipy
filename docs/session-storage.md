@@ -405,8 +405,8 @@ implemented command is `pipy run`. It can run one arbitrary subprocess command
 or one minimal native pipy bootstrap turn, records conservative lifecycle
 metadata through the same recorder lifecycle, finalizes the record, and returns
 the adapter exit code. The first interactive native shell is `pipy repl
---agent pipy-native`; it uses the same recorder lifecycle for a bounded
-no-tool provider REPL.
+--agent pipy-native`; it uses the same recorder lifecycle for bounded provider
+turns and one explicit approved read-only `/read` command.
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
@@ -469,20 +469,24 @@ provider-native usage keys and unavailable counters are omitted. Native runs
 require `--goal`; that field remains user-visible archive metadata, so keep it
 short and non-sensitive.
 
-The native no-tool REPL is selected with `pipy repl --agent pipy-native`.
-It reads input lines from stdin, sends each non-empty line to the selected
-provider as one provider turn, prints successful provider final text to stdout,
-and keeps prompts, diagnostics, finalization, interrupt handling, and
-turn-limit notices on stderr. `/exit` and `/quit` are the only parsed commands;
-EOF and interrupt also terminate cleanly. REPL session records use the same
-metadata-only lifecycle vocabulary and do not archive raw input lines, provider
-final text, provider metadata, provider-returned tool intent markers, stdout,
-stderr, prompts, model output, provider responses, provider-native payloads,
-tool arguments, tool results, repo context, patches, command output, auth
-material, secrets, credentials, tokens, private keys, or sensitive personal
-data. The REPL does not read files, produce provider-visible repo context,
-execute tools, apply patches, run shell commands, run verification, enable
-provider-side tools, or emit tool lifecycle events.
+The native REPL is selected with `pipy repl --agent pipy-native`. It reads input
+lines from stdin, sends each non-empty non-command line to the selected provider
+as one provider turn, prints successful provider final text to stdout, and keeps
+prompts, approval prompts, diagnostics, finalization, interrupt handling,
+command-skip messages, and turn-limit notices on stderr. `/exit` and `/quit`
+terminate cleanly. `/read <workspace-relative-path>` is the only interactive
+workspace command in this slice; it prompts for visible approval before a
+bounded explicit-file-excerpt read can occur, prints a successful excerpt only
+to interactive stdout, and does not provider-forward the excerpt. REPL session
+records use the same metadata-only lifecycle vocabulary and do not archive raw
+input lines, provider final text, provider metadata, provider-returned tool
+intent markers, raw approval prompts, raw tool arguments, raw tool results,
+stdout, stderr, prompts, model output, provider responses,
+provider-native payloads, repo context, patches, command output, full file
+contents, auth material, secrets, credentials, tokens, private keys, or
+sensitive personal data. The REPL still does not apply patches, run shell
+commands, run verification, enable provider-side tools, or expose a general
+model/tool loop.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -608,10 +612,12 @@ successful provider final text is terminal output, not archived session data.
 Session finalization messages, diagnostics, and errors go to stderr. Failed
 native runs do not print provider final text to stdout.
 
-For the no-tool REPL, each successful provider turn follows the same split:
-provider final text prints to stdout, while the `pipy-native>` prompt and all
-harness/session messages stay on stderr. The REPL does not add structured
-stdout, JSONL event streaming, transcript export, or raw conversation storage.
+For the REPL, each successful provider turn follows the same split: provider
+final text prints to stdout, while the `pipy-native>` prompt and all
+harness/session messages stay on stderr. Successful `/read` excerpt text also
+prints only to interactive stdout. The REPL does not add structured stdout,
+JSONL event streaming, transcript export, raw conversation storage, or raw
+excerpt storage.
 
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject
@@ -663,14 +669,21 @@ emitting `native.tool.intent.detected` or `native.tool.started`. Safe no-op
 tool success is followed directly by `native.session.completed`; there is no
 post-tool `native.provider.started` event in the current contract.
 
-No-tool REPL records use the existing session and provider lifecycle events
-without tool, patch, or verification events:
+REPL records use the existing session and provider lifecycle events for
+ordinary non-command provider turns:
 
 ```text
 native.session.started
 native.provider.started              # once per non-empty input line
 native.provider.completed | native.provider.failed
 native.session.completed
+```
+
+The explicit `/read` command may add one metadata-only read-tool lifecycle:
+
+```text
+native.tool.started
+native.tool.completed | native.tool.skipped | native.tool.failed
 ```
 
 REPL provider lifecycle payloads include provider turn indexes and labels from

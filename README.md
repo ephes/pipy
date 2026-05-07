@@ -155,6 +155,17 @@ raw tool arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, and sensitive personal data must not be
 stored by default.
 
+`pipy repl --agent pipy-native` is the first interactive native shell. Ordinary
+non-command input lines remain bounded no-tool provider turns. The explicit
+`/read <workspace-relative-path>` command may run once per REPL session after a
+visible approval/sandbox prompt on stderr; a successful bounded excerpt prints
+only to the interactive stdout stream and is not provider-forwarded or archived.
+Denied, unavailable, unsafe, skipped, failed, and repeated read-command cases
+fail closed without reading. REPL archives remain metadata-only and omit raw
+approval prompts, raw tool arguments, raw tool results, stdout, stderr, full
+file contents, prompts, model output, provider responses, auth material,
+secrets, credentials, tokens, private keys, and sensitive personal data.
+
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
 finalization messages, diagnostics, and errors go to stderr so stdout remains
@@ -203,11 +214,11 @@ observation fixture. It also includes a fixture-gated explicit-file-excerpt
 read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
-boundary for `just check`. Normal OpenAI/OpenRouter CLI runs still do not expose
-general model-selected tool use, approval prompts, sandbox enforcement, the
-public controls for the verification-command boundary, arbitrary shell
-execution, retries, streaming, provider registry, OAuth, or raw transcript
-import.
+boundary for `just check`. The REPL exposes only the explicit approved `/read`
+command; normal OpenAI/OpenRouter CLI runs still do not expose general
+model-selected tool use, provider-side tools, the public controls for the
+verification-command boundary, arbitrary shell execution, retries, streaming,
+provider registry, OAuth, or raw transcript import.
 
 ## Session Recorder CLI
 

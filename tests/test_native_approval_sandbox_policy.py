@@ -37,7 +37,7 @@ def test_native_approval_and_sandbox_baseline_is_documented():
     compact_policy = collapse_whitespace(policy_section)
 
     assert "### Native Approval And Sandbox Enforcement Baseline" in compact_policy
-    assert "first visible approval prompt foundation" in compact_policy
+    assert "visible approval prompt foundation" in compact_policy
     assert "sandbox enforcement" in compact_policy
     assert "broad interactive tools" in compact_policy
     assert "provider-visible context" in compact_policy
@@ -305,17 +305,21 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native visible approval and sandbox prompt foundation" in compact_done
     assert "stream-based approval resolver" in compact_done
     assert "attempted capability escalation" in compact_done
-    assert "### Wire one narrow interactive read-only command behind the prompt gate" in next_slice
-    assert "visible approval/sandbox prompt foundation before any file read occurs" in compact_next_slice
-    assert "do not read" in compact_next_slice
-    assert "ordinary no-tool REPL turns remain unchanged" in compact_next_slice
+    assert "Native interactive read-only REPL command behind the prompt gate" in compact_done
+    assert "`/read <workspace-relative-path>`" in compact_done
+    assert "records only metadata-only tool lifecycle events" in compact_done
+    assert "### Choose the next interactive provider-visible context boundary" in next_slice
+    assert "manual smoke testing of the explicit `/read` command" in compact_next_slice
+    assert "provider-visible in-memory context handoff" in compact_next_slice
+    assert "ordinary non-command REPL turns as no-tool provider turns" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
-    assert "No-tool REPL gate: available now" in compact_near_term
+    assert "No-tool provider-turn REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
     assert "Visible approval prompt gate: available now" in compact_near_term
-    assert "Tool-capable shell gate" in compact_near_term
+    assert "Narrow read-only shell command gate: available now" in compact_near_term
+    assert "Provider-visible interactive context gate" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
@@ -331,17 +335,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
 
 
-def test_visible_prompt_foundation_is_not_threaded_into_public_native_runtime():
+def test_visible_prompt_foundation_is_threaded_only_into_the_repl_command_path():
+    session_source = (ROOT / "src/pipy_harness/native/session.py").read_text(encoding="utf-8")
+    assert "resolve_read_only_workspace_approval" in session_source
+    assert "NativeInteractiveApprovalPromptResolver" in session_source
+    assert "READ_ONLY_REPL_COMMAND" in session_source
+
     forbidden_runtime_terms = {
         "approval.requested",
         "approval.resolved",
-        "native.approval",
+        '"native.approval',
         "sandbox_enforcer",
         "SandboxEnforcer",
         "enforce_sandbox",
         "sandbox_check",
-        "resolve_read_only_workspace_approval",
-        "NativeInteractiveApprovalPromptResolver",
     }
     runtime_sources = [
         ROOT / "src/pipy_harness/native/session.py",
@@ -353,3 +360,8 @@ def test_visible_prompt_foundation_is_not_threaded_into_public_native_runtime():
         source = source_path.read_text(encoding="utf-8")
         for term in forbidden_runtime_terms:
             assert term not in source, f"{term!r} found in {source_path}"
+
+    for source_path in (ROOT / "src/pipy_harness/adapters/native.py", ROOT / "src/pipy_harness/cli.py"):
+        source = source_path.read_text(encoding="utf-8")
+        assert "resolve_read_only_workspace_approval" not in source
+        assert "NativeInteractiveApprovalPromptResolver" not in source

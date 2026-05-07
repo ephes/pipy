@@ -272,25 +272,38 @@ reviewable change while keeping the source-of-truth design constraints in
   unsupported sandbox mode, sandbox mismatch, unsafe request data, and
   attempted capability escalation. This slice adds no public tool-capable REPL
   command, no new archive event, and no new structured stdout fields.
+- Native interactive read-only REPL command behind the prompt gate:
+  `pipy repl --agent pipy-native` now accepts one explicit `/read
+  <workspace-relative-path>` command per session. The command builds
+  pipy-owned explicit-file-excerpt request and target data, resolves the
+  visible approval/sandbox prompt on stderr before the bounded file tool can
+  read, prints a successful excerpt only to the interactive stdout stream, and
+  records only metadata-only tool lifecycle events. Denied, unavailable,
+  unsafe-target, skipped, and repeated read-command cases fail closed without
+  reading. Ordinary non-command REPL messages remain no-tool provider turns,
+  one-shot native stdout/JSON/archive contracts remain unchanged, and archives
+  still omit raw approval prompts, raw tool arguments, raw tool results,
+  stdout, stderr, diffs, full file contents, command output, auth material,
+  secrets, credentials, tokens, private keys, and sensitive personal data.
 
 ## Next Slice
 
-### Wire one narrow interactive read-only command behind the prompt gate
+### Choose the next interactive provider-visible context boundary
 
-Goal: expose the smallest deliberately named no-surprises interactive read-only
-workspace inspection command from `pipy repl --agent pipy-native`, using the
-visible approval/sandbox prompt foundation before any file read occurs.
+Goal: after manual smoke testing of the explicit `/read` command, choose the
+next small boundary for making approved interactive context useful to the
+provider without widening into a general tool loop.
 
 Selected shape:
 
-- keep the command explicit and narrow, likely one fixed slash command for
-  explicit file excerpts
-- require a pipy-owned request, target, visible approval prompt, and read-only
-  sandbox posture before execution
-- print any resulting excerpt only to the interactive output stream, not to
-  JSONL, Markdown, catalog surfaces, or `--native-output json`
-- preserve one-shot native stdout/JSON/archive contracts and keep non-command
-  REPL messages as no-tool provider turns
+- start from the current explicit `/read` command and its metadata-only archive
+  behavior
+- decide whether the next slice should be a provider-visible in-memory context
+  handoff, an explicit ask-with-file command, or more prompt/sandbox hardening
+- keep any provider-visible context bounded, explicitly user-approved, and out
+  of JSONL, Markdown, catalog surfaces, and `--native-output json`
+- preserve ordinary non-command REPL turns as no-tool provider turns unless a
+  new explicit command says otherwise
 
 Keep out of scope:
 
@@ -306,9 +319,9 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the command cannot read unless the visible prompt is approved
-- denied, unavailable, unsupported, and mismatched policy cases fail closed and
-  do not read
+- the next implementation boundary is documented before it is coded
+- the existing `/read` behavior keeps passing manual smoke tests and focused
+  CLI tests
 - archive records remain metadata-only and compatible with `pipy-session
   verify`, `list`, `search`, and `inspect`
 - normal one-shot native behavior and ordinary no-tool REPL turns remain
@@ -324,15 +337,17 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Add visible approval and sandbox prompts before any real read/write/shell
-   tool loop is exposed to interactive use.
+1. Choose the next explicit provider-visible context boundary after manually
+   exercising the approved `/read` command.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
-no-tool shell is available through `pipy repl --agent pipy-native`, but it does
-not read files, apply patches, execute commands, verify changes, or expose
-tools yet.
+shell is available through `pipy repl --agent pipy-native`; it now has one
+approved read-only `/read <workspace-relative-path>` command, but it still does
+not provider-forward interactive read results, apply patches, execute commands,
+run verification, expose provider-side tools, or support a general model/tool
+loop.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -348,7 +363,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Wire one narrow interactive read-only command behind the prompt gate.
+1. Choose the next interactive provider-visible context boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -357,15 +372,18 @@ Foundation gates toward an interactive shell:
 - Conversation-state gate: available now in the one-shot runtime; provider turn
   indexes and labels are allocated from per-run in-memory conversation state
   without changing archive or stdout contracts.
-- No-tool REPL gate: available now through `pipy repl --agent pipy-native`.
+- No-tool provider-turn REPL gate: available now through `pipy repl --agent
+  pipy-native`.
   It reuses the same conversation state for repeated no-tool provider turns and
   keeps archives metadata-only.
 - Visible approval prompt gate: available now as an injected native helper for
-  read-only workspace inspection. It is not yet wired into a public REPL
+  read-only workspace inspection and is wired into the explicit `/read`
   command.
-- Tool-capable shell gate: deferred until the prompt helper is wired into one
-  explicit interactive read-only command and metadata-only observation handling
-  remains compatible.
+- Narrow read-only shell command gate: available now through `/read
+  <workspace-relative-path>`, bounded to one approved explicit-file-excerpt
+  request per REPL session.
+- Provider-visible interactive context gate: deferred until the next explicit
+  boundary is chosen and metadata-only archive handling remains compatible.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
