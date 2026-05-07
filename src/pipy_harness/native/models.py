@@ -17,6 +17,7 @@ PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY = "pipy_native_read_only_tool_fixtu
 PROVIDER_PATCH_PROPOSAL_METADATA_KEY = "pipy_native_patch_proposal"
 NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
 NATIVE_PATCH_PROPOSAL_RECORDED_EVENT = "native.patch.proposal.recorded"
+NATIVE_PATCH_APPLY_RECORDED_EVENT = "native.patch.apply.recorded"
 NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
     {
         "tool_payloads_stored",
@@ -79,6 +80,17 @@ NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS = frozenset(
         "provider_responses_stored",
         "raw_transcript_imported",
         "workspace_mutated",
+    }
+)
+NATIVE_PATCH_APPLY_STORAGE_KEYS = frozenset(
+    {
+        "patch_text_stored",
+        "diffs_stored",
+        "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
     }
 )
 
@@ -192,6 +204,15 @@ class NativePatchProposalReason(StrEnum):
 
 class NativePatchProposalOperation(StrEnum):
     """Safe operation labels allowed in metadata-only patch proposals."""
+
+    CREATE = "create"
+    MODIFY = "modify"
+    DELETE = "delete"
+    RENAME = "rename"
+
+
+class NativePatchApplyOperation(StrEnum):
+    """Supported supervised workspace mutation operation labels."""
 
     CREATE = "create"
     MODIFY = "modify"
@@ -489,6 +510,121 @@ class NativePatchProposal:
         for field_name in NATIVE_PATCH_PROPOSAL_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
                 raise ValueError(f"{field_name} must remain false for patch proposals")
+
+
+@dataclass(frozen=True, slots=True)
+class NativePatchApplyOperationRequest:
+    """One human-reviewed in-memory patch apply operation.
+
+    New file text is carried only in memory for the mutating tool. It must not
+    be copied into archive events, Markdown summaries, or structured stdout.
+    """
+
+    operation: NativePatchApplyOperation
+    workspace_relative_path: str
+    new_text: str | None = None
+    expected_sha256: str | None = None
+    target_workspace_relative_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativePatchApplyRequest:
+    """Pipy-owned, human-reviewed request for one bounded patch application."""
+
+    tool_request_id: str
+    turn_index: int
+    operations: tuple[NativePatchApplyOperationRequest, ...]
+    request_source: str = "pipy-owned-human-reviewed"
+    approval_policy: NativeToolApprovalPolicy = field(
+        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+    )
+    sandbox_policy: NativeToolSandboxPolicy = field(
+        default_factory=lambda: NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.MUTATING_WORKSPACE,
+            workspace_read_allowed=True,
+            filesystem_mutation_allowed=True,
+        )
+    )
+    scope_label: str | None = None
+    patch_text_stored: bool = False
+    diffs_stored: bool = False
+    file_contents_stored: bool = False
+    prompt_stored: bool = False
+    model_output_stored: bool = False
+    provider_responses_stored: bool = False
+    raw_transcript_imported: bool = False
+
+    MAX_FILE_COUNT: ClassVar[int] = 5
+    MAX_OPERATION_COUNT: ClassVar[int] = 10
+
+    def __post_init__(self) -> None:
+        identity = NativeToolRequestIdentity.current_noop()
+        if self.tool_request_id != identity.request_id:
+            raise ValueError("patch apply requires pipy-owned tool_request_id")
+        if self.turn_index != identity.turn_index:
+            raise ValueError("patch apply requires pipy-owned turn_index")
+        if self.request_source != "pipy-owned-human-reviewed":
+            raise ValueError("patch apply requires pipy-owned human-reviewed request source")
+        if self.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
+            raise ValueError("patch apply requires approval")
+        if self.sandbox_policy.mode != NativeToolSandboxMode.MUTATING_WORKSPACE:
+            raise ValueError("patch apply requires mutating-workspace sandbox")
+        if self.sandbox_policy.workspace_read_allowed is not True:
+            raise ValueError("patch apply requires workspace_read_allowed")
+        if self.sandbox_policy.filesystem_mutation_allowed is not True:
+            raise ValueError("patch apply requires filesystem_mutation_allowed")
+        if self.sandbox_policy.shell_execution_allowed is not False:
+            raise ValueError("patch apply forbids shell_execution_allowed")
+        if self.sandbox_policy.network_access_allowed is not False:
+            raise ValueError("patch apply forbids network_access_allowed")
+        if not self.operations:
+            raise ValueError("patch apply requires at least one operation")
+        if len(self.operations) > self.MAX_OPERATION_COUNT:
+            raise ValueError("patch apply operation count exceeds the bounded limit")
+        distinct_paths: set[str] = set()
+        for operation in self.operations:
+            if not isinstance(operation, NativePatchApplyOperationRequest):
+                raise ValueError("patch apply operations must use native request objects")
+            if not isinstance(operation.operation, NativePatchApplyOperation):
+                raise ValueError("patch apply operation labels must be native labels")
+            if not isinstance(operation.workspace_relative_path, str):
+                raise ValueError("patch apply workspace_relative_path must be a string")
+            if operation.new_text is not None and not isinstance(operation.new_text, str):
+                raise ValueError("patch apply new_text must be a string")
+            if operation.expected_sha256 is not None and not isinstance(operation.expected_sha256, str):
+                raise ValueError("patch apply expected_sha256 must be a string")
+            if (
+                operation.target_workspace_relative_path is not None
+                and not isinstance(operation.target_workspace_relative_path, str)
+            ):
+                raise ValueError("patch apply target_workspace_relative_path must be a string")
+            if (
+                operation.operation != NativePatchApplyOperation.RENAME
+                and operation.target_workspace_relative_path is not None
+            ):
+                raise ValueError("patch apply target paths are supported only for rename operations")
+            if operation.operation == NativePatchApplyOperation.RENAME:
+                if operation.target_workspace_relative_path is None:
+                    raise ValueError("patch apply rename requires a target path")
+                if operation.new_text is not None:
+                    raise ValueError("patch apply rename must not carry new_text")
+            if operation.operation == NativePatchApplyOperation.DELETE:
+                if operation.new_text is not None or operation.target_workspace_relative_path is not None:
+                    raise ValueError("patch apply delete must not carry new_text or target path")
+            paths_for_operation = [operation.workspace_relative_path]
+            if operation.target_workspace_relative_path is not None:
+                paths_for_operation.append(operation.target_workspace_relative_path)
+            for workspace_path in paths_for_operation:
+                if workspace_path in distinct_paths:
+                    raise ValueError("patch apply operations must not overlap workspace paths")
+                distinct_paths.add(workspace_path)
+        if len(distinct_paths) > self.MAX_FILE_COUNT:
+            raise ValueError("patch apply file count exceeds the bounded limit")
+        for field_name in NATIVE_PATCH_APPLY_STORAGE_KEYS:
+            if getattr(self, field_name) is not False:
+                raise ValueError(f"{field_name} must remain false for patch apply requests")
+        if self.scope_label is not None:
+            _validate_scope_label(self.scope_label)
 
 
 @dataclass(frozen=True, slots=True)

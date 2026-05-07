@@ -12,11 +12,13 @@ from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    NativePatchApplyRequest,
     NativePatchProposal,
     NativePatchProposalOperation,
     NativePatchProposalReason,
@@ -41,6 +43,13 @@ from pipy_harness.native.models import (
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
+)
+from pipy_harness.native.patch_apply import (
+    NativePatchApplyApprovalDecision,
+    NativePatchApplyGateDecision,
+    NativePatchApplyReason,
+    NativePatchApplyResult,
+    NativePatchApplyTool,
 )
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.read_only_tool import (
@@ -187,6 +196,8 @@ class NativeAgentSession:
 
     provider: ProviderPort
     tool: ToolPort = field(default_factory=FakeNoOpNativeTool)
+    patch_apply_request: NativePatchApplyRequest | None = None
+    patch_apply_gate: NativePatchApplyGateDecision | None = None
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = _utc_now()
@@ -218,6 +229,7 @@ class NativeAgentSession:
         observation_failure_reason: NativeToolObservationReason | None = None
         follow_up_provider_result: ProviderResult | None = None
         follow_up_provider_usage: dict[str, int | float] = {}
+        patch_apply_result: NativePatchApplyResult | None = None
         if provider_result.status == HarnessStatus.SUCCEEDED:
             parsed_intent = _parse_tool_intent(provider_result)
             if parsed_intent.intent is not None:
@@ -253,6 +265,15 @@ class NativeAgentSession:
                                     safe_context,
                                     parsed_proposal.proposal,
                                 )
+                                if (
+                                    parsed_proposal.proposal.status == NativePatchProposalStatus.PROPOSED
+                                    and self.patch_apply_request is not None
+                                ):
+                                    patch_apply_result = self._invoke_patch_apply(
+                                        run_input,
+                                        event_sink,
+                                        safe_context,
+                                    )
                     else:
                         parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
                         if parsed_observation.observation is not None:
@@ -313,6 +334,7 @@ class NativeAgentSession:
             tool_result,
             observation_failure_reason=observation_failure_reason,
             follow_up_provider_result=follow_up_provider_result,
+            patch_apply_result=patch_apply_result,
         )
         exit_code = 0 if final_status == HarnessStatus.SUCCEEDED else 1
         event_sink.emit(
@@ -339,12 +361,14 @@ class NativeAgentSession:
                 tool_result,
                 observation_failure_reason=observation_failure_reason,
                 follow_up_provider_result=follow_up_provider_result,
+                patch_apply_result=patch_apply_result,
             ),
             error_message=_native_error_message(
                 provider_result,
                 tool_result,
                 observation_failure_reason=observation_failure_reason,
                 follow_up_provider_result=follow_up_provider_result,
+                patch_apply_result=patch_apply_result,
             ),
         )
 
@@ -507,6 +531,26 @@ class NativeAgentSession:
         if read_only_result.status != NativeToolStatus.SUCCEEDED or read_only_result.excerpt is None:
             return tool_result, None
         return tool_result, read_only_result
+
+    def _invoke_patch_apply(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+    ) -> NativePatchApplyResult:
+        if self.patch_apply_request is None:
+            raise RuntimeError("patch apply request is required")
+        gate = self.patch_apply_gate
+        if gate is None:
+            gate = NativePatchApplyGateDecision(
+                approval_decision=NativePatchApplyApprovalDecision.SKIPPED
+            )
+        try:
+            result = NativePatchApplyTool(run_input.cwd).invoke(self.patch_apply_request, gate)
+        except Exception as exc:
+            result = _failed_patch_apply_result(self.patch_apply_request, gate, exc)
+        _emit_patch_apply_recorded(event_sink, safe_context, result)
+        return result
 
 
 def _build_system_prompt() -> str:
@@ -1222,6 +1266,24 @@ def _emit_patch_proposal_recorded(
     )
 
 
+def _emit_patch_apply_recorded(
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    result: NativePatchApplyResult,
+) -> None:
+    event_sink.emit(
+        NATIVE_PATCH_APPLY_RECORDED_EVENT,
+        summary=(
+            "Native patch apply recorded: "
+            f"status={result.status.value}, file_count={result.file_count}."
+        ),
+        payload={
+            **safe_context,
+            **result.archive_metadata(),
+        },
+    )
+
+
 def _safe_observation_context(observation: NativeToolObservation) -> dict[str, object]:
     payload: dict[str, object] = {
         "tool_request_id": observation.tool_request_id,
@@ -1351,6 +1413,44 @@ def _failed_tool_result(
     )
 
 
+def _failed_patch_apply_result(
+    request: NativePatchApplyRequest,
+    gate: NativePatchApplyGateDecision,
+    exc: Exception,
+) -> NativePatchApplyResult:
+    _ = exc
+    now = _utc_now()
+    return NativePatchApplyResult(
+        status=NativeToolStatus.FAILED,
+        reason_label=NativePatchApplyReason.WRITE_FAILED,
+        tool_request_id=request.tool_request_id,
+        turn_index=request.turn_index,
+        started_at=now,
+        ended_at=now,
+        file_count=_patch_apply_file_count(request),
+        operation_count=len(request.operations),
+        operation_labels=tuple(operation.operation for operation in request.operations),
+        approval_policy=request.approval_policy.mode,
+        approval_decision=gate.approval_decision,
+        sandbox_policy=request.sandbox_policy.mode,
+        workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+        filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+        shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+        network_access_allowed=request.sandbox_policy.network_access_allowed,
+        workspace_mutated=False,
+        scope_label=request.scope_label,
+    )
+
+
+def _patch_apply_file_count(request: NativePatchApplyRequest) -> int:
+    paths: set[str] = set()
+    for operation in request.operations:
+        paths.add(operation.workspace_relative_path)
+        if operation.target_workspace_relative_path is not None:
+            paths.add(operation.target_workspace_relative_path)
+    return len(paths)
+
+
 def _merge_provider_usage(
     first: Mapping[str, int | float],
     second: Mapping[str, int | float],
@@ -1370,6 +1470,7 @@ def _final_status(
     *,
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
+    patch_apply_result: NativePatchApplyResult | None,
 ) -> HarnessStatus:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return provider_result.status
@@ -1378,6 +1479,10 @@ def _final_status(
     if observation_failure_reason is not None:
         return HarnessStatus.FAILED
     if follow_up_provider_result is not None:
+        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED and (
+            patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED
+        ):
+            return HarnessStatus.FAILED
         return follow_up_provider_result.status
     return HarnessStatus.SUCCEEDED
 
@@ -1388,6 +1493,7 @@ def _native_error_type(
     *,
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
+    patch_apply_result: NativePatchApplyResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_type)
@@ -1397,6 +1503,10 @@ def _native_error_type(
         return "NativeToolObservationSkipped"
     if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(follow_up_provider_result.error_type)
+    if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
+        if patch_apply_result.status == NativeToolStatus.SKIPPED:
+            return "NativePatchApplySkipped"
+        return "NativePatchApplyFailed"
     return None
 
 
@@ -1406,6 +1516,7 @@ def _native_error_message(
     *,
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
+    patch_apply_result: NativePatchApplyResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_message)
@@ -1415,6 +1526,8 @@ def _native_error_message(
         return observation_failure_reason.value
     if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(follow_up_provider_result.error_message)
+    if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
+        return patch_apply_result.reason_label.value
     return None
 
 

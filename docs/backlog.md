@@ -193,39 +193,57 @@ reviewable change while keeping the source-of-truth design constraints in
   stderr, secrets, credentials, tokens, private keys, and sensitive personal
   data remain out of JSONL, Markdown, default stdout, and
   `--native-output json`.
+- Native supervised patch apply boundary: after a supported patch proposal,
+  native sessions may apply one injected pipy-owned, human-reviewed
+  `NativePatchApplyRequest` through explicit approval and `mutating-workspace`
+  policy. The first implementation supports bounded whole-file create, modify,
+  delete, and rename operations, validates the full plan before mutation,
+  rejects overlapping operation paths, requires expected file hashes for
+  existing files, rejects unsafe/generated targets and secret-looking
+  replacement text, truthfully records partial mutation if an unexpected write
+  error happens after at least one operation applies, emits one metadata-only
+  `native.patch.apply.recorded` event, and preserves the default CLI behavior
+  because normal fake/OpenAI/OpenRouter runs do not supply a patch apply
+  request. Archives, Markdown, default stdout, and `--native-output json` still
+  omit raw patch text, raw diffs, file contents, target paths, prompts, model
+  output, provider responses, provider-native payloads, stdout, stderr, shell
+  commands, secrets, credentials, tokens, private keys, and sensitive personal
+  data.
 
 ## Next Slice
 
-### Add an explicit patch-apply slice
+### Add an allowlisted verification-command slice
 
-Goal: add the first supervised patch application boundary after proposal
-metadata exists, while keeping file scope conservative and human-reviewed.
+Goal: add the first supervised verification command boundary after patch apply,
+starting with `just check`, while keeping command scope allowlisted and archive
+records metadata-only.
 
 Selected shape:
 
-- consume only a pipy-owned, human-reviewed patch apply request, not raw
-  provider-native tool payloads
-- require conservative file scope and explicit approval before mutation
-- keep shell, network, and verification command execution out of scope
-- record only metadata such as status, counts, operation labels, storage
-  booleans, and safe reason/error labels
+- consume only a pipy-owned verification request for an allowlisted command
+- start with `just check` only
+- require explicit approval and policy before execution
+- keep arbitrary shell, network, retries, and provider routing out of scope
+- record only metadata such as command label, status, exit code, duration,
+  storage booleans, and safe reason/error labels
 - preserve default stdout and `--native-output json` metadata-only behavior
 
 Keep out of scope:
 
-- shell execution, network access, and verification command execution
+- arbitrary shell execution and network access
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
 - raw prompts, model output, raw provider responses, provider-native payloads,
-  raw tool observations, stdout, stderr, raw diffs, full file contents, auth
-  material, secrets, credentials, tokens, private keys, or sensitive personal
-  data in JSONL, Markdown, structured stdout, or provider-visible context
+  raw tool observations, stdout, stderr, raw diffs, full file contents,
+  command output, auth material, secrets, credentials, tokens, private keys, or
+  sensitive personal data in JSONL, Markdown, structured stdout, or
+  provider-visible context
 
 Acceptance checks:
 
-- patch apply accepts only the documented pipy-owned request shape
-- unsupported or unsafe apply data fails closed before mutation
+- verification accepts only the documented pipy-owned request shape
+- unsupported or unsafe command data fails closed before execution
 - records preserve existing pipy-owned `tool_request_id`, `turn_index`, and
   provider turn metadata
 - existing `fake`, API-key `openai`, and API-key `openrouter` provider
@@ -234,16 +252,18 @@ Acceptance checks:
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
   raw prompts, model output, provider responses, request bodies, raw patch text,
-  raw diffs, file contents, raw tool observations, auth tokens, cookies,
-  credentials, secrets, private keys, or sensitive personal data
+  raw diffs, file contents, raw tool observations, command stdout, command
+  stderr, auth tokens, cookies, credentials, secrets, private keys, or
+  sensitive personal data
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
 ## Near Term
 
-The near-term trajectory stays supervised self-bootstrap. With OpenRouter access
-and bounded read-only context plus metadata-only patch proposals wired into the
-follow-up provider turn, the next priority is an explicit patch-apply boundary.
+The near-term trajectory stays supervised self-bootstrap. With OpenRouter
+access, bounded read-only context, metadata-only patch proposals, and an
+injected supervised patch apply boundary in place, the next priority is an
+allowlisted verification-command boundary.
 OpenAI
 subscription-backed native provider auth is `blocked-for-now` because the
 official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
@@ -260,16 +280,14 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add an explicit patch-apply slice with conservative file scope, no shell
-   execution, metadata-only archives, and focused tests.
-2. Add an allowlisted verification-command slice, starting with `just check`,
+1. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-3. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+2. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
-Self-bootstrap readiness gates. Slice 4 picks whichever gate has been reached
-when the first supervised trial is run:
+Self-bootstrap readiness gates. The first supervised trial picks whichever gate
+has been reached when it is run:
 
 - Proposal-only trial: available after the patch proposal boundary exists.
   Pipy may use the existing bounded read-only context and propose structured
@@ -278,8 +296,8 @@ when the first supervised trial is run:
   for a human to apply or translate manually. No new slice is required for this
   gate, but independent review is still required before trusting the result.
 - Pipy-applied patch trial: available only after the explicit patch-apply slice
-  exists, with conservative file scope, no shell execution, and metadata-only
-  archives.
+  exists, with conservative file scope, no arbitrary shell execution, and
+  metadata-only archives.
 - Verified patch trial: available only after allowlisted verification-command
   execution exists, starting with `just check` and recording only safe status,
   exit-code, duration, and label metadata; stdout/stderr remain excluded from
@@ -319,11 +337,12 @@ when the first supervised trial is run:
 - Storing full system prompts, user prompts, model outputs, stdout, stderr,
   tool payloads, secrets, tokens, credentials, private keys, or sensitive
   personal data by default.
-- Building approvals, sandboxing, retries, streaming, OAuth, provider registry,
-  raw transcript import, multiple native tool requests, post-tool provider
-  turns, write tools, verification-command execution, TUI, RPC, compaction,
-  branching, or orchestration in the upcoming value-object, lifecycle, and
-  policy slices; real execution work must wait for its named slice.
+- Building broad approvals, sandboxing, retries, streaming, OAuth, provider
+  registry, raw transcript import, multiple native tool requests, post-tool
+  provider turns, general write tools beyond supervised patch apply,
+  non-allowlisted verification commands, TUI, RPC, compaction, branching, or
+  orchestration in the upcoming slices; real execution work must wait for its
+  named slice.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.

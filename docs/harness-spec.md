@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-25 patch proposal boundary implemented
+Status: slice-26 supervised patch apply boundary implemented
 
 <style>
 .mermaid,
@@ -1176,13 +1176,14 @@ multiple sources, and persistent workspace summaries remain deferred.
 
 ### Native Patch Proposal Boundary
 
-The native patch proposal boundary is a metadata-only step before any write
-capability exists. After one successful bounded read-only tool observation and
+The native patch proposal boundary is a metadata-only step before supervised
+write capability. After one successful bounded read-only tool observation and
 one successful follow-up provider turn, `NativeAgentSession` may parse a single
 pipy-owned structured proposal from provider result metadata and emit
-`native.patch.proposal.recorded`. The runtime then hard-stops. It does not
-apply edits, mutate files, run a patch tool, run shell commands, run
-verification commands, request network access, or create another provider turn.
+`native.patch.proposal.recorded`. Without an injected human-reviewed patch apply
+request, the runtime hard-stops after this event. It does not apply edits, run
+shell commands, run verification commands, request network access, or create
+another provider turn.
 
 The accepted provider metadata key is pipy-owned and bounded:
 `pipy_native_patch_proposal`. Its value must be a mapping with only these
@@ -1238,6 +1239,70 @@ stderr, shell commands, auth material, secrets, credentials, tokens, private
 keys, or sensitive personal data. The current JSON stdout schema does not
 include proposal detail; proposal metadata is represented only by finalized
 archive events.
+
+### Native Patch Apply Boundary
+
+The native patch apply boundary is the first supervised workspace mutation path.
+It is not provider tool calling. It consumes only an in-memory
+`NativePatchApplyRequest` supplied to `NativeAgentSession` by pipy-owned control
+flow after human review, and only after a supported
+`native.patch.proposal.recorded` event with `status=proposed`. Normal CLI,
+OpenAI, OpenRouter, and fake provider runs do not supply this request and remain
+proposal-only.
+
+The request requires:
+
+- the current pipy-owned `tool_request_id` and `turn_index`
+- `request_source`: `pipy-owned-human-reviewed`
+- explicit required approval and a human-reviewed
+  `NativePatchApplyGateDecision`
+- `mutating-workspace` sandbox policy with workspace read and filesystem
+  mutation allowed, and shell/network access forbidden
+- at least one and at most 10 operations across at most 5 distinct workspace
+  paths
+- normalized workspace-relative targets validated to stay inside the workspace
+  and outside ignored or generated files
+- expected SHA-256 hashes for existing files before modify, delete, or rename
+- bounded UTF-8 replacement text for create and modify operations
+- non-overlapping operation source and target paths
+
+The first implementation supports conservative whole-file create, modify,
+delete, and rename operations. It validates the full operation plan before any
+mutation, requires existing-file hashes to match, rejects secret-looking new
+content, rejects missing or generated targets, and does not create parent
+directories. Shell execution, network access, verification command execution,
+provider-side built-in tools, provider-native function calls, streaming,
+retries, fallback, OAuth, provider routing, and additional provider turns remain
+out of scope.
+
+The terminal archive event is `native.patch.apply.recorded`. Its payload remains
+metadata-only:
+
+- `tool_request_id`
+- `turn_index`
+- `status`
+- `reason_label`
+- `duration_seconds`
+- `file_count`
+- `operation_count`
+- `operation_labels`
+- approval and sandbox labels/booleans
+- `workspace_mutated`
+- optional safe `scope_label`
+- false storage booleans for patch text, diffs, file contents, prompts, model
+  output, provider responses, and raw transcript import
+
+JSONL, Markdown, default stdout, and `--native-output json` must not include raw
+patch text, raw diffs, replacement file contents, target paths, raw prompts,
+model output, provider responses, provider-native payloads, tool payloads,
+stdout, stderr, shell commands, auth material, secrets, credentials, tokens,
+private keys, or sensitive personal data. Unsafe or unsupported apply data fails
+closed before mutation; a skipped or failed patch apply result makes the native
+run fail with only safe error labels. Hash failures distinguish missing,
+malformed, and mismatched expected hashes. If an unexpected write error happens
+after one or more operations have already applied, the terminal result records
+`reason_label=write_partially_applied` and `workspace_mutated=true` so archives
+do not claim a clean no-mutation failure.
 
 ### Native Post-Tool Observation Contract Decision
 

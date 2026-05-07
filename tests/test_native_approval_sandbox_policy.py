@@ -274,17 +274,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native bounded post-tool provider turn against synthetic sanitized observations" in compact_done
     assert "Native bounded read-only tool observation into follow-up provider turn" in compact_done
     assert "Native patch proposal boundary before writes" in compact_done
-    assert "### Add an explicit patch-apply slice" in next_slice
-    assert "human-reviewed patch apply request" in compact_next_slice
+    assert "Native supervised patch apply boundary" in compact_done
+    assert "NativePatchApplyRequest" in compact_done
+    assert "native.patch.apply.recorded" in compact_done
+    assert "### Add an allowlisted verification-command slice" in next_slice
+    assert "`just check`" in compact_next_slice
+    assert "metadata-only behavior" in compact_next_slice
     assert "OpenRouter support with explicit model selection" in compact_near_term
     assert "metadata-only patch proposals" in compact_near_term
-    assert_terms_in_order(
-        near_term,
-        [
-            "explicit patch-apply slice",
-            "allowlisted verification-command slice",
-        ],
-    )
+    assert "injected supervised patch apply boundary" in compact_near_term
+    assert "allowlisted verification-command boundary" in compact_near_term
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice

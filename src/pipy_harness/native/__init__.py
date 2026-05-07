@@ -2,6 +2,8 @@
 
 from pipy_harness.native.fake import FakeNativeProvider, FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    NATIVE_PATCH_APPLY_RECORDED_EVENT,
+    NATIVE_PATCH_APPLY_STORAGE_KEYS,
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
@@ -9,6 +11,9 @@ from pipy_harness.native.models import (
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
     NativePatchProposal,
+    NativePatchApplyOperation,
+    NativePatchApplyOperationRequest,
+    NativePatchApplyRequest,
     NativePatchProposalOperation,
     NativePatchProposalReason,
     NativePatchProposalStatus,
@@ -38,6 +43,13 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
 from pipy_harness.native.openrouter_provider import OpenRouterChatCompletionsProvider
+from pipy_harness.native.patch_apply import (
+    NativePatchApplyApprovalDecision,
+    NativePatchApplyGateDecision,
+    NativePatchApplyReason,
+    NativePatchApplyResult,
+    NativePatchApplyTool,
+)
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptReason,
@@ -55,6 +67,8 @@ from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_
 __all__ = [
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
+    "NATIVE_PATCH_APPLY_RECORDED_EVENT",
+    "NATIVE_PATCH_APPLY_STORAGE_KEYS",
     "NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS",
     "NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS",
     "NATIVE_PATCH_PROPOSAL_RECORDED_EVENT",
@@ -67,6 +81,14 @@ __all__ = [
     "NativeExplicitFileExcerptTarget",
     "NativeExplicitFileExcerptTool",
     "NativeInMemoryFileExcerpt",
+    "NativePatchApplyApprovalDecision",
+    "NativePatchApplyGateDecision",
+    "NativePatchApplyOperation",
+    "NativePatchApplyOperationRequest",
+    "NativePatchApplyReason",
+    "NativePatchApplyRequest",
+    "NativePatchApplyResult",
+    "NativePatchApplyTool",
     "NativePatchProposal",
     "NativePatchProposalOperation",
     "NativePatchProposalReason",

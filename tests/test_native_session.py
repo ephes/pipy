@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Mapping
@@ -14,8 +15,15 @@ from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
     FakeNativeProvider,
     FakeNoOpNativeTool,
+    NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
+    NativePatchApplyApprovalDecision,
+    NativePatchApplyGateDecision,
+    NativePatchApplyOperation,
+    NativePatchApplyOperationRequest,
+    NativePatchApplyRequest,
     NativeRunInput,
+    NativeToolRequestIdentity,
     NativeToolRequest,
     NativeToolObservation,
     NativeToolObservationReason,
@@ -243,6 +251,22 @@ def safe_patch_proposal() -> dict[str, object]:
         "raw_transcript_imported": False,
         "workspace_mutated": False,
     }
+
+
+def safe_patch_apply_request(path: str, old_text: str, new_text: str) -> NativePatchApplyRequest:
+    identity = NativeToolRequestIdentity.current_noop()
+    return NativePatchApplyRequest(
+        tool_request_id=identity.request_id,
+        turn_index=identity.turn_index,
+        operations=(
+            NativePatchApplyOperationRequest(
+                operation=NativePatchApplyOperation.MODIFY,
+                workspace_relative_path=path,
+                expected_sha256=hashlib.sha256(old_text.encode("utf-8")).hexdigest(),
+                new_text=new_text,
+            ),
+        ),
+    )
 
 
 def provider_result(
@@ -853,6 +877,199 @@ def test_native_session_records_supported_patch_proposal_metadata_only(tmp_path)
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
     assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
     assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_applies_human_reviewed_patch_after_supported_proposal(tmp_path):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert source.read_text(encoding="utf-8") == new_text
+    event_types = [event[0] for event in sink.events]
+    assert event_types[-2:] == [NATIVE_PATCH_APPLY_RECORDED_EVENT, "native.session.completed"]
+    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    assert apply_payload is not None
+    assert apply_payload["tool_request_id"] == "native-tool-0001"
+    assert apply_payload["turn_index"] == 0
+    assert apply_payload["status"] == "succeeded"
+    assert apply_payload["reason_label"] == "patch_applied"
+    assert apply_payload["file_count"] == 1
+    assert apply_payload["operation_count"] == 1
+    assert apply_payload["operation_labels"] == ["modify"]
+    assert apply_payload["workspace_mutated"] is True
+    assert apply_payload["patch_text_stored"] is False
+    assert apply_payload["diffs_stored"] is False
+    assert apply_payload["file_contents_stored"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "changed by reviewed patch" not in serialized
+    assert "provider only context" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_patch_apply_failure_fails_closed_before_mutation(tmp_path):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", "stale\n", new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.error_type == "NativePatchApplySkipped"
+    assert output.error_message == "expected_hash_mismatch"
+    assert source.read_text(encoding="utf-8") == old_text
+    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    assert apply_payload is not None
+    assert apply_payload["status"] == "skipped"
+    assert apply_payload["reason_label"] == "expected_hash_mismatch"
+    assert apply_payload["workspace_mutated"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "changed by reviewed patch" not in serialized
+    assert "provider only context" not in serialized
+
+
+def test_native_session_patch_apply_unexpected_exception_keeps_request_metadata(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    def explode_invoke(self, request, gate_decision):
+        raise RuntimeError("patch apply exploded token=SECRET123")
+
+    monkeypatch.setattr("pipy_harness.native.session.NativePatchApplyTool.invoke", explode_invoke)
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.error_type == "NativePatchApplyFailed"
+    assert output.error_message == "write_failed"
+    assert source.read_text(encoding="utf-8") == old_text
+    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    assert apply_payload is not None
+    assert apply_payload["status"] == "failed"
+    assert apply_payload["reason_label"] == "write_failed"
+    assert apply_payload["file_count"] == 1
+    assert apply_payload["operation_count"] == 1
+    assert apply_payload["operation_labels"] == ["modify"]
+    assert apply_payload["workspace_mutated"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "SECRET123" not in serialized
+    assert "changed by reviewed patch" not in serialized
+    assert "provider only context" not in serialized
 
 
 def test_native_session_drops_initial_patch_proposal_metadata_without_presence_flag(tmp_path):
