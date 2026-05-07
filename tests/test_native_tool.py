@@ -13,6 +13,8 @@ from pipy_harness.native import (
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
+    NATIVE_VERIFICATION_RECORDED_EVENT,
+    NATIVE_VERIFICATION_STORAGE_KEYS,
     NativePatchProposal,
     NativePatchProposalOperation,
     NativePatchProposalReason,
@@ -27,6 +29,8 @@ from pipy_harness.native import (
     NativeToolResult,
     NativeToolSandboxPolicy,
     NativeToolStatus,
+    NativeVerificationCommand,
+    NativeVerificationRequest,
 )
 
 
@@ -311,6 +315,63 @@ def test_native_patch_proposal_event_contract_is_closed_and_metadata_only():
         "token",
     }
     assert forbidden_payload_keys.isdisjoint(NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS)
+
+
+def test_native_verification_request_value_object_is_metadata_only_and_bounded():
+    request = NativeVerificationRequest(
+        tool_request_id="native-tool-0001",
+        turn_index=0,
+        command_label=NativeVerificationCommand.JUST_CHECK,
+    )
+
+    request_fields = asdict(request)
+
+    assert request_fields["tool_request_id"] == "native-tool-0001"
+    assert request_fields["turn_index"] == 0
+    assert request_fields["command_label"] == NativeVerificationCommand.JUST_CHECK
+    assert request_fields["approval_policy"]["mode"] == "required"
+    assert request_fields["sandbox_policy"]["mode"] == "read-only-workspace"
+    assert request_fields["sandbox_policy"]["workspace_read_allowed"] is True
+    assert request_fields["sandbox_policy"]["filesystem_mutation_allowed"] is False
+    assert request_fields["sandbox_policy"]["shell_execution_allowed"] is True
+    assert request_fields["sandbox_policy"]["network_access_allowed"] is False
+    storage_fields = {key: request_fields[key] for key in NATIVE_VERIFICATION_STORAGE_KEYS}
+    assert set(storage_fields.values()) == {False}
+    forbidden_fields = {
+        "args",
+        "arguments",
+        "credentials",
+        "diff",
+        "file_content",
+        "file_contents",
+        "model_output",
+        "patch",
+        "payload",
+        "private_key",
+        "prompt",
+        "provider_response",
+        "raw_args",
+        "raw_payload",
+        "secret",
+        "stderr",
+        "stdout",
+        "token",
+    }
+    assert forbidden_fields.isdisjoint(request_fields)
+
+
+def test_native_verification_event_contract_is_closed_and_metadata_only():
+    assert NATIVE_VERIFICATION_RECORDED_EVENT == "native.verification.recorded"
+    assert NATIVE_VERIFICATION_STORAGE_KEYS == {
+        "stdout_stored",
+        "stderr_stored",
+        "command_output_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    }
+    assert {command.value for command in NativeVerificationCommand} == {"just-check"}
 
 
 def test_native_tool_observation_contract_is_threaded_only_as_sanitized_session_metadata():

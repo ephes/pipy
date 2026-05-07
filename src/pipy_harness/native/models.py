@@ -18,6 +18,7 @@ PROVIDER_PATCH_PROPOSAL_METADATA_KEY = "pipy_native_patch_proposal"
 NATIVE_TOOL_OBSERVATION_RECORDED_EVENT = "native.tool.observation.recorded"
 NATIVE_PATCH_PROPOSAL_RECORDED_EVENT = "native.patch.proposal.recorded"
 NATIVE_PATCH_APPLY_RECORDED_EVENT = "native.patch.apply.recorded"
+NATIVE_VERIFICATION_RECORDED_EVENT = "native.verification.recorded"
 NATIVE_TOOL_OBSERVATION_STORAGE_KEYS = frozenset(
     {
         "tool_payloads_stored",
@@ -87,6 +88,17 @@ NATIVE_PATCH_APPLY_STORAGE_KEYS = frozenset(
         "patch_text_stored",
         "diffs_stored",
         "file_contents_stored",
+        "prompt_stored",
+        "model_output_stored",
+        "provider_responses_stored",
+        "raw_transcript_imported",
+    }
+)
+NATIVE_VERIFICATION_STORAGE_KEYS = frozenset(
+    {
+        "stdout_stored",
+        "stderr_stored",
+        "command_output_stored",
         "prompt_stored",
         "model_output_stored",
         "provider_responses_stored",
@@ -218,6 +230,12 @@ class NativePatchApplyOperation(StrEnum):
     MODIFY = "modify"
     DELETE = "delete"
     RENAME = "rename"
+
+
+class NativeVerificationCommand(StrEnum):
+    """Allowlisted verification command labels."""
+
+    JUST_CHECK = "just-check"
 
 
 @dataclass(frozen=True, slots=True)
@@ -623,6 +641,58 @@ class NativePatchApplyRequest:
         for field_name in NATIVE_PATCH_APPLY_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
                 raise ValueError(f"{field_name} must remain false for patch apply requests")
+        if self.scope_label is not None:
+            _validate_scope_label(self.scope_label)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeVerificationRequest:
+    """Pipy-owned request for one supervised verification command.
+
+    The request carries a safe label, not shell text. Execution code maps the
+    supported label to an argv internally and never archives stdout or stderr.
+    """
+
+    tool_request_id: str
+    turn_index: int
+    command_label: NativeVerificationCommand | str
+    request_source: str = "pipy-owned-human-reviewed"
+    approval_policy: NativeToolApprovalPolicy = field(
+        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+    )
+    sandbox_policy: NativeToolSandboxPolicy = field(
+        default_factory=lambda: NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE,
+            workspace_read_allowed=True,
+            shell_execution_allowed=True,
+        )
+    )
+    scope_label: str | None = None
+    stdout_stored: bool = False
+    stderr_stored: bool = False
+    command_output_stored: bool = False
+    prompt_stored: bool = False
+    model_output_stored: bool = False
+    provider_responses_stored: bool = False
+    raw_transcript_imported: bool = False
+
+    def __post_init__(self) -> None:
+        identity = NativeToolRequestIdentity.current_noop()
+        if self.tool_request_id != identity.request_id:
+            raise ValueError("verification requires pipy-owned tool_request_id")
+        if self.turn_index != identity.turn_index:
+            raise ValueError("verification requires pipy-owned turn_index")
+        if self.request_source != "pipy-owned-human-reviewed":
+            raise ValueError("verification requires pipy-owned human-reviewed request source")
+        if not isinstance(self.command_label, NativeVerificationCommand | str):
+            raise ValueError("verification command_label must be a safe label")
+        if isinstance(self.command_label, str) and (
+            not self.command_label or len(self.command_label) > 80
+        ):
+            raise ValueError("verification command_label must be a short non-empty label")
+        for field_name in NATIVE_VERIFICATION_STORAGE_KEYS:
+            if getattr(self, field_name) is not False:
+                raise ValueError(f"{field_name} must remain false for verification requests")
         if self.scope_label is not None:
             _validate_scope_label(self.scope_label)
 

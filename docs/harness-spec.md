@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-26 supervised patch apply boundary implemented
+Status: slice-27 allowlisted verification boundary implemented
 
 <style>
 .mermaid,
@@ -490,9 +490,11 @@ Concrete adapter examples:
 The native bootstrap slice adds `PipyNativeAdapter` behind the same
 `AgentPort`. It does not shell out to Codex, Claude, Pi, or another coding-agent
 CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
-calls a provider through a minimal `ProviderPort`, and invokes a deterministic
-no-op tool through a minimal `ToolPort` only when the provider result contains
-one sanitized supported no-op intent.
+calls a provider through a minimal `ProviderPort`, invokes deterministic no-op
+or bounded read-only tools only through supported pipy-owned intent data, and
+can run injected supervised patch apply plus allowlisted verification boundaries
+only when explicit pipy-owned request and gate objects are supplied by control
+flow.
 
 The deterministic `fake` provider remains the default for tests and smoke runs.
 It is not a production AI provider and it does not require credentials. A smoke
@@ -1270,10 +1272,10 @@ The first implementation supports conservative whole-file create, modify,
 delete, and rename operations. It validates the full operation plan before any
 mutation, requires existing-file hashes to match, rejects secret-looking new
 content, rejects missing or generated targets, and does not create parent
-directories. Shell execution, network access, verification command execution,
-provider-side built-in tools, provider-native function calls, streaming,
-retries, fallback, OAuth, provider routing, and additional provider turns remain
-out of scope.
+directories. Verification command execution is a separate post-apply boundary.
+General shell execution, network access, provider-side built-in tools,
+provider-native function calls, streaming, retries, fallback, OAuth, provider
+routing, and additional provider turns remain out of scope.
 
 The terminal archive event is `native.patch.apply.recorded`. Its payload remains
 metadata-only:
@@ -1303,6 +1305,59 @@ malformed, and mismatched expected hashes. If an unexpected write error happens
 after one or more operations have already applied, the terminal result records
 `reason_label=write_partially_applied` and `workspace_mutated=true` so archives
 do not claim a clean no-mutation failure.
+
+### Native Verification Command Boundary
+
+The native verification boundary is the first supervised command-execution path.
+It is not arbitrary shell access and it is not provider-selected command
+execution. It consumes only an in-memory `NativeVerificationRequest` supplied to
+`NativeAgentSession` by pipy-owned control flow after a successful supervised
+patch apply. Normal CLI, OpenAI, OpenRouter, and fake provider runs do not
+supply this request and remain unchanged.
+
+The request requires:
+
+- the current pipy-owned `tool_request_id` and `turn_index`
+- `request_source`: `pipy-owned-human-reviewed`
+- command label `just-check`, which is the only supported command label
+- explicit required approval and a human-reviewed
+  `NativeVerificationGateDecision`
+- `read-only-workspace` sandbox policy with workspace read allowed, filesystem
+  mutation and network access forbidden, and shell execution allowed only for
+  the internal `just check` argv mapping
+
+The first implementation maps the safe label `just-check` internally to the
+argv `just check`, resolves the `just` executable before execution, runs from
+the requested workspace, and redirects stdin/stdout/stderr to non-archive
+channels so command output cannot become CLI stdout, JSON output, Markdown, or
+JSONL event content. Unsupported labels, shell-looking labels, missing or
+denied approval, unsafe policy, missing `just`, non-zero exit, and execution
+errors fail closed with safe reason labels before any provider visibility.
+
+The terminal archive event is `native.verification.recorded`. Its payload
+remains metadata-only:
+
+- `tool_request_id`
+- `turn_index`
+- `command_label`
+- `status`
+- `reason_label`
+- optional safe `error_label`
+- `exit_code`
+- `duration_seconds`
+- approval and sandbox labels/booleans
+- optional safe `scope_label`
+- false storage booleans for stdout, stderr, command output, prompts, model
+  output, provider responses, and raw transcript import
+
+JSONL, Markdown, default stdout, and `--native-output json` must not include raw
+command stdout, command stderr, shell command text, raw prompts, model output,
+provider responses, provider-native payloads, tool payloads, raw diffs, file
+contents, auth material, secrets, credentials, tokens, private keys, or
+sensitive personal data. A skipped or failed verification result makes the
+native run fail only when a verification request was supplied and the boundary
+was invoked. Runs without a verification request preserve the existing
+fake/OpenAI/OpenRouter behavior and stdout contracts.
 
 ### Native Post-Tool Observation Contract Decision
 
@@ -1829,6 +1884,8 @@ Implementation note: the first native slices are implemented as
 - a minimal `ToolPort`
 - deterministic `FakeNativeProvider`
 - deterministic `FakeNoOpNativeTool`
+- allowlisted `NativeVerificationTool` for injected post-apply `just check`
+  verification
 - `NativeAgentSession` that owns system prompt construction
 - normalized provider usage metadata limited to finite non-negative
   `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and

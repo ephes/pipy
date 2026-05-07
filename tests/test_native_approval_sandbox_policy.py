@@ -149,13 +149,17 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "`network_access_allowed`" in compact_storage
     assert "read-only tools produce provider-visible repo context" in compact_storage
     assert "write tools or patch application" in compact_storage
-    assert "verification commands such as an allowlisted `just check`" in compact_storage
+    assert "verification commands. The current native verification boundary supports only" in compact_storage
+    assert "`just-check` label mapped internally to `just check`" in compact_storage
     assert "approval required/resolved booleans" in compact_storage
     assert "`tool_request_id`" in compact_storage
     assert "`turn_index`" in compact_storage
     assert "`duration_seconds`" in compact_storage
+    assert "exit codes" in compact_storage
+    assert "safe command labels" in compact_storage
     assert "full file contents" in compact_storage
     assert "shell commands" in compact_storage
+    assert "command output" in compact_storage
     assert "raw args" in compact_storage
     assert "attempted capability escalation must fail closed" in compact_storage
 
@@ -277,16 +281,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native supervised patch apply boundary" in compact_done
     assert "NativePatchApplyRequest" in compact_done
     assert "native.patch.apply.recorded" in compact_done
-    assert "### Add an allowlisted verification-command slice" in next_slice
-    assert "`just check`" in compact_next_slice
+    assert "Native allowlisted verification-command boundary" in compact_done
+    assert "NativeVerificationRequest" in compact_done
+    assert "native.verification.recorded" in compact_done
+    assert "### Run the first supervised self-bootstrap trial" in next_slice
+    assert "tiny docs-only or test-only change" in compact_next_slice
     assert "metadata-only behavior" in compact_next_slice
     assert "OpenRouter support with explicit model selection" in compact_near_term
     assert "metadata-only patch proposals" in compact_near_term
     assert "injected supervised patch apply boundary" in compact_near_term
-    assert "allowlisted verification-command boundary" in compact_near_term
+    assert "allowlisted verification command" in compact_near_term
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice
+    assert "### Add an allowlisted verification-command slice" not in next_slice
 
 
 def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():

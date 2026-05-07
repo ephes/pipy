@@ -17,6 +17,7 @@ from pipy_harness.native import (
     FakeNoOpNativeTool,
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
+    NATIVE_VERIFICATION_RECORDED_EVENT,
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,
     NativePatchApplyOperation,
@@ -30,6 +31,12 @@ from pipy_harness.native import (
     NativeToolObservationStatus,
     NativeToolResult,
     NativeToolStatus,
+    NativeVerificationApprovalDecision,
+    NativeVerificationCommand,
+    NativeVerificationGateDecision,
+    NativeVerificationReason,
+    NativeVerificationRequest,
+    NativeVerificationResult,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
@@ -266,6 +273,16 @@ def safe_patch_apply_request(path: str, old_text: str, new_text: str) -> NativeP
                 new_text=new_text,
             ),
         ),
+    )
+
+
+def safe_verification_request() -> NativeVerificationRequest:
+    identity = NativeToolRequestIdentity.current_noop()
+    return NativeVerificationRequest(
+        tool_request_id=identity.request_id,
+        turn_index=identity.turn_index,
+        command_label=NativeVerificationCommand.JUST_CHECK,
+        scope_label="post-patch-check",
     )
 
 
@@ -944,6 +961,294 @@ def test_native_session_applies_human_reviewed_patch_after_supported_proposal(tm
     assert "provider only context" not in serialized
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
     assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_runs_verification_after_successful_patch_apply_metadata_only(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    def verification_succeeds(self, request, gate_decision):
+        now = datetime.now(UTC)
+        return NativeVerificationResult(
+            status=NativeToolStatus.SUCCEEDED,
+            reason_label=NativeVerificationReason.VERIFICATION_SUCCEEDED,
+            tool_request_id=request.tool_request_id,
+            turn_index=request.turn_index,
+            command_label="just-check",
+            started_at=now,
+            ended_at=now,
+            exit_code=0,
+            approval_policy=request.approval_policy.mode,
+            approval_decision=gate_decision.approval_decision,
+            sandbox_policy=request.sandbox_policy.mode,
+            workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+            filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+            shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+            network_access_allowed=request.sandbox_policy.network_access_allowed,
+            scope_label=request.scope_label,
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativeVerificationTool.invoke",
+        verification_succeeds,
+    )
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+        verification_request=safe_verification_request(),
+        verification_gate=NativeVerificationGateDecision(
+            approval_decision=NativeVerificationApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert source.read_text(encoding="utf-8") == new_text
+    event_types = [event[0] for event in sink.events]
+    assert event_types[-3:] == [
+        NATIVE_PATCH_APPLY_RECORDED_EVENT,
+        NATIVE_VERIFICATION_RECORDED_EVENT,
+        "native.session.completed",
+    ]
+    verification_payload = [
+        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert verification_payload is not None
+    assert verification_payload["tool_request_id"] == "native-tool-0001"
+    assert verification_payload["turn_index"] == 0
+    assert verification_payload["command_label"] == "just-check"
+    assert verification_payload["status"] == "succeeded"
+    assert verification_payload["reason_label"] == "verification_succeeded"
+    assert verification_payload["exit_code"] == 0
+    assert verification_payload["approval_decision"] == "allowed"
+    assert verification_payload["sandbox_policy"] == "read-only-workspace"
+    assert verification_payload["workspace_read_allowed"] is True
+    assert verification_payload["filesystem_mutation_allowed"] is False
+    assert verification_payload["shell_execution_allowed"] is True
+    assert verification_payload["network_access_allowed"] is False
+    assert verification_payload["stdout_stored"] is False
+    assert verification_payload["stderr_stored"] is False
+    assert verification_payload["command_output_stored"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "changed by reviewed patch" not in serialized
+    assert "provider only context" not in serialized
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+    assert "SAFE_GOAL_METADATA" not in serialized
+
+
+def test_native_session_verification_failure_fails_run_after_patch_apply(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    def verification_fails(self, request, gate_decision):
+        now = datetime.now(UTC)
+        return NativeVerificationResult(
+            status=NativeToolStatus.FAILED,
+            reason_label=NativeVerificationReason.COMMAND_FAILED,
+            tool_request_id=request.tool_request_id,
+            turn_index=request.turn_index,
+            command_label="just-check",
+            started_at=now,
+            ended_at=now,
+            exit_code=1,
+            approval_policy=request.approval_policy.mode,
+            approval_decision=gate_decision.approval_decision,
+            sandbox_policy=request.sandbox_policy.mode,
+            workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+            filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+            shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+            network_access_allowed=request.sandbox_policy.network_access_allowed,
+            error_label="command_failed",
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativeVerificationTool.invoke",
+        verification_fails,
+    )
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+        verification_request=safe_verification_request(),
+        verification_gate=NativeVerificationGateDecision(
+            approval_decision=NativeVerificationApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_type == "NativeVerificationFailed"
+    assert output.error_message == "command_failed"
+    assert source.read_text(encoding="utf-8") == new_text
+    verification_payload = [
+        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert verification_payload is not None
+    assert verification_payload["status"] == "failed"
+    assert verification_payload["exit_code"] == 1
+    assert verification_payload["error_label"] == "command_failed"
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE" not in serialized
+    assert "provider only context" not in serialized
+
+
+def test_native_session_missing_verification_gate_skips_and_fails_without_execution(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old_text = "def visible_context():\n    return 'provider only context'\n"
+    new_text = "def visible_context():\n    return 'changed by reviewed patch'\n"
+    source = tmp_path / "src" / "example.py"
+    source.parent.mkdir()
+    source.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "src/example.py"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE",
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    def verification_skips(self, request, gate_decision):
+        assert gate_decision.approval_decision == NativeVerificationApprovalDecision.SKIPPED
+        now = datetime.now(UTC)
+        return NativeVerificationResult(
+            status=NativeToolStatus.SKIPPED,
+            reason_label=NativeVerificationReason.APPROVAL_NOT_ALLOWED,
+            tool_request_id=request.tool_request_id,
+            turn_index=request.turn_index,
+            command_label="just-check",
+            started_at=now,
+            ended_at=now,
+            approval_policy=request.approval_policy.mode,
+            approval_decision=gate_decision.approval_decision,
+            sandbox_policy=request.sandbox_policy.mode,
+            workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+            filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+            shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+            network_access_allowed=request.sandbox_policy.network_access_allowed,
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativeVerificationTool.invoke",
+        verification_skips,
+    )
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+        verification_request=safe_verification_request(),
+        verification_gate=None,
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert output.error_type == "NativeVerificationSkipped"
+    assert output.error_message == "approval_not_allowed"
+    verification_payload = [
+        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert verification_payload is not None
+    assert verification_payload["approval_decision"] == "skipped"
+    assert verification_payload["status"] == "skipped"
 
 
 def test_native_session_patch_apply_failure_fails_closed_before_mutation(tmp_path):

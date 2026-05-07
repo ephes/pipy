@@ -209,24 +209,40 @@ reviewable change while keeping the source-of-truth design constraints in
   output, provider responses, provider-native payloads, stdout, stderr, shell
   commands, secrets, credentials, tokens, private keys, and sensitive personal
   data.
+- Native allowlisted verification-command boundary: after a successful
+  supervised patch apply, native sessions may run one injected pipy-owned
+  `NativeVerificationRequest` through explicit human-reviewed approval and
+  read-only workspace policy with shell execution allowed only for the
+  allowlisted command label `just-check`. The first implementation maps that
+  label internally to `just check`, emits one metadata-only
+  `native.verification.recorded` event, and makes skipped or failed
+  verification fail the native run when verification was requested. Unsupported
+  or unsafe command data, denied or missing approval, unsafe sandbox policy,
+  missing `just`, command failure, and execution errors fail closed with only
+  safe labels. Archives, Markdown, default stdout, and `--native-output json`
+  still omit command stdout, command stderr, shell command text, raw prompts,
+  model output, provider responses, provider-native payloads, raw diffs, file
+  contents, auth material, secrets, credentials, tokens, private keys, and
+  sensitive personal data.
 
 ## Next Slice
 
-### Add an allowlisted verification-command slice
+### Run the first supervised self-bootstrap trial
 
-Goal: add the first supervised verification command boundary after patch apply,
-starting with `just check`, while keeping command scope allowlisted and archive
-records metadata-only.
+Goal: run the first human-supervised self-bootstrap trial on a tiny docs-only
+or test-only change, using the implemented bounded read-only context, patch
+proposal, supervised patch apply, and allowlisted verification-command
+boundaries where appropriate.
 
 Selected shape:
 
-- consume only a pipy-owned verification request for an allowlisted command
-- start with `just check` only
-- require explicit approval and policy before execution
-- keep arbitrary shell, network, retries, and provider routing out of scope
-- record only metadata such as command label, status, exit code, duration,
-  storage booleans, and safe reason/error labels
+- choose a tiny low-risk docs-only or test-only change
+- keep the run human-supervised; a human owns review, approval, and any
+  injected patch/verification data
+- require independent review before treating the path as usable
+- preserve metadata-only archives and normal native stdout behavior
 - preserve default stdout and `--native-output json` metadata-only behavior
+- record only summary-safe workflow learning from the trial
 
 Keep out of scope:
 
@@ -242,12 +258,9 @@ Keep out of scope:
 
 Acceptance checks:
 
-- verification accepts only the documented pipy-owned request shape
-- unsupported or unsafe command data fails closed before execution
-- records preserve existing pipy-owned `tool_request_id`, `turn_index`, and
-  provider turn metadata
-- existing `fake`, API-key `openai`, and API-key `openrouter` provider
-  behavior remains compatible
+- the selected task is tiny and reviewable
+- proposal/apply/verification data, if used, is pipy-owned and explicitly
+  human-reviewed
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
@@ -262,8 +275,9 @@ Acceptance checks:
 
 The near-term trajectory stays supervised self-bootstrap. With OpenRouter
 access, bounded read-only context, metadata-only patch proposals, and an
-injected supervised patch apply boundary in place, the next priority is an
-allowlisted verification-command boundary.
+injected supervised patch apply boundary plus an allowlisted verification
+command in place, the next priority is the first tiny supervised
+self-bootstrap trial.
 OpenAI
 subscription-backed native provider auth is `blocked-for-now` because the
 official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
@@ -280,10 +294,7 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add an allowlisted verification-command slice, starting with `just check`,
-   behind explicit policy and with only exit code, status, duration, and safe
-   labels recorded; stdout/stderr remain excluded from archives.
-2. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+1. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 Self-bootstrap readiness gates. The first supervised trial picks whichever gate
@@ -298,7 +309,7 @@ has been reached when it is run:
 - Pipy-applied patch trial: available only after the explicit patch-apply slice
   exists, with conservative file scope, no arbitrary shell execution, and
   metadata-only archives.
-- Verified patch trial: available only after allowlisted verification-command
+- Verified patch trial: available now that allowlisted verification-command
   execution exists, starting with `just check` and recording only safe status,
   exit-code, duration, and label metadata; stdout/stderr remain excluded from
   archives.

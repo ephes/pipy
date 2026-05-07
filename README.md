@@ -170,9 +170,9 @@ schema/version, run id, status, exit code, agent, adapter, provider, model,
 duration, normalized usage counters when available, storage booleans, and
 finalized-record references. It does not emit raw prompts, model output,
 provider responses, provider-native payloads, tool arguments or results,
-stdout, stderr, diffs, file contents, secrets, credentials, tokens, private
-keys, or sensitive personal data by default. `--native-output` is rejected for
-non-native agents before a run record is created.
+stdout, stderr, command output, diffs, file contents, secrets, credentials,
+tokens, private keys, or sensitive personal data by default. `--native-output`
+is rejected for non-native agents before a run record is created.
 
 By default `pipy run` does not store child stdout, child stderr, full argv,
 prompt text, model output, raw HTTP payloads, diffs, or file contents. It
@@ -180,8 +180,11 @@ records safe metadata such as agent, adapter, provider, model id, run id,
 workspace basename plus path hash, status, exit code, safe usage counters when
 available, provider storage booleans, safe tool-intent labels when present,
 no-op tool name/kind when invoked, approval and sandbox policy labels, and tool
-storage booleans. `--record-files` records relative changed paths from
-`git status --porcelain`; without it, changed paths are not recorded.
+storage booleans. Injected verification records add only safe command labels,
+status, exit code, duration, reason/error labels, policy booleans, and false
+stdout/stderr/command-output storage booleans. `--record-files` records
+relative changed paths from `git status --porcelain`; without it, changed paths
+are not recorded.
 Native provider usage is normalized to finite non-negative allowlisted token
 counters: `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`,
 and `reasoning_tokens`. Unknown provider-native usage fields and unavailable
@@ -196,10 +199,15 @@ prompt, provider boundary, tool boundary, and session semantics instead of
 delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
 small OpenAI Responses provider boundary and one bounded fake no-op tool-intent
 path that may make one follow-up provider turn only from a synthetic sanitized
-observation fixture. It does not yet implement real read-tool observation
-forwarding, a general model/tool loop, real tool execution, approval prompts,
-sandbox enforcement, retries, streaming, provider registry, OAuth, or raw
-transcript import.
+observation fixture. It also includes a fixture-gated explicit-file-excerpt
+read-only path that can forward one bounded in-memory excerpt to a follow-up
+provider turn, plus a supervised patch-apply boundary for injected
+human-reviewed requests and an injected post-apply allowlisted verification
+boundary for `just check`. Normal OpenAI/OpenRouter CLI runs still do not expose
+general model-selected tool use, approval prompts, sandbox enforcement, the
+public controls for the verification-command boundary, arbitrary shell
+execution, retries, streaming, provider registry, OAuth, or raw transcript
+import.
 
 ## Session Recorder CLI
 

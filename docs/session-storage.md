@@ -548,18 +548,21 @@ independent capability booleans for `workspace_read_allowed`,
 `network_access_allowed`. Approval is required before future read-only tools
 produce provider-visible repo context, before write tools or patch application
 mutate the workspace, before shell execution, before network access, and before
-verification commands such as an allowlisted `just check`.
+verification commands. The current native verification boundary supports only
+the pipy-owned `just-check` label mapped internally to `just check` after
+explicit approval.
 
 If approval or sandbox gates are implemented later, JSONL, Markdown, and
 `--native-output json` may record only policy labels, approval
 required/resolved booleans, decision labels, safe reason labels, capability
 booleans, `tool_request_id`, `turn_index`, safe tool name/kind labels, status,
-`duration_seconds`, counts, byte and line counts, storage booleans, and
-optional finalized-record references. They must not store raw prompts, model
-output, provider responses, provider-native payloads, raw tool payloads,
-stdout, stderr, diffs, patches, full file contents, shell commands, raw args,
-model-selected paths, provider-selected paths as authority, secrets,
-credentials, API keys, tokens, private keys, or sensitive personal data.
+`duration_seconds`, counts, byte and line counts, exit codes, safe command
+labels, storage booleans, and optional finalized-record references. They must
+not store raw prompts, model output, provider responses, provider-native
+payloads, raw tool payloads, stdout, stderr, command output, diffs, patches,
+full file contents, shell commands, raw args, model-selected paths,
+provider-selected paths as authority, secrets, credentials, API keys, tokens,
+private keys, or sensitive personal data.
 Missing policy, unsupported policy or sandbox modes, denied approval,
 unavailable approval UI, sandbox mismatch, unsafe request data, model-selected
 paths, and attempted capability escalation must fail closed before execution

@@ -16,6 +16,7 @@ from pipy_harness.native.models import (
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NATIVE_TOOL_OBSERVATION_PAYLOAD_KEYS,
     NATIVE_TOOL_OBSERVATION_RECORDED_EVENT,
+    NATIVE_VERIFICATION_RECORDED_EVENT,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     NativePatchApplyRequest,
@@ -39,6 +40,7 @@ from pipy_harness.native.models import (
     NativeToolSandboxPolicy,
     NativeToolSandboxMode,
     NativeToolStatus,
+    NativeVerificationRequest,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
@@ -61,6 +63,14 @@ from pipy_harness.native.read_only_tool import (
 )
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
+from pipy_harness.native.verification import (
+    NativeVerificationApprovalDecision,
+    NativeVerificationGateDecision,
+    NativeVerificationReason,
+    NativeVerificationResult,
+    NativeVerificationTool,
+    safe_verification_command_label,
+)
 
 SYSTEM_PROMPT_ID = "pipy-native-bootstrap"
 SYSTEM_PROMPT_VERSION = "1"
@@ -198,6 +208,8 @@ class NativeAgentSession:
     tool: ToolPort = field(default_factory=FakeNoOpNativeTool)
     patch_apply_request: NativePatchApplyRequest | None = None
     patch_apply_gate: NativePatchApplyGateDecision | None = None
+    verification_request: NativeVerificationRequest | None = None
+    verification_gate: NativeVerificationGateDecision | None = None
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = _utc_now()
@@ -230,6 +242,7 @@ class NativeAgentSession:
         follow_up_provider_result: ProviderResult | None = None
         follow_up_provider_usage: dict[str, int | float] = {}
         patch_apply_result: NativePatchApplyResult | None = None
+        verification_result: NativeVerificationResult | None = None
         if provider_result.status == HarnessStatus.SUCCEEDED:
             parsed_intent = _parse_tool_intent(provider_result)
             if parsed_intent.intent is not None:
@@ -274,6 +287,15 @@ class NativeAgentSession:
                                         event_sink,
                                         safe_context,
                                     )
+                                    if (
+                                        patch_apply_result.status == NativeToolStatus.SUCCEEDED
+                                        and self.verification_request is not None
+                                    ):
+                                        verification_result = self._invoke_verification(
+                                            run_input,
+                                            event_sink,
+                                            safe_context,
+                                        )
                     else:
                         parsed_observation = _parse_tool_observation_fixture(provider_result, tool_result)
                         if parsed_observation.observation is not None:
@@ -335,6 +357,7 @@ class NativeAgentSession:
             observation_failure_reason=observation_failure_reason,
             follow_up_provider_result=follow_up_provider_result,
             patch_apply_result=patch_apply_result,
+            verification_result=verification_result,
         )
         exit_code = 0 if final_status == HarnessStatus.SUCCEEDED else 1
         event_sink.emit(
@@ -362,6 +385,7 @@ class NativeAgentSession:
                 observation_failure_reason=observation_failure_reason,
                 follow_up_provider_result=follow_up_provider_result,
                 patch_apply_result=patch_apply_result,
+                verification_result=verification_result,
             ),
             error_message=_native_error_message(
                 provider_result,
@@ -369,6 +393,7 @@ class NativeAgentSession:
                 observation_failure_reason=observation_failure_reason,
                 follow_up_provider_result=follow_up_provider_result,
                 patch_apply_result=patch_apply_result,
+                verification_result=verification_result,
             ),
         )
 
@@ -550,6 +575,26 @@ class NativeAgentSession:
         except Exception as exc:
             result = _failed_patch_apply_result(self.patch_apply_request, gate, exc)
         _emit_patch_apply_recorded(event_sink, safe_context, result)
+        return result
+
+    def _invoke_verification(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+    ) -> NativeVerificationResult:
+        if self.verification_request is None:
+            raise RuntimeError("verification request is required")
+        gate = self.verification_gate
+        if gate is None:
+            gate = NativeVerificationGateDecision(
+                approval_decision=NativeVerificationApprovalDecision.SKIPPED
+            )
+        try:
+            result = NativeVerificationTool(run_input.cwd).invoke(self.verification_request, gate)
+        except Exception:
+            result = _failed_verification_result(self.verification_request, gate)
+        _emit_verification_recorded(event_sink, safe_context, result)
         return result
 
 
@@ -1284,6 +1329,24 @@ def _emit_patch_apply_recorded(
     )
 
 
+def _emit_verification_recorded(
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    result: NativeVerificationResult,
+) -> None:
+    event_sink.emit(
+        NATIVE_VERIFICATION_RECORDED_EVENT,
+        summary=(
+            "Native verification recorded: "
+            f"status={result.status.value}, command={sanitize_text(result.command_label)}."
+        ),
+        payload={
+            **safe_context,
+            **result.archive_metadata(),
+        },
+    )
+
+
 def _safe_observation_context(observation: NativeToolObservation) -> dict[str, object]:
     payload: dict[str, object] = {
         "tool_request_id": observation.tool_request_id,
@@ -1451,6 +1514,32 @@ def _patch_apply_file_count(request: NativePatchApplyRequest) -> int:
     return len(paths)
 
 
+def _failed_verification_result(
+    request: NativeVerificationRequest,
+    gate: NativeVerificationGateDecision,
+) -> NativeVerificationResult:
+    now = _utc_now()
+    return NativeVerificationResult(
+        status=NativeToolStatus.FAILED,
+        reason_label=NativeVerificationReason.EXECUTION_FAILED,
+        tool_request_id=request.tool_request_id,
+        turn_index=request.turn_index,
+        command_label=safe_verification_command_label(request.command_label),
+        started_at=now,
+        ended_at=now,
+        exit_code=None,
+        approval_policy=request.approval_policy.mode,
+        approval_decision=gate.approval_decision,
+        sandbox_policy=request.sandbox_policy.mode,
+        workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+        filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+        shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+        network_access_allowed=request.sandbox_policy.network_access_allowed,
+        scope_label=request.scope_label,
+        error_label=NativeVerificationReason.EXECUTION_FAILED.value,
+    )
+
+
 def _merge_provider_usage(
     first: Mapping[str, int | float],
     second: Mapping[str, int | float],
@@ -1471,6 +1560,7 @@ def _final_status(
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
     patch_apply_result: NativePatchApplyResult | None,
+    verification_result: NativeVerificationResult | None,
 ) -> HarnessStatus:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return provider_result.status
@@ -1481,6 +1571,10 @@ def _final_status(
     if follow_up_provider_result is not None:
         if follow_up_provider_result.status == HarnessStatus.SUCCEEDED and (
             patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED
+        ):
+            return HarnessStatus.FAILED
+        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED and (
+            verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED
         ):
             return HarnessStatus.FAILED
         return follow_up_provider_result.status
@@ -1494,6 +1588,7 @@ def _native_error_type(
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
     patch_apply_result: NativePatchApplyResult | None,
+    verification_result: NativeVerificationResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_type)
@@ -1507,6 +1602,10 @@ def _native_error_type(
         if patch_apply_result.status == NativeToolStatus.SKIPPED:
             return "NativePatchApplySkipped"
         return "NativePatchApplyFailed"
+    if verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED:
+        if verification_result.status == NativeToolStatus.SKIPPED:
+            return "NativeVerificationSkipped"
+        return "NativeVerificationFailed"
     return None
 
 
@@ -1517,6 +1616,7 @@ def _native_error_message(
     observation_failure_reason: NativeToolObservationReason | None,
     follow_up_provider_result: ProviderResult | None,
     patch_apply_result: NativePatchApplyResult | None,
+    verification_result: NativeVerificationResult | None,
 ) -> str | None:
     if provider_result.status != HarnessStatus.SUCCEEDED:
         return _safe_optional_text(provider_result.error_message)
@@ -1528,6 +1628,8 @@ def _native_error_message(
         return _safe_optional_text(follow_up_provider_result.error_message)
     if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
         return patch_apply_result.reason_label.value
+    if verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED:
+        return verification_result.reason_label.value
     return None
 
 

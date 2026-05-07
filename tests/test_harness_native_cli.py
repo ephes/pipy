@@ -83,6 +83,7 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     assert "native.session.started" in event_types
     assert "native.provider.completed" in event_types
     assert not [event_type for event_type in event_types if str(event_type).startswith("native.tool.")]
+    assert "native.verification.recorded" not in event_types
     provider_payloads = [
         event["payload"] for event in events if event["type"] == "native.provider.completed"
     ]
@@ -275,6 +276,7 @@ def test_cli_native_json_mode_omits_patch_proposal_raw_content(tmp_path, capfd, 
     finalized = Path(output["record"]["jsonl_path"])
     events = read_jsonl(finalized)
     assert "native.patch.proposal.recorded" in [event["type"] for event in events]
+    assert "native.verification.recorded" not in [event["type"] for event in events]
     combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
         encoding="utf-8"
     )
