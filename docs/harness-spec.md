@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-20 explicit file excerpt read-only tool documented
+Status: slice-21 OpenAI subscription auth decision documented
 
 <style>
 .mermaid,
@@ -516,6 +516,66 @@ tests can provide fake responses without live credentials or network access. It
 does not enable built-in tools, function calling, web search, file search, code
 interpreter, computer use, conversation state, background mode, streaming,
 retries, model fallback, OAuth, or a provider registry.
+
+### OpenAI Subscription-Backed Native Auth Decision
+
+Decision: `blocked-for-now`.
+
+Decision date: 2026-05-07.
+
+Official sources checked:
+
+- [OpenAI API authentication](https://developers.openai.com/api/reference/overview):
+  the REST API uses API keys provided as HTTP bearer credentials, and usage is
+  attributed to an API organization or project.
+- [ChatGPT Plus help](https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus):
+  ChatGPT Plus is a subscription for the ChatGPT web app, and API usage is
+  separate and billed independently.
+- [ChatGPT web and API billing help](https://help.openai.com/en/articles/9039756):
+  ChatGPT and the API platform use separate billing systems.
+- [Codex authentication](https://developers.openai.com/codex/auth): Codex
+  supports ChatGPT subscription sign-in and API-key sign-in for OpenAI models,
+  but the documented ChatGPT sign-in flow is for the Codex app, CLI, and IDE
+  extension.
+- [Codex pricing](https://developers.openai.com/codex/pricing): Codex
+  subscription access is described for Codex product surfaces, while API-key
+  usage pays standard API rates.
+- [Codex SDK](https://developers.openai.com/codex/sdk): the SDK controls local
+  Codex agents programmatically; it is a Codex product integration surface, not
+  a generic OpenAI model provider auth API for third-party native runtimes.
+
+What was checked: ChatGPT subscription versus OpenAI API billing, OpenAI API
+authentication, Codex CLI authentication and device-code sign-in behavior,
+Codex pricing, and the Codex SDK surface. The checked official docs currently
+show a supported API-key path for direct API calls and a supported
+subscription-backed sign-in path for Codex product clients. They do not document
+an official, stable, locally usable OAuth or device-code provider auth flow that
+lets a third-party native application call OpenAI models directly using a
+ChatGPT or Codex subscription without running Codex itself.
+
+Implication: `pipy-native` must not implement OpenAI subscription-backed native
+provider auth in this slice. The existing `--native-provider openai` Responses
+API provider remains the OpenAI baseline and continues to require
+`OPENAI_API_KEY` plus `--native-model`. Pay-by-token API usage remains
+compatible but is not promoted as the preferred self-bootstrap path.
+
+Rejected approaches:
+
+- scraping or reusing ChatGPT, browser, Codex CLI, or IDE extension credential
+  stores
+- copying access tokens, refresh tokens, cookies, authorization headers, or
+  cached `auth.json` values into pipy
+- reverse engineering private product endpoints or token refresh behavior
+- wrapping Codex, ChatGPT, Claude Code, or another product UI/CLI as
+  `pipy-native`'s provider implementation
+- archiving any auth material, raw provider response, prompt, model output, or
+  provider-native payload
+
+Provider priority after this decision: implement OpenRouter provider support
+with explicit model selection as the next provider-access slice, then continue
+to the bounded post-tool provider turn work. Local model provider integrations
+remain deferred pending benchmark work, and Anthropic subscription-backed native
+provider support is not promoted to the near-term provider priority.
 
 The native tool boundary defines explicit request/result/status value objects
 plus approval and sandbox policy data. The native provider-to-tool bridge first

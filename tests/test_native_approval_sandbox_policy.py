@@ -160,16 +160,86 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "attempted capability escalation must fail closed" in compact_storage
 
 
+def test_openai_subscription_auth_decision_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    decision_section = markdown_section(spec, "OpenAI Subscription-Backed Native Auth Decision")
+    compact_decision = collapse_whitespace(decision_section)
+
+    assert "Decision: `blocked-for-now`" in compact_decision
+    assert "Decision date: 2026-05-07." in compact_decision
+    for source_url in (
+        "https://developers.openai.com/api/reference/overview",
+        "https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus",
+        "https://help.openai.com/en/articles/9039756",
+        "https://developers.openai.com/codex/auth",
+        "https://developers.openai.com/codex/pricing",
+        "https://developers.openai.com/codex/sdk",
+    ):
+        assert source_url in decision_section
+
+    for checked in (
+        "ChatGPT subscription versus OpenAI API billing",
+        "OpenAI API authentication",
+        "Codex CLI authentication and device-code sign-in behavior",
+        "Codex pricing",
+        "Codex SDK surface",
+    ):
+        assert checked in compact_decision
+
+    assert "API-key path for direct API calls" in compact_decision
+    assert "subscription-backed sign-in path for Codex product clients" in compact_decision
+    assert "do not document an official, stable, locally usable OAuth or device-code" in (
+        compact_decision
+    )
+    assert "third-party native application call OpenAI models directly" in compact_decision
+    assert "`--native-provider openai` Responses API provider remains the OpenAI baseline" in (
+        compact_decision
+    )
+    assert "`OPENAI_API_KEY` plus `--native-model`" in compact_decision
+
+    assert "Rejected approaches:" in decision_section
+    for rejected in (
+        "scraping or reusing ChatGPT, browser, Codex CLI, or IDE extension credential stores",
+        "access tokens",
+        "refresh tokens",
+        "cookies",
+        "authorization headers",
+        "cached `auth.json` values",
+        "reverse engineering private product endpoints",
+        "wrapping Codex, ChatGPT, Claude Code, or another product UI/CLI",
+        "raw provider response",
+    ):
+        assert rejected in compact_decision
+
+    assert "OpenRouter provider support with explicit model selection" in compact_decision
+    assert "Local model provider integrations remain deferred pending benchmark work" in (
+        compact_decision
+    )
+    assert "Anthropic subscription-backed native provider support is not promoted" in (
+        compact_decision
+    )
+
+
 def test_backlog_records_done_completion_and_provider_priority_order():
     backlog = read_repo_file("docs/backlog.md")
     done = backlog[: backlog.index("## Next Slice")]
     next_slice = backlog[backlog.index("## Next Slice") : backlog.index("## Near Term")]
     near_term = backlog[backlog.index("## Near Term") : backlog.index("## Deferred")]
+    compact_done = collapse_whitespace(done)
+    compact_next_slice = collapse_whitespace(next_slice)
 
     assert "Native approval and sandbox enforcement baseline" in done
     assert "Native inert read-only tool request value objects" in done
     assert "Native explicit file excerpt read-only tool implementation" in done
-    assert "### Decide OpenAI subscription-backed native auth path" in next_slice
+    assert "OpenAI subscription-backed native auth decision" in compact_done
+    assert "`blocked-for-now` on 2026-05-07" in compact_done
+    assert "unsupported credential scraping" in compact_done
+    assert "CLI/product wrapping are rejected" in compact_done
+    assert "### Add OpenRouter provider support with explicit model selection" in next_slice
+    assert (
+        "OpenAI subscription auth decision was recorded as `blocked-for-now`"
+        in compact_next_slice
+    )
     assert "OpenRouter provider support with explicit model selection" in near_term
     assert "bounded post-tool provider turn against synthetic sanitized" in near_term
     assert_terms_in_order(
@@ -180,6 +250,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         ],
     )
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
+    assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add bounded post-tool provider turn against synthetic sanitized observations" not in next_slice
 
 

@@ -133,40 +133,51 @@ reviewable change while keeping the source-of-truth design constraints in
   `workspace_read_allowed` only on the new read-tool metadata surface. Raw
   excerpt text stays in memory on the result object and is not wired into
   `NativeAgentSession`, provider calls, stdout, JSON output, Markdown, or JSONL.
+- OpenAI subscription-backed native auth decision: decision label
+  `blocked-for-now` on 2026-05-07. Official OpenAI API, ChatGPT billing,
+  ChatGPT Plus, Codex authentication, Codex pricing, and Codex SDK docs show a
+  supported API-key path for direct API calls and a supported
+  subscription-backed sign-in path for Codex product clients, but not an
+  official generic third-party native provider auth path for calling OpenAI
+  models directly with a ChatGPT or Codex subscription. The existing API-key
+  OpenAI Responses provider remains the OpenAI baseline; unsupported credential
+  scraping, token/cache reuse, reverse engineering, and CLI/product wrapping are
+  rejected. OpenRouter provider support with explicit model selection is
+  promoted as the next provider-access slice.
 
 ## Next Slice
 
-### Decide OpenAI subscription-backed native auth path
+### Add OpenRouter provider support with explicit model selection
 
-Goal: produce a decision record; implement only if an official path is found.
-Decide whether `pipy-native` can use an official OpenAI subscription-backed
-authentication path for native provider calls without turning pipy into a
-wrapper around Codex, ChatGPT, or another OpenAI product UI, and without
-relying on unsupported credential scraping or token extraction.
+Goal: add the next native provider-access path after the OpenAI subscription
+auth decision was recorded as `blocked-for-now`. Implement OpenRouter as an
+explicitly selected native provider with explicit model selection, preserving
+the current metadata-only archive and stdout contracts.
 
 Selected shape:
 
-- treat this as a provider-access decision slice first; implement only if an
-  official, stable, locally usable subscription-backed auth flow exists
-- keep the existing `--native-provider openai` API-key implementation as a
-  completed baseline, but do not prioritize pay-by-token OpenAI API usage as
-  the main self-bootstrap path
-- keep `pipy-native` owning prompts, provider calls, session lifecycle, and
-  archive metadata; do not shell out to Codex, ChatGPT, or another coding-agent
-  CLI to borrow its subscription session
-- preserve metadata-only archives and stdout/stderr behavior; never archive
-  access tokens, refresh tokens, cookies, authorization headers, raw provider
-  responses, prompts, model output, or credential material
-- if no supported subscription auth path exists, record that decision and move
-  directly to the OpenRouter provider slice
-- keep `pipy-native` as the product runtime direction rather than wrapping
-  Codex, Claude, Pi, or another CLI as the main path
+- add a narrow `openrouter` native provider behind `ProviderPort`
+- require `--native-provider openrouter --native-model <provider/model>` or
+  another explicit model identifier shape chosen during implementation
+- read credentials from an environment variable such as `OPENROUTER_API_KEY`;
+  do not add credential storage
+- keep existing `fake` and API-key `openai` provider behavior compatible
+- preserve the current default stdout final-text behavior and
+  `--native-output json` metadata-only behavior
+- keep archives metadata-only: normalized usage counters and safe provider
+  labels only, not prompts, model output, raw provider responses, request
+  bodies, tool payloads, auth material, or provider-native payloads
+- do not enable provider-side tools, streaming, retries, fallback, broad
+  provider registry, OAuth, post-tool provider turns, shell/network execution,
+  write tools, patch tools, or verification-command execution
 
 Keep out of scope:
 
 - unsupported auth extraction, browser-cookie reuse, reverse engineering,
   scraping Codex/ChatGPT/Claude session stores, or copying credentials from
   another product
+- implementing OpenAI subscription-backed auth while it remains
+  `blocked-for-now`
 - changing the current human-readable default stdout mode
 - changing `--native-output json`
 - streaming
@@ -186,61 +197,55 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the decision is grounded in current official OpenAI product/API
-  documentation, not assumptions about private product internals
-- if a supported auth path exists, its implementation keeps credential storage
-  and archive metadata summary-safe and test-covered
-- if the supported auth path is OAuth-based, update `docs/harness-spec.md`
-  provider deferral text in the same change that wires the implementation
-- if no supported auth path exists, the backlog records OpenAI subscription auth
-  as blocked/deferred and makes OpenRouter the next provider-access slice
+- OpenRouter provider selection is explicit and requires an explicit model
+  identifier
+- missing credentials fail safely before network calls where practical and do
+  not create or archive credential material
 - existing `fake` and API-key `openai` provider behavior remains compatible
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
 - archives and `--native-output json` remain metadata-only and never include
-  raw prompts, model output, provider responses, auth tokens, cookies,
-  credentials, secrets, private keys, or sensitive personal data
+  raw prompts, model output, provider responses, request bodies, auth tokens,
+  cookies, credentials, secrets, private keys, or sensitive personal data
 - native records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
 ## Near Term
 
 The near-term trajectory stays supervised self-bootstrap, but provider access
-now has priority before more native loop depth. The preferred provider path is
-OpenAI subscription-backed access if OpenAI exposes an official supported flow
-for third-party native agents. If that is not available, move to OpenRouter
-support with explicit model selection. Pay-by-token OpenAI API access remains
-implemented as a baseline but is not the preferred usage path for this project.
-Anthropic subscription access is not a near-term native provider target because
-subscription-backed coding-agent usage is expected to stay within Claude Code.
-Local-model providers remain interesting but deferred until benchmark work in a
-separate repo clarifies whether Ollama, llama.cpp, MLX, LM Studio, or another
-runtime should be the first local integration.
+now has priority before more native loop depth. OpenAI subscription-backed
+native provider auth is `blocked-for-now` because the official docs checked on
+2026-05-07 document ChatGPT/Codex subscription auth for OpenAI product clients,
+not a generic third-party native provider auth path. OpenRouter support with
+explicit model selection is now the preferred next provider-access slice.
+Pay-by-token OpenAI API access remains implemented as a baseline but is not the
+preferred usage path for this project. Anthropic subscription access is not a
+near-term native provider target because subscription-backed coding-agent usage
+is expected to stay within Claude Code. Local-model providers remain interesting
+but deferred until benchmark work in a separate repo clarifies whether Ollama,
+llama.cpp, MLX, LM Studio, or another runtime should be the first local
+integration.
 
 Small reviewable slices, in intended order:
 
-1. Decide and, only if officially supported, implement OpenAI
-   subscription-backed auth for `pipy-native`; otherwise document the
-   unsupported/blocked decision and leave the existing API-key OpenAI provider
-   as the only OpenAI path.
-2. Add OpenRouter provider support with explicit model selection, metadata-only
+1. Add OpenRouter provider support with explicit model selection, metadata-only
    archives, no provider-side tools, and no raw provider response storage.
-3. Add one bounded post-tool provider turn against synthetic sanitized
+2. Add one bounded post-tool provider turn against synthetic sanitized
    observation fixtures and the provider-visible context shape, with a hard
    stop after that turn and no real read-tool output or general model/tool loop.
-4. Wire the bounded read-only tool observation into the one follow-up provider
+3. Wire the bounded read-only tool observation into the one follow-up provider
    turn, consuming only the sanitized observation shape from the completed
    lifecycle-event slice and the completed provider-visible context policy.
-5. Add a patch proposal boundary before writes: provider may propose a
+4. Add a patch proposal boundary before writes: provider may propose a
    structured edit plan or patch candidate, but applying edits remains separate
    and human-reviewed; archives record only metadata such as proposal status,
    file counts, and storage booleans, not raw patch text.
-6. Add an explicit patch-apply slice with conservative file scope, no shell
+5. Add an explicit patch-apply slice with conservative file scope, no shell
    execution, metadata-only archives, and focused tests.
-7. Add an allowlisted verification-command slice, starting with `just check`,
+6. Add an allowlisted verification-command slice, starting with `just check`,
    behind explicit policy and with only exit code, status, duration, and safe
    labels recorded; stdout/stderr remain excluded from archives.
-8. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
+7. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
 ## Deferred
@@ -258,6 +263,9 @@ Small reviewable slices, in intended order:
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or
   similar runtimes until separate benchmark work identifies the best first
   local runtime and connection shape.
+- OpenAI subscription-backed native provider auth until official OpenAI docs
+  expose a stable third-party/native provider auth flow that is not specific to
+  Codex, ChatGPT, or another OpenAI product client.
 - Interactive TUI.
 - RPC mode.
 - Multi-agent task delegation.
