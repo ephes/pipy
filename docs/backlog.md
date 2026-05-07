@@ -275,6 +275,9 @@ Small reviewable slices, in intended order:
 - Pi-native session inspection beyond metadata references.
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search or SQLite-backed query layer.
+- Review-cycle metadata for `pipy-session workflow review-outcome`, including
+  explicit per-round versus cumulative scope, review round number, and optional
+  cycle identity so `reflect` can avoid double-counting iterative reviews.
 - Broad repo maps or persistent workspace summaries beyond the first bounded
   provider-visible context policy.
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or

@@ -33,7 +33,14 @@ This file is for coding agents working in this repository. It records local proj
 - When a session involves implementation, review, subagents, model comparison, or a meaningful workflow decision, record summary-safe workflow events before finalizing the session.
 - Use `pipy-session workflow role` for implementer/reviewer/planner roles and model identifiers when known.
 - Use `pipy-session workflow subagent` when delegated explorer/worker/subagent work materially affects the result.
-- Use `pipy-session workflow review-outcome` after review cycles to capture finding counts by severity and closure counts: accepted, fixed, rejected, and deferred.
+- Use `pipy-session workflow review-outcome` after review cycles to capture
+  finding counts by severity and closure counts: accepted, fixed, rejected, and
+  deferred. State whether the counts are for the current review round or
+  cumulative across the review cycle.
 - Use `pipy-session workflow evaluation` when there is a useful judgment about whether to keep, switch, or compare a workflow pattern.
 - Do not put prompts, transcript bodies, tool output, secrets, credentials, or sensitive personal data in workflow fields.
 - Prefer summary-safe learning events over relying on memory when evaluating patterns such as Codex implementation plus Claude review.
+- Prefer descriptive session slugs for intentional records. Avoid generic slugs
+  such as `codex-yolo` when the recorder or wrapper allows a better task name.
+- Do not add redundant review passes after a clean second review unless risk,
+  scope, or implementation changed enough to justify another independent pass.
