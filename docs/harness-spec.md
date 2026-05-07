@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-27 allowlisted verification boundary implemented
+Status: slice-28 native conversation state implemented
 
 <style>
 .mermaid,
@@ -1886,6 +1886,9 @@ Implementation note: the first native slices are implemented as
 - deterministic `FakeNoOpNativeTool`
 - allowlisted `NativeVerificationTool` for injected post-apply `just check`
   verification
+- explicit in-memory native conversation and turn value objects for
+  conversation identity, turn identity, role/status labels, safe per-turn
+  metadata, and bounded provider-turn state
 - `NativeAgentSession` that owns system prompt construction
 - normalized provider usage metadata limited to finite non-negative
   `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and
@@ -1900,13 +1903,26 @@ registries, retries, approval prompts, sandbox enforcement, external-agent
 adapters, raw transcript import, TUI/RPC modes, indexed search, compaction,
 branching, or multi-agent orchestration.
 
-The product direction remains a Pi-like native agent surface, eventually with
-an interactive shell. That shell should sit above pipy-owned provider,
-conversation, turn, approval, sandbox, and archive boundaries. The next
-foundation step is explicit native conversation state and a bounded
-provider-turn loop; a REPL or TUI should not be introduced before that core
-exists and preserves the current stdout, JSON, and metadata-only archive
-contracts.
+The native conversation state slice defines inert runtime concepts under
+`pipy_harness.native.conversation`. `NativeConversationIdentity`,
+`NativeTurnIdentity`, `NativeTurnRole`, `NativeTurnStatus`,
+`NativeTurnMetadata`, `NativeConversationTurn`, and
+`NativeConversationState` represent bounded provider-turn sequences in memory.
+The first state bound is two turns, matching the current one-shot plus optional
+post-tool provider call behavior, with a hard internal maximum of eight turns
+for later no-tool REPL work. The metadata payload shape is allowlisted and keeps
+all storage booleans false: it does not carry raw prompts, model output,
+provider responses, provider-native payloads, raw tool observations, stdout,
+stderr, diffs, file contents, command output, auth material, secrets,
+credentials, tokens, private keys, or sensitive personal data.
+
+This slice does not emit new archive events and does not rebase
+`NativeAgentSession` onto the new objects yet. Existing `pipy run --agent
+pipy-native` text stdout, `--native-output json`, metadata-only archive, and
+provider/tool behavior remain unchanged. The next foundation step is to thread
+the current one-shot native run through the conversation/turn core without
+changing those contracts; a REPL or TUI should not be introduced before that
+rebase is complete.
 
 ## Deferred Work
 

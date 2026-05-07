@@ -237,24 +237,31 @@ reviewable change while keeping the source-of-truth design constraints in
   --agent pipy-native` smoke testing clarified that the eventual product target
   is a real Pi-like native shell, while the next safe implementation work is
   still conversation and turn-loop foundation rather than a rushed UI.
+- Native conversation state and bounded provider-turn loop foundation:
+  `pipy_harness.native.conversation` now defines pipy-owned conversation
+  identity, turn identity, closed turn role/status labels, metadata-only
+  per-turn payloads with false storage booleans, and immutable bounded
+  in-memory provider-turn state. No runtime behavior, stdout contract,
+  structured JSON output, archive event shape, provider calls, tool execution,
+  shell UI, or public CLI controls changed in this slice.
 
 ## Next Slice
 
-### Define native conversation state and turn loop
+### Rebase one-shot native run on conversation state
 
-Goal: define the minimal native conversation/session state and bounded
-provider-turn loop needed for an eventual interactive `pipy-native` shell,
-without adding the shell UI or broad tool automation yet.
+Goal: thread the existing one-shot `pipy run --agent pipy-native` path through
+the explicit native conversation and turn state without changing user-visible
+behavior, archive privacy contracts, or the current bounded tool behavior.
 
 Selected shape:
 
-- introduce small internal value objects for conversation identity, turn
-  identity, turn role/status labels, and safe per-turn metadata
-- define how a bounded sequence of provider turns is represented in memory
-  without storing raw prompts, model output, provider payloads, or tool
-  observations in archives
-- keep runtime behavior unchanged in this slice; rebase the current one-shot
-  native run on the new conversation/turn core in the following slice
+- create a native conversation state when `NativeAgentSession.run` starts
+- allocate provider turn identities from the conversation state instead of
+  passing ad hoc provider-turn indexes and labels through session helpers
+- keep the current maximum behavior: one initial provider turn plus at most one
+  bounded follow-up provider turn after a supported observation
+- keep conversation and turn state in memory only unless a future slice defines
+  an explicit archive event shape
 - preserve existing one-shot `pipy run --agent pipy-native` stdout behavior and
   `--native-output json` metadata-only behavior
 - document how a future minimal REPL can sit on top of the same core instead of
@@ -267,6 +274,7 @@ Keep out of scope:
 - arbitrary shell execution and network access
 - provider-side built-in tools or function calling
 - multiple tool requests or unbounded turns
+- new archive event types for conversation or turn export
 - streaming, retries, fallback, OAuth, provider registry, and provider routing
 - raw prompts, model output, raw provider responses, provider-native payloads,
   raw tool observations, stdout, stderr, raw diffs, full file contents,
@@ -276,8 +284,8 @@ Keep out of scope:
 
 Acceptance checks:
 
-- conversation and turn state are explicit native runtime concepts rather than
-  ad hoc counters in CLI code
+- provider-turn indexes and labels used by `NativeAgentSession` come from the
+  native conversation state
 - any new archive-facing events or metadata are allowlisted and summary-safe
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
@@ -303,12 +311,11 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Define native conversation state and a bounded provider-turn loop.
-2. Thread the existing one-shot native run through that state without changing
+1. Thread the existing one-shot native run through conversation state without changing
    stdout, JSON output, or archive privacy contracts.
-3. Add a minimal interactive REPL only after the turn core is stable enough for
+2. Add a minimal interactive REPL only after the turn core is stable enough for
    repeated no-tool provider turns.
-4. Add visible approval and sandbox prompts before any real read/write/shell
+3. Add visible approval and sandbox prompts before any real read/write/shell
    tool loop is exposed to interactive use.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
@@ -330,16 +337,15 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Define native conversation state and bounded provider-turn loop.
-2. Rebase the current one-shot native run on the conversation/turn core.
-3. Add a minimal no-tool `pipy-native` REPL over the same core.
+1. Rebase the current one-shot native run on the conversation/turn core.
+2. Add a minimal no-tool `pipy-native` REPL over the same core.
 
 Foundation gates toward an interactive shell:
 
 - One-shot provider gate: available now through `pipy run --agent
   pipy-native`; useful for provider smoke tests but not an interactive shell.
-- Conversation-state gate: next. Pipy needs explicit in-memory conversation and
-  turn state before repeated provider turns can be cleanly exposed.
+- Conversation-state gate: available now as inert internal value objects. The
+  next gate is rebasing the one-shot native run onto that state.
 - No-tool REPL gate: available only after conversation state exists and the
   one-shot run uses it without changing privacy contracts.
 - Tool-capable shell gate: deferred until live approval prompts, sandbox

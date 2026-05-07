@@ -291,11 +291,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "First supervised self-bootstrap review" in compact_done
     assert "Product-direction checkpoint after first native smoke test" in compact_done
     assert "Pi-like native shell" in compact_done
-    assert "### Define native conversation state and turn loop" in next_slice
-    assert "conversation identity" in compact_next_slice
-    assert "turn identity" in compact_next_slice
-    assert "without adding the shell UI" in compact_next_slice
-    assert "keep runtime behavior unchanged in this slice" in compact_next_slice
+    assert "Native conversation state and bounded provider-turn loop foundation" in compact_done
+    assert "pipy_harness.native.conversation" in compact_done
+    assert "metadata-only per-turn payloads" in compact_done
+    assert "### Rebase one-shot native run on conversation state" in next_slice
+    assert "provider-turn indexes and labels" in compact_next_slice
+    assert "native conversation state" in compact_next_slice
+    assert "one initial provider turn plus at most one bounded follow-up provider turn" in compact_next_slice
+    assert "new archive event types for conversation or turn export" in compact_next_slice
     assert "`--native-output json` remains metadata-only" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
@@ -313,6 +316,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice
     assert "### Add an allowlisted verification-command slice" not in next_slice
+    assert "### Define native conversation state and turn loop" not in next_slice
 
 
 def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():

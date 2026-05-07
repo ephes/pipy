@@ -1,5 +1,17 @@
 """Native pipy runtime bootstrap."""
 
+from pipy_harness.native.conversation import (
+    NATIVE_TURN_METADATA_KEYS,
+    NATIVE_TURN_PAYLOAD_KEYS,
+    NATIVE_TURN_STORAGE_KEYS,
+    NativeConversationIdentity,
+    NativeConversationState,
+    NativeConversationTurn,
+    NativeTurnIdentity,
+    NativeTurnMetadata,
+    NativeTurnRole,
+    NativeTurnStatus,
+)
 from pipy_harness.native.fake import FakeNativeProvider, FakeNoOpNativeTool
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
@@ -78,6 +90,9 @@ from pipy_harness.native.verification import (
 __all__ = [
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
+    "NATIVE_TURN_METADATA_KEYS",
+    "NATIVE_TURN_PAYLOAD_KEYS",
+    "NATIVE_TURN_STORAGE_KEYS",
     "NATIVE_PATCH_APPLY_RECORDED_EVENT",
     "NATIVE_PATCH_APPLY_STORAGE_KEYS",
     "NATIVE_PATCH_PROPOSAL_PAYLOAD_KEYS",
@@ -89,6 +104,9 @@ __all__ = [
     "NATIVE_VERIFICATION_RECORDED_EVENT",
     "NATIVE_VERIFICATION_STORAGE_KEYS",
     "NativeAgentSession",
+    "NativeConversationIdentity",
+    "NativeConversationState",
+    "NativeConversationTurn",
     "NativeExplicitFileExcerptReason",
     "NativeExplicitFileExcerptResult",
     "NativeExplicitFileExcerptTarget",
@@ -125,6 +143,10 @@ __all__ = [
     "NativeToolSandboxMode",
     "NativeToolSandboxPolicy",
     "NativeToolStatus",
+    "NativeTurnIdentity",
+    "NativeTurnMetadata",
+    "NativeTurnRole",
+    "NativeTurnStatus",
     "NativeVerificationApprovalDecision",
     "NativeVerificationCommand",
     "NativeVerificationGateDecision",
