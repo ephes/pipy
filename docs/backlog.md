@@ -265,6 +265,23 @@ Small reviewable slices, in intended order:
 4. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
    test-only change, with independent review before treating it as usable.
 
+Self-bootstrap readiness gates. Slice 4 picks whichever gate has been reached
+when the first supervised trial is run:
+
+- Proposal-only trial: available after the patch proposal boundary exists.
+  Pipy may use the existing bounded read-only context and propose structured
+  edit metadata, but writes remain manual and archives stay metadata-only.
+- Human-applied patch trial: available once proposal output is useful enough
+  for a human to apply or translate manually. No new slice is required for this
+  gate, but independent review is still required before trusting the result.
+- Pipy-applied patch trial: available only after the explicit patch-apply slice
+  exists, with conservative file scope, no shell execution, and metadata-only
+  archives.
+- Verified patch trial: available only after allowlisted verification-command
+  execution exists, starting with `just check` and recording only safe status,
+  exit-code, duration, and label metadata; stdout/stderr remain excluded from
+  archives.
+
 ## Deferred
 
 - Full native pipy agent runtime beyond the provider and tool-boundary slices.
