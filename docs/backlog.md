@@ -224,25 +224,30 @@ reviewable change while keeping the source-of-truth design constraints in
   model output, provider responses, provider-native payloads, raw diffs, file
   contents, auth material, secrets, credentials, tokens, private keys, and
   sensitive personal data.
+- First supervised self-bootstrap trial implementation: a tiny in-process
+  test-only trial exercises the bounded read-only context, metadata-only patch
+  proposal, supervised patch apply, and allowlisted verification-command
+  boundaries against a temporary docs file. The trial keeps review and approval
+  data pipy-owned and human-reviewed, adds no public CLI automation controls,
+  and asserts that events remain metadata-only without raw prompts, model
+  output, patch text, diffs, file contents, command output, stdout, or stderr.
 
 ## Next Slice
 
-### Run the first supervised self-bootstrap trial
+### Review the first supervised self-bootstrap trial
 
-Goal: run the first human-supervised self-bootstrap trial on a tiny docs-only
-or test-only change, using the implemented bounded read-only context, patch
-proposal, supervised patch apply, and allowlisted verification-command
-boundaries where appropriate.
+Goal: independently review the first human-supervised self-bootstrap trial and
+use the outcome to pick the next small, reviewable native-runtime slice.
 
 Selected shape:
 
-- choose a tiny low-risk docs-only or test-only change
-- keep the run human-supervised; a human owns review, approval, and any
-  injected patch/verification data
-- require independent review before treating the path as usable
-- preserve metadata-only archives and normal native stdout behavior
-- preserve default stdout and `--native-output json` metadata-only behavior
-- record only summary-safe workflow learning from the trial
+- review the focused in-process trial test and backlog update
+- confirm the trial target remained tiny and low risk
+- confirm injected patch/verification data stayed pipy-owned and
+  human-reviewed
+- confirm default stdout and `--native-output json` behavior stayed unchanged
+- confirm metadata-only archive and workflow-capture rules stayed intact
+- record only summary-safe review outcome metadata
 
 Keep out of scope:
 
@@ -258,8 +263,10 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the selected task is tiny and reviewable
-- proposal/apply/verification data, if used, is pipy-owned and explicitly
+- the trial implementation receives one independent review pass
+- any accepted findings are fixed in a follow-up change before treating the
+  path as usable
+- proposal/apply/verification data used by the trial is pipy-owned and
   human-reviewed
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
@@ -274,10 +281,11 @@ Acceptance checks:
 ## Near Term
 
 The near-term trajectory stays supervised self-bootstrap. With OpenRouter
-access, bounded read-only context, metadata-only patch proposals, and an
-injected supervised patch apply boundary plus an allowlisted verification
-command in place, the next priority is the first tiny supervised
-self-bootstrap trial.
+access, bounded read-only context, metadata-only patch proposals, an injected
+supervised patch apply boundary, an allowlisted verification command, and a
+first tiny in-process self-bootstrap trial implementation in place, the next
+priority is independent review of that trial and then selecting the next small
+native-runtime slice.
 OpenAI
 subscription-backed native provider auth is `blocked-for-now` because the
 official docs checked on 2026-05-07 document ChatGPT/Codex subscription auth for
@@ -294,11 +302,12 @@ runtime should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Run the first human-supervised self-bootstrap trial on a tiny docs-only or
-   test-only change, with independent review before treating it as usable.
+1. Independently review the first human-supervised self-bootstrap trial and use
+   the findings to choose the next small native-runtime slice.
 
-Self-bootstrap readiness gates. The first supervised trial picks whichever gate
-has been reached when it is run:
+Self-bootstrap readiness gates. The first supervised trial used the verified
+patch gate because the patch-apply and allowlisted verification-command
+boundaries were already available:
 
 - Proposal-only trial: available after the patch proposal boundary exists.
   Pipy may use the existing bounded read-only context and propose structured

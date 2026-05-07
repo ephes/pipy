@@ -284,13 +284,18 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native allowlisted verification-command boundary" in compact_done
     assert "NativeVerificationRequest" in compact_done
     assert "native.verification.recorded" in compact_done
-    assert "### Run the first supervised self-bootstrap trial" in next_slice
-    assert "tiny docs-only or test-only change" in compact_next_slice
-    assert "metadata-only behavior" in compact_next_slice
+    assert "First supervised self-bootstrap trial implementation" in compact_done
+    assert "test-only trial" in compact_done
+    assert "### Review the first supervised self-bootstrap trial" in next_slice
+    assert "independent review" in compact_next_slice
+    assert "metadata-only archive and workflow-capture rules" in compact_next_slice
+    assert "`--native-output json` behavior stayed unchanged" in compact_next_slice
     assert "OpenRouter support with explicit model selection" in compact_near_term
     assert "metadata-only patch proposals" in compact_near_term
     assert "injected supervised patch apply boundary" in compact_near_term
     assert "allowlisted verification command" in compact_near_term
+    assert "first tiny in-process self-bootstrap trial implementation" in compact_near_term
+    assert "### Run the first supervised self-bootstrap trial" not in next_slice
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice
     assert "### Decide OpenAI subscription-backed native auth path" not in next_slice
     assert "### Add OpenRouter provider support with explicit model selection" not in next_slice

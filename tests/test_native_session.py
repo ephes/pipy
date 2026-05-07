@@ -1073,6 +1073,128 @@ def test_native_session_runs_verification_after_successful_patch_apply_metadata_
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
+def test_native_session_supervised_self_bootstrap_trial_is_metadata_only(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old_text = "# Bootstrap trial\n\nStatus: ready for supervised trial.\n"
+    new_text = "# Bootstrap trial\n\nStatus: exercised by supervised trial.\n"
+    target = tmp_path / "docs" / "bootstrap-trial.md"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(
+                final_text="INITIAL_TRIAL_MODEL_OUTPUT_SHOULD_NOT_PERSIST",
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent(),
+                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: safe_read_only_tool_fixture(
+                        "docs/bootstrap-trial.md"
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="FOLLOW_UP_TRIAL_MODEL_OUTPUT_SHOULD_NOT_PERSIST",
+                metadata={
+                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: {
+                        **safe_patch_proposal(),
+                        "file_count": 1,
+                        "operation_count": 1,
+                        "operation_labels": ["modify"],
+                    }
+                },
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    def verification_succeeds(self, request, gate_decision):
+        now = datetime.now(UTC)
+        assert gate_decision.approval_decision == NativeVerificationApprovalDecision.ALLOWED
+        return NativeVerificationResult(
+            status=NativeToolStatus.SUCCEEDED,
+            reason_label=NativeVerificationReason.VERIFICATION_SUCCEEDED,
+            tool_request_id=request.tool_request_id,
+            turn_index=request.turn_index,
+            command_label="just-check",
+            started_at=now,
+            ended_at=now,
+            exit_code=0,
+            approval_policy=request.approval_policy.mode,
+            approval_decision=gate_decision.approval_decision,
+            sandbox_policy=request.sandbox_policy.mode,
+            workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+            filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+            shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+            network_access_allowed=request.sandbox_policy.network_access_allowed,
+            scope_label=request.scope_label,
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativeVerificationTool.invoke",
+        verification_succeeds,
+    )
+
+    output = NativeAgentSession(
+        provider=provider,
+        patch_apply_request=safe_patch_apply_request("docs/bootstrap-trial.md", old_text, new_text),
+        patch_apply_gate=NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+        ),
+        verification_request=safe_verification_request(),
+        verification_gate=NativeVerificationGateDecision(
+            approval_decision=NativeVerificationApprovalDecision.ALLOWED
+        ),
+    ).run(
+        NativeRunInput(
+            goal="SAFE_TRIAL_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert output.status == HarnessStatus.SUCCEEDED
+    assert output.exit_code == 0
+    assert target.read_text(encoding="utf-8") == new_text
+    event_types = [event[0] for event in sink.events]
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT in event_types
+    assert NATIVE_PATCH_APPLY_RECORDED_EVENT in event_types
+    assert NATIVE_VERIFICATION_RECORDED_EVENT in event_types
+    proposal_payload = [
+        event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
+    ][0]
+    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    verification_payload = [
+        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert proposal_payload is not None
+    assert proposal_payload["file_count"] == 1
+    assert proposal_payload["operation_count"] == 1
+    assert proposal_payload["operation_labels"] == ["modify"]
+    assert proposal_payload["workspace_mutated"] is False
+    assert apply_payload is not None
+    assert apply_payload["workspace_mutated"] is True
+    assert apply_payload["patch_text_stored"] is False
+    assert apply_payload["diffs_stored"] is False
+    assert apply_payload["file_contents_stored"] is False
+    assert verification_payload is not None
+    assert verification_payload["command_label"] == "just-check"
+    assert verification_payload["status"] == "succeeded"
+    assert verification_payload["stdout_stored"] is False
+    assert verification_payload["stderr_stored"] is False
+    assert verification_payload["command_output_stored"] is False
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "ready for supervised trial" not in serialized
+    assert "exercised by supervised trial" not in serialized
+    assert "INITIAL_TRIAL_MODEL_OUTPUT_SHOULD_NOT_PERSIST" not in serialized
+    assert "FOLLOW_UP_TRIAL_MODEL_OUTPUT_SHOULD_NOT_PERSIST" not in serialized
+    assert "SAFE_TRIAL_GOAL_METADATA" not in serialized
+
+
 def test_native_session_verification_failure_fails_run_after_patch_apply(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
