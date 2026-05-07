@@ -262,30 +262,40 @@ reviewable change while keeping the source-of-truth design constraints in
   patches, patch apply requests, shell commands, verification requests, or
   provider metadata; archives remain metadata-only and one-shot
   `pipy run --agent pipy-native` stdout/JSON behavior remains unchanged.
+- Native visible approval and sandbox prompt foundation: `pipy_harness.native`
+  now exposes an injected stream-based approval resolver for the existing
+  read-only workspace inspection request shape. It renders safe approval policy,
+  sandbox mode, capability booleans, operation/tool labels, and optional safe
+  scope labels before execution, maps approved/denied/unavailable/failed
+  outcomes to the existing `NativeReadOnlyGateDecision`, and fails closed for
+  missing UI, unsupported request kind, unsupported approval policy,
+  unsupported sandbox mode, sandbox mismatch, unsafe request data, and
+  attempted capability escalation. This slice adds no public tool-capable REPL
+  command, no new archive event, and no new structured stdout fields.
 
 ## Next Slice
 
-### Add visible approval and sandbox prompts before interactive tools
+### Wire one narrow interactive read-only command behind the prompt gate
 
-Goal: define and implement the smallest pipy-owned visible approval and sandbox
-prompt path needed before any real read/write/shell tool loop is exposed to
-interactive use.
+Goal: expose the smallest deliberately named no-surprises interactive read-only
+workspace inspection command from `pipy repl --agent pipy-native`, using the
+visible approval/sandbox prompt foundation before any file read occurs.
 
 Selected shape:
 
-- keep prompts pipy-owned and metadata-only in archives
-- make approval decisions and sandbox posture visible before execution
-- start with the narrowest operation class needed for the next interactive
-  tool-capable shell slice
-- keep fail-closed behavior for missing approval UI, denied approval,
-  unsupported policies, sandbox mismatches, unsafe request data, and attempted
-  capability escalation
-- preserve the no-tool REPL and one-shot native stdout/JSON/archive contracts
+- keep the command explicit and narrow, likely one fixed slash command for
+  explicit file excerpts
+- require a pipy-owned request, target, visible approval prompt, and read-only
+  sandbox posture before execution
+- print any resulting excerpt only to the interactive output stream, not to
+  JSONL, Markdown, catalog surfaces, or `--native-output json`
+- preserve one-shot native stdout/JSON/archive contracts and keep non-command
+  REPL messages as no-tool provider turns
 
 Keep out of scope:
 
 - arbitrary shell execution, network access, and provider-side built-in tools
-- broad TUI rendering, persistent history, rich prompt editing, and arbitrary
+- broad TUI rendering, persistent history, rich prompt editing, and broad
   slash-command surfaces
 - multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
   provider registry, and provider routing
@@ -296,12 +306,13 @@ Keep out of scope:
 
 Acceptance checks:
 
-- approval decisions and sandbox checks have tested visible behavior before
-  any real interactive tool execution
-- denied, unavailable, unsupported, and mismatched policy cases fail closed
+- the command cannot read unless the visible prompt is approved
+- denied, unavailable, unsupported, and mismatched policy cases fail closed and
+  do not read
 - archive records remain metadata-only and compatible with `pipy-session
   verify`, `list`, `search`, and `inspect`
-- one-shot native and no-tool REPL stdout/JSON behavior remain unchanged
+- normal one-shot native behavior and ordinary no-tool REPL turns remain
+  unchanged
 
 ## Near Term
 
@@ -337,8 +348,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add visible approval and sandbox prompts before any real read/write/shell
-   tool loop is exposed to interactive use.
+1. Wire one narrow interactive read-only command behind the prompt gate.
 
 Foundation gates toward an interactive shell:
 
@@ -350,9 +360,12 @@ Foundation gates toward an interactive shell:
 - No-tool REPL gate: available now through `pipy repl --agent pipy-native`.
   It reuses the same conversation state for repeated no-tool provider turns and
   keeps archives metadata-only.
-- Tool-capable shell gate: deferred until live approval prompts, sandbox
-  enforcement, and metadata-only observation handling exist for interactive
-  use.
+- Visible approval prompt gate: available now as an injected native helper for
+  read-only workspace inspection. It is not yet wired into a public REPL
+  command.
+- Tool-capable shell gate: deferred until the prompt helper is wired into one
+  explicit interactive read-only command and metadata-only observation handling
+  remains compatible.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

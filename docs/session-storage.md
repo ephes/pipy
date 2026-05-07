@@ -557,8 +557,8 @@ excerpt text in memory only and exposes a separate metadata-only helper; the
 runtime may forward that text only to the one bounded follow-up provider turn
 and never archives it.
 
-Future approval and sandbox records must stay metadata-only. The enforcement
-baseline in `docs/harness-spec.md` defines approval decision labels as
+Approval and sandbox records must stay metadata-only. The enforcement baseline
+in `docs/harness-spec.md` defines approval decision labels as
 `pending`, `allowed`, `denied`, `skipped`, and `failed`; sandbox mode labels as
 `no-workspace-access`, `read-only-workspace`, and `mutating-workspace`; and
 independent capability booleans for `workspace_read_allowed`,
@@ -570,7 +570,11 @@ verification commands. The current native verification boundary supports only
 the pipy-owned `just-check` label mapped internally to `just check` after
 explicit approval.
 
-If approval or sandbox gates are implemented later, JSONL, Markdown, and
+The first native visible approval prompt foundation resolves read-only
+workspace approval through injected streams and maps the result to the existing
+`NativeReadOnlyGateDecision`. That helper does not add a JSONL event, Markdown
+field, catalog-visible field, or `--native-output json` field in this slice.
+If approval or sandbox gates are archived later, JSONL, Markdown, and
 `--native-output json` may record only policy labels, approval
 required/resolved booleans, decision labels, safe reason labels, capability
 booleans, `tool_request_id`, `turn_index`, safe tool name/kind labels, status,

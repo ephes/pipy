@@ -37,11 +37,11 @@ def test_native_approval_and_sandbox_baseline_is_documented():
     compact_policy = collapse_whitespace(policy_section)
 
     assert "### Native Approval And Sandbox Enforcement Baseline" in compact_policy
-    assert "does not add live approval prompts" in compact_policy
+    assert "first visible approval prompt foundation" in compact_policy
     assert "sandbox enforcement" in compact_policy
-    assert "real repo reads" in compact_policy
-    assert "provider-visible repo context forwarding" in compact_policy
-    assert "synthetic sanitized observation fixtures" in compact_policy
+    assert "broad interactive tools" in compact_policy
+    assert "provider-visible context" in compact_policy
+    assert "sanitized fixtures" in compact_policy
     assert "one follow-up provider turn" in compact_policy
 
     for decision in ("`pending`", "`allowed`", "`denied`", "`skipped`", "`failed`"):
@@ -140,7 +140,9 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     storage = read_repo_file("docs/session-storage.md")
     compact_storage = collapse_whitespace(storage)
 
-    assert "Future approval and sandbox records must stay metadata-only." in compact_storage
+    assert "Approval and sandbox records must stay metadata-only." in compact_storage
+    assert "first native visible approval prompt foundation" in compact_storage
+    assert "does not add a JSONL event" in compact_storage
     assert "`pending`, `allowed`, `denied`, `skipped`, and `failed`" in compact_storage
     assert "`no-workspace-access`, `read-only-workspace`, and `mutating-workspace`" in compact_storage
     assert "`workspace_read_allowed`" in compact_storage
@@ -300,17 +302,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native minimal no-tool REPL" in compact_done
     assert "`pipy repl --agent pipy-native`" in compact_done
     assert "`no_tool_repl`" in compact_done
-    assert "### Add visible approval and sandbox prompts before interactive tools" in next_slice
-    assert "pipy-owned visible approval and sandbox prompt path" in compact_next_slice
-    assert "fail-closed behavior" in compact_next_slice
-    assert "one-shot native and no-tool REPL stdout/JSON behavior remain unchanged" in (
-        compact_next_slice
-    )
+    assert "Native visible approval and sandbox prompt foundation" in compact_done
+    assert "stream-based approval resolver" in compact_done
+    assert "attempted capability escalation" in compact_done
+    assert "### Wire one narrow interactive read-only command behind the prompt gate" in next_slice
+    assert "visible approval/sandbox prompt foundation before any file read occurs" in compact_next_slice
+    assert "do not read" in compact_next_slice
+    assert "ordinary no-tool REPL turns remain unchanged" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
     assert "No-tool REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
+    assert "Visible approval prompt gate: available now" in compact_near_term
     assert "Tool-capable shell gate" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -327,12 +331,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
 
 
-def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():
+def test_visible_prompt_foundation_is_not_threaded_into_public_native_runtime():
     forbidden_runtime_terms = {
-        "approval_prompt",
-        "ApprovalPrompt",
-        "approval_ui",
-        "ApprovalUi",
         "approval.requested",
         "approval.resolved",
         "native.approval",
@@ -340,11 +340,16 @@ def test_approval_and_sandbox_baseline_is_not_threaded_into_native_runtime():
         "SandboxEnforcer",
         "enforce_sandbox",
         "sandbox_check",
+        "resolve_read_only_workspace_approval",
+        "NativeInteractiveApprovalPromptResolver",
     }
-    native_sources = sorted((ROOT / "src/pipy_harness/native").glob("*.py"))
+    runtime_sources = [
+        ROOT / "src/pipy_harness/native/session.py",
+        ROOT / "src/pipy_harness/adapters/native.py",
+        ROOT / "src/pipy_harness/cli.py",
+    ]
 
-    assert native_sources
-    for source_path in native_sources:
+    for source_path in runtime_sources:
         source = source_path.read_text(encoding="utf-8")
         for term in forbidden_runtime_terms:
             assert term not in source, f"{term!r} found in {source_path}"

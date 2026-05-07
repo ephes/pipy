@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-30 no-tool native REPL
+Status: slice-31 visible native approval prompt foundation
 
 <style>
 .mermaid,
@@ -896,16 +896,18 @@ transcript import remain deferred.
 
 ### Native Approval And Sandbox Enforcement Baseline
 
-Approval and sandbox enforcement are future gates for native tools. This
-baseline defines the contract before real read tools, write tools, shell
-execution, network access, verification commands, live approval prompts, or
-runtime sandbox enforcement exist. The current `pipy-native` runtime remains
-bounded to one initial provider turn plus optional one fake no-op tool
-invocation and, for explicitly supported synthetic sanitized observation
-fixtures only, one follow-up provider turn. It does not add live approval
-prompts, sandbox enforcement, real repo reads, provider-visible repo context
-forwarding, archive writes for live context or real execution, or a general
-model/tool loop.
+Approval and sandbox enforcement are native gates for tool-capable behavior.
+This baseline defines the contract before broad interactive read tools, write
+tools, shell execution, network access, verification commands, provider-side
+tools, or runtime sandbox enforcement exist. The current `pipy-native` runtime
+remains bounded to one initial provider turn plus optional one fake no-op tool
+invocation and, for explicitly supported sanitized fixtures only, one
+follow-up provider turn. The first visible approval prompt foundation described
+below exists as an injected native helper for read-only workspace inspection;
+the public no-tool REPL still does not parse or execute tools, and this
+baseline still does not add broad interactive tools, network access, provider
+tool use, live shell execution, archive writes for live context beyond existing
+metadata-only events, or a general model/tool loop.
 
 Approval decision labels are `pending`, `allowed`, `denied`, `skipped`, and
 `failed`.
@@ -1016,12 +1018,58 @@ file-content stores.
 
 This baseline is a prerequisite for bounded read-only tools, provider-visible
 repo context production, write tools, patch application, shell or network
-access, and verification commands. It does not imply that the current runtime
-enforces approvals or sandboxing. Future implementation slices must wire these
-gates explicitly and keep the existing pipy-owned `tool_request_id`,
-`turn_index`, `native.tool.observation.recorded`, `duration_seconds`, storage
-booleans, provider-visible context, and metadata-only archive contracts in
-sync.
+access, and verification commands. The first implemented prompt helper now
+resolves read-only approval into the existing read-only gate object, but it is
+not a broad runtime sandbox and it is not exposed as a public tool-capable REPL
+loop. Future implementation slices must wire these gates explicitly and keep
+the existing pipy-owned `tool_request_id`, `turn_index`,
+`native.tool.observation.recorded`, `duration_seconds`, storage booleans,
+provider-visible context, and metadata-only archive contracts in sync.
+
+### Native Visible Approval And Sandbox Prompt Path
+
+The first visible approval/sandbox prompt foundation is implemented in
+`pipy_harness.native.approval_prompt`. It is deliberately narrower than a
+tool-capable shell. The helper supports only the existing read-only workspace
+inspection request class, and only the `explicit-file-excerpt` request kind is
+accepted for this first prompt path.
+
+The prompt data model is `NativeApprovalSandboxPrompt`. It stores only safe
+labels and booleans:
+
+- operation, tool name, and tool kind labels
+- approval policy label and `approval_required`
+- sandbox policy label
+- `workspace_read_allowed`, `filesystem_mutation_allowed`,
+  `shell_execution_allowed`, and `network_access_allowed`
+- optional safe scope and reason labels
+
+It does not store or display raw prompts, provider output, raw tool arguments,
+workspace paths, command text, stdout, stderr, diffs, patches, file contents,
+or excerpt text. `NativeInteractiveApprovalPromptResolver` writes the visible
+prompt to an injected output stream and reads an approval answer from an
+injected input stream, which keeps the path testable without terminal input and
+lets future CLI wiring choose stderr for prompts. A missing resolver, missing
+stream, EOF, denied answer, resolver error, unsupported request kind,
+unsupported approval policy, unsupported sandbox mode, sandbox mismatch, unsafe
+request data, or attempted capability escalation produces a fail-closed
+decision before execution.
+
+The public helper `resolve_read_only_workspace_approval(request, resolver)`
+returns `NativeReadOnlyApprovalResolution`, including a
+`NativeApprovalSandboxDecision` and the existing `NativeReadOnlyGateDecision`
+consumed by `NativeExplicitFileExcerptTool`. An approved prompt maps to
+`NativeReadOnlyApprovalDecision.ALLOWED`; denial maps to `DENIED`; unavailable
+UI and unsupported request kinds map to `SKIPPED`; unsupported policies,
+sandbox mismatches, unsafe data, capability escalation, and resolver failures
+map to `FAILED`.
+
+This slice adds no new archive event type and no new `--native-output json`
+fields. The helper exposes `safe_metadata()` methods for future archive wiring,
+but current one-shot `pipy run --agent pipy-native` behavior and
+`pipy repl --agent pipy-native` no-tool behavior remain unchanged. The next
+interactive slice must explicitly wire this resolver before any read-only
+workspace operation is exposed from the shell.
 
 ### Native Read-Only Tool Request Value Objects
 
