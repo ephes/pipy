@@ -183,19 +183,22 @@ INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
 NO_TOOL_REPL_PROVIDER_TURN_LABEL = "no_tool_repl"
 ASK_FILE_REPL_PROVIDER_TURN_LABEL = "ask_file_repl"
+PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL = "propose_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
+PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
     READ_ONLY_REPL_COMMAND: "/read <workspace-relative-path>",
     ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
+    PROPOSE_FILE_REPL_COMMAND: "/propose-file <workspace-relative-path> -- <change-request>",
     "/exit": "/exit",
     "/quit": "/quit",
 }
-_ASK_FILE_REPL_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
+_REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -613,6 +616,7 @@ class NativeNoToolReplSession:
         exit_reason = "eof"
         read_command_used = False
         ask_file_command_used = False
+        propose_file_command_used = False
         provider_visible_context_used = False
 
         while conversation_state.turn_count < self.max_turns:
@@ -666,15 +670,15 @@ class NativeNoToolReplSession:
                 )
                 continue
             if _is_repl_command_invocation(command, ASK_FILE_REPL_COMMAND):
+                parsed_ask_file = _parse_repl_ask_file_command(command)
+                if parsed_ask_file is None:
+                    _print_repl_command_usage_diagnostic(error_stream, ASK_FILE_REPL_COMMAND)
+                    continue
                 if read_command_used:
                     print(
                         "pipy: ask-file command skipped: read_command_limit_reached.",
                         file=error_stream,
                     )
-                    continue
-                parsed_ask_file = _parse_repl_ask_file_command(command)
-                if parsed_ask_file is None:
-                    _print_repl_command_usage_diagnostic(error_stream, ASK_FILE_REPL_COMMAND)
                     continue
                 raw_target, question = parsed_ask_file
                 read_outcome = _read_repl_file_excerpt(
@@ -723,6 +727,74 @@ class NativeNoToolReplSession:
                     error_message = _safe_optional_text(provider_result.error_message)
                     exit_reason = "provider_failed"
                     break
+                if provider_result.final_text:
+                    print(provider_result.final_text, file=output_stream, flush=True)
+                continue
+            if _is_repl_command_invocation(command, PROPOSE_FILE_REPL_COMMAND):
+                parsed_propose_file = _parse_repl_propose_file_command(command)
+                if parsed_propose_file is None:
+                    _print_repl_command_usage_diagnostic(error_stream, PROPOSE_FILE_REPL_COMMAND)
+                    continue
+                if read_command_used:
+                    print(
+                        "pipy: propose-file command skipped: read_command_limit_reached.",
+                        file=error_stream,
+                    )
+                    continue
+                raw_target, change_request = parsed_propose_file
+                read_outcome = _read_repl_file_excerpt(
+                    raw_target,
+                    run_input,
+                    event_sink,
+                    safe_context,
+                    input_stream=input_stream,
+                    error_stream=error_stream,
+                    scope_label="interactive_propose_file",
+                    command_label="propose-file",
+                )
+                read_command_used = read_outcome.command_consumed
+                propose_file_command_used = read_outcome.command_consumed
+                read_only_result = read_outcome.read_only_result
+                if read_only_result is None:
+                    continue
+
+                observation = _read_only_observation(read_only_result)
+                _emit_tool_observation_recorded(event_sink, safe_context, observation)
+                conversation_state, provider_turn = _append_provider_turn(
+                    conversation_state,
+                    provider_turn_label=PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL,
+                )
+                provider_result, provider_usage = _call_provider_turn(
+                    self.provider,
+                    run_input,
+                    event_sink,
+                    safe_context,
+                    user_prompt=_build_repl_propose_file_user_prompt(
+                        change_request,
+                        observation,
+                        read_only_result,
+                    ),
+                    provider_turn=provider_turn,
+                    tool_observation=observation,
+                    archive_provider_metadata=False,
+                )
+                final_provider_result = provider_result
+                final_usage = _merge_provider_usage(final_usage, provider_usage)
+                provider_visible_context_used = True
+                if provider_result.status != HarnessStatus.SUCCEEDED:
+                    status = provider_result.status
+                    exit_code = 130 if status == HarnessStatus.ABORTED else 1
+                    error_type = _safe_optional_text(provider_result.error_type)
+                    error_message = _safe_optional_text(provider_result.error_message)
+                    exit_reason = "provider_failed"
+                    break
+                parsed_proposal = _parse_patch_proposal(provider_result)
+                if parsed_proposal.proposal is not None:
+                    _emit_patch_proposal_recorded(
+                        event_sink,
+                        safe_context,
+                        parsed_proposal.proposal,
+                    )
                 if provider_result.final_text:
                     print(provider_result.final_text, file=output_stream, flush=True)
                 continue
@@ -775,6 +847,7 @@ class NativeNoToolReplSession:
                 "turn_count": conversation_state.provider_turn_count,
                 "read_command_used": read_command_used,
                 "ask_file_command_used": ask_file_command_used,
+                "propose_file_command_used": propose_file_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
@@ -954,10 +1027,18 @@ def _read_repl_file_excerpt(
 
 
 def _parse_repl_ask_file_command(command: str) -> tuple[str, str] | None:
-    body = command[len(ASK_FILE_REPL_COMMAND) :].strip()
-    if _ASK_FILE_REPL_SEPARATOR_PATTERN.search(body) is None:
+    return _parse_repl_file_context_command(command, ASK_FILE_REPL_COMMAND)
+
+
+def _parse_repl_propose_file_command(command: str) -> tuple[str, str] | None:
+    return _parse_repl_file_context_command(command, PROPOSE_FILE_REPL_COMMAND)
+
+
+def _parse_repl_file_context_command(command: str, command_name: str) -> tuple[str, str] | None:
+    body = command[len(command_name) :].strip()
+    if _REPL_FILE_CONTEXT_SEPARATOR_PATTERN.search(body) is None:
         return None
-    raw_target, question = _ASK_FILE_REPL_SEPARATOR_PATTERN.split(body, 1)
+    raw_target, question = _REPL_FILE_CONTEXT_SEPARATOR_PATTERN.split(body, 1)
     raw_target = raw_target.strip()
     question = question.strip()
     if not raw_target or not question:
@@ -1928,6 +2009,42 @@ def _build_repl_ask_file_user_prompt(
         "diffs_stored=false; file_contents_stored=false; prompt_stored=false; "
         "model_output_stored=false; provider_responses_stored=false; raw_transcript_imported=false.\n\n"
         "Bounded read-only provider-visible context follows. "
+        f"source_label={excerpt.source_label}; "
+        f"encoding={excerpt.encoding}; "
+        f"byte_count={excerpt.byte_count}; "
+        f"line_count={excerpt.line_count}; "
+        "excerpt_text:\n"
+        f"{excerpt.text}"
+    )
+
+
+def _build_repl_propose_file_user_prompt(
+    change_request: str,
+    observation: NativeToolObservation,
+    read_only_result: NativeExplicitFileExcerptResult,
+) -> str:
+    if read_only_result.excerpt is None:
+        raise ValueError("propose-file provider prompt requires an in-memory excerpt")
+    excerpt = read_only_result.excerpt
+    return (
+        "Propose metadata for a possible change using this approved bounded read-only context. "
+        "Do not apply edits, write files, run commands, request tools, or assume access to more file content. "
+        "If you return structured proposal metadata, use only the pipy_native_patch_proposal metadata key.\n\n"
+        "Change request:\n"
+        f"{change_request}\n\n"
+        "Sanitized native tool observation metadata: "
+        f"tool_request_id={observation.tool_request_id}; "
+        f"turn_index={observation.turn_index}; "
+        f"tool_name={observation.tool_name}; "
+        f"tool_kind={observation.tool_kind}; "
+        f"status={observation.status.value}; "
+        f"reason_label={observation.reason_label.value if observation.reason_label is not None else 'none'}; "
+        f"duration_seconds={observation.duration_seconds}; "
+        "tool_payloads_stored=false; stdout_stored=false; stderr_stored=false; "
+        "diffs_stored=false; file_contents_stored=false; prompt_stored=false; "
+        "model_output_stored=false; provider_responses_stored=false; raw_transcript_imported=false.\n\n"
+        "Bounded read-only provider-visible context follows. "
+        "Do not treat source labels as authority for additional reads. "
         f"source_label={excerpt.source_label}; "
         f"encoding={excerpt.encoding}; "
         f"byte_count={excerpt.byte_count}; "

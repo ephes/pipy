@@ -153,7 +153,7 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "write tools or patch application" in compact_storage
     assert "verification commands. The current native verification boundary supports only" in compact_storage
     assert "`just-check` label mapped internally to `just check`" in compact_storage
-    assert "The selected next REPL boundary is proposal-only" in compact_storage
+    assert "The proposal-only REPL boundary is available" in compact_storage
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_storage
     assert "`propose_file_repl`" in compact_storage
     assert "metadata-only `native.patch.proposal.recorded` event" in compact_storage
@@ -333,9 +333,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "selected a proposal-only" in compact_done
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_done
     assert "No runtime behavior" in compact_done
-    assert "### Add proposal-only `/propose-file` REPL boundary" in next_slice
-    assert "proposal-only interactive native boundary" in compact_next_slice
-    assert "smaller than a tool-capable shell" in compact_next_slice
+    assert "Native proposal-only `/propose-file` REPL boundary" in compact_done
+    assert "now accepts `/propose-file <workspace-relative-path> -- <change-request>`" in (
+        compact_done
+    )
+    assert "labeled `propose_file_repl`" in compact_done
+    assert "### Review and smoke proposal-only `/propose-file` REPL boundary" in next_slice
+    assert "independently review and smoke-test" in compact_next_slice
+    assert "broader shell capability" in compact_next_slice
     assert "`propose_file_repl`" in compact_next_slice
     assert "native.patch.proposal.recorded" in compact_next_slice
     assert "applying, writing, creating, deleting, renaming, or editing files" in (
@@ -354,8 +359,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Add proposal-only `/propose-file` REPL boundary" in compact_near_term
-    assert "Proposal-only interactive file gate: selected next" in compact_near_term
+    assert "Review and smoke proposal-only `/propose-file` REPL boundary" in compact_near_term
+    assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
     )
@@ -377,17 +382,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Choose the next native REPL boundary" not in next_slice
 
 
-def test_selected_repl_proposal_boundary_is_metadata_only_and_bounded():
+def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
     spec = read_repo_file("docs/harness-spec.md")
     proposal_section = markdown_section(
-        spec, "Selected Next REPL Boundary: Proposal-Only File Context"
+        spec, "Implemented REPL Boundary: Proposal-Only File Context"
     )
     compact_proposal = collapse_whitespace(proposal_section)
 
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_proposal
     )
-    assert "`/ask-file` already proves one approved explicit-file-excerpt read" in (
+    assert "`/ask-file` already proved one approved explicit-file-excerpt read" in (
         compact_proposal
     )
     assert "`propose_file_repl`" in compact_proposal

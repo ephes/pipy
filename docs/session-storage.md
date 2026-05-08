@@ -482,7 +482,13 @@ the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
 whitespace-delimited `--` separator and shares the same one-read per-session
 limit and approval/read path, but forwards the successful excerpt plus question
 only in memory to one provider turn labeled `ask_file_repl`; it prints only
-provider final text to stdout. Malformed supported slash commands and
+provider final text to stdout. `/propose-file <workspace-relative-path> --
+<change-request>` uses the same separator and shared one-read approval/read
+path, forwards the successful excerpt plus change request only in memory to
+one provider turn labeled `propose_file_repl`, parses at most one pipy-owned
+structured patch proposal metadata object, records at most one metadata-only
+`native.patch.proposal.recorded` event, and prints only provider final text to
+stdout. Malformed supported slash commands and
 unsupported slash commands print static usage diagnostics on stderr without
 provider/tool execution, read-limit consumption, tool events, or raw command
 archiving. REPL session records use the same metadata-only lifecycle vocabulary
@@ -491,20 +497,11 @@ provider-returned tool intent markers, raw approval prompts, raw tool
 arguments, raw tool results, stdout, stderr, prompts, model output, provider
 responses, provider-native payloads, repo context, patches, command output,
 full file contents, auth material, secrets, credentials, tokens, private keys,
-or sensitive personal data. The REPL still does not apply patches, run shell
-commands, run verification, enable provider-side tools, or expose a general
-model/tool loop.
-
-The selected next REPL boundary is proposal-only:
-`/propose-file <workspace-relative-path> -- <change-request>`. That future
-command may reuse the same approved explicit-file-excerpt path and one-read
-per-session limit, forward one excerpt plus one change request only in memory
-to one provider turn labeled `propose_file_repl`, parse at most one pipy-owned
-structured patch proposal metadata object, and record at most one
-metadata-only `native.patch.proposal.recorded` event. It must not apply edits,
-mutate files, run verification, run shell commands, request network access,
-enable provider-side tools, create another provider turn, persist repo context,
-or store raw proposal data.
+or sensitive personal data. The REPL still does not apply patches, mutate
+files, run shell commands, run verification, enable provider-side tools, create
+another provider turn after proposal parsing, persist repo context, or expose a
+general model/tool loop. In particular, `/propose-file` must not apply edits or
+store raw proposal data.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -514,6 +511,12 @@ fixture-gated follow-up provider turn. The
 because the observation is derived metadata, not a raw output handling phase.
 Unsafe or unsupported observation or read-only context fixture data is skipped
 and fails closed before provider visibility.
+
+The proposal-only REPL boundary is available as
+`/propose-file <workspace-relative-path> -- <change-request>`. It is the
+interactive counterpart to the metadata-only patch proposal event: it forwards
+only one approved in-memory excerpt and one change request to
+`propose_file_repl`, then stops after optional proposal metadata parsing.
 
 After a successful explicit-file-excerpt read-only observation and successful
 follow-up provider turn, the native runtime may record one metadata-only patch
@@ -637,10 +640,10 @@ final text prints to stdout, while the `pipy-native>` prompt and all
 harness/session messages stay on stderr. `/help` and static usage diagnostics
 for malformed or unsupported slash commands also stay on stderr without
 provider/tool execution. Successful `/read` excerpt text prints only to
-interactive stdout. Successful `/ask-file` excerpt text is forwarded only in
-memory to one provider turn; only that provider final text prints to stdout.
-The REPL does not add structured stdout, JSONL event streaming, transcript
-export, raw conversation storage, or raw excerpt storage.
+interactive stdout. Successful `/ask-file` and `/propose-file` excerpt text is
+forwarded only in memory to one provider turn; only that provider final text
+prints to stdout. The REPL does not add structured stdout, JSONL event
+streaming, transcript export, raw conversation storage, or raw excerpt storage.
 
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject
@@ -721,9 +724,9 @@ native.provider.started              # label ask_file_repl
 native.provider.completed | native.provider.failed
 ```
 
-The selected future `/propose-file` command uses the same read-tool lifecycle
-and, after one successful approved excerpt, may add one provider turn plus one
-metadata-only proposal event:
+The `/propose-file` command uses the same read-tool lifecycle and, after one
+successful approved excerpt, may add one provider turn plus one metadata-only
+proposal event:
 
 ```text
 native.tool.started

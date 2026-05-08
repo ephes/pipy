@@ -51,6 +51,27 @@ def parse_single_json_stdout(stdout: str) -> dict[str, object]:
     return parsed
 
 
+def safe_repl_patch_proposal() -> dict[str, object]:
+    return {
+        "proposal_source": "pipy_owned_patch_proposal",
+        "tool_request_id": "native-tool-0001",
+        "turn_index": 0,
+        "status": "proposed",
+        "reason_label": "structured_proposal_accepted",
+        "file_count": 1,
+        "operation_count": 1,
+        "operation_labels": ["modify"],
+        "patch_text_stored": False,
+        "diffs_stored": False,
+        "file_contents_stored": False,
+        "prompt_stored": False,
+        "model_output_stored": False,
+        "provider_responses_stored": False,
+        "raw_transcript_imported": False,
+        "workspace_mutated": False,
+    }
+
+
 def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
     tmp_path,
     capfd,
@@ -343,6 +364,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert "  /help" in captured.err
     assert "  /read <workspace-relative-path>" in captured.err
     assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
+    assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
     assert "  /exit" in captured.err
     assert "  /quit" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -717,6 +739,389 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
     assert "TAB_DELIMITED_PROVIDER_CONTEXT" not in combined
     assert "What does this say?" not in combined
     assert "ASK_FILE_PROVIDER_OUTPUT" not in combined
+
+
+def test_cli_native_repl_propose_file_records_metadata_only_proposal(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "proposal-context.txt"
+    source.parent.mkdir()
+    source.write_text("APPROVED_PROPOSAL_CONTEXT\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="PROPOSE_FILE_PROVIDER_OUTPUT",
+                usage={"input_tokens": 5, "output_tokens": 7, "total_tokens": 12},
+                metadata={
+                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal(),
+                    "raw_provider_response": "SHOULD_NOT_PERSIST",
+                },
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/propose-file docs/proposal-context.txt -- Rename the helper\nyes\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "PROPOSE_FILE_PROVIDER_OUTPUT\n"
+    assert "APPROVED_PROPOSAL_CONTEXT" not in captured.out
+    assert "pipy approval required" in captured.err
+    assert len(captured_requests) == 1
+    request = captured_requests[0]
+    assert request.provider_turn_index == 0
+    assert request.provider_turn_label == "propose_file_repl"
+    assert "Rename the helper" in request.user_prompt
+    assert "APPROVED_PROPOSAL_CONTEXT" in request.user_prompt
+    assert "source_label=proposal-context.txt" in request.user_prompt
+    assert "pipy_native_patch_proposal" in request.user_prompt
+    assert request.tool_observation is not None
+    assert request.tool_observation.tool_name == "read_only_repo_inspection"
+
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.started") == 1
+    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.tool.observation.recorded") == 1
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count("native.provider.completed") == 1
+    assert event_types.count("native.patch.proposal.recorded") == 1
+    provider_payload = [event["payload"] for event in events if event["type"] == "native.provider.completed"][0]
+    assert provider_payload["provider_turn_label"] == "propose_file_repl"
+    assert provider_payload["provider_metadata"] == {}
+    proposal_payload = [
+        event["payload"] for event in events if event["type"] == "native.patch.proposal.recorded"
+    ][0]
+    assert proposal_payload["status"] == "proposed"
+    assert proposal_payload["reason_label"] == "structured_proposal_accepted"
+    assert proposal_payload["file_count"] == 1
+    assert proposal_payload["operation_count"] == 1
+    assert proposal_payload["operation_labels"] == ["modify"]
+    assert proposal_payload["patch_text_stored"] is False
+    assert proposal_payload["diffs_stored"] is False
+    assert proposal_payload["file_contents_stored"] is False
+    assert proposal_payload["workspace_mutated"] is False
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 1
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["ask_file_command_used"] is False
+    assert completed_payload["propose_file_command_used"] is True
+    assert completed_payload["provider_visible_context_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "APPROVED_PROPOSAL_CONTEXT" not in combined
+    assert "Rename the helper" not in combined
+    assert "PROPOSE_FILE_PROVIDER_OUTPUT" not in combined
+    assert "SHOULD_NOT_PERSIST" not in combined
+    assert "pipy_native_patch_proposal" not in combined
+    assert verify_session_archive(root=root).ok is True
+    assert search_finalized_sessions("native.patch.proposal.recorded", root=root)
+    assert not search_finalized_sessions("APPROVED_PROPOSAL_CONTEXT", root=root)
+
+
+def test_cli_native_repl_propose_file_accepts_whitespace_delimited_separator(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "proposal-context.txt"
+    source.parent.mkdir()
+    source.write_text("TAB_DELIMITED_PROPOSAL_CONTEXT\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="PROPOSE_FILE_PROVIDER_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/propose-file\tdocs/proposal-context.txt\t--\tAdd a guard\nyes\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-tab-separator",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "PROPOSE_FILE_PROVIDER_OUTPUT\n"
+    assert len(captured_requests) == 1
+    assert captured_requests[0].provider_turn_label == "propose_file_repl"
+    assert "Add a guard" in captured_requests[0].user_prompt
+    assert "TAB_DELIMITED_PROPOSAL_CONTEXT" in captured_requests[0].user_prompt
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "TAB_DELIMITED_PROPOSAL_CONTEXT" not in combined
+    assert "Add a guard" not in combined
+    assert "PROPOSE_FILE_PROVIDER_OUTPUT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_propose_file_does_not_consume_read_limit(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "after-malformed-propose.txt"
+    source.parent.mkdir()
+    source.write_text("READ_AFTER_MALFORMED_PROPOSE_FILE\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed propose-file and later read should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/after-malformed-propose.txt -- \n"
+            "/read docs/after-malformed-propose.txt\nyes\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-propose-file-budget",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "READ_AFTER_MALFORMED_PROPOSE_FILE\n"
+    assert "malformed /propose-file command. Supported command usage:" in captured.err
+    assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
+    assert "read_command_limit_reached" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    assert "native.tool.observation.recorded" not in event_types
+    assert "native.patch.proposal.recorded" not in event_types
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is False
+    assert completed_payload["provider_visible_context_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "READ_AFTER_MALFORMED_PROPOSE_FILE" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_propose_file_denied_does_not_call_provider(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "denied-proposal-context.txt"
+    source.parent.mkdir()
+    source.write_text("DENIED_PROPOSAL_CONTEXT\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("denied propose-file command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/propose-file docs/denied-proposal-context.txt -- Change it\nno\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-denied",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "propose-file command skipped: approval_not_allowed" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert "native.tool.observation.recorded" not in event_types
+    assert "native.patch.proposal.recorded" not in event_types
+    assert event_types.count("native.tool.skipped") == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is True
+    assert completed_payload["provider_visible_context_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "DENIED_PROPOSAL_CONTEXT" not in combined
+    assert "Change it" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_propose_file_rejects_unsafe_target_before_provider(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unsafe propose-file target should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/propose-file ../outside.txt -- Change it\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-unsafe-target",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy approval required" not in captured.err
+    assert "unsafe_repl_read_target" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert "native.tool.started" not in event_types
+    assert "native.patch.proposal.recorded" not in event_types
+    assert event_types.count("native.tool.skipped") == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is True
+    assert "../outside.txt" not in finalized[0].read_text(encoding="utf-8")
+    assert "Change it" not in finalized[0].read_text(encoding="utf-8")
+    assert verify_session_archive(root=root).ok is True
 
 
 def test_cli_native_repl_ask_file_denied_does_not_call_provider(
@@ -1205,6 +1610,500 @@ def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, mon
     )
     assert "FIRST_CONTEXT_FOR_PROVIDER" not in combined
     assert "SECOND_READ_SHOULD_NOT_PRINT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_ask_file_after_read_limit_prints_usage(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_READ_BEFORE_MALFORMED_ASK\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed ask-file after read should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/read docs/first.txt\nyes\n/ask-file docs/first.txt -- \n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-ask-after-read-limit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "FIRST_READ_BEFORE_MALFORMED_ASK\n"
+    assert "malformed /ask-file command. Supported command usage:" in captured.err
+    assert "ask-file command skipped: read_command_limit_reached" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.provider.started") == 0
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["ask_file_command_used"] is False
+    assert completed_payload["provider_visible_context_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_READ_BEFORE_MALFORMED_ASK" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_propose_file_after_read_limit_prints_usage(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_READ_BEFORE_MALFORMED_PROPOSE\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed propose-file after read should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/read docs/first.txt\nyes\n/propose-file docs/first.txt -- \n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-propose-after-read-limit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "FIRST_READ_BEFORE_MALFORMED_PROPOSE\n"
+    assert "malformed /propose-file command. Supported command usage:" in captured.err
+    assert "propose-file command skipped: read_command_limit_reached" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.provider.started") == 0
+    assert "native.patch.proposal.recorded" not in event_types
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is False
+    assert completed_payload["provider_visible_context_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_READ_BEFORE_MALFORMED_PROPOSE" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_READ_FOR_PROPOSE_BUDGET\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("propose-file command should be blocked before provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/read docs/first.txt\nyes\n/propose-file docs/second.txt -- Change it\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-read-blocks-propose-file",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "FIRST_READ_FOR_PROPOSE_BUDGET\n"
+    assert "propose-file command skipped: read_command_limit_reached" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ" not in combined
+    assert "Change it" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_ask_file_command_blocks_later_propose_file(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_ASK_CONTEXT_FOR_BUDGET\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeAskFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ASK_FILE_FOR_PROPOSE_BUDGET_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeAskFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/ask-file docs/first.txt -- Use this\nyes\n"
+            "/propose-file docs/second.txt -- Change it\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-ask-file-blocks-propose-file",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "ASK_FILE_FOR_PROPOSE_BUDGET_OUTPUT\n"
+    assert "propose-file command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 1
+    assert captured_requests[0].provider_turn_label == "ask_file_repl"
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ" not in combined
+    assert "Change it" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_PROPOSE_CONTEXT\n", encoding="utf-8")
+    second.write_text("SECOND_READ_SHOULD_NOT_PRINT_AFTER_PROPOSE\n", encoding="utf-8")
+    third.write_text("THIRD_ASK_SHOULD_NOT_REACH_PROVIDER_AFTER_PROPOSE\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="PROPOSE_FILE_FOR_BUDGET_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/first.txt -- Change it\nyes\n"
+            "/read docs/second.txt\n"
+            "/ask-file docs/third.txt -- Use it\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-blocks-read-and-ask",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "PROPOSE_FILE_FOR_BUDGET_OUTPUT\n"
+    assert "read command skipped: read_command_limit_reached" in captured.err
+    assert "ask-file command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 1
+    assert captured_requests[0].provider_turn_label == "propose_file_repl"
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_PROPOSE_CONTEXT" not in combined
+    assert "SECOND_READ_SHOULD_NOT_PRINT_AFTER_PROPOSE" not in combined
+    assert "THIRD_ASK_SHOULD_NOT_REACH_PROVIDER_AFTER_PROPOSE" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_PROPOSE_ONCE_CONTEXT\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_SHOULD_NOT_READ\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="PROPOSE_FILE_ONCE_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/first.txt -- First change\nyes\n"
+            "/propose-file docs/second.txt -- Second change\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-limit",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "PROPOSE_FILE_ONCE_OUTPUT\n"
+    assert "propose-file command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 1
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.provider.completed") == 1
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "SECOND_PROPOSE_SHOULD_NOT_READ" not in combined
+    assert "Second change" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_propose_file_unsafe_proposal_metadata_is_skipped_metadata_only(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "unsafe-proposal-context.txt"
+    source.parent.mkdir()
+    source.write_text("UNSAFE_PROPOSAL_CONTEXT\n", encoding="utf-8")
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="UNSAFE_PROPOSAL_PROVIDER_OUTPUT",
+                metadata={
+                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: {
+                        **safe_repl_patch_proposal(),
+                        "raw_patch_text": "SHOULD_NOT_PERSIST",
+                    },
+                    "raw_diff": "SHOULD_NOT_PERSIST",
+                },
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/propose-file docs/unsafe-proposal-context.txt -- Change it\nyes\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-propose-file-unsafe-proposal",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "UNSAFE_PROPOSAL_PROVIDER_OUTPUT\n"
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    provider_payload = [event["payload"] for event in events if event["type"] == "native.provider.completed"][0]
+    assert provider_payload["provider_metadata"] == {}
+    proposal_payload = [
+        event["payload"] for event in events if event["type"] == "native.patch.proposal.recorded"
+    ][0]
+    assert proposal_payload["status"] == "skipped"
+    assert proposal_payload["reason_label"] == "unsafe_proposal"
+    assert proposal_payload["file_count"] == 0
+    assert proposal_payload["operation_count"] == 0
+    assert proposal_payload["operation_labels"] == []
+    assert proposal_payload["patch_text_stored"] is False
+    assert proposal_payload["diffs_stored"] is False
+    assert proposal_payload["file_contents_stored"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "UNSAFE_PROPOSAL_CONTEXT" not in combined
+    assert "Change it" not in combined
+    assert "UNSAFE_PROPOSAL_PROVIDER_OUTPUT" not in combined
+    assert "SHOULD_NOT_PERSIST" not in combined
+    assert "pipy_native_patch_proposal" not in combined
     assert verify_session_archive(root=root).ok is True
 
 

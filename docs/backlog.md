@@ -343,35 +343,52 @@ reviewable change while keeping the source-of-truth design constraints in
   tool requests, or a general model/tool loop. No runtime behavior, stdout or
   stderr contract, archive schema, provider calls, tool execution, or public
   CLI controls changed in this decision slice.
+- Native proposal-only `/propose-file` REPL boundary: `pipy repl --agent
+  pipy-native` now accepts `/propose-file <workspace-relative-path> --
+  <change-request>` as the first proposal-only interactive context boundary.
+  It shares the one-read per-session limit with `/read` and `/ask-file`, uses
+  the same visible approval/sandbox gate and bounded explicit-file-excerpt
+  tool, emits metadata-only tool and observation lifecycle events, forwards the
+  successful excerpt plus change request only in memory to exactly one provider
+  turn labeled `propose_file_repl`, parses at most one pipy-owned structured
+  patch proposal metadata object, and records at most one metadata-only
+  `native.patch.proposal.recorded` event. Denied, unavailable, malformed,
+  unsafe-target, skipped, failed, and repeated read-command cases fail closed
+  before provider visibility or proposal parsing. The command hard-stops after
+  the proposal result without applying edits, running verification, executing
+  shell commands, using network access, invoking provider-side tools, creating
+  another provider turn, or persisting raw proposal/context data. One-shot
+  native stdout/JSON/archive behavior remains unchanged.
 
 ## Next Slice
 
-### Add proposal-only `/propose-file` REPL boundary
+### Review and smoke proposal-only `/propose-file` REPL boundary
 
-Goal: add the first proposal-only interactive native boundary after the
-no-tool REPL, `/read`, `/ask-file`, `/help`, and static usage diagnostics. The
-new command is intentionally smaller than a tool-capable shell and does not
-mutate the workspace.
+Goal: independently review and smoke-test the new proposal-only interactive
+native boundary before building broader shell capability. This keeps the next
+step focused on validating the implemented `/propose-file` behavior and
+metadata-only archive guarantees rather than expanding into mutation or a
+general model/tool loop.
 
-Selected shape:
+Implemented shape to verify:
 
-- support exactly one new REPL command shape:
+- exactly one REPL command shape:
   `/propose-file <workspace-relative-path> -- <change-request>`
-- reuse the existing read-only approval/sandbox prompt, explicit-file-excerpt
+- reuses the existing read-only approval/sandbox prompt, explicit-file-excerpt
   tool, path validation, secret-looking content rejection, and one-read
   per-session limit shared with `/read` and `/ask-file`
-- after a successful approved excerpt, send the excerpt plus change request only
+- after a successful approved excerpt, sends the excerpt plus change request only
   in memory to exactly one provider turn labeled `propose_file_repl`
-- parse at most one pipy-owned structured patch proposal metadata object from
-  that provider result and record at most one metadata-only
+- parses at most one pipy-owned structured patch proposal metadata object from
+  that provider result and records at most one metadata-only
   `native.patch.proposal.recorded` event
-- keep provider lifecycle payloads metadata-only and keep raw provider metadata
+- keeps provider lifecycle payloads metadata-only and keeps raw provider metadata
   out of archives; only the allowlisted proposal event may summarize the
   accepted or skipped proposal
-- hard-stop after the proposal result; no apply, verification, follow-up
+- hard-stops after the proposal result; no apply, verification, follow-up
   provider turn, shell command, network call, or persistent context reuse
 
-Keep out of scope:
+Keep out of scope for the review/smoke slice:
 
 - applying, writing, creating, deleting, renaming, or editing files
 - raw patch text, diffs, replacement file contents, model-selected paths, raw
@@ -418,7 +435,7 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Add proposal-only `/propose-file` REPL boundary.
+1. Review and smoke proposal-only `/propose-file` REPL boundary.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -431,10 +448,11 @@ whitespace-delimited `--` separator sharing the same one-read limit. Malformed
 or unsupported slash commands print static usage diagnostics on stderr without
 provider/tool execution or raw command archiving, but the REPL still does not
 apply patches, execute commands, run verification, expose provider-side tools,
-or support a general model/tool loop. The selected next step is a proposal-only
-`/propose-file <workspace-relative-path> -- <change-request>` command that
-reuses the same approved one-file context path and records only metadata-only
-proposal status before stopping.
+or support a general model/tool loop. The proposal-only
+`/propose-file <workspace-relative-path> -- <change-request>` command is now
+implemented; the selected next step is independent review and smoke hardening
+of that command while the broader mutation and tool-loop boundaries remain
+deferred.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -450,7 +468,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add proposal-only `/propose-file` REPL boundary.
+1. Review and smoke proposal-only `/propose-file` REPL boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -478,16 +496,16 @@ Foundation gates toward an interactive shell:
   commands. These paths do not invoke providers, execute tools, consume the
   one-read limit, emit tool events, or archive raw command text, paths,
   questions, or excerpt data.
-- Proposal-only interactive file gate: selected next through `/propose-file
-  <workspace-relative-path> -- <change-request>`. It should reuse the existing
-  approved explicit-file-excerpt path, send one in-memory excerpt plus request
-  to one provider turn labeled `propose_file_repl`, record only allowlisted
-  metadata-only patch proposal status, and stop before any mutation,
+- Proposal-only interactive file gate: available now through `/propose-file
+  <workspace-relative-path> -- <change-request>`. It reuses the existing
+  approved explicit-file-excerpt path, sends one in-memory excerpt plus request
+  to one provider turn labeled `propose_file_repl`, records only allowlisted
+  metadata-only patch proposal status, and stops before any mutation,
   verification, shell execution, network access, or follow-up provider turn.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
-- Proposal-only trial: selected next for the interactive shell. Pipy may use the
+- Proposal-only trial: available now in the interactive shell. Pipy may use the
   existing bounded read-only context and propose structured edit metadata, but
   writes remain manual and archives stay metadata-only.
 - Human-applied patch trial: available once proposal output is useful enough
