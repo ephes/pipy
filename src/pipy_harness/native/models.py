@@ -388,8 +388,11 @@ class NativeReadOnlyToolRequest:
             raise ValueError("read-only workspace inspection requires pipy-owned tool_request_id")
         if self.turn_index != identity.turn_index:
             raise ValueError("read-only workspace inspection requires pipy-owned turn_index")
-        if self.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
-            raise ValueError("read-only workspace inspection requires approval")
+        if self.approval_policy.mode not in {
+            NativeToolApprovalMode.NOT_REQUIRED,
+            NativeToolApprovalMode.REQUIRED,
+        }:
+            raise ValueError("read-only workspace inspection has unsupported approval policy")
         if self.sandbox_policy.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:
             raise ValueError("read-only workspace inspection requires read-only-workspace sandbox")
         if self.sandbox_policy.workspace_read_allowed is not True:

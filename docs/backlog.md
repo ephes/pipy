@@ -418,46 +418,53 @@ reviewable change while keeping the source-of-truth design constraints in
   behavior should not add approval popups by default; use Pi-like operational
   posture instead: run in a trusted workspace/container or add explicit
   extension/configuration policy later if needed.
+- Native REPL approval prompt removal: explicit user-entered `/read`,
+  `/ask-file`, and `/propose-file` commands no longer display `pipy approval
+  required` prompts or consume approval responses. These commands use
+  `not-required` approval policy data while preserving one-read session limits,
+  workspace-relative path validation, ignored/generated-file rejection, size
+  and line limits, encoding checks, secret-looking content rejection,
+  metadata-only archives, and stdout/stderr separation. The historical
+  approval prompt helper remains test-covered but is no longer wired into the
+  normal product REPL path.
 
 ## Next Slice
 
-### Remove native REPL approval prompts
+### Native `openai-codex` OAuth provider from Pi reference
 
-Goal: remove the visible approval prompt and approval-decision gate from
-explicit native REPL read/context commands so the shell behaves more like Pi:
-no permission popups for normal interactive use. Explicit user commands remain
-the authority for `/read`, `/ask-file`, and `/propose-file`; internal safety
-checks still validate the requested path/content and preserve metadata-only
-capture.
+Goal: add a distinct native `openai-codex` provider path for OpenAI Codex
+subscription-backed access, modeled on the local Pi reference, without treating
+the existing `openai` API-key provider as subscription auth and without copying
+or scraping Pi's credential store.
 
 Implementation points:
 
-- remove `pipy approval required` prompts from `/read`, `/ask-file`, and
-  `/propose-file`
-- remove or bypass approval decision requirements for explicit user-entered
-  read-only REPL commands, without weakening workspace-relative path
-  validation, ignore/generated-file checks, size limits, encoding checks, or
-  secret-looking content rejection
-- remove approval prompt text and approval-not-allowed cases from focused REPL
-  tests, replacing them with successful explicit-command read/context flows
-- keep archives metadata-only: no raw prompts, model output, provider
-  responses, raw approval prompts, raw tool arguments, raw tool results,
-  stdout, stderr, diffs, patches, command output, full file contents, auth
-  material, secrets, credentials, tokens, private keys, or sensitive personal
-  data
-- update docs/specs to identify the old approval prompt helpers as historical
-  or remove them if no longer used
+- add `--native-provider openai-codex` as a separate provider selection for
+  `pipy run` and `pipy repl`, requiring an explicit `--native-model`
+- implement a small auth boundary based on Pi's PKCE OAuth shape, including
+  local callback and manual-paste fallback when practical
+- store pipy-owned auth state under pipy's own state/config location, not
+  Pi's `~/.pi/agent/auth.json`, and never archive raw auth material
+- send one non-streaming request through the Codex Responses endpoint using
+  only pipy-owned system/user inputs and safe headers required by the provider
+- map final text and normalized usage into the existing provider result shape
+  while keeping JSONL, Markdown, default stdout, and `--native-output json`
+  metadata-only
+- add focused unit tests with injected HTTP/auth boundaries and CLI selection
+  coverage; real OAuth smoke may be manual and skipped without credentials
 
-Keep out of scope for this removal slice:
+Keep out of scope for this provider slice:
 
-- adding broad model-selected tools, provider-side built-in tools, arbitrary
-  shell execution, public patch apply, write tools, network tools, retries,
-  streaming, fallback, broad provider routing, TUI/RPC work, or persistent
-  conversation history
-- copying Pi implementation wholesale or wrapping Pi as the runtime
-- storing raw file contents, prompts, model output, stdout, stderr, command
-  output, diffs, patches, auth material, secrets, credentials, tokens, private
-  keys, or sensitive personal data in archives
+- credential-store scraping, token copying from Pi, wrapping Pi or Codex CLI,
+  reverse engineering beyond the local Pi reference, or treating ChatGPT/Codex
+  subscription auth as the normal OpenAI Platform API-key provider
+- provider-side tools, streaming, retries, fallback routing, OAuth device-code
+  UX, account switching, broad provider registry changes, TUI/RPC work, shell
+  execution, patch apply, write tools, or persistent conversation history
+- storing raw prompts, model output, provider responses, request bodies,
+  headers with auth material, tokens, refresh tokens, credentials, private
+  keys, stdout, stderr, diffs, patches, command output, file contents, or
+  sensitive personal data in archives
 
 ## Near Term
 
@@ -470,9 +477,8 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Remove native REPL approval prompts.
-2. Add a native `openai-codex` OAuth provider from the Pi reference.
-3. Run a native human-applied `/propose-file` trial.
+1. Add a native `openai-codex` OAuth provider from the Pi reference.
+2. Run a native human-applied `/propose-file` trial.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -481,11 +487,12 @@ shell is available through `pipy repl --agent pipy-native`; it now has one
 local `/help` command, one display-only `/read <workspace-relative-path>`
 command, and one provider-visible
 `/ask-file <workspace-relative-path> -- <question>` command with a
-whitespace-delimited `--` separator sharing the same one-read limit. Malformed
-or unsupported slash commands print static usage diagnostics on stderr without
-provider/tool execution or raw command archiving, but the REPL still does not
-apply patches, execute commands, run verification, expose provider-side tools,
-or support a general model/tool loop. The proposal-only
+whitespace-delimited `--` separator sharing the same one-read limit. Explicit
+read/context commands do not display approval popups. Malformed or unsupported
+slash commands print static usage diagnostics on stderr without provider/tool
+execution or raw command archiving, but the REPL still does not apply patches,
+execute commands, run verification, expose provider-side tools, or support a
+general model/tool loop. The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented and reviewed; the selected next step is a human-applied proposal
 trial using that existing command after the `openai-codex` provider-access
@@ -508,9 +515,8 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Remove native REPL approval prompts.
-2. Native `openai-codex` OAuth provider from Pi reference.
-3. Native human-applied `/propose-file` trial.
+1. Native `openai-codex` OAuth provider from Pi reference.
+2. Native human-applied `/propose-file` trial.
 
 Foundation gates toward an interactive shell:
 
@@ -523,12 +529,11 @@ Foundation gates toward an interactive shell:
   pipy-native`.
   It reuses the same conversation state for repeated no-tool provider turns and
   keeps archives metadata-only.
-- Visible approval prompt gate: available now but selected for removal from the
-  product REPL. Pi-like interactive use should not ask permission for explicit
-  user-entered read/context commands.
+- Historical visible approval prompt gate: available as test-covered helper
+  code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
   <workspace-relative-path>`, currently bounded to one explicit-file-excerpt
-  request per REPL session.
+  request per REPL session without approval popups.
 - Provider-visible interactive context gate: available now through `/ask-file
   <workspace-relative-path> -- <question>` with a whitespace-delimited `--`
   separator, bounded to one explicit-file-excerpt request shared with

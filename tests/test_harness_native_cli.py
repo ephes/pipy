@@ -441,7 +441,7 @@ def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_to_stdout(
+def test_cli_native_repl_read_command_prints_excerpt_without_approval_prompt(
     tmp_path,
     capfd,
     monkeypatch,
@@ -464,7 +464,7 @@ def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_
             raise AssertionError("read command should not call provider")
 
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
-    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/visible.txt\nyes\n/exit\n"))
+    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/visible.txt\n/exit\n"))
 
     exit_code = main(
         [
@@ -484,8 +484,8 @@ def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == "APPROVED_EXCERPT_TEXT\n"
-    assert "pipy approval required" in captured.err
-    assert "workspace_read_allowed=true" in captured.err
+    assert "pipy approval required" not in captured.err
+    assert "Approve? [y/N]:" not in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     event_types = [event["type"] for event in events]
@@ -496,6 +496,8 @@ def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_
     assert tool_payload["status"] == "succeeded"
     assert tool_payload["file_contents_stored"] is False
     assert tool_payload["tool_metadata"]["file_contents_stored"] is False
+    assert tool_payload["tool_metadata"]["approval_policy"] == "not-required"
+    assert tool_payload["tool_metadata"]["approval_required"] is False
     assert tool_payload["tool_metadata"]["approval_decision"] == "allowed"
     completed_payload = [
         event["payload"] for event in events if event["type"] == "native.session.completed"
@@ -537,7 +539,7 @@ def test_cli_native_repl_malformed_read_prints_usage_without_consuming_read_limi
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read\n/read docs/after-malformed-read.txt\nyes\n/exit\n"),
+        StringIO("/read\n/read docs/after-malformed-read.txt\n/exit\n"),
     )
 
     exit_code = main(
@@ -576,7 +578,7 @@ def test_cli_native_repl_malformed_read_prints_usage_without_consuming_read_limi
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_provider(
+def test_cli_native_repl_ask_file_sends_excerpt_to_provider_without_approval_prompt(
     tmp_path,
     capfd,
     monkeypatch,
@@ -611,7 +613,7 @@ def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_pr
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/ask-file docs/context.txt -- What does this say?\nyes\n/exit\n"),
+        StringIO("/ask-file docs/context.txt -- What does this say?\n/exit\n"),
     )
 
     exit_code = main(
@@ -632,7 +634,8 @@ def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_pr
     assert exit_code == 0
     assert captured.out == "ASK_FILE_PROVIDER_OUTPUT\n"
     assert "APPROVED_PROVIDER_CONTEXT" not in captured.out
-    assert "pipy approval required" in captured.err
+    assert "pipy approval required" not in captured.err
+    assert "Approve? [y/N]:" not in captured.err
     assert len(captured_requests) == 1
     request = captured_requests[0]
     assert request.provider_turn_index == 0
@@ -707,7 +710,7 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/ask-file\tdocs/context.txt\t--\tWhat does this say?\nyes\n/exit\n"),
+        StringIO("/ask-file\tdocs/context.txt\t--\tWhat does this say?\n/exit\n"),
     )
 
     exit_code = main(
@@ -728,7 +731,8 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
     assert exit_code == 0
     assert captured.out == "ASK_FILE_PROVIDER_OUTPUT\n"
     assert "TAB_DELIMITED_PROVIDER_CONTEXT" not in captured.out
-    assert "pipy approval required" in captured.err
+    assert "pipy approval required" not in captured.err
+    assert "Approve? [y/N]:" not in captured.err
     assert len(captured_requests) == 1
     assert "What does this say?" in captured_requests[0].user_prompt
     assert "TAB_DELIMITED_PROVIDER_CONTEXT" in captured_requests[0].user_prompt
@@ -780,7 +784,7 @@ def test_cli_native_repl_propose_file_records_metadata_only_proposal(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/propose-file docs/proposal-context.txt -- Rename the helper\nyes\n/exit\n"),
+        StringIO("/propose-file docs/proposal-context.txt -- Rename the helper\n/exit\n"),
     )
 
     exit_code = main(
@@ -801,7 +805,8 @@ def test_cli_native_repl_propose_file_records_metadata_only_proposal(
     assert exit_code == 0
     assert captured.out == "PROPOSE_FILE_PROVIDER_OUTPUT\n"
     assert "APPROVED_PROPOSAL_CONTEXT" not in captured.out
-    assert "pipy approval required" in captured.err
+    assert "pipy approval required" not in captured.err
+    assert "Approve? [y/N]:" not in captured.err
     assert len(captured_requests) == 1
     request = captured_requests[0]
     assert request.provider_turn_index == 0
@@ -891,7 +896,7 @@ def test_cli_native_repl_propose_file_accepts_whitespace_delimited_separator(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/propose-file\tdocs/proposal-context.txt\t--\tAdd a guard\nyes\n/exit\n"),
+        StringIO("/propose-file\tdocs/proposal-context.txt\t--\tAdd a guard\n/exit\n"),
     )
 
     exit_code = main(
@@ -953,7 +958,7 @@ def test_cli_native_repl_malformed_propose_file_does_not_consume_read_limit(
         "stdin",
         StringIO(
             "/propose-file docs/after-malformed-propose.txt -- \n"
-            "/read docs/after-malformed-propose.txt\nyes\n/exit\n"
+            "/read docs/after-malformed-propose.txt\n/exit\n"
         ),
     )
 
@@ -994,75 +999,6 @@ def test_cli_native_repl_malformed_propose_file_does_not_consume_read_limit(
         encoding="utf-8"
     )
     assert "READ_AFTER_MALFORMED_PROPOSE_FILE" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_repl_propose_file_denied_does_not_call_provider(
-    tmp_path,
-    capfd,
-    monkeypatch,
-):
-    root = tmp_path / "sessions"
-    source = tmp_path / "docs" / "denied-proposal-context.txt"
-    source.parent.mkdir()
-    source.write_text("DENIED_PROPOSAL_CONTEXT\n", encoding="utf-8")
-    provider_calls = 0
-
-    class CliFakeProposeFileProvider:
-        name = "fake"
-
-        def __init__(self, model_id: str) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest) -> ProviderResult:
-            nonlocal provider_calls
-            provider_calls += 1
-            raise AssertionError("denied propose-file command should not call provider")
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        StringIO("/propose-file docs/denied-proposal-context.txt -- Change it\nno\n/exit\n"),
-    )
-
-    exit_code = main(
-        [
-            "repl",
-            "--agent",
-            "pipy-native",
-            "--slug",
-            "native-repl-propose-file-denied",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    captured = capfd.readouterr()
-    assert exit_code == 0
-    assert provider_calls == 0
-    assert captured.out == ""
-    assert "propose-file command skipped: approval_not_allowed" in captured.err
-    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
-    events = read_jsonl(finalized[0])
-    event_types = [event["type"] for event in events]
-    assert "native.provider.started" not in event_types
-    assert "native.tool.observation.recorded" not in event_types
-    assert "native.patch.proposal.recorded" not in event_types
-    assert event_types.count("native.tool.skipped") == 1
-    completed_payload = [
-        event["payload"] for event in events if event["type"] == "native.session.completed"
-    ][0]
-    assert completed_payload["read_command_used"] is True
-    assert completed_payload["propose_file_command_used"] is True
-    assert completed_payload["provider_visible_context_used"] is False
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "DENIED_PROPOSAL_CONTEXT" not in combined
-    assert "Change it" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -1125,195 +1061,7 @@ def test_cli_native_repl_propose_file_rejects_unsafe_target_before_provider(
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_denied_does_not_call_provider(
-    tmp_path,
-    capfd,
-    monkeypatch,
-):
-    root = tmp_path / "sessions"
-    source = tmp_path / "docs" / "denied-context.txt"
-    source.parent.mkdir()
-    source.write_text("DENIED_PROVIDER_CONTEXT\n", encoding="utf-8")
-    provider_calls = 0
-
-    class CliFakeAskFileProvider:
-        name = "fake"
-
-        def __init__(self, model_id: str) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest) -> ProviderResult:
-            nonlocal provider_calls
-            provider_calls += 1
-            raise AssertionError("denied ask-file command should not call provider")
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeAskFileProvider)
-    monkeypatch.setattr(
-        sys,
-        "stdin",
-        StringIO("/ask-file docs/denied-context.txt -- Summarize it\nno\n/exit\n"),
-    )
-
-    exit_code = main(
-        [
-            "repl",
-            "--agent",
-            "pipy-native",
-            "--slug",
-            "native-repl-ask-file-denied",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    captured = capfd.readouterr()
-    assert exit_code == 0
-    assert provider_calls == 0
-    assert captured.out == ""
-    assert "ask-file command skipped: approval_not_allowed" in captured.err
-    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
-    events = read_jsonl(finalized[0])
-    event_types = [event["type"] for event in events]
-    assert "native.provider.started" not in event_types
-    assert "native.tool.observation.recorded" not in event_types
-    assert event_types.count("native.tool.skipped") == 1
-    completed_payload = [
-        event["payload"] for event in events if event["type"] == "native.session.completed"
-    ][0]
-    assert completed_payload["read_command_used"] is True
-    assert completed_payload["ask_file_command_used"] is True
-    assert completed_payload["provider_visible_context_used"] is False
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "DENIED_PROVIDER_CONTEXT" not in combined
-    assert "Summarize it" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_repl_read_command_denied_does_not_read(tmp_path, capfd, monkeypatch):
-    root = tmp_path / "sessions"
-    source = tmp_path / "docs" / "denied.txt"
-    source.parent.mkdir()
-    source.write_text("DENIED_EXCERPT_TEXT\n", encoding="utf-8")
-    provider_calls = 0
-
-    class CliFakeReplProvider:
-        name = "fake"
-
-        def __init__(self, model_id: str) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest) -> ProviderResult:
-            nonlocal provider_calls
-            provider_calls += 1
-            raise AssertionError("denied read command should not call provider")
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
-    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/denied.txt\nno\n/exit\n"))
-
-    exit_code = main(
-        [
-            "repl",
-            "--agent",
-            "pipy-native",
-            "--slug",
-            "native-repl-read-denied",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    captured = capfd.readouterr()
-    assert exit_code == 0
-    assert provider_calls == 0
-    assert captured.out == ""
-    assert "read command skipped: approval_not_allowed" in captured.err
-    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
-    events = read_jsonl(finalized[0])
-    event_types = [event["type"] for event in events]
-    assert "native.provider.started" not in event_types
-    assert event_types.count("native.tool.started") == 1
-    assert event_types.count("native.tool.skipped") == 1
-    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.skipped"][0]
-    assert tool_payload["tool_metadata"]["approval_decision"] == "denied"
-    completed_payload = [
-        event["payload"] for event in events if event["type"] == "native.session.completed"
-    ][0]
-    assert completed_payload["read_command_used"] is True
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "DENIED_EXCERPT_TEXT" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_repl_read_command_unavailable_prompt_fails_closed(
-    tmp_path,
-    capfd,
-    monkeypatch,
-):
-    root = tmp_path / "sessions"
-    source = tmp_path / "docs" / "unavailable.txt"
-    source.parent.mkdir()
-    source.write_text("UNAVAILABLE_EXCERPT_TEXT\n", encoding="utf-8")
-    provider_calls = 0
-
-    class CliFakeReplProvider:
-        name = "fake"
-
-        def __init__(self, model_id: str) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest) -> ProviderResult:
-            nonlocal provider_calls
-            provider_calls += 1
-            raise AssertionError("unavailable read command should not call provider")
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
-    monkeypatch.setattr(sys, "stdin", StringIO("/read docs/unavailable.txt\n"))
-
-    exit_code = main(
-        [
-            "repl",
-            "--agent",
-            "pipy-native",
-            "--slug",
-            "native-repl-read-unavailable",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    captured = capfd.readouterr()
-    assert exit_code == 0
-    assert provider_calls == 0
-    assert captured.out == ""
-    assert "Approve? [y/N]:" in captured.err
-    assert "read command skipped: approval_not_allowed" in captured.err
-    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
-    events = read_jsonl(finalized[0])
-    tool_payload = [event["payload"] for event in events if event["type"] == "native.tool.skipped"][0]
-    assert tool_payload["tool_metadata"]["approval_decision"] == "skipped"
-    completed_payload = [
-        event["payload"] for event in events if event["type"] == "native.session.completed"
-    ][0]
-    assert completed_payload["exit_reason"] == "eof"
-    assert completed_payload["read_command_used"] is True
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "UNAVAILABLE_EXCERPT_TEXT" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_repl_read_command_rejects_unsafe_target_before_prompt(
+def test_cli_native_repl_read_command_rejects_unsafe_target_before_read(
     tmp_path,
     capfd,
     monkeypatch,
@@ -1452,7 +1200,7 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\nyes\n/read docs/second.txt\n/exit\n"),
+        StringIO("/read docs/first.txt\n/read docs/second.txt\n/exit\n"),
     )
 
     exit_code = main(
@@ -1510,7 +1258,7 @@ def test_cli_native_repl_read_command_blocks_later_ask_file(tmp_path, capfd, mon
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\nyes\n/ask-file docs/second.txt -- Use this\n/exit\n"),
+        StringIO("/read docs/first.txt\n/ask-file docs/second.txt -- Use this\n/exit\n"),
     )
 
     exit_code = main(
@@ -1571,7 +1319,7 @@ def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, mon
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/ask-file docs/first.txt -- Use this\nyes\n/read docs/second.txt\n/exit\n"),
+        StringIO("/ask-file docs/first.txt -- Use this\n/read docs/second.txt\n/exit\n"),
     )
 
     exit_code = main(
@@ -1640,7 +1388,7 @@ def test_cli_native_repl_malformed_ask_file_after_read_limit_prints_usage(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\nyes\n/ask-file docs/first.txt -- \n/exit\n"),
+        StringIO("/read docs/first.txt\n/ask-file docs/first.txt -- \n/exit\n"),
     )
 
     exit_code = main(
@@ -1707,7 +1455,7 @@ def test_cli_native_repl_malformed_propose_file_after_read_limit_prints_usage(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\nyes\n/propose-file docs/first.txt -- \n/exit\n"),
+        StringIO("/read docs/first.txt\n/propose-file docs/first.txt -- \n/exit\n"),
     )
 
     exit_code = main(
@@ -1773,7 +1521,7 @@ def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd,
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\nyes\n/propose-file docs/second.txt -- Change it\n/exit\n"),
+        StringIO("/read docs/first.txt\n/propose-file docs/second.txt -- Change it\n/exit\n"),
     )
 
     exit_code = main(
@@ -1840,7 +1588,7 @@ def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
         sys,
         "stdin",
         StringIO(
-            "/ask-file docs/first.txt -- Use this\nyes\n"
+            "/ask-file docs/first.txt -- Use this\n"
             "/propose-file docs/second.txt -- Change it\n/exit\n"
         ),
     )
@@ -1912,7 +1660,7 @@ def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
         sys,
         "stdin",
         StringIO(
-            "/propose-file docs/first.txt -- Change it\nyes\n"
+            "/propose-file docs/first.txt -- Change it\n"
             "/read docs/second.txt\n"
             "/ask-file docs/third.txt -- Use it\n/exit\n"
         ),
@@ -1991,7 +1739,7 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
         sys,
         "stdin",
         StringIO(
-            "/propose-file docs/first.txt -- First change\nyes\n"
+            "/propose-file docs/first.txt -- First change\n"
             "/propose-file docs/second.txt -- Second change\n/exit\n"
         ),
     )
@@ -2066,7 +1814,7 @@ def test_cli_native_repl_propose_file_unsafe_proposal_metadata_is_skipped_metada
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/propose-file docs/unsafe-proposal-context.txt -- Change it\nyes\n/exit\n"),
+        StringIO("/propose-file docs/unsafe-proposal-context.txt -- Change it\n/exit\n"),
     )
 
     exit_code = main(
@@ -2138,7 +1886,7 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/ask-file docs/after-malformed.txt -- \n/read docs/after-malformed.txt\nyes\n/exit\n"),
+        StringIO("/ask-file docs/after-malformed.txt -- \n/read docs/after-malformed.txt\n/exit\n"),
     )
 
     exit_code = main(

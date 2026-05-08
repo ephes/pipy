@@ -203,7 +203,7 @@ def test_explicit_file_excerpt_enforces_sandbox_and_capability_posture(
     assert metadata["workspace_read_allowed"] is sandbox.workspace_read_allowed
 
 
-def test_explicit_file_excerpt_requires_required_approval_policy(tmp_path):
+def test_explicit_file_excerpt_allows_not_required_approval_policy(tmp_path):
     result = NativeExplicitFileExcerptTool(tmp_path).invoke(
         unsafe_request(approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED)),
         allowed_gate(),
@@ -211,7 +211,8 @@ def test_explicit_file_excerpt_requires_required_approval_policy(tmp_path):
     )
 
     assert result.status == NativeToolStatus.SKIPPED
-    assert result.reason_label == NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED
+    assert result.reason_label == NativeExplicitFileExcerptReason.MISSING_FILE
+    assert result.archive_metadata()["approval_required"] is False
     metadata = result.archive_metadata()
     assert metadata["approval_policy"] == "not-required"
     assert metadata["approval_required"] is False

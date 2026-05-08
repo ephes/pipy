@@ -367,18 +367,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Pi-like no-approval shell direction correction" in compact_done
     assert "No permission popups" in compact_done
     assert "packages/coding-agent/src/core/tools/read.ts" in compact_done
-    assert "### Remove native REPL approval prompts" in next_slice
-    assert "no permission popups for normal interactive use" in compact_next_slice
-    assert "Explicit user commands remain the authority" in compact_next_slice
-    assert "`/read`, `/ask-file`, and `/propose-file`" in compact_next_slice
-    assert "remove `pipy approval required` prompts" in compact_next_slice
-    assert "remove approval prompt text and approval-not-allowed cases" in (
-        compact_next_slice
-    )
-    assert "workspace-relative path validation" in compact_next_slice
-    assert "secret-looking content rejection" in compact_next_slice
-    assert "adding broad model-selected tools" in compact_next_slice
-    assert "provider-side built-in tools" in compact_next_slice
+    assert "Native REPL approval prompt removal" in compact_done
+    assert "`not-required` approval policy data" in compact_done
+    assert "no longer wired into the normal product REPL path" in compact_done
+    assert "### Native `openai-codex` OAuth provider from Pi reference" in next_slice
+    assert "distinct native `openai-codex` provider path" in compact_next_slice
+    assert "Pi's PKCE OAuth shape" in compact_next_slice
+    assert "pipy-owned auth state" in compact_next_slice
+    assert "Codex Responses endpoint" in compact_next_slice
+    assert "credential-store scraping" in compact_next_slice
+    assert "wrapping Pi or Codex CLI" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -390,13 +388,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "No-tool provider-turn REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
-    assert "Visible approval prompt gate: available now" in compact_near_term
+    assert "Historical visible approval prompt gate" in compact_near_term
     assert "Narrow read-only shell command gate: available now" in compact_near_term
     assert "Provider-visible interactive context gate: available now" in compact_near_term
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Remove native REPL approval prompts" in compact_near_term
     assert "Add a native `openai-codex` OAuth provider from the Pi reference" in (
         compact_near_term
     )
@@ -410,9 +407,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Human-applied proposal trial gate: selected after the `openai-codex`" in (
         compact_near_term
     )
-    assert "Visible approval prompt gate: available now but selected for removal" in (
-        compact_near_term
-    )
+    assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
@@ -440,7 +435,7 @@ def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_proposal
     )
-    assert "`/ask-file` already proved one approved explicit-file-excerpt read" in (
+    assert "`/ask-file` already proved one bounded explicit-file-excerpt read" in (
         compact_proposal
     )
     assert "`propose_file_repl`" in compact_proposal
@@ -456,7 +451,7 @@ def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
     assert "provider result and proposal parse" in compact_proposal
 
     for required_boundary in (
-        "read-only approval/sandbox prompt",
+        "read-only sandbox policy",
         "explicit-file-excerpt tool",
         "workspace-relative target validation",
         "one-read per-session limit",
@@ -515,11 +510,12 @@ def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
         assert forbidden in compact_proposal
 
 
-def test_visible_prompt_foundation_is_threaded_only_into_the_repl_command_path():
+def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():
     session_source = (ROOT / "src/pipy_harness/native/session.py").read_text(encoding="utf-8")
-    assert "resolve_read_only_workspace_approval" in session_source
-    assert "NativeInteractiveApprovalPromptResolver" in session_source
     assert "READ_ONLY_REPL_COMMAND" in session_source
+    assert "NativeToolApprovalMode.NOT_REQUIRED" in session_source
+    assert "resolve_read_only_workspace_approval" not in session_source
+    assert "NativeInteractiveApprovalPromptResolver" not in session_source
 
     forbidden_runtime_terms = {
         "approval.requested",

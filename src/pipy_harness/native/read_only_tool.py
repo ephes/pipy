@@ -281,7 +281,7 @@ class NativeExplicitFileExcerptTool:
         reason = _request_gate_reason(request)
         if reason is not None:
             return base_result.skipped(reason)
-        if not gate_decision.allowed:
+        if request.approval_policy.mode == NativeToolApprovalMode.REQUIRED and not gate_decision.allowed:
             return base_result.skipped(NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED)
 
         workspace = self.workspace.resolve()
@@ -396,7 +396,10 @@ def _request_gate_reason(
 ) -> NativeExplicitFileExcerptReason | None:
     if request.request_kind != NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT:
         return NativeExplicitFileExcerptReason.UNSUPPORTED_REQUEST_KIND
-    if request.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
+    if request.approval_policy.mode not in {
+        NativeToolApprovalMode.NOT_REQUIRED,
+        NativeToolApprovalMode.REQUIRED,
+    }:
         return NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED
     sandbox = request.sandbox_policy
     if sandbox.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:

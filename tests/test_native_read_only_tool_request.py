@@ -186,11 +186,12 @@ def test_read_only_tool_request_rejects_non_read_only_capabilities(
         current_read_only_request(sandbox_policy=bad_sandbox)
 
 
-def test_read_only_tool_request_requires_future_approval():
-    with pytest.raises(ValueError, match="requires approval"):
-        current_read_only_request(
-            approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED)
-        )
+def test_read_only_tool_request_allows_explicit_no_approval_policy():
+    request = current_read_only_request(
+        approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED)
+    )
+
+    assert request.approval_policy.label == "not-required"
 
 
 @pytest.mark.parametrize("scope_label", ["src/pipy_harness/native/models.py", "../models.py", "~/.ssh"])

@@ -722,7 +722,7 @@ tools. `/exit` and `/quit` terminate the session. `/read
 <workspace-relative-path>` remains the display-only workspace command.
 `/ask-file <workspace-relative-path> -- <question>` is the first explicit
 provider-visible context command: it uses a whitespace-delimited `--`
-separator, the same approved bounded file excerpt path as `/read`, then sends
+separator, the same bounded explicit file excerpt path as `/read`, then sends
 exactly that in-memory excerpt plus the question to one provider turn. EOF
 exits cleanly, interrupt exits with code `130`, and the fixed in-memory turn
 bound stops provider turns before they can become unbounded. The first provider
@@ -731,7 +731,7 @@ request uses the conversation-state turn index
 conversation-state turn indexes and the closed label `no_tool_repl`. The
 `/ask-file` provider request uses the next conversation-state turn index and
 the closed label `ask_file_repl`. `/propose-file
-<workspace-relative-path> -- <change-request>` uses the same approved
+<workspace-relative-path> -- <change-request>` uses the same bounded
 explicit-file-excerpt path as `/ask-file`, then sends one in-memory excerpt
 plus one change request to one provider turn labeled `propose_file_repl`.
 These turn indexes and labels are pipy-owned; they are not copied from provider
@@ -740,7 +740,7 @@ stdout, stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
-`/read` excerpt text print to stdout, while prompts, help, approval prompts,
+`/read` excerpt text print to stdout, while prompts, help,
 malformed-command usage diagnostics, unsupported slash-command diagnostics,
 finalization, errors, interrupt handling, command-skip messages, and the
 turn-limit notice stay on stderr. `/ask-file` and `/propose-file` never print
@@ -752,19 +752,15 @@ The `/read`, `/ask-file`, and `/propose-file` commands share one per-session
 read-only workspace request limit. Each accepted command builds one pipy-owned
 `NativeReadOnlyToolRequest` with request kind `explicit-file-excerpt`, a
 pipy-owned `NativeExplicitFileExcerptTarget`, and the existing read-only
-workspace sandbox policy. It resolves the visible approval/sandbox prompt with
-`NativeInteractiveApprovalPromptResolver` before invoking
-`NativeExplicitFileExcerptTool`. The prompt displays only safe operation, tool,
-policy, sandbox, capability, and scope labels. It does not display or archive
-raw prompts, provider output, raw tool arguments, workspace paths, command text,
-stdout, stderr, diffs, patches, file contents, or excerpt text. Malformed
+workspace sandbox policy. Explicit user-entered REPL read/context commands use
+`not-required` approval policy data and do not render a visible approval prompt
+before invoking `NativeExplicitFileExcerptTool`. Malformed
 `/read`, `/ask-file`, and `/propose-file` commands and unsupported slash
-commands fail closed before any approval gate, read, tool event, or provider
-visibility. Denied,
-unavailable, unsupported, mismatched, unsafe-target, skipped, failed, and
-repeated read-command cases fail closed before any read, before any second read
-request, or before provider visibility. Static help and usage diagnostics are
-not archived and do not consume the one-read limit.
+commands fail closed before any read, tool event, or provider visibility.
+Unsupported, mismatched, unsafe-target, skipped, failed, and repeated
+read-command cases fail closed before any read, before any second read request,
+or before provider visibility. Static help and usage diagnostics are not
+archived and do not consume the one-read limit.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
@@ -817,18 +813,18 @@ The native REPL now has a proposal-only file-context command,
 /propose-file <workspace-relative-path> -- <change-request>
 ```
 
-Rationale: `/ask-file` already proved one approved explicit-file-excerpt read,
+Rationale: `/ask-file` already proved one bounded explicit-file-excerpt read,
 one in-memory provider-visible context handoff, one provider turn label, and
 metadata-only archive handling. The smallest useful next step is to let that
 interactive path request structured proposal metadata without crossing into
 workspace mutation, verification, shell execution, broad search, multiple file
 context, provider-side tools, or a general model/tool loop.
 
-The implementation reuses the existing read-only approval/sandbox
-prompt, explicit-file-excerpt tool, workspace-relative target validation,
+The implementation reuses the existing read-only sandbox policy,
+explicit-file-excerpt tool, workspace-relative target validation,
 ignored/generated-file rejection, secret-looking content rejection, byte and
 line limits, and the one-read per-session limit shared by `/read` and
-`/ask-file`. After one successful approved excerpt, it sends the excerpt and
+`/ask-file`. After one successful bounded excerpt, it sends the excerpt and
 change request only in memory to exactly one provider turn labeled
 `propose_file_repl`. That label and its turn index are allocated by
 `NativeConversationState`; they are not copied from provider metadata and are
@@ -857,9 +853,10 @@ control and not a broad slash-command surface. Malformed `/propose-file`
 syntax and unsupported slash commands must use static stderr diagnostics
 without provider/tool execution, read-limit consumption, tool events, raw
 command archiving, or provider visibility. Denied, unavailable, unsupported,
-mismatched, unsafe-target, skipped, failed, and repeated read-command cases
-must fail closed before any read, before proposal parsing, and before provider
-visibility.
+unsafe-target, skipped, failed, and repeated read-command cases must fail
+closed before any read, before proposal parsing, and before provider
+visibility. There is no approval prompt or denial branch on the normal product
+REPL path.
 
 Archives, Markdown summaries, catalog/search/inspect surfaces, and
 `--native-output json` remain metadata-only. They may record only the existing
@@ -881,10 +878,10 @@ routing.
 
 Review and smoke status: focused review of the `/propose-file` boundary found
 the implementation aligned with this contract. Focused CLI, native session, and
-proposal value-object tests cover malformed input, denied/unavailable/unsafe
+proposal value-object tests cover malformed input, unsafe
 and repeated read-command paths, supported and skipped proposal metadata,
 provider metadata suppression, and archive privacy assertions. A fake-provider
-terminal smoke confirmed the visible approval prompt, `propose_file_repl`
+terminal smoke confirmed the no-approval prompt path, `propose_file_repl`
 provider turn label, stdout/stderr split, finalized archive shape, and
 `pipy-session verify` compatibility. No implementation hardening was required
 in the review slice; OpenRouter smoke was skipped because `OPENROUTER_API_KEY`
@@ -898,7 +895,7 @@ should keep the public shell proposal-only and run a human-applied proposal
 trial using the existing `/propose-file <workspace-relative-path> --
 <change-request>` path.
 
-Rationale: `/propose-file` now proves the narrow approved file-context handoff,
+Rationale: `/propose-file` now proves the narrow file-context handoff,
 provider turn label, metadata-only proposal event, and archive privacy shape,
 but the project has not yet proved that provider proposals are useful enough in
 the interactive shell to justify a public mutation command. A human-applied
@@ -910,7 +907,7 @@ behavior.
 
 The trial should reuse unchanged:
 
-- the visible read-only approval prompt and read-only workspace sandbox policy
+- the read-only workspace sandbox policy without visible approval prompts
 - the explicit-file-excerpt target validation, ignored/generated-file checks,
   secret-looking content rejection, byte and line limits, and one-read
   per-session limit
@@ -1120,14 +1117,12 @@ transcript import remain deferred.
 ### Native Approval And Sandbox Enforcement Baseline
 
 Direction update, 2026-05-08: the visible approval prompt model is no longer
-the desired product posture for `pipy-native`. Pipy should be a Pi-like native
-shell, and Pi's documented posture is "No permission popups." The next
-implementation slice should remove approval prompts and approval-decision gates
-from explicit user-entered REPL read/context commands. Keep internal
+the desired product posture for `pipy-native`. Pipy now follows a Pi-like
+native shell posture for explicit user-entered REPL read/context commands:
+no permission popups for normal interactive use. Those commands keep internal
 workspace-relative path validation, sandbox/capability labels, ignored and
 generated-file rejection, size limits, encoding checks, secret-looking content
-rejection, metadata-only archive handling, and stdout/stderr separation. Do not
-replace approval popups with a Claude Code-style permission system.
+rejection, metadata-only archive handling, and stdout/stderr separation.
 
 Approval and sandbox enforcement are native gates for tool-capable behavior.
 This baseline defines the contract before broad interactive read tools, write
@@ -1136,8 +1131,8 @@ tools, or runtime sandbox enforcement exist. The current `pipy-native` runtime
 remains bounded to one initial provider turn plus optional one no-op or
 read-only explicit-file-excerpt tool invocation and, for explicitly supported
 sanitized fixtures only, one follow-up provider turn. The visible approval
-prompt foundation described below is wired only into the explicit interactive
-`/read` command for read-only workspace inspection; this baseline still does
+prompt foundation described below is historical helper code and is no longer
+wired into `/read`, `/ask-file`, or `/propose-file`; this baseline still does
 not add broad interactive tools, network access, provider tool use, live shell
 execution, archive writes for live context beyond existing metadata-only
 events, or a general model/tool loop.
@@ -1162,8 +1157,11 @@ future approval posture is:
 - no approval required for internal no-op tools with `no-workspace-access`, no
   shell execution, no network access, no repo context production, no stdout or
   stderr storage, and no workspace inspection or mutation
-- approval required for read-only workspace tools before any file read, search,
-  directory inspection, or provider-visible repo context production
+- no approval popup required for explicit user-entered REPL read/context
+  commands, which remain bounded by command syntax and internal safety checks
+- approval required for provider-selected or automated read-only workspace
+  tools before any file read, search, directory inspection, or provider-visible
+  repo context production
 - approval required for write tools, patch proposal apply, file creation,
   deletion, rename, edit, diff application, or any mutating workspace action
 - approval required for shell execution, even when intended to be read-only
@@ -1251,20 +1249,18 @@ file-content stores.
 
 This baseline is a prerequisite for bounded read-only tools, provider-visible
 repo context production, write tools, patch application, shell or network
-access, and verification commands. The first implemented prompt helper now
-resolves read-only approval into the existing read-only gate object, but it is
-not a broad runtime sandbox and it is not exposed as a public tool-capable REPL
-loop. Future implementation slices must wire these gates explicitly and keep
-the existing pipy-owned `tool_request_id`, `turn_index`,
+access, and verification commands. The first implemented prompt helper remains
+historical/test-covered helper code, but it is not on the normal product REPL
+path and is not a broad runtime sandbox. Future implementation slices must wire
+these gates explicitly and keep the existing pipy-owned `tool_request_id`, `turn_index`,
 `native.tool.observation.recorded`, `duration_seconds`, storage booleans,
 provider-visible context, and metadata-only archive contracts in sync.
 
 ### Native Visible Approval And Sandbox Prompt Path
 
-Status: historical foundation, selected for removal from the product REPL.
-The helper may remain as test or historical code only while the removal slice
-is in progress. It should not stay on the normal `/read`, `/ask-file`, or
-`/propose-file` interactive path.
+Status: historical foundation, removed from the product REPL path. The helper
+remains as test-covered historical code only; normal `/read`, `/ask-file`, and
+`/propose-file` interactive commands do not call it or display its prompt.
 
 The first visible approval/sandbox prompt foundation is implemented in
 `pipy_harness.native.approval_prompt`. It is deliberately narrower than a
@@ -1304,9 +1300,7 @@ map to `FAILED`.
 
 This foundation slice added no new archive event type and no new
 `--native-output json` fields. The helper exposes `safe_metadata()` methods for
-future archive wiring. A later interactive slice wired this resolver into the
-single explicit `/read` command before any read-only workspace operation is
-exposed from the shell.
+future archive wiring, but it is not wired into the current interactive shell.
 
 ### Native Read-Only Tool Request Value Objects
 
@@ -2278,10 +2272,10 @@ metadata-only archive, and provider/tool behavior remain unchanged.
 bounded interactive shell. Its ordinary provider turns are allocated from
 `NativeConversationState`, with `initial` for the first turn and
 `no_tool_repl` for later REPL turns. It exposes one local `/help` command, one
-approved display-only `/read` command, and one approved provider-visible
+display-only `/read` command, and one provider-visible
 `/ask-file <path> -- <question>` command. The read commands share one bounded
 explicit-file-excerpt request per REPL session; `/ask-file` accepts a
-whitespace-delimited `--` separator and forwards the approved excerpt only in
+whitespace-delimited `--` separator and forwards the bounded excerpt only in
 memory to one provider turn labeled `ask_file_repl`. Help, malformed supported
 slash commands, and unsupported slash commands print static usage diagnostics
 on stderr without provider/tool execution, read-limit consumption, tool events,
@@ -2292,7 +2286,7 @@ tool-capable shell should not be introduced before approval and sandbox
 boundaries are ready for interactive use.
 
 The proposal-only REPL boundary is available as
-`/propose-file <path> -- <change-request>`. It reuses the same approved
+`/propose-file <path> -- <change-request>`. It reuses the same bounded
 explicit-file-excerpt path and one-read limit, forwards one excerpt plus one
 change request only in memory to a single provider turn labeled
 `propose_file_repl`, accepts at most one pipy-owned structured patch proposal
