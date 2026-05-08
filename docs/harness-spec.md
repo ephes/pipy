@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-36 repl proposal-only boundary decision
+Status: slice-37 repl proposal-only review and smoke
 
 <style>
 .mermaid,
@@ -835,6 +835,17 @@ This implemented boundary does not change one-shot `pipy run --agent
 pipy-native`, default REPL no-tool turns, `/read`, `/ask-file`, `/help`,
 stdout/stderr handling, structured stdout, archive schema, or provider
 routing.
+
+Review and smoke status: focused review of the `/propose-file` boundary found
+the implementation aligned with this contract. Focused CLI, native session, and
+proposal value-object tests cover malformed input, denied/unavailable/unsafe
+and repeated read-command paths, supported and skipped proposal metadata,
+provider metadata suppression, and archive privacy assertions. A fake-provider
+terminal smoke confirmed the visible approval prompt, `propose_file_repl`
+provider turn label, stdout/stderr split, finalized archive shape, and
+`pipy-session verify` compatibility. No implementation hardening was required
+in the review slice; OpenRouter smoke was skipped because `OPENROUTER_API_KEY`
+was unavailable in the local environment.
 
 ### Native Structured Stdout JSON Mode
 

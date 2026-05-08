@@ -338,12 +338,15 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_done
     )
     assert "labeled `propose_file_repl`" in compact_done
-    assert "### Review and smoke proposal-only `/propose-file` REPL boundary" in next_slice
-    assert "independently review and smoke-test" in compact_next_slice
-    assert "broader shell capability" in compact_next_slice
+    assert "Native proposal-only `/propose-file` review and smoke" in compact_done
+    assert "fake-provider terminal smoke" in compact_done
+    assert "No implementation hardening was required" in compact_done
+    assert "### Choose the next native REPL boundary after proposal-only review" in next_slice
+    assert "select the next small native-shell boundary" in compact_next_slice
+    assert "decision slice, not an implementation slice" in compact_next_slice
     assert "`propose_file_repl`" in compact_next_slice
-    assert "native.patch.proposal.recorded" in compact_next_slice
-    assert "applying, writing, creating, deleting, renaming, or editing files" in (
+    assert "supervised patch-apply trial" in compact_next_slice
+    assert "applying, writing, creating, deleting, renaming, or editing files from the public REPL" in (
         compact_next_slice
     )
     assert "multiple tool requests" in compact_next_slice
@@ -359,12 +362,13 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Review and smoke proposal-only `/propose-file` REPL boundary" in compact_near_term
+    assert "Choose the next native REPL boundary after proposal-only review" in compact_near_term
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
     )
     assert "labeled `propose_file_repl`" in compact_near_term
+    assert "Proposal-only review gate: available now" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
@@ -379,7 +383,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Define native conversation state and turn loop" not in next_slice
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
     assert "### Choose the next interactive provider-visible context boundary" not in next_slice
-    assert "### Choose the next native REPL boundary" not in next_slice
+    assert "### Review and smoke proposal-only `/propose-file` REPL boundary" not in next_slice
 
 
 def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
