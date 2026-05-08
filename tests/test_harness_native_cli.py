@@ -5,6 +5,7 @@ import sys
 from io import StringIO
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
@@ -23,7 +24,7 @@ from pipy_session import (
 )
 
 
-def read_jsonl(path: Path) -> list[dict[str, object]]:
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
@@ -76,7 +77,7 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     captured_requests: list[ProviderRequest] = []
 
@@ -264,7 +265,7 @@ def test_cli_native_repl_interrupt_finalizes_aborted_record(tmp_path, capfd, mon
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, monkeypatch) -> None:
     root = tmp_path / "sessions"
     captured_requests: list[ProviderRequest] = []
 
@@ -579,7 +580,7 @@ def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_pr
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     source = tmp_path / "docs" / "context.txt"
     source.parent.mkdir()
@@ -677,7 +678,7 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     source = tmp_path / "docs" / "context.txt"
     source.parent.mkdir()
@@ -745,7 +746,7 @@ def test_cli_native_repl_propose_file_records_metadata_only_proposal(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     source = tmp_path / "docs" / "proposal-context.txt"
     source.parent.mkdir()
@@ -861,7 +862,7 @@ def test_cli_native_repl_propose_file_accepts_whitespace_delimited_separator(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     source = tmp_path / "docs" / "proposal-context.txt"
     source.parent.mkdir()
@@ -1539,7 +1540,7 @@ def test_cli_native_repl_read_command_blocks_later_ask_file(tmp_path, capfd, mon
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, monkeypatch) -> None:
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
@@ -1803,7 +1804,11 @@ def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd,
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_command_blocks_later_propose_file(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
@@ -1873,7 +1878,7 @@ def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
@@ -1954,7 +1959,7 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
     tmp_path,
     capfd,
     monkeypatch,
-):
+) -> None:
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
