@@ -182,6 +182,10 @@ def test_openai_subscription_auth_decision_is_documented():
 
     assert "Decision: `blocked-for-now`" in compact_decision
     assert "Decision date: 2026-05-07." in compact_decision
+    assert "Decision update: reopened for a distinct `openai-codex` provider" in (
+        compact_decision
+    )
+    assert "/Users/jochen/src/pi-mono" in decision_section
     for source_url in (
         "https://developers.openai.com/api/reference/overview",
         "https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus",
@@ -211,6 +215,8 @@ def test_openai_subscription_auth_decision_is_documented():
         compact_decision
     )
     assert "`OPENAI_API_KEY` plus `--native-model`" in compact_decision
+    assert "existing `openai` provider" in compact_decision
+    assert "remain the OpenAI Platform API-key provider" in compact_decision
 
     assert "Rejected approaches:" in decision_section
     for rejected in (
@@ -226,7 +232,16 @@ def test_openai_subscription_auth_decision_is_documented():
     ):
         assert rejected in compact_decision
 
-    assert "OpenRouter provider support with explicit model selection" in compact_decision
+    assert "OpenRouter remains implemented and usable for manual smoke tests" in (
+        compact_decision
+    )
+    assert "desired default real-provider direction" in compact_decision
+    assert "`openai-codex` provider" in compact_decision
+    assert "packages/ai/src/utils/oauth/openai-codex.ts" in compact_decision
+    assert "packages/coding-agent/src/core/auth-storage.ts" in compact_decision
+    assert "packages/ai/src/providers/openai-codex-responses.ts" in compact_decision
+    assert "https://chatgpt.com/backend-api/codex/responses" in compact_decision
+    assert "must also continue to reject credential-store scraping" in compact_decision
     assert "Local model provider integrations remain deferred pending benchmark work" in (
         compact_decision
     )
@@ -344,28 +359,35 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native REPL next-boundary decision after proposal-only review" in compact_done
     assert "selected a human-applied proposal trial" in compact_done
     assert "public REPL stays proposal-only" in compact_done
-    assert "### Native human-applied `/propose-file` trial" in next_slice
-    assert "exercise the reviewed proposal-only REPL path as a real workflow" in (
+    assert "OpenAI Codex OAuth provider correction from Pi reference" in compact_done
+    assert "distinct `openai-codex` provider path" in compact_done
+    assert "packages/ai/src/utils/oauth/openai-codex.ts" in compact_done
+    assert "packages/ai/src/providers/openai-codex-responses.ts" in compact_done
+    assert "https://chatgpt.com/backend-api/codex/responses" in compact_done
+    assert "Pi-like no-approval shell direction correction" in compact_done
+    assert "No permission popups" in compact_done
+    assert "packages/coding-agent/src/core/tools/read.ts" in compact_done
+    assert "### Remove native REPL approval prompts" in next_slice
+    assert "no permission popups for normal interactive use" in compact_next_slice
+    assert "Explicit user commands remain the authority" in compact_next_slice
+    assert "`/read`, `/ask-file`, and `/propose-file`" in compact_next_slice
+    assert "remove `pipy approval required` prompts" in compact_next_slice
+    assert "remove approval prompt text and approval-not-allowed cases" in (
         compact_next_slice
     )
-    assert "let a human apply or translate the suggested change outside the REPL" in (
-        compact_next_slice
-    )
-    assert "`propose_file_repl`" in compact_next_slice
-    assert "OpenRouter smoke when `OPENROUTER_API_KEY` is available" in (
-        compact_next_slice
-    )
-    assert "fake-provider terminal smoke" in compact_next_slice
-    assert "record a summary-safe evaluation" in compact_next_slice
-    assert "applying, writing, creating, deleting, renaming, or editing files from the public REPL" in (
-        compact_next_slice
-    )
-    assert "adding `/apply`, `/apply-file`, `/verify`" in compact_next_slice
-    assert "multiple tool requests" in compact_next_slice
+    assert "workspace-relative path validation" in compact_next_slice
+    assert "secret-looking content rejection" in compact_next_slice
+    assert "adding broad model-selected tools" in compact_next_slice
     assert "provider-side built-in tools" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
-    assert "OpenRouter-first" in compact_near_term
+    assert "no permission popups for normal interactive use" in compact_near_term
+    assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
+        compact_near_term
+    )
+    assert "OpenRouter remains implemented and useful for immediate manual smoke testing" in (
+        compact_near_term
+    )
     assert "No-tool provider-turn REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
     assert "Visible approval prompt gate: available now" in compact_near_term
@@ -374,6 +396,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
+    assert "Remove native REPL approval prompts" in compact_near_term
+    assert "Add a native `openai-codex` OAuth provider from the Pi reference" in (
+        compact_near_term
+    )
     assert "Run a native human-applied `/propose-file` trial" in compact_near_term
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
@@ -381,7 +407,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "labeled `propose_file_repl`" in compact_near_term
     assert "Proposal-only review gate: available now" in compact_near_term
-    assert "Human-applied proposal trial gate: selected next" in compact_near_term
+    assert "Human-applied proposal trial gate: selected after the `openai-codex`" in (
+        compact_near_term
+    )
+    assert "Visible approval prompt gate: available now but selected for removal" in (
+        compact_near_term
+    )
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred

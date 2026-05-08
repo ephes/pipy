@@ -111,6 +111,15 @@ Optional flags:
 - `--native-model <id>`: model label for the native provider; required for `--native-provider openai` or `openrouter`
 - `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
+Planned provider direction: add a separate `openai-codex` native provider for
+ChatGPT Plus/Pro Codex subscription auth, based on local Pi prior art under
+`/Users/jochen/src/pi-mono`. Until that exists, use `openrouter` for a real
+provider smoke test or `fake` for no-credential smoke. The existing `openai`
+provider remains the OpenAI Platform API-key path using `OPENAI_API_KEY`.
+Planned shell direction: remove native approval prompts from explicit REPL
+read/context commands and keep the shell Pi-like: no permission popups for
+normal interactive use.
+
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
 
@@ -132,6 +141,17 @@ retries, conversation state, background mode, model fallback, or raw transcript
 import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
 metadata.
+
+OpenRouter is already usable for real-provider smoke testing:
+
+```sh
+uv run pipy repl --agent pipy-native --slug openrouter-smoke \
+  --native-provider openrouter \
+  --native-model openai/gpt-5.1-codex
+```
+
+Set `OPENROUTER_API_KEY` first. Model availability is controlled by
+OpenRouter, so choose another `<provider/model>` id if needed.
 
 For subprocess capture runs, the harness streams child stdout and stderr to the
 caller, finalizes the pipy record, and then returns the child process exit code.
@@ -227,8 +247,9 @@ boundary for `just check`. The REPL exposes only the explicit approved `/read`
 and `/ask-file` commands plus the proposal-only `/propose-file` command; normal
 OpenAI/OpenRouter CLI runs still do not expose general model-selected tool use,
 provider-side tools, public patch-apply or verification controls, arbitrary
-shell execution, retries, streaming, provider registry, OAuth, or raw
-transcript import.
+shell execution, retries, streaming, provider registry, or raw transcript
+import. Native OAuth is planned first for the distinct `openai-codex`
+subscription provider, not for the existing `openai` API-key provider.
 
 ## Session Recorder CLI
 

@@ -550,6 +550,14 @@ Decision: `blocked-for-now`.
 
 Decision date: 2026-05-07.
 
+Decision update: reopened for a distinct `openai-codex` provider on
+2026-05-08 after inspecting local Pi prior art in `/Users/jochen/src/pi-mono`.
+The original decision still applies to the existing `openai` provider: it must
+remain the OpenAI Platform API-key provider and must not silently become
+subscription auth. The reopened path is a separate Codex subscription provider
+with explicit login, storage, refresh, provider, archive, and documentation
+boundaries.
+
 Official sources checked:
 
 - [OpenAI API authentication](https://developers.openai.com/api/reference/overview):
@@ -604,6 +612,41 @@ backlog can continue to wiring bounded read-only observations into the existing
 post-tool provider turn. Local model provider integrations remain deferred
 pending benchmark work, and Anthropic subscription-backed native provider
 support is not promoted to the near-term provider priority.
+
+Provider priority update after Pi inspection: OpenRouter remains implemented
+and usable for manual smoke tests, but it is no longer the preferred
+near-term real-provider direction. The desired default real-provider direction
+is a separate `openai-codex` provider modeled on Pi's ChatGPT Plus/Pro Codex
+subscription flow. Relevant local references:
+
+- `/Users/jochen/src/pi-mono/packages/ai/src/utils/oauth/openai-codex.ts`:
+  PKCE OAuth, client id `app_EMoamEEZ73f0CkXaXp7hrann`, authorize/token URLs
+  under `https://auth.openai.com/oauth`, redirect
+  `http://localhost:1455/auth/callback`, scope
+  `openid profile email offline_access`, local callback server, manual paste
+  fallback, refresh token exchange, and `chatgpt_account_id` extraction from
+  the access-token JWT.
+- `/Users/jochen/src/pi-mono/packages/coding-agent/src/core/auth-storage.ts`:
+  credential persistence, file locking, OAuth refresh, and credential
+  resolution order. Pipy should create its own auth storage rather than read or
+  copy Pi's `~/.pi/agent/auth.json`.
+- `/Users/jochen/src/pi-mono/packages/ai/src/providers/openai-codex-responses.ts`:
+  Codex subscription request boundary against
+  `https://chatgpt.com/backend-api/codex/responses`, using
+  `Authorization: Bearer <access-token>`, `chatgpt-account-id`, `originator`,
+  `OpenAI-Beta`, SSE parsing, `store: false`, and metadata that must stay out
+  of pipy archives unless explicitly allowlisted.
+
+The implementation boundary for pipy is therefore `openai-codex`, not
+`openai` OAuth. It must keep access tokens, refresh tokens, account ids,
+authorization URLs, callback URLs, request bodies, raw provider responses,
+provider-native payloads, prompts, model output, stdout, and stderr out of
+JSONL, Markdown, catalog/search/inspect surfaces, and structured stdout. It
+must also continue to reject credential-store scraping, copying cached tokens
+from Pi or Codex, reverse-engineering by archive capture, and CLI/UI wrapping.
+The provider may become the default real provider only after focused tests and
+manual smoke show that login, refresh, provider calls, and archive privacy all
+hold.
 
 The native tool boundary defines explicit request/result/status value objects
 plus approval and sandbox policy data. The native provider-to-tool bridge first
@@ -847,12 +890,13 @@ provider turn label, stdout/stderr split, finalized archive shape, and
 in the review slice; OpenRouter smoke was skipped because `OPENROUTER_API_KEY`
 was unavailable in the local environment.
 
-### Selected Next REPL Boundary: Human-Applied Proposal Trial
+### Selected Follow-Up REPL Boundary: Human-Applied Proposal Trial
 
-The selected next native REPL boundary is not a new write-capable command. The
-next slice should keep the public shell proposal-only and run a
-human-applied proposal trial using the existing `/propose-file
-<workspace-relative-path> -- <change-request>` path.
+The selected follow-up native REPL boundary is not a new write-capable command.
+After the `openai-codex` provider-access slice, the next REPL workflow slice
+should keep the public shell proposal-only and run a human-applied proposal
+trial using the existing `/propose-file <workspace-relative-path> --
+<change-request>` path.
 
 Rationale: `/propose-file` now proves the narrow approved file-context handoff,
 provider turn label, metadata-only proposal event, and archive privacy shape,
@@ -877,15 +921,14 @@ The trial should reuse unchanged:
 - the default stdout/stderr split and metadata-only archive, Markdown, catalog,
   and structured-output contracts
 
-The trial may use a real provider smoke when `OPENROUTER_API_KEY` is available,
-because the selected product path is OpenRouter-first for near-term manual
-testing. If credentials are unavailable, a fake-provider terminal smoke is
-enough for the slice, but the decision and any follow-up notes should state
-that real provider smoke remains pending. The trial should target a tiny,
-reviewable docs or test change, let a human translate or apply the proposal
-outside the REPL, run focused verification such as `just check` when practical,
-and record whether the proposal was useful enough to consider a later
-write-capable boundary.
+The trial should use `openai-codex` once that provider exists. Until then,
+OpenRouter remains a usable alternate real-provider smoke path when
+`OPENROUTER_API_KEY` is available, and the fake provider remains sufficient for
+no-credential terminal smoke. The trial should target a tiny, reviewable docs
+or test change, let a human translate or apply the proposal outside the REPL,
+run focused verification such as `just check` when practical, and record
+whether the proposal was useful enough to consider a later write-capable
+boundary.
 
 This decision deliberately does not expose `/apply`, `/apply-file`,
 `/verify`, automatic patch application, shell execution, provider-side tools,
@@ -1076,6 +1119,16 @@ transcript import remain deferred.
 
 ### Native Approval And Sandbox Enforcement Baseline
 
+Direction update, 2026-05-08: the visible approval prompt model is no longer
+the desired product posture for `pipy-native`. Pipy should be a Pi-like native
+shell, and Pi's documented posture is "No permission popups." The next
+implementation slice should remove approval prompts and approval-decision gates
+from explicit user-entered REPL read/context commands. Keep internal
+workspace-relative path validation, sandbox/capability labels, ignored and
+generated-file rejection, size limits, encoding checks, secret-looking content
+rejection, metadata-only archive handling, and stdout/stderr separation. Do not
+replace approval popups with a Claude Code-style permission system.
+
 Approval and sandbox enforcement are native gates for tool-capable behavior.
 This baseline defines the contract before broad interactive read tools, write
 tools, shell execution, network access, verification commands, provider-side
@@ -1207,6 +1260,11 @@ the existing pipy-owned `tool_request_id`, `turn_index`,
 provider-visible context, and metadata-only archive contracts in sync.
 
 ### Native Visible Approval And Sandbox Prompt Path
+
+Status: historical foundation, selected for removal from the product REPL.
+The helper may remain as test or historical code only while the removal slice
+is in progress. It should not stay on the normal `/read`, `/ask-file`, or
+`/propose-file` interactive path.
 
 The first visible approval/sandbox prompt foundation is implemented in
 `pipy_harness.native.approval_prompt`. It is deliberately narrower than a
@@ -2243,14 +2301,14 @@ metadata object, emits at most one metadata-only
 verification, shell execution, network access, provider-side tools, multiple
 tool requests, or a general model/tool loop.
 
-The next REPL boundary decision keeps that public shell surface proposal-only.
-The next slice should be a human-applied proposal trial: run `/propose-file`
-against a tiny docs or test target, optionally with OpenRouter when
-`OPENROUTER_API_KEY` is available, let a human apply or translate the suggested
-change outside the REPL, verify the result, and evaluate whether a later
-write-capable REPL command is justified. Public patch application,
-verification commands, and shell execution remain deferred to separately named
-slices.
+The follow-up REPL boundary decision keeps that public shell surface
+proposal-only. After the `openai-codex` provider-access slice, run
+`/propose-file` against a tiny docs or test target, preferably through
+`openai-codex` and optionally with OpenRouter when `OPENROUTER_API_KEY` is
+available, let a human apply or translate the suggested change outside the
+REPL, verify the result, and evaluate whether a later write-capable REPL
+command is justified. Public patch application, verification commands, and
+shell execution remain deferred to separately named slices.
 
 ## Deferred Work
 

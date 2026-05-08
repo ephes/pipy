@@ -383,68 +383,103 @@ reviewable change while keeping the source-of-truth design constraints in
   `propose_file_repl` label, metadata-only observation and proposal events,
   and stdout/stderr/archive privacy contracts, then evaluate whether a later
   write-capable boundary is justified.
+- OpenAI Codex OAuth provider correction from Pi reference: local prior art in
+  `/Users/jochen/src/pi-mono` shows a distinct `openai-codex` provider path
+  for ChatGPT Plus/Pro Codex subscription use. Pi implements PKCE OAuth in
+  `packages/ai/src/utils/oauth/openai-codex.ts` with client id
+  `app_EMoamEEZ73f0CkXaXp7hrann`, authorize/token URLs under
+  `https://auth.openai.com/oauth`, redirect
+  `http://localhost:1455/auth/callback`, scope
+  `openid profile email offline_access`, local callback plus manual paste
+  fallback, JWT `chatgpt_account_id` extraction, refresh-token support, and
+  storage under `~/.pi/agent/auth.json` through
+  `packages/coding-agent/src/core/auth-storage.ts`. Pi sends those credentials
+  through `packages/ai/src/providers/openai-codex-responses.ts` to
+  `https://chatgpt.com/backend-api/codex/responses` with
+  `Authorization: Bearer <access-token>`, `chatgpt-account-id`, `originator`,
+  and `OpenAI-Beta` headers. This supersedes the earlier practical assumption
+  that OpenRouter should stay first for near-term provider access, while still
+  rejecting credential-store scraping, token copying, CLI wrapping, raw auth
+  archiving, and treating the normal `openai` API-key provider as subscription
+  auth.
+- Pi-like no-approval shell direction correction: `pipy-native` should follow
+  Pi's "no permission popups" product posture rather than a Claude Code-style
+  approval prompt model. Local Pi reference
+  `/Users/jochen/src/pi-mono/packages/coding-agent/README.md` says "No
+  permission popups" and Pi's read tool in
+  `packages/coding-agent/src/core/tools/read.ts` reads through the configured
+  tool path without an interactive approval question. Pipy should remove
+  visible approval prompts and approval decision gates from explicit
+  user-entered REPL read/context commands, including `/read`, `/ask-file`, and
+  `/propose-file`. Keep non-interactive safety boundaries such as explicit
+  command syntax, workspace-relative path validation, ignored/generated-file
+  rejection, bounded size/line limits, secret-looking content rejection,
+  metadata-only archives, and stdout/stderr separation. Future write or shell
+  behavior should not add approval popups by default; use Pi-like operational
+  posture instead: run in a trusted workspace/container or add explicit
+  extension/configuration policy later if needed.
 
 ## Next Slice
 
-### Native human-applied `/propose-file` trial
+### Remove native REPL approval prompts
 
-Goal: exercise the reviewed proposal-only REPL path as a real workflow before
-exposing public mutation. Use `/propose-file <workspace-relative-path> --
-<change-request>` on one tiny docs or test target, let a human apply or
-translate the suggested change outside the REPL, verify the result, and record
-whether the proposal quality and safety posture justify a later write-capable
-native shell boundary.
+Goal: remove the visible approval prompt and approval-decision gate from
+explicit native REPL read/context commands so the shell behaves more like Pi:
+no permission popups for normal interactive use. Explicit user commands remain
+the authority for `/read`, `/ask-file`, and `/propose-file`; internal safety
+checks still validate the requested path/content and preserve metadata-only
+capture.
 
-Implementation/trial points:
+Implementation points:
 
-- reuse the existing visible approval prompt, read-only workspace sandbox
-  policy, explicit-file-excerpt read path, one-read per-session limit,
-  `propose_file_repl` provider turn label, and metadata-only observation and
-  patch proposal events unchanged
-- prefer an OpenRouter smoke when `OPENROUTER_API_KEY` is available; otherwise
-  run a fake-provider terminal smoke and state that real-provider smoke remains
-  pending
-- keep any human-applied edit tiny and reviewable, preferably documentation or
-  focused test text, so the trial evaluates the workflow rather than expanding
-  product behavior
-- run focused verification after the human-applied change, with `just check`
-  when practical
-- record a summary-safe evaluation of whether the proposal was useful,
-  misleading, too verbose, unsafe, or ready to inform a later patch-apply
-  boundary
+- remove `pipy approval required` prompts from `/read`, `/ask-file`, and
+  `/propose-file`
+- remove or bypass approval decision requirements for explicit user-entered
+  read-only REPL commands, without weakening workspace-relative path
+  validation, ignore/generated-file checks, size limits, encoding checks, or
+  secret-looking content rejection
+- remove approval prompt text and approval-not-allowed cases from focused REPL
+  tests, replacing them with successful explicit-command read/context flows
+- keep archives metadata-only: no raw prompts, model output, provider
+  responses, raw approval prompts, raw tool arguments, raw tool results,
+  stdout, stderr, diffs, patches, command output, full file contents, auth
+  material, secrets, credentials, tokens, private keys, or sensitive personal
+  data
+- update docs/specs to identify the old approval prompt helpers as historical
+  or remove them if no longer used
 
-Keep out of scope for this trial:
+Keep out of scope for this removal slice:
 
-- applying, writing, creating, deleting, renaming, or editing files from the
-  public REPL
-- adding `/apply`, `/apply-file`, `/verify`, public supervised patch apply, or
-  any other write-capable or command-executing REPL control
-- raw patch text, diffs, replacement file contents, model-selected paths,
-  prompts, model output, provider responses, stdout, stderr, or command output
-  in archives, Markdown, structured stdout, or catalog surfaces
-- arbitrary shell execution, network access, provider-side built-in tools,
-  multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
-  provider registry, provider routing, broad TUI work, RPC, or persistent
-  history
+- adding broad model-selected tools, provider-side built-in tools, arbitrary
+  shell execution, public patch apply, write tools, network tools, retries,
+  streaming, fallback, broad provider routing, TUI/RPC work, or persistent
+  conversation history
+- copying Pi implementation wholesale or wrapping Pi as the runtime
+- storing raw file contents, prompts, model output, stdout, stderr, command
+  output, diffs, patches, auth material, secrets, credentials, tokens, private
+  keys, or sensitive personal data in archives
 
 ## Near Term
 
 The near-term product direction is still a real `pipy-native` runtime with a
 Pi-like interactive shell. The shell should be a thin user interface over
-pipy-owned provider, session, turn, approval, sandbox, and archive boundaries,
-not a separate runtime and not a wrapper around Codex, Claude, Pi, or another
-agent CLI.
+pipy-owned provider, session, turn, tool, sandbox, and archive boundaries, not
+a separate runtime and not a wrapper around Codex, Claude, Pi, or another
+agent CLI. The product posture is now explicitly Pi-like: no permission
+popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Run a native human-applied `/propose-file` trial.
+1. Remove native REPL approval prompts.
+2. Add a native `openai-codex` OAuth provider from the Pi reference.
+3. Run a native human-applied `/propose-file` trial.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through `pipy repl --agent pipy-native`; it now has one
-approved local `/help` command, one display-only `/read
-<workspace-relative-path>` command, and one approved provider-visible
+local `/help` command, one display-only `/read <workspace-relative-path>`
+command, and one provider-visible
 `/ask-file <workspace-relative-path> -- <question>` command with a
 whitespace-delimited `--` separator sharing the same one-read limit. Malformed
 or unsupported slash commands print static usage diagnostics on stderr without
@@ -453,24 +488,29 @@ apply patches, execute commands, run verification, expose provider-side tools,
 or support a general model/tool loop. The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented and reviewed; the selected next step is a human-applied proposal
-trial using that existing command while the broader public mutation and
-tool-loop boundaries remain deferred.
+trial using that existing command after the `openai-codex` provider-access
+slice, while the broader public mutation and tool-loop boundaries remain
+deferred.
 
-Provider access remains OpenRouter-first for near-term manual smoke testing.
-OpenAI subscription-backed native provider auth is `blocked-for-now` because
-the official docs checked on 2026-05-07 document ChatGPT/Codex subscription
-auth for OpenAI product clients, not a generic third-party native provider auth
-path. Pay-by-token OpenAI API access remains implemented as a baseline but is
-not the preferred usage path for this project. Anthropic subscription access
-is not a near-term native provider target because subscription-backed
-coding-agent usage is expected to stay within Claude Code. Local-model
-providers remain interesting but deferred until benchmark work in a separate
-repo clarifies whether Ollama, llama.cpp, MLX, LM Studio, or another runtime
-should be the first local integration.
+Provider access is corrected back to OpenAI Codex subscription auth as the
+preferred near-term real-provider path. The existing `openai` provider remains
+the pay-by-token OpenAI Platform API-key baseline, while the desired
+subscription path should be a separate `openai-codex` provider modeled on Pi's
+PKCE OAuth and `chatgpt.com/backend-api/codex/responses` implementation.
+OpenRouter remains implemented and useful for immediate manual smoke testing
+with `OPENROUTER_API_KEY`, but it should no longer be treated as the preferred
+default provider-access direction. Anthropic subscription access is not a
+near-term native provider target because subscription-backed coding-agent usage
+is expected to stay within Claude Code. Local-model providers remain
+interesting but deferred until benchmark work in a separate repo clarifies
+whether Ollama, llama.cpp, MLX, LM Studio, or another runtime should be the
+first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native human-applied `/propose-file` trial.
+1. Remove native REPL approval prompts.
+2. Native `openai-codex` OAuth provider from Pi reference.
+3. Native human-applied `/propose-file` trial.
 
 Foundation gates toward an interactive shell:
 
@@ -483,15 +523,15 @@ Foundation gates toward an interactive shell:
   pipy-native`.
   It reuses the same conversation state for repeated no-tool provider turns and
   keeps archives metadata-only.
-- Visible approval prompt gate: available now as an injected native helper for
-  read-only workspace inspection and is wired into the explicit `/read`
-  command.
+- Visible approval prompt gate: available now but selected for removal from the
+  product REPL. Pi-like interactive use should not ask permission for explicit
+  user-entered read/context commands.
 - Narrow read-only shell command gate: available now through `/read
-  <workspace-relative-path>`, bounded to one approved explicit-file-excerpt
+  <workspace-relative-path>`, currently bounded to one explicit-file-excerpt
   request per REPL session.
 - Provider-visible interactive context gate: available now through `/ask-file
   <workspace-relative-path> -- <question>` with a whitespace-delimited `--`
-  separator, bounded to one approved explicit-file-excerpt request shared with
+  separator, bounded to one explicit-file-excerpt request shared with
   `/read`, one in-memory provider handoff, and metadata-only archive handling.
 - Command help and usage-diagnostic gate: available now through local `/help`
   and static stderr usage diagnostics for malformed or unsupported slash
@@ -500,26 +540,28 @@ Foundation gates toward an interactive shell:
   questions, or excerpt data.
 - Proposal-only interactive file gate: available now through `/propose-file
   <workspace-relative-path> -- <change-request>`. It reuses the existing
-  approved explicit-file-excerpt path, sends one in-memory excerpt plus request
-  to one provider turn labeled `propose_file_repl`, records only allowlisted
+  explicit-file-excerpt path, sends one in-memory excerpt plus request to one
+  provider turn labeled `propose_file_repl`, records only allowlisted
   metadata-only patch proposal status, and stops before any mutation,
   verification, shell execution, network access, or follow-up provider turn.
 - Proposal-only review gate: available now. Focused tests and fake-provider
   terminal smoke covered the boundary and found no required implementation
   hardening; broader mutation remains behind a new named slice.
-- Human-applied proposal trial gate: selected next. The public shell remains
-  proposal-only while a human applies or translates one tiny proposed change
-  outside the REPL, verifies it, and records whether the workflow is ready to
-  inform a later write-capable boundary.
+- Human-applied proposal trial gate: selected after the `openai-codex`
+  provider-access slice. The public shell remains proposal-only while a human
+  applies or translates one tiny proposed change outside the REPL, verifies it,
+  and records whether the workflow is ready to inform a later write-capable
+  boundary.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
 - Proposal-only trial: available now in the interactive shell. Pipy may use the
   existing bounded read-only context and propose structured edit metadata, but
   writes remain manual and archives stay metadata-only.
-- Human-applied patch trial: selected next through the existing
-  `/propose-file` command. No public write command is added for this gate, and
-  independent review is still required before trusting the result.
+- Human-applied patch trial: selected after the `openai-codex` provider-access
+  slice through the existing `/propose-file` command. No public write command
+  is added for this gate, and independent review is still required before
+  trusting the result.
 - Pipy-applied patch trial: available after the explicit patch-apply slice,
   with conservative file scope, no arbitrary shell execution, and metadata-only
   archives.
