@@ -308,9 +308,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native interactive read-only REPL command behind the prompt gate" in compact_done
     assert "`/read <workspace-relative-path>`" in compact_done
     assert "records only metadata-only tool lifecycle events" in compact_done
-    assert "### Choose the next interactive provider-visible context boundary" in next_slice
-    assert "manual smoke testing of the explicit `/read` command" in compact_next_slice
-    assert "provider-visible in-memory context handoff" in compact_next_slice
+    assert "Native explicit provider-visible `/ask-file` REPL boundary" in compact_done
+    assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_done
+    assert "labeled `ask_file_repl`" in compact_done
+    assert "### Smoke test and harden the explicit `/ask-file` boundary" in next_slice
+    assert "manually exercise the new explicit `/ask-file` provider-visible context handoff" in compact_next_slice
+    assert "command parsing hardening" in compact_next_slice
     assert "ordinary non-command REPL turns as no-tool provider turns" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
@@ -319,7 +322,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`pipy repl --agent pipy-native`" in compact_near_term
     assert "Visible approval prompt gate: available now" in compact_near_term
     assert "Narrow read-only shell command gate: available now" in compact_near_term
-    assert "Provider-visible interactive context gate" in compact_near_term
+    assert "Provider-visible interactive context gate: available now" in compact_near_term
+    assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
@@ -333,6 +337,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Add an allowlisted verification-command slice" not in next_slice
     assert "### Define native conversation state and turn loop" not in next_slice
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
+    assert "### Choose the next interactive provider-visible context boundary" not in next_slice
 
 
 def test_visible_prompt_foundation_is_threaded_only_into_the_repl_command_path():

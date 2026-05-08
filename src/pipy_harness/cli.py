@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     repl_parser = subparsers.add_parser(
         "repl",
-        help="Run the minimal no-tool pipy-native REPL.",
+        help="Run the bounded pipy-native REPL.",
     )
     repl_parser.add_argument("--agent", required=True, help="Logical agent name. Only pipy-native is supported.")
     repl_parser.add_argument("--slug", required=True, help="Short run label for the session filename.")
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                 slug=args.slug,
                 command=[],
                 cwd=args.cwd,
-                goal=args.goal or "Native no-tool REPL",
+                goal=args.goal or "Native REPL",
                 root=args.root,
                 capture_policy=CapturePolicy(),
                 native_provider=args.native_provider,

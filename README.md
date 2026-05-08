@@ -160,11 +160,15 @@ non-command input lines remain bounded no-tool provider turns. The explicit
 `/read <workspace-relative-path>` command may run once per REPL session after a
 visible approval/sandbox prompt on stderr; a successful bounded excerpt prints
 only to the interactive stdout stream and is not provider-forwarded or archived.
-Denied, unavailable, unsafe, skipped, failed, and repeated read-command cases
-fail closed without reading. REPL archives remain metadata-only and omit raw
-approval prompts, raw tool arguments, raw tool results, stdout, stderr, full
-file contents, prompts, model output, provider responses, auth material,
-secrets, credentials, tokens, private keys, and sensitive personal data.
+The explicit `/ask-file <workspace-relative-path> -- <question>` command shares
+that one-read limit and approval path, then forwards the successful excerpt plus
+question only in memory to one provider turn labeled `ask_file_repl`; it prints
+only provider final text to stdout. Denied, unavailable, unsafe, skipped,
+failed, malformed, and repeated read-command cases fail closed before provider
+visibility. REPL archives remain metadata-only and omit raw approval prompts,
+raw tool arguments, raw tool results, stdout, stderr, full file contents,
+prompts, model output, provider responses, auth material, secrets, credentials,
+tokens, private keys, and sensitive personal data.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -215,10 +219,10 @@ read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes only the explicit approved `/read`
-command; normal OpenAI/OpenRouter CLI runs still do not expose general
-model-selected tool use, provider-side tools, the public controls for the
-verification-command boundary, arbitrary shell execution, retries, streaming,
-provider registry, OAuth, or raw transcript import.
+and `/ask-file` commands; normal OpenAI/OpenRouter CLI runs still do not expose
+general model-selected tool use, provider-side tools, the public controls for
+the verification-command boundary, arbitrary shell execution, retries,
+streaming, provider registry, OAuth, or raw transcript import.
 
 ## Session Recorder CLI
 

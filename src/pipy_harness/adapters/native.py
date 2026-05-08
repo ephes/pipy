@@ -89,7 +89,7 @@ class PipyNativeAdapter:
 
 
 class PipyNativeReplAdapter:
-    """Run a bounded no-tool native pipy REPL through an injected provider."""
+    """Run a bounded native pipy REPL through an injected provider."""
 
     name = "pipy-native"
 
@@ -120,7 +120,7 @@ class PipyNativeReplAdapter:
             cwd=cwd,
             adapter=self.name,
             command_executable=self.name,
-            goal=request.goal or "Native no-tool REPL",
+            goal=request.goal or "Native REPL",
             native_provider=request.native_provider or self.provider.name,
             native_model=request.native_model or self.provider.model_id,
         )
@@ -134,7 +134,7 @@ class PipyNativeReplAdapter:
     ) -> AdapterResult:
         run_output = NativeNoToolReplSession(provider=self.provider).run(
             NativeRunInput(
-                goal=prepared.goal or "Native no-tool REPL",
+                goal=prepared.goal or "Native REPL",
                 cwd=prepared.cwd,
                 provider_name=prepared.native_provider or self.provider.name,
                 model_id=prepared.native_model or self.provider.model_id,

@@ -285,25 +285,42 @@ reviewable change while keeping the source-of-truth design constraints in
   still omit raw approval prompts, raw tool arguments, raw tool results,
   stdout, stderr, diffs, full file contents, command output, auth material,
   secrets, credentials, tokens, private keys, and sensitive personal data.
+- Native explicit provider-visible `/ask-file` REPL boundary:
+  `pipy repl --agent pipy-native` now accepts `/ask-file
+  <workspace-relative-path> -- <question>` as the first approved interactive
+  context handoff. It shares the one-read per-session limit with `/read`, uses
+  the same visible approval/sandbox gate and bounded explicit-file-excerpt
+  tool, emits metadata-only tool and observation lifecycle events, forwards the
+  successful excerpt plus question only in memory to exactly one provider turn
+  labeled `ask_file_repl`, and prints only provider final text to stdout.
+  Denied, unavailable, malformed, unsafe-target, skipped, failed, and repeated
+  read-command cases fail closed before provider visibility. Ordinary
+  non-command REPL messages remain no-tool provider turns, `/read` remains
+  display-only, one-shot native stdout/JSON/archive contracts remain
+  unchanged, and archives still omit raw prompts, model output, provider
+  responses, provider metadata, raw approval prompts, raw tool arguments, raw
+  tool results, stdout, stderr, diffs, full file contents, command output,
+  auth material, secrets, credentials, tokens, private keys, and sensitive
+  personal data.
 
 ## Next Slice
 
-### Choose the next interactive provider-visible context boundary
+### Smoke test and harden the explicit `/ask-file` boundary
 
-Goal: after manual smoke testing of the explicit `/read` command, choose the
-next small boundary for making approved interactive context useful to the
-provider without widening into a general tool loop.
+Goal: manually exercise the new explicit `/ask-file` provider-visible context
+handoff, then choose the smallest hardening or usability adjustment before any
+additional interactive tool surface is added.
 
 Selected shape:
 
-- start from the current explicit `/read` command and its metadata-only archive
-  behavior
-- decide whether the next slice should be a provider-visible in-memory context
-  handoff, an explicit ask-with-file command, or more prompt/sandbox hardening
-- keep any provider-visible context bounded, explicitly user-approved, and out
-  of JSONL, Markdown, catalog surfaces, and `--native-output json`
-- preserve ordinary non-command REPL turns as no-tool provider turns unless a
-  new explicit command says otherwise
+- smoke test `/read` and `/ask-file <path> -- <question>` with the fake
+  provider and, when credentials are available, OpenRouter
+- confirm approval prompts, stdout/stderr behavior, provider turn labels, and
+  metadata-only archives are usable in a real terminal
+- decide whether the next implementation slice should be command parsing
+  hardening, clearer prompt wording, provider-turn UX polish, or another small
+  provider-visible context constraint
+- preserve ordinary non-command REPL turns as no-tool provider turns
 
 Keep out of scope:
 
@@ -312,16 +329,17 @@ Keep out of scope:
   slash-command surfaces
 - multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
   provider registry, and provider routing
-- raw approval prompts, raw tool arguments, raw tool results, stdout, stderr,
-  diffs, full file contents, command output, auth material, secrets,
-  credentials, tokens, private keys, or sensitive personal data in JSONL,
-  Markdown, structured stdout, or catalog surfaces
+- raw prompts, model output, provider responses, provider metadata, raw
+  approval prompts, raw tool arguments, raw tool results, stdout, stderr, diffs,
+  full file contents, command output, auth material, secrets, credentials,
+  tokens, private keys, or sensitive personal data in JSONL, Markdown,
+  structured stdout, or catalog surfaces
 
 Acceptance checks:
 
-- the next implementation boundary is documented before it is coded
-- the existing `/read` behavior keeps passing manual smoke tests and focused
-  CLI tests
+- the existing `/read` and new `/ask-file` behavior keep passing focused CLI
+  tests
+- manual smoke notes are reflected in the next chosen slice
 - archive records remain metadata-only and compatible with `pipy-session
   verify`, `list`, `search`, and `inspect`
 - normal one-shot native behavior and ordinary no-tool REPL turns remain
@@ -337,17 +355,18 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Choose the next explicit provider-visible context boundary after manually
-   exercising the approved `/read` command.
+1. Smoke test the explicit `/ask-file` provider-visible context boundary and
+   choose the next small hardening slice.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through `pipy repl --agent pipy-native`; it now has one
-approved read-only `/read <workspace-relative-path>` command, but it still does
-not provider-forward interactive read results, apply patches, execute commands,
-run verification, expose provider-side tools, or support a general model/tool
-loop.
+approved display-only `/read <workspace-relative-path>` command and one
+approved provider-visible `/ask-file <workspace-relative-path> -- <question>`
+command sharing the same one-read limit, but it still does not apply patches,
+execute commands, run verification, expose provider-side tools, or support a
+general model/tool loop.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -363,7 +382,8 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Choose the next interactive provider-visible context boundary.
+1. Smoke test and harden the explicit `/ask-file` provider-visible context
+   boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -382,8 +402,10 @@ Foundation gates toward an interactive shell:
 - Narrow read-only shell command gate: available now through `/read
   <workspace-relative-path>`, bounded to one approved explicit-file-excerpt
   request per REPL session.
-- Provider-visible interactive context gate: deferred until the next explicit
-  boundary is chosen and metadata-only archive handling remains compatible.
+- Provider-visible interactive context gate: available now through `/ask-file
+  <workspace-relative-path> -- <question>`, bounded to one approved
+  explicit-file-excerpt request shared with `/read`, one in-memory provider
+  handoff, and metadata-only archive handling.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

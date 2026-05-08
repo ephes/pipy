@@ -406,7 +406,7 @@ or one minimal native pipy bootstrap turn, records conservative lifecycle
 metadata through the same recorder lifecycle, finalizes the record, and returns
 the adapter exit code. The first interactive native shell is `pipy repl
 --agent pipy-native`; it uses the same recorder lifecycle for bounded provider
-turns and one explicit approved read-only `/read` command.
+turns plus explicit approved `/read` and `/ask-file` read-only commands.
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
@@ -474,19 +474,21 @@ lines from stdin, sends each non-empty non-command line to the selected provider
 as one provider turn, prints successful provider final text to stdout, and keeps
 prompts, approval prompts, diagnostics, finalization, interrupt handling,
 command-skip messages, and turn-limit notices on stderr. `/exit` and `/quit`
-terminate cleanly. `/read <workspace-relative-path>` is the only interactive
-workspace command in this slice; it prompts for visible approval before a
-bounded explicit-file-excerpt read can occur, prints a successful excerpt only
-to interactive stdout, and does not provider-forward the excerpt. REPL session
+terminate cleanly. `/read <workspace-relative-path>` prompts for visible
+approval before a bounded explicit-file-excerpt read can occur, prints a
+successful excerpt only to interactive stdout, and does not provider-forward the
+excerpt. `/ask-file <workspace-relative-path> -- <question>` shares the same
+one-read per-session limit and approval/read path, but forwards the successful
+excerpt plus question only in memory to one provider turn labeled
+`ask_file_repl`; it prints only provider final text to stdout. REPL session
 records use the same metadata-only lifecycle vocabulary and do not archive raw
 input lines, provider final text, provider metadata, provider-returned tool
 intent markers, raw approval prompts, raw tool arguments, raw tool results,
-stdout, stderr, prompts, model output, provider responses,
-provider-native payloads, repo context, patches, command output, full file
-contents, auth material, secrets, credentials, tokens, private keys, or
-sensitive personal data. The REPL still does not apply patches, run shell
-commands, run verification, enable provider-side tools, or expose a general
-model/tool loop.
+stdout, stderr, prompts, model output, provider responses, provider-native
+payloads, repo context, patches, command output, full file contents, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data. The REPL still does not apply patches, run shell commands, run
+verification, enable provider-side tools, or expose a general model/tool loop.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -615,9 +617,10 @@ native runs do not print provider final text to stdout.
 For the REPL, each successful provider turn follows the same split: provider
 final text prints to stdout, while the `pipy-native>` prompt and all
 harness/session messages stay on stderr. Successful `/read` excerpt text also
-prints only to interactive stdout. The REPL does not add structured stdout,
-JSONL event streaming, transcript export, raw conversation storage, or raw
-excerpt storage.
+prints only to interactive stdout. Successful `/ask-file` excerpt text is
+forwarded only in memory to one provider turn; only that provider final text
+prints to stdout. The REPL does not add structured stdout, JSONL event
+streaming, transcript export, raw conversation storage, or raw excerpt storage.
 
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject
@@ -684,6 +687,18 @@ The explicit `/read` command may add one metadata-only read-tool lifecycle:
 ```text
 native.tool.started
 native.tool.completed | native.tool.skipped | native.tool.failed
+```
+
+The explicit `/ask-file` command uses the same read-tool lifecycle and, after a
+successful approved excerpt, may add one metadata-only observation event plus
+one provider turn:
+
+```text
+native.tool.started
+native.tool.completed
+native.tool.observation.recorded
+native.provider.started              # label ask_file_repl
+native.provider.completed | native.provider.failed
 ```
 
 REPL provider lifecycle payloads include provider turn indexes and labels from

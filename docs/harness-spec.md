@@ -674,43 +674,53 @@ creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
 with one fresh pipy-owned `NativeConversationState`.
 
 Each non-empty non-command input line becomes one provider turn. `/exit` and
-`/quit` terminate the session. `/read <workspace-relative-path>` is the only
-interactive workspace command in this slice. EOF exits cleanly, interrupt exits
-with code `130`, and the fixed in-memory turn bound stops provider turns before
-they can become unbounded. The first provider request uses the
-conversation-state turn index `0` and label `initial`; later no-tool REPL
-provider requests use subsequent conversation-state turn indexes and the closed
-label `no_tool_repl`. These turn indexes and labels are pipy-owned; they are
-not copied from provider metadata and are not derived from prompts, model
-output, filesystem paths, stdout, stderr, secrets, or credentials.
+`/quit` terminate the session. `/read <workspace-relative-path>` remains the
+display-only workspace command. `/ask-file <workspace-relative-path> --
+<question>` is the first explicit provider-visible context command: it uses the
+same approved bounded file excerpt path as `/read`, then sends exactly that
+in-memory excerpt plus the question to one provider turn. EOF exits cleanly,
+interrupt exits with code `130`, and the fixed in-memory turn bound stops
+provider turns before they can become unbounded. The first provider request
+uses the conversation-state turn index `0` and label `initial`; later no-tool
+REPL provider requests use subsequent conversation-state turn indexes and the
+closed label `no_tool_repl`. The `/ask-file` provider request uses the next
+conversation-state turn index and the closed label `ask_file_repl`. These turn
+indexes and labels are pipy-owned; they are not copied from provider metadata
+and are not derived from prompts, model output, filesystem paths, stdout,
+stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
-successful turns and successful `/read` excerpt text print to stdout, while
-prompts, approval prompts, diagnostics, finalization, errors, interrupt
-handling, command-skip messages, and the turn-limit notice stay on stderr. This
-is separate from one-shot `--native-output json`; the REPL does not add
-structured stdout, a transcript stream, or conversation export.
+successful ordinary or `/ask-file` turns and successful `/read` excerpt text
+print to stdout, while prompts, approval prompts, diagnostics, finalization,
+errors, interrupt handling, command-skip messages, and the turn-limit notice
+stay on stderr. This is separate from one-shot `--native-output json`; the REPL
+does not add structured stdout, a transcript stream, or conversation export.
 
-The `/read` command builds one pipy-owned `NativeReadOnlyToolRequest` with
-request kind `explicit-file-excerpt`, a pipy-owned
-`NativeExplicitFileExcerptTarget`, and the existing read-only workspace sandbox
-policy. It resolves the visible approval/sandbox prompt with
+The `/read` and `/ask-file` commands share one per-session read-only workspace
+request limit. Each accepted command builds one pipy-owned
+`NativeReadOnlyToolRequest` with request kind `explicit-file-excerpt`, a
+pipy-owned `NativeExplicitFileExcerptTarget`, and the existing read-only
+workspace sandbox policy. It resolves the visible approval/sandbox prompt with
 `NativeInteractiveApprovalPromptResolver` before invoking
-`NativeExplicitFileExcerptTool`. The prompt displays only safe operation,
-tool, policy, sandbox, capability, and scope labels. It does not display or
-archive raw prompts, provider output, raw tool arguments, workspace paths,
-command text, stdout, stderr, diffs, patches, file contents, or excerpt text.
-Denied, unavailable, unsupported, mismatched, unsafe-target, skipped, failed,
-and repeated read-command cases fail closed before any read or before any
-second read request.
+`NativeExplicitFileExcerptTool`. The prompt displays only safe operation, tool,
+policy, sandbox, capability, and scope labels. It does not display or archive
+raw prompts, provider output, raw tool arguments, workspace paths, command text,
+stdout, stderr, diffs, patches, file contents, or excerpt text. Denied,
+unavailable, unsupported, mismatched, unsafe-target, skipped, failed, malformed,
+and repeated read-command cases fail closed before any read, before any second
+read request, or before provider visibility.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
 only provider-visible content added by ordinary REPL turns is the current input
 line sent as the user prompt for that turn. Successful `/read` excerpts are
-printed only to the interactive stdout stream in this slice; they are not
-provider-forwarded, archived, included in Markdown, included in catalog/search
-surfaces, or included in one-shot `--native-output json`.
+printed only to the interactive stdout stream; they are not provider-forwarded,
+archived, included in Markdown, included in catalog/search surfaces, or
+included in one-shot `--native-output json`. Successful `/ask-file` excerpts
+are provider-forwarded only in memory to the single corresponding provider turn
+and are not printed directly, archived, included in Markdown, included in
+catalog/search surfaces, included in one-shot `--native-output json`, persisted
+as provider context, or reused by later turns.
 
 REPL archives reuse existing safe lifecycle event names:
 
@@ -719,16 +729,19 @@ REPL archives reuse existing safe lifecycle event names:
 - `native.provider.completed` or `native.provider.failed`
 - `native.tool.started`
 - `native.tool.completed`, `native.tool.skipped`, or `native.tool.failed`
+- `native.tool.observation.recorded` for successful `/ask-file` provider
+  visibility only
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
 metadata-only and may include safe labels and counters such as provider, model,
 mode `repl`, `tools_enabled=true`, `read_only_commands_enabled=true`,
-`provider_visible_context_enabled=false`, provider turn index/label, status,
-exit code, duration, normalized usage, turn count, read-command-used state, and
-an exit reason label. Tool lifecycle payloads remain metadata-only and may
-include safe read-tool status, reason labels, approval/sandbox labels,
-capability booleans, counts, source labels, path hashes, and storage booleans.
+`provider_visible_context_enabled=true`, provider-visible-context-used state,
+provider turn index/label, status, exit code, duration, normalized usage, turn
+count, read-command-used state, ask-file-command-used state, and an exit reason
+label. Tool lifecycle payloads remain metadata-only and may include safe
+read-tool status, reason labels, approval/sandbox labels, capability booleans,
+counts, source labels, path hashes, and storage booleans.
 JSONL, Markdown, catalog/search/inspect surfaces, and one-shot
 `--native-output json` must still omit raw prompts, model output, provider
 responses, provider-native payloads, provider metadata, raw approval prompts,
@@ -2059,13 +2072,15 @@ metadata-only archive, and provider/tool behavior remain unchanged.
 `pipy repl --agent pipy-native` now uses the same conversation/turn core for a
 bounded interactive shell. Its ordinary provider turns are allocated from
 `NativeConversationState`, with `initial` for the first turn and
-`no_tool_repl` for later REPL turns. It exposes only one approved read-only
-`/read` command and does not provider-forward its excerpt. It still does not
-expose provider metadata, patching, verification, streaming, retries, fallback,
-TUI rendering, conversation export, or a general model/tool loop. A broader
-tool-capable shell should not be
-introduced before approval and sandbox boundaries are ready for interactive
-use.
+`no_tool_repl` for later REPL turns. It exposes one approved display-only
+`/read` command and one approved provider-visible `/ask-file <path> --
+<question>` command. The two commands share one bounded explicit-file-excerpt
+request per REPL session; `/ask-file` forwards the approved excerpt only in
+memory to one provider turn labeled `ask_file_repl`. It still does not expose
+provider metadata, patching, verification, streaming, retries, fallback, TUI
+rendering, conversation export, or a general model/tool loop. A broader
+tool-capable shell should not be introduced before approval and sandbox
+boundaries are ready for interactive use.
 
 ## Deferred Work
 
