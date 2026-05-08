@@ -495,6 +495,17 @@ or sensitive personal data. The REPL still does not apply patches, run shell
 commands, run verification, enable provider-side tools, or expose a general
 model/tool loop.
 
+The selected next REPL boundary is proposal-only:
+`/propose-file <workspace-relative-path> -- <change-request>`. That future
+command may reuse the same approved explicit-file-excerpt path and one-read
+per-session limit, forward one excerpt plus one change request only in memory
+to one provider turn labeled `propose_file_repl`, parse at most one pipy-owned
+structured patch proposal metadata object, and record at most one
+metadata-only `native.patch.proposal.recorded` event. It must not apply edits,
+mutate files, run verification, run shell commands, request network access,
+enable provider-side tools, create another provider turn, persist repo context,
+or store raw proposal data.
+
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
 fixture-gated follow-up provider turn. The
@@ -533,9 +544,11 @@ Patch proposal records must also remain metadata-only. They must not contain
 raw patch text, raw diffs, file contents, model-selected paths, raw prompts,
 model output, provider responses, provider-native payloads, raw tool payloads,
 stdout, stderr, shell commands, auth material, secrets, credentials, tokens,
-private keys, or sensitive personal data. Unsafe or unsupported proposal data
-is dropped before persistence and may be represented only by a skipped proposal
-event with a safe reason label.
+private keys, or sensitive personal data. REPL proposal records must also omit
+raw provider proposal objects, raw provider metadata, raw approval prompts, raw
+tool arguments, raw tool results, command output, and replacement file
+contents. Unsafe or unsupported proposal data is dropped before persistence and
+may be represented only by a skipped proposal event with a safe reason label.
 
 Provider-visible repo context is not archive content. The context policy in
 `docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
@@ -708,10 +721,26 @@ native.provider.started              # label ask_file_repl
 native.provider.completed | native.provider.failed
 ```
 
+The selected future `/propose-file` command uses the same read-tool lifecycle
+and, after one successful approved excerpt, may add one provider turn plus one
+metadata-only proposal event:
+
+```text
+native.tool.started
+native.tool.completed
+native.tool.observation.recorded
+native.provider.started              # label propose_file_repl
+native.provider.completed | native.provider.failed
+native.patch.proposal.recorded
+```
+
 REPL provider lifecycle payloads include provider turn indexes and labels from
 `NativeConversationState`, but they intentionally store
 `provider_metadata={}` so provider-returned tool intent markers or raw provider
-details cannot become archive content.
+details cannot become archive content. The `/propose-file` boundary may inspect
+only the pipy-owned structured proposal metadata key in memory after the
+provider turn; that raw provider metadata must not be copied into provider
+lifecycle payloads, JSONL, Markdown, catalog surfaces, or structured stdout.
 
 The current native identity and observation planning boundaries do not change
 archive lifecycle or privacy policy. `turn_index` is a pipy-assigned small

@@ -153,6 +153,15 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "write tools or patch application" in compact_storage
     assert "verification commands. The current native verification boundary supports only" in compact_storage
     assert "`just-check` label mapped internally to `just check`" in compact_storage
+    assert "The selected next REPL boundary is proposal-only" in compact_storage
+    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_storage
+    assert "`propose_file_repl`" in compact_storage
+    assert "metadata-only `native.patch.proposal.recorded` event" in compact_storage
+    assert "native.tool.observation.recorded native.provider.started # label propose_file_repl" in (
+        compact_storage
+    )
+    assert "must not apply edits" in compact_storage
+    assert "must not be copied into provider lifecycle payloads" in compact_storage
     assert "approval required/resolved booleans" in compact_storage
     assert "`tool_request_id`" in compact_storage
     assert "`turn_index`" in compact_storage
@@ -320,10 +329,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native REPL command help and usage diagnostics review" in compact_done
     assert "second review reported no findings" in compact_done
     assert "All four were accepted and fixed" in compact_done
-    assert "### Choose the next native REPL boundary" in next_slice
-    assert "select the next small, reviewable native REPL boundary" in compact_next_slice
-    assert "smaller than a general tool-capable shell" in compact_next_slice
-    assert "no runtime behavior" in compact_next_slice
+    assert "Native REPL next-boundary decision" in compact_done
+    assert "selected a proposal-only" in compact_done
+    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_done
+    assert "No runtime behavior" in compact_done
+    assert "### Add proposal-only `/propose-file` REPL boundary" in next_slice
+    assert "proposal-only interactive native boundary" in compact_next_slice
+    assert "smaller than a tool-capable shell" in compact_next_slice
+    assert "`propose_file_repl`" in compact_next_slice
+    assert "native.patch.proposal.recorded" in compact_next_slice
+    assert "applying, writing, creating, deleting, renaming, or editing files" in (
+        compact_next_slice
+    )
+    assert "multiple tool requests" in compact_next_slice
+    assert "provider-side built-in tools" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
@@ -335,7 +354,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Choose the next native REPL boundary" in compact_near_term
+    assert "Add proposal-only `/propose-file` REPL boundary" in compact_near_term
+    assert "Proposal-only interactive file gate: selected next" in compact_near_term
+    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
+        compact_near_term
+    )
+    assert "labeled `propose_file_repl`" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
@@ -350,6 +374,92 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Define native conversation state and turn loop" not in next_slice
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
     assert "### Choose the next interactive provider-visible context boundary" not in next_slice
+    assert "### Choose the next native REPL boundary" not in next_slice
+
+
+def test_selected_repl_proposal_boundary_is_metadata_only_and_bounded():
+    spec = read_repo_file("docs/harness-spec.md")
+    proposal_section = markdown_section(
+        spec, "Selected Next REPL Boundary: Proposal-Only File Context"
+    )
+    compact_proposal = collapse_whitespace(proposal_section)
+
+    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
+        compact_proposal
+    )
+    assert "`/ask-file` already proves one approved explicit-file-excerpt read" in (
+        compact_proposal
+    )
+    assert "`propose_file_repl`" in compact_proposal
+    assert "`pipy_native_patch_proposal`" in compact_proposal
+    assert "`native.tool.observation.recorded`" in compact_proposal
+    assert "same metadata-only `native.tool.observation.recorded` lifecycle event" in (
+        compact_proposal
+    )
+    assert "`native.patch.proposal.recorded` event" in compact_proposal
+    assert "at most one" in compact_proposal
+    assert "existing metadata-only proposal payload allowlist" in compact_proposal
+    assert "hard-stops" in compact_proposal
+    assert "provider result and proposal parse" in compact_proposal
+
+    for required_boundary in (
+        "read-only approval/sandbox prompt",
+        "explicit-file-excerpt tool",
+        "workspace-relative target validation",
+        "one-read per-session limit",
+    ):
+        assert required_boundary in compact_proposal
+
+    for deferred in (
+        "workspace mutation",
+        "verification",
+        "shell execution",
+        "broad search",
+        "multiple file context",
+        "provider-side tools",
+        "general model/tool loop",
+        "network access",
+        "another provider turn",
+    ):
+        assert deferred in compact_proposal
+
+    for allowed_metadata in (
+        "`tool_request_id`",
+        "`turn_index`",
+        "`status`",
+        "`reason_label`",
+        "file and operation counts",
+        "closed operation labels",
+        "false storage booleans",
+    ):
+        assert allowed_metadata in compact_proposal
+
+    for forbidden in (
+        "raw patch text",
+        "raw diffs",
+        "replacement file contents",
+        "model-selected paths",
+        "raw provider proposal objects",
+        "raw provider metadata",
+        "raw prompts",
+        "model output",
+        "provider responses",
+        "provider-native payloads",
+        "raw approval prompts",
+        "raw tool arguments",
+        "raw tool results",
+        "stdout",
+        "stderr",
+        "command output",
+        "auth material",
+        "secrets",
+        "credentials",
+        "API keys",
+        "tokens",
+        "private keys",
+        "sensitive personal data",
+    ):
+        assert forbidden in compact_proposal
 
 
 def test_visible_prompt_foundation_is_threaded_only_into_the_repl_command_path():

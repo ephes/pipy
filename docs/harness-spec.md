@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-35 repl help diagnostics
+Status: slice-36 repl proposal-only boundary decision
 
 <style>
 .mermaid,
@@ -735,8 +735,10 @@ REPL archives reuse existing safe lifecycle event names:
 - `native.provider.completed` or `native.provider.failed`
 - `native.tool.started`
 - `native.tool.completed`, `native.tool.skipped`, or `native.tool.failed`
-- `native.tool.observation.recorded` for successful `/ask-file` provider
-  visibility only
+- `native.tool.observation.recorded` for successful `/ask-file` and selected
+  next `/propose-file` provider visibility only
+- `native.patch.proposal.recorded` for the selected next proposal-only
+  `/propose-file` boundary only
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
@@ -754,6 +756,77 @@ responses, provider-native payloads, provider metadata, raw approval prompts,
 raw tool arguments, raw tool results, stdout, stderr, diffs, patches, full file
 contents, command output, auth material, secrets, credentials, tokens, private
 keys, and sensitive personal data.
+
+### Selected Next REPL Boundary: Proposal-Only File Context
+
+The next native REPL implementation slice is a proposal-only file-context
+command, `/propose-file <workspace-relative-path> -- <change-request>`:
+
+```text
+/propose-file <workspace-relative-path> -- <change-request>
+```
+
+Rationale: `/ask-file` already proves one approved explicit-file-excerpt read,
+one in-memory provider-visible context handoff, one provider turn label, and
+metadata-only archive handling. The smallest useful next step is to let that
+interactive path request structured proposal metadata without crossing into
+workspace mutation, verification, shell execution, broad search, multiple file
+context, provider-side tools, or a general model/tool loop.
+
+The first implementation must reuse the existing read-only approval/sandbox
+prompt, explicit-file-excerpt tool, workspace-relative target validation,
+ignored/generated-file rejection, secret-looking content rejection, byte and
+line limits, and the one-read per-session limit shared by `/read` and
+`/ask-file`. After one successful approved excerpt, it may send the excerpt and
+change request only in memory to exactly one provider turn labeled
+`propose_file_repl`. That label and its turn index are allocated by
+`NativeConversationState`; they are not copied from provider metadata and are
+not derived from prompts, model output, filesystem paths, stdout, stderr,
+secrets, or credentials.
+
+The successful provider-visible context handoff may use the same
+metadata-only `native.tool.observation.recorded` lifecycle event as
+`/ask-file`; the raw excerpt and change request remain in memory only. The
+proposal parser may inspect only one pipy-owned structured provider metadata
+key already defined for patch proposals: `pipy_native_patch_proposal`.
+Provider lifecycle payloads must continue to store empty provider metadata so
+provider-returned tool markers and raw provider payloads do not become archive
+content. If the proposal is supported, the REPL may emit at most one
+`native.patch.proposal.recorded` event using the existing metadata-only
+proposal payload allowlist. If proposal data is missing, unsafe, or
+unsupported, the safe outcome is no proposal event or one skipped proposal
+event with safe reason labels and zero counts. The command hard-stops after the
+provider result and proposal parse; it must not apply edits, mutate files, run
+verification, run shell commands, request network access, invoke provider-side
+tools, create another provider turn, or persist provider-visible context for
+later turns.
+
+The `/propose-file` command is a public REPL command, not a public automation
+control and not a broad slash-command surface. Malformed `/propose-file`
+syntax and unsupported slash commands must use static stderr diagnostics
+without provider/tool execution, read-limit consumption, tool events, raw
+command archiving, or provider visibility. Denied, unavailable, unsupported,
+mismatched, unsafe-target, skipped, failed, and repeated read-command cases
+must fail closed before any read, before proposal parsing, and before provider
+visibility.
+
+Archives, Markdown summaries, catalog/search/inspect surfaces, and
+`--native-output json` remain metadata-only. They may record only the existing
+proposal fields: pipy-owned `tool_request_id`, `turn_index`, `status`,
+`reason_label`, file and operation counts, closed operation labels, and false
+storage booleans for patch text, diffs, file contents, prompts, model output,
+provider responses, raw transcript import, and workspace mutation. They must
+not store raw patch text, raw diffs, replacement file contents, model-selected
+paths, raw provider proposal objects, raw provider metadata, raw prompts,
+model output, provider responses, provider-native payloads, raw approval
+prompts, raw tool arguments, raw tool results, stdout, stderr, command output,
+auth material, secrets, credentials, API keys, tokens, private keys, or
+sensitive personal data.
+
+This selected boundary does not change one-shot `pipy run --agent
+pipy-native`, default REPL no-tool turns, `/read`, `/ask-file`, `/help`,
+stdout/stderr handling, structured stdout, archive schema, provider routing,
+or any runtime behavior in the decision slice.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2091,6 +2164,17 @@ verification, streaming, retries, fallback, TUI rendering, conversation export,
 or a general model/tool loop. A broader
 tool-capable shell should not be introduced before approval and sandbox
 boundaries are ready for interactive use.
+
+The selected next REPL boundary is a proposal-only
+`/propose-file <path> -- <change-request>` command. It should reuse the same
+approved explicit-file-excerpt path and one-read limit, forward one excerpt plus
+one change request only in memory to a single provider turn labeled
+`propose_file_repl`, accept at most one pipy-owned structured patch proposal
+metadata object, emit at most one metadata-only
+`native.patch.proposal.recorded` event, and stop before patch apply,
+verification, shell execution, network access, provider-side tools, multiple
+tool requests, or a general model/tool loop. This is a documentation decision
+only; no runtime behavior changes until that named implementation slice.
 
 ## Deferred Work
 
