@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-34 ask-file smoke hardening
+Status: slice-35 repl help diagnostics
 
 <style>
 .mermaid,
@@ -673,15 +673,17 @@ native provider choices, uses the same OpenAI/OpenRouter model requirements,
 creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
 with one fresh pipy-owned `NativeConversationState`.
 
-Each non-empty non-command input line becomes one provider turn. `/exit` and
-`/quit` terminate the session. `/read <workspace-relative-path>` remains the
-display-only workspace command. `/ask-file <workspace-relative-path> --
-<question>` is the first explicit provider-visible context command: it uses a
-whitespace-delimited `--` separator, the same approved bounded file excerpt
-path as `/read`, then sends exactly that in-memory excerpt plus the question to
-one provider turn. EOF exits cleanly, interrupt exits with code `130`, and the
-fixed in-memory turn bound stops provider turns before they can become
-unbounded. The first provider request uses the conversation-state turn index
+Each non-empty non-command input line becomes one provider turn. `/help` prints
+only static supported command shapes on stderr without invoking the provider or
+tools. `/exit` and `/quit` terminate the session. `/read
+<workspace-relative-path>` remains the display-only workspace command.
+`/ask-file <workspace-relative-path> -- <question>` is the first explicit
+provider-visible context command: it uses a whitespace-delimited `--`
+separator, the same approved bounded file excerpt path as `/read`, then sends
+exactly that in-memory excerpt plus the question to one provider turn. EOF
+exits cleanly, interrupt exits with code `130`, and the fixed in-memory turn
+bound stops provider turns before they can become unbounded. The first provider
+request uses the conversation-state turn index
 `0` and label `initial`; later no-tool REPL provider requests use subsequent
 conversation-state turn indexes and the closed label `no_tool_repl`. The
 `/ask-file` provider request uses the next conversation-state turn index and
@@ -691,10 +693,11 @@ model output, filesystem paths, stdout, stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary or `/ask-file` turns and successful `/read` excerpt text
-print to stdout, while prompts, approval prompts, diagnostics, finalization,
-errors, interrupt handling, command-skip messages, and the turn-limit notice
-stay on stderr. This is separate from one-shot `--native-output json`; the REPL
-does not add structured stdout, a transcript stream, or conversation export.
+print to stdout, while prompts, help, approval prompts, malformed-command
+usage diagnostics, unsupported slash-command diagnostics, finalization, errors,
+interrupt handling, command-skip messages, and the turn-limit notice stay on
+stderr. This is separate from one-shot `--native-output json`; the REPL does
+not add structured stdout, a transcript stream, or conversation export.
 
 The `/read` and `/ask-file` commands share one per-session read-only workspace
 request limit. Each accepted command builds one pipy-owned
@@ -705,10 +708,13 @@ workspace sandbox policy. It resolves the visible approval/sandbox prompt with
 `NativeExplicitFileExcerptTool`. The prompt displays only safe operation, tool,
 policy, sandbox, capability, and scope labels. It does not display or archive
 raw prompts, provider output, raw tool arguments, workspace paths, command text,
-stdout, stderr, diffs, patches, file contents, or excerpt text. Denied,
-unavailable, unsupported, mismatched, unsafe-target, skipped, failed, malformed,
-and repeated read-command cases fail closed before any read, before any second
-read request, or before provider visibility.
+stdout, stderr, diffs, patches, file contents, or excerpt text. Malformed
+`/read` and `/ask-file` commands and unsupported slash commands fail closed
+before any approval gate, read, tool event, or provider visibility. Denied,
+unavailable, unsupported, mismatched, unsafe-target, skipped, failed, and
+repeated read-command cases fail closed before any read, before any second read
+request, or before provider visibility. Static help and usage diagnostics are
+not archived and do not consume the one-read limit.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
@@ -2072,12 +2078,15 @@ metadata-only archive, and provider/tool behavior remain unchanged.
 `pipy repl --agent pipy-native` now uses the same conversation/turn core for a
 bounded interactive shell. Its ordinary provider turns are allocated from
 `NativeConversationState`, with `initial` for the first turn and
-`no_tool_repl` for later REPL turns. It exposes one approved display-only
-`/read` command and one approved provider-visible `/ask-file <path> --
-<question>` command. The two commands share one bounded explicit-file-excerpt
-request per REPL session; `/ask-file` accepts a whitespace-delimited `--`
-separator and forwards the approved excerpt only in memory to one provider turn
-labeled `ask_file_repl`. It still does not expose provider metadata, patching,
+`no_tool_repl` for later REPL turns. It exposes one local `/help` command, one
+approved display-only `/read` command, and one approved provider-visible
+`/ask-file <path> -- <question>` command. The read commands share one bounded
+explicit-file-excerpt request per REPL session; `/ask-file` accepts a
+whitespace-delimited `--` separator and forwards the approved excerpt only in
+memory to one provider turn labeled `ask_file_repl`. Help, malformed supported
+slash commands, and unsupported slash commands print static usage diagnostics
+on stderr without provider/tool execution, read-limit consumption, tool events,
+or raw command archiving. It still does not expose provider metadata, patching,
 verification, streaming, retries, fallback, TUI rendering, conversation export,
 or a general model/tool loop. A broader
 tool-capable shell should not be introduced before approval and sandbox

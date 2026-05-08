@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
-from typing import Mapping, TextIO
+from typing import Iterable, Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
@@ -184,8 +184,17 @@ POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
 NO_TOOL_REPL_PROVIDER_TURN_LABEL = "no_tool_repl"
 ASK_FILE_REPL_PROVIDER_TURN_LABEL = "ask_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
+NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
+HELP_REPL_COMMAND = "/help"
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
+_REPL_COMMAND_USAGE = {
+    HELP_REPL_COMMAND: "/help",
+    READ_ONLY_REPL_COMMAND: "/read <workspace-relative-path>",
+    ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
+    "/exit": "/exit",
+    "/quit": "/quit",
+}
 _ASK_FILE_REPL_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 
 
@@ -626,9 +635,19 @@ class NativeNoToolReplSession:
             command = user_prompt.strip()
             if not command:
                 continue
+            if _is_repl_command_invocation(command, HELP_REPL_COMMAND):
+                if command == HELP_REPL_COMMAND:
+                    _print_repl_command_help(error_stream)
+                else:
+                    _print_repl_command_usage_diagnostic(error_stream, HELP_REPL_COMMAND)
+                continue
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
                 exit_reason = "explicit_exit"
                 break
+            exit_command = _matching_repl_command(command, NO_TOOL_REPL_EXIT_COMMAND_ORDER)
+            if exit_command is not None:
+                _print_repl_command_usage_diagnostic(error_stream, exit_command)
+                continue
             if _is_repl_command_invocation(command, READ_ONLY_REPL_COMMAND):
                 if read_command_used:
                     print(
@@ -655,11 +674,7 @@ class NativeNoToolReplSession:
                     continue
                 parsed_ask_file = _parse_repl_ask_file_command(command)
                 if parsed_ask_file is None:
-                    print(
-                        "pipy: /ask-file requires <workspace-relative-path> "
-                        "whitespace-delimited -- <question>.",
-                        file=error_stream,
-                    )
+                    _print_repl_command_usage_diagnostic(error_stream, ASK_FILE_REPL_COMMAND)
                     continue
                 raw_target, question = parsed_ask_file
                 read_outcome = _read_repl_file_excerpt(
@@ -710,6 +725,9 @@ class NativeNoToolReplSession:
                     break
                 if provider_result.final_text:
                     print(provider_result.final_text, file=output_stream, flush=True)
+                continue
+            if command.startswith("/"):
+                _print_repl_command_usage_diagnostic(error_stream, None)
                 continue
 
             provider_turn_label = (
@@ -793,6 +811,9 @@ def _handle_repl_read_command(
     error_stream: TextIO,
 ) -> bool:
     raw_target = command[len(READ_ONLY_REPL_COMMAND) :].strip()
+    if not raw_target:
+        _print_repl_command_usage_diagnostic(error_stream, READ_ONLY_REPL_COMMAND)
+        return False
     outcome = _read_repl_file_excerpt(
         raw_target,
         run_input,
@@ -821,6 +842,38 @@ def _is_repl_command_invocation(command: str, command_name: str) -> bool:
     )
 
 
+def _matching_repl_command(command: str, command_names: Iterable[str]) -> str | None:
+    return next(
+        (
+            command_name
+            for command_name in command_names
+            if _is_repl_command_invocation(command, command_name)
+        ),
+        None,
+    )
+
+
+def _print_repl_command_help(error_stream: TextIO) -> None:
+    print("pipy native REPL commands:", file=error_stream)
+    for usage in _REPL_COMMAND_USAGE.values():
+        print(f"  {usage}", file=error_stream)
+
+
+def _print_repl_command_usage_diagnostic(
+    error_stream: TextIO,
+    command_name: str | None,
+) -> None:
+    if command_name is None:
+        print("pipy: unsupported REPL slash command. Supported command usage:", file=error_stream)
+    else:
+        print(
+            f"pipy: malformed {command_name} command. Supported command usage:",
+            file=error_stream,
+        )
+    for usage in _REPL_COMMAND_USAGE.values():
+        print(f"  {usage}", file=error_stream)
+
+
 def _read_repl_file_excerpt(
     raw_target: str,
     run_input: NativeRunInput,
@@ -832,10 +885,6 @@ def _read_repl_file_excerpt(
     scope_label: str,
     command_label: str,
 ) -> _ReplReadOutcome:
-    if not raw_target:
-        print(f"pipy: /{command_label} requires a workspace-relative path.", file=error_stream)
-        return _ReplReadOutcome(command_consumed=False)
-
     identity = NativeToolRequestIdentity.current_noop()
     try:
         request = NativeReadOnlyToolRequest(

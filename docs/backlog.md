@@ -316,31 +316,52 @@ reviewable change while keeping the source-of-truth design constraints in
   rather than only a literal space, strengthened archive privacy assertions for
   the whitespace-separator test, and updated the malformed `/ask-file`
   diagnostic to name the whitespace-delimited separator.
+- Native REPL command help and usage diagnostics: `pipy repl --agent
+  pipy-native` now accepts a local `/help` command that prints only static
+  supported command shapes on stderr without invoking providers, tools, reads,
+  or archive events. Malformed supported slash commands such as `/read` and
+  `/ask-file`, as well as unsupported slash commands, now use one static usage
+  diagnostic path on stderr without archiving raw command text, paths,
+  questions, or excerpt data. Ordinary non-command REPL turns remain no-tool
+  provider turns, and existing `/read` and `/ask-file` behavior remains
+  bounded by the same one-read approval path and metadata-only archive rules.
+- Native REPL command help and usage diagnostics review: the independent review
+  cycle completed cleanly after two rounds. The first round reported four
+  suggestions: remove an unreachable empty-target fallback, avoid rebuilding
+  exit-command order inside the REPL loop, add malformed `/help <text>`
+  coverage, and split a harness-spec fail-closed sentence. All four were
+  accepted and fixed; the second review reported no findings. Focused REPL
+  tests, `just check`, and metadata-only archive assertions remained green, and
+  no redundant review pass is warranted while scope stays unchanged.
 
 ## Next Slice
 
-### Add native REPL command help and usage diagnostics
+### Choose the next native REPL boundary
 
-Goal: improve discoverability and malformed-command feedback for the bounded
-native REPL before adding any additional interactive tool surface.
+Goal: select the next small, reviewable native REPL boundary now that the
+no-tool REPL, one approved read-only display command, one approved
+provider-visible file-context command, static command help, and usage
+diagnostics are in place.
 
 Selected shape:
 
-- add a local `/help` command that lists only currently supported REPL commands
-  and their accepted shapes without invoking the provider or tools
-- keep help and malformed-command diagnostics on stderr with the existing REPL
-  prompt, approval prompt, and session-message stream
-- add a consistent usage-diagnostic path for malformed slash commands,
-  including `/read` and `/ask-file`
-- preserve ordinary non-command REPL turns as no-tool provider turns
+- review the current interactive gates and choose one next boundary that is
+  smaller than a general tool-capable shell
+- document why that boundary is next, what it enables, and what remains
+  deferred
+- keep the decision anchored to pipy-owned provider, session, turn, approval,
+  sandbox, and archive boundaries
+- prefer a slice that can be implemented with focused CLI tests, `just check`,
+  metadata-only archive assertions, and an independent review pass
 
 Keep out of scope:
 
 - arbitrary shell execution, network access, and provider-side built-in tools
 - broad TUI rendering, persistent history, rich prompt editing, and broad
-  slash-command surfaces beyond `/help`
+  slash-command surfaces
 - multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
   provider registry, and provider routing
+- implementing the selected boundary in this decision slice
 - raw prompts, model output, provider responses, provider metadata, raw
   approval prompts, raw tool arguments, raw tool results, stdout, stderr, diffs,
   full file contents, command output, auth material, secrets, credentials,
@@ -349,15 +370,14 @@ Keep out of scope:
 
 Acceptance checks:
 
-- `/help` prints only static supported command usage and does not call a
-  provider, read a file, consume the one-read limit, or emit tool events
-- malformed `/read` and `/ask-file` diagnostics remain on stderr and do not
-  archive raw command text, paths, questions, or excerpt data
-- existing `/read` and `/ask-file` behavior keeps passing focused CLI tests
-- archive records remain metadata-only and compatible with `pipy-session
-  verify`, `list`, `search`, and `inspect`
-- normal one-shot native behavior and ordinary no-tool REPL turns remain
-  unchanged
+- the backlog names exactly one next implementation slice after this decision
+- `docs/harness-spec.md` records the rationale and privacy/sandbox boundaries
+  for the selected next REPL boundary
+- deferred items remain explicit, especially general shell execution, broad
+  tool loops, multiple tool requests, provider-side tools, streaming, fallback,
+  provider routing, TUI, and RPC
+- no runtime behavior, stdout/stderr contract, archive schema, provider calls,
+  tool execution, or public CLI controls change in this decision slice
 
 ## Near Term
 
@@ -369,17 +389,20 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Add native REPL command help and usage diagnostics.
+1. Choose the next native REPL boundary.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through `pipy repl --agent pipy-native`; it now has one
-approved display-only `/read <workspace-relative-path>` command and one
-approved provider-visible `/ask-file <workspace-relative-path> -- <question>`
-command with a whitespace-delimited `--` separator sharing the same one-read
-limit, but it still does not apply patches, execute commands, run
-verification, expose provider-side tools, or support a general model/tool loop.
+approved local `/help` command, one display-only `/read
+<workspace-relative-path>` command, and one approved provider-visible
+`/ask-file <workspace-relative-path> -- <question>` command with a
+whitespace-delimited `--` separator sharing the same one-read limit. Malformed
+or unsupported slash commands print static usage diagnostics on stderr without
+provider/tool execution or raw command archiving, but the REPL still does not
+apply patches, execute commands, run verification, expose provider-side tools,
+or support a general model/tool loop.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -395,7 +418,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Add native REPL command help and usage diagnostics.
+1. Choose the next native REPL boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -418,6 +441,11 @@ Foundation gates toward an interactive shell:
   <workspace-relative-path> -- <question>` with a whitespace-delimited `--`
   separator, bounded to one approved explicit-file-excerpt request shared with
   `/read`, one in-memory provider handoff, and metadata-only archive handling.
+- Command help and usage-diagnostic gate: available now through local `/help`
+  and static stderr usage diagnostics for malformed or unsupported slash
+  commands. These paths do not invoke providers, execute tools, consume the
+  one-read limit, emit tool events, or archive raw command text, paths,
+  questions, or excerpt data.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

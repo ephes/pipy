@@ -314,10 +314,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native `/ask-file` smoke and separator hardening" in compact_done
     assert "whitespace-delimited `--` separator" in compact_done
     assert "OpenRouter smoke was skipped" in compact_done
-    assert "### Add native REPL command help and usage diagnostics" in next_slice
-    assert "improve discoverability and malformed-command feedback" in compact_next_slice
-    assert "consistent usage-diagnostic path" in compact_next_slice
-    assert "ordinary non-command REPL turns as no-tool provider turns" in compact_next_slice
+    assert "Native REPL command help and usage diagnostics" in compact_done
+    assert "local `/help` command" in compact_done
+    assert "unsupported slash commands" in compact_done
+    assert "Native REPL command help and usage diagnostics review" in compact_done
+    assert "second review reported no findings" in compact_done
+    assert "All four were accepted and fixed" in compact_done
+    assert "### Choose the next native REPL boundary" in next_slice
+    assert "select the next small, reviewable native REPL boundary" in compact_next_slice
+    assert "smaller than a general tool-capable shell" in compact_next_slice
+    assert "no runtime behavior" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "OpenRouter-first" in compact_near_term
@@ -328,6 +334,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Provider-visible interactive context gate: available now" in compact_near_term
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
+    assert "Command help and usage-diagnostic gate: available now" in compact_near_term
+    assert "Choose the next native REPL boundary" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred

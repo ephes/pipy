@@ -299,6 +299,125 @@ def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, mon
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("help command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/help\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-help",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy native REPL commands:" in captured.err
+    assert "  /help" in captured.err
+    assert "  /read <workspace-relative-path>" in captured.err
+    assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
+    assert "  /exit" in captured.err
+    assert "  /quit" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 0
+    assert completed_payload["read_command_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/help" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed help command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/help private/noise\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-help",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "malformed /help command. Supported command usage:" in captured.err
+    assert "  /help" in captured.err
+    assert "private/noise" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/help" not in combined
+    assert "private/noise" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_to_stdout(
     tmp_path,
     capfd,
@@ -367,6 +486,71 @@ def test_cli_native_repl_read_command_requires_approval_and_prints_excerpt_only_
     assert verify_session_archive(root=root).ok is True
     assert search_finalized_sessions("native.tool.completed", root=root)
     assert not search_finalized_sessions("APPROVED_EXCERPT_TEXT", root=root)
+
+
+def test_cli_native_repl_malformed_read_prints_usage_without_consuming_read_limit(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "after-malformed-read.txt"
+    source.parent.mkdir()
+    source.write_text("READ_AFTER_MALFORMED_READ\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed read and later read should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/read\n/read docs/after-malformed-read.txt\nyes\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-read-budget",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "READ_AFTER_MALFORMED_READ\n"
+    assert "malformed /read command. Supported command usage:" in captured.err
+    assert "  /read <workspace-relative-path>" in captured.err
+    assert "read_command_limit_reached" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "READ_AFTER_MALFORMED_READ" not in combined
+    assert verify_session_archive(root=root).ok is True
 
 
 def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_provider(
@@ -1071,10 +1255,8 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == "READ_AFTER_MALFORMED_ASK_FILE\n"
-    assert (
-        "/ask-file requires <workspace-relative-path> whitespace-delimited -- <question>"
-        in captured.err
-    )
+    assert "malformed /ask-file command. Supported command usage:" in captured.err
+    assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
     assert "read_command_limit_reached" not in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
@@ -1091,6 +1273,61 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
         encoding="utf-8"
     )
     assert "READ_AFTER_MALFORMED_ASK_FILE" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_unsupported_slash_command_prints_usage_without_provider_or_tools(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unsupported slash command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/unknown private/raw/path\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-unsupported-slash",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "unsupported REPL slash command. Supported command usage:" in captured.err
+    assert "/unknown" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/unknown" not in combined
+    assert "private/raw/path" not in combined
     assert verify_session_archive(root=root).ok is True
 
 

@@ -472,24 +472,28 @@ short and non-sensitive.
 The native REPL is selected with `pipy repl --agent pipy-native`. It reads input
 lines from stdin, sends each non-empty non-command line to the selected provider
 as one provider turn, prints successful provider final text to stdout, and keeps
-prompts, approval prompts, diagnostics, finalization, interrupt handling,
-command-skip messages, and turn-limit notices on stderr. `/exit` and `/quit`
-terminate cleanly. `/read <workspace-relative-path>` prompts for visible
-approval before a bounded explicit-file-excerpt read can occur, prints a
-successful excerpt only to interactive stdout, and does not provider-forward the
-excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
+prompts, help, approval prompts, diagnostics, finalization, interrupt handling,
+command-skip messages, and turn-limit notices on stderr. `/help` prints only
+static supported command usage without invoking the provider or tools. `/exit`
+and `/quit` terminate cleanly. `/read <workspace-relative-path>` prompts for
+visible approval before a bounded explicit-file-excerpt read can occur, prints
+a successful excerpt only to interactive stdout, and does not provider-forward
+the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
 whitespace-delimited `--` separator and shares the same one-read per-session
 limit and approval/read path, but forwards the successful excerpt plus question
 only in memory to one provider turn labeled `ask_file_repl`; it prints only
-provider final text to stdout. REPL session records use the same metadata-only
-lifecycle vocabulary and do not archive raw input lines, provider final text,
-provider metadata, provider-returned tool intent markers, raw approval prompts,
-raw tool arguments, raw tool results, stdout, stderr, prompts, model output,
-provider responses, provider-native payloads, repo context, patches, command
-output, full file contents, auth material, secrets, credentials, tokens,
-private keys, or sensitive personal data. The REPL still does not apply
-patches, run shell commands, run verification, enable provider-side tools, or
-expose a general model/tool loop.
+provider final text to stdout. Malformed supported slash commands and
+unsupported slash commands print static usage diagnostics on stderr without
+provider/tool execution, read-limit consumption, tool events, or raw command
+archiving. REPL session records use the same metadata-only lifecycle vocabulary
+and do not archive raw input lines, provider final text, provider metadata,
+provider-returned tool intent markers, raw approval prompts, raw tool
+arguments, raw tool results, stdout, stderr, prompts, model output, provider
+responses, provider-native payloads, repo context, patches, command output,
+full file contents, auth material, secrets, credentials, tokens, private keys,
+or sensitive personal data. The REPL still does not apply patches, run shell
+commands, run verification, enable provider-side tools, or expose a general
+model/tool loop.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -617,11 +621,13 @@ native runs do not print provider final text to stdout.
 
 For the REPL, each successful provider turn follows the same split: provider
 final text prints to stdout, while the `pipy-native>` prompt and all
-harness/session messages stay on stderr. Successful `/read` excerpt text also
-prints only to interactive stdout. Successful `/ask-file` excerpt text is
-forwarded only in memory to one provider turn; only that provider final text
-prints to stdout. The REPL does not add structured stdout, JSONL event
-streaming, transcript export, raw conversation storage, or raw excerpt storage.
+harness/session messages stay on stderr. `/help` and static usage diagnostics
+for malformed or unsupported slash commands also stay on stderr without
+provider/tool execution. Successful `/read` excerpt text prints only to
+interactive stdout. Successful `/ask-file` excerpt text is forwarded only in
+memory to one provider turn; only that provider final text prints to stdout.
+The REPL does not add structured stdout, JSONL event streaming, transcript
+export, raw conversation storage, or raw excerpt storage.
 
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject
