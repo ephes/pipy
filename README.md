@@ -169,6 +169,11 @@ visibility. REPL archives remain metadata-only and omit raw approval prompts,
 raw tool arguments, raw tool results, stdout, stderr, full file contents,
 prompts, model output, provider responses, auth material, secrets, credentials,
 tokens, private keys, and sensitive personal data.
+The explicit `/propose-file <workspace-relative-path> -- <change-request>`
+command shares the same one-read approval path, forwards one excerpt plus
+change request only in memory to a provider turn labeled `propose_file_repl`,
+records only metadata-only proposal status when supported, and does not apply
+edits or run verification.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -219,10 +224,11 @@ read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes only the explicit approved `/read`
-and `/ask-file` commands; normal OpenAI/OpenRouter CLI runs still do not expose
-general model-selected tool use, provider-side tools, the public controls for
-the verification-command boundary, arbitrary shell execution, retries,
-streaming, provider registry, OAuth, or raw transcript import.
+and `/ask-file` commands plus the proposal-only `/propose-file` command; normal
+OpenAI/OpenRouter CLI runs still do not expose general model-selected tool use,
+provider-side tools, public patch-apply or verification controls, arbitrary
+shell execution, retries, streaming, provider registry, OAuth, or raw
+transcript import.
 
 ## Session Recorder CLI
 

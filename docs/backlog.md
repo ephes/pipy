@@ -370,35 +370,55 @@ reviewable change while keeping the source-of-truth design constraints in
   and `pipy-session verify` compatibility. No implementation hardening was
   required in this review slice. OpenRouter smoke was skipped because
   `OPENROUTER_API_KEY` was unavailable in the local environment.
+- Native REPL next-boundary decision after proposal-only review: selected a
+  human-applied proposal trial using the existing `/propose-file
+  <workspace-relative-path> -- <change-request>` command as the next small
+  native-shell boundary. The public REPL stays proposal-only for this next
+  slice: a human may translate or apply the provider suggestion outside the
+  REPL, but pipy-native must not apply edits, expose a write-capable slash
+  command, run verification from the REPL, execute shell commands, add
+  provider-side tools, read multiple files, create multiple tool requests, or
+  expand into a general model/tool loop. The trial should reuse the existing
+  approval prompt, read-only sandbox policy, explicit-file-excerpt path,
+  `propose_file_repl` label, metadata-only observation and proposal events,
+  and stdout/stderr/archive privacy contracts, then evaluate whether a later
+  write-capable boundary is justified.
 
 ## Next Slice
 
-### Choose the next native REPL boundary after proposal-only review
+### Native human-applied `/propose-file` trial
 
-Goal: select the next small native-shell boundary now that `/propose-file` has
-been reviewed and smoked. This should be a decision slice, not an implementation
-slice, so the project does not jump from metadata-only proposal records straight
-into broad mutation, shell execution, or a general model/tool loop.
+Goal: exercise the reviewed proposal-only REPL path as a real workflow before
+exposing public mutation. Use `/propose-file <workspace-relative-path> --
+<change-request>` on one tiny docs or test target, let a human apply or
+translate the suggested change outside the REPL, verify the result, and record
+whether the proposal quality and safety posture justify a later write-capable
+native shell boundary.
 
-Decision points:
+Implementation/trial points:
 
-- whether the next user-visible shell capability should stay proposal-only,
-  move to a human-applied patch trial, expose a supervised patch-apply trial, or
-  add another read-only/provider-visible affordance first
-- which existing boundaries can be reused unchanged: approval prompt, sandbox
-  policy, explicit-file-excerpt reads, patch proposal metadata, supervised patch
-  apply, allowlisted verification, and the existing `propose_file_repl`
-  provider turn label
-- which safety gate must happen before any write-capable public REPL command:
-  human-reviewed request data, explicit approval, mutating-workspace sandbox
-  policy, metadata-only archive events, and focused tests
-- whether the next slice needs real provider smoke, fake-provider smoke only, or
-  no runtime smoke because it changes documentation and planning only
+- reuse the existing visible approval prompt, read-only workspace sandbox
+  policy, explicit-file-excerpt read path, one-read per-session limit,
+  `propose_file_repl` provider turn label, and metadata-only observation and
+  patch proposal events unchanged
+- prefer an OpenRouter smoke when `OPENROUTER_API_KEY` is available; otherwise
+  run a fake-provider terminal smoke and state that real-provider smoke remains
+  pending
+- keep any human-applied edit tiny and reviewable, preferably documentation or
+  focused test text, so the trial evaluates the workflow rather than expanding
+  product behavior
+- run focused verification after the human-applied change, with `just check`
+  when practical
+- record a summary-safe evaluation of whether the proposal was useful,
+  misleading, too verbose, unsafe, or ready to inform a later patch-apply
+  boundary
 
-Keep out of scope for the decision slice:
+Keep out of scope for this trial:
 
 - applying, writing, creating, deleting, renaming, or editing files from the
   public REPL
+- adding `/apply`, `/apply-file`, `/verify`, public supervised patch apply, or
+  any other write-capable or command-executing REPL control
 - raw patch text, diffs, replacement file contents, model-selected paths,
   prompts, model output, provider responses, stdout, stderr, or command output
   in archives, Markdown, structured stdout, or catalog surfaces
@@ -417,7 +437,7 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Choose the next native REPL boundary after proposal-only review.
+1. Run a native human-applied `/propose-file` trial.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -432,9 +452,9 @@ provider/tool execution or raw command archiving, but the REPL still does not
 apply patches, execute commands, run verification, expose provider-side tools,
 or support a general model/tool loop. The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
-implemented and reviewed; the selected next step is choosing the next small
-native REPL boundary while the broader mutation and tool-loop boundaries remain
-deferred.
+implemented and reviewed; the selected next step is a human-applied proposal
+trial using that existing command while the broader public mutation and
+tool-loop boundaries remain deferred.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -450,7 +470,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Choose the next native REPL boundary after proposal-only review.
+1. Native human-applied `/propose-file` trial.
 
 Foundation gates toward an interactive shell:
 
@@ -487,15 +507,19 @@ Foundation gates toward an interactive shell:
 - Proposal-only review gate: available now. Focused tests and fake-provider
   terminal smoke covered the boundary and found no required implementation
   hardening; broader mutation remains behind a new named slice.
+- Human-applied proposal trial gate: selected next. The public shell remains
+  proposal-only while a human applies or translates one tiny proposed change
+  outside the REPL, verifies it, and records whether the workflow is ready to
+  inform a later write-capable boundary.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
 - Proposal-only trial: available now in the interactive shell. Pipy may use the
   existing bounded read-only context and propose structured edit metadata, but
   writes remain manual and archives stay metadata-only.
-- Human-applied patch trial: available once proposal output is useful enough
-  for a human to apply or translate manually. No new slice is required for this
-  gate, but independent review is still required before trusting the result.
+- Human-applied patch trial: selected next through the existing
+  `/propose-file` command. No public write command is added for this gate, and
+  independent review is still required before trusting the result.
 - Pipy-applied patch trial: available after the explicit patch-apply slice,
   with conservative file scope, no arbitrary shell execution, and metadata-only
   archives.

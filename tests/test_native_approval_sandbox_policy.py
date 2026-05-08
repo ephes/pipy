@@ -341,14 +341,26 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native proposal-only `/propose-file` review and smoke" in compact_done
     assert "fake-provider terminal smoke" in compact_done
     assert "No implementation hardening was required" in compact_done
-    assert "### Choose the next native REPL boundary after proposal-only review" in next_slice
-    assert "select the next small native-shell boundary" in compact_next_slice
-    assert "decision slice, not an implementation slice" in compact_next_slice
+    assert "Native REPL next-boundary decision after proposal-only review" in compact_done
+    assert "selected a human-applied proposal trial" in compact_done
+    assert "public REPL stays proposal-only" in compact_done
+    assert "### Native human-applied `/propose-file` trial" in next_slice
+    assert "exercise the reviewed proposal-only REPL path as a real workflow" in (
+        compact_next_slice
+    )
+    assert "let a human apply or translate the suggested change outside the REPL" in (
+        compact_next_slice
+    )
     assert "`propose_file_repl`" in compact_next_slice
-    assert "supervised patch-apply trial" in compact_next_slice
+    assert "OpenRouter smoke when `OPENROUTER_API_KEY` is available" in (
+        compact_next_slice
+    )
+    assert "fake-provider terminal smoke" in compact_next_slice
+    assert "record a summary-safe evaluation" in compact_next_slice
     assert "applying, writing, creating, deleting, renaming, or editing files from the public REPL" in (
         compact_next_slice
     )
+    assert "adding `/apply`, `/apply-file`, `/verify`" in compact_next_slice
     assert "multiple tool requests" in compact_next_slice
     assert "provider-side built-in tools" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
@@ -362,13 +374,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Choose the next native REPL boundary after proposal-only review" in compact_near_term
+    assert "Run a native human-applied `/propose-file` trial" in compact_near_term
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
     )
     assert "labeled `propose_file_repl`" in compact_near_term
     assert "Proposal-only review gate: available now" in compact_near_term
+    assert "Human-applied proposal trial gate: selected next" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred

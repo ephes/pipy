@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-37 repl proposal-only review and smoke
+Status: slice-38 repl next-boundary decision
 
 <style>
 .mermaid,
@@ -846,6 +846,55 @@ provider turn label, stdout/stderr split, finalized archive shape, and
 `pipy-session verify` compatibility. No implementation hardening was required
 in the review slice; OpenRouter smoke was skipped because `OPENROUTER_API_KEY`
 was unavailable in the local environment.
+
+### Selected Next REPL Boundary: Human-Applied Proposal Trial
+
+The selected next native REPL boundary is not a new write-capable command. The
+next slice should keep the public shell proposal-only and run a
+human-applied proposal trial using the existing `/propose-file
+<workspace-relative-path> -- <change-request>` path.
+
+Rationale: `/propose-file` now proves the narrow approved file-context handoff,
+provider turn label, metadata-only proposal event, and archive privacy shape,
+but the project has not yet proved that provider proposals are useful enough in
+the interactive shell to justify a public mutation command. A human-applied
+trial tests the product workflow with real terminal use while keeping all
+workspace writes outside the REPL and outside the native tool loop. It also
+keeps the already implemented supervised patch-apply boundary available as
+internal foundation instead of prematurely exposing it as user-facing shell
+behavior.
+
+The trial should reuse unchanged:
+
+- the visible read-only approval prompt and read-only workspace sandbox policy
+- the explicit-file-excerpt target validation, ignored/generated-file checks,
+  secret-looking content rejection, byte and line limits, and one-read
+  per-session limit
+- the `propose_file_repl` provider turn label allocated by
+  `NativeConversationState`
+- the metadata-only `native.tool.observation.recorded` and
+  `native.patch.proposal.recorded` event shapes
+- the default stdout/stderr split and metadata-only archive, Markdown, catalog,
+  and structured-output contracts
+
+The trial may use a real provider smoke when `OPENROUTER_API_KEY` is available,
+because the selected product path is OpenRouter-first for near-term manual
+testing. If credentials are unavailable, a fake-provider terminal smoke is
+enough for the slice, but the decision and any follow-up notes should state
+that real provider smoke remains pending. The trial should target a tiny,
+reviewable docs or test change, let a human translate or apply the proposal
+outside the REPL, run focused verification such as `just check` when practical,
+and record whether the proposal was useful enough to consider a later
+write-capable boundary.
+
+This decision deliberately does not expose `/apply`, `/apply-file`,
+`/verify`, automatic patch application, shell execution, provider-side tools,
+multiple file reads, multiple tool requests, unbounded turns, persistent
+history, TUI/RPC behavior, retries, streaming, fallback, provider routing, or
+OAuth. A future write-capable public REPL command must still have its own
+named slice with human-reviewed request data, explicit approval, a
+mutating-workspace sandbox policy, metadata-only archive events, focused tests,
+and an independent review before it is treated as complete.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2193,6 +2242,15 @@ metadata object, emits at most one metadata-only
 `native.patch.proposal.recorded` event, and stops before patch apply,
 verification, shell execution, network access, provider-side tools, multiple
 tool requests, or a general model/tool loop.
+
+The next REPL boundary decision keeps that public shell surface proposal-only.
+The next slice should be a human-applied proposal trial: run `/propose-file`
+against a tiny docs or test target, optionally with OpenRouter when
+`OPENROUTER_API_KEY` is available, let a human apply or translate the suggested
+change outside the REPL, verify the result, and evaluate whether a later
+write-capable REPL command is justified. Public patch application,
+verification commands, and shell execution remain deferred to separately named
+slices.
 
 ## Deferred Work
 
