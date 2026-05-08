@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
@@ -185,7 +186,7 @@ ASK_FILE_REPL_PROVIDER_TURN_LABEL = "ask_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
-ASK_FILE_REPL_SEPARATOR = " -- "
+_ASK_FILE_REPL_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,7 +629,7 @@ class NativeNoToolReplSession:
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
                 exit_reason = "explicit_exit"
                 break
-            if command == READ_ONLY_REPL_COMMAND or command.startswith(f"{READ_ONLY_REPL_COMMAND} "):
+            if _is_repl_command_invocation(command, READ_ONLY_REPL_COMMAND):
                 if read_command_used:
                     print(
                         "pipy: read command skipped: read_command_limit_reached.",
@@ -645,7 +646,7 @@ class NativeNoToolReplSession:
                     error_stream=error_stream,
                 )
                 continue
-            if command == ASK_FILE_REPL_COMMAND or command.startswith(f"{ASK_FILE_REPL_COMMAND} "):
+            if _is_repl_command_invocation(command, ASK_FILE_REPL_COMMAND):
                 if read_command_used:
                     print(
                         "pipy: ask-file command skipped: read_command_limit_reached.",
@@ -655,7 +656,8 @@ class NativeNoToolReplSession:
                 parsed_ask_file = _parse_repl_ask_file_command(command)
                 if parsed_ask_file is None:
                     print(
-                        "pipy: /ask-file requires <workspace-relative-path> -- <question>.",
+                        "pipy: /ask-file requires <workspace-relative-path> "
+                        "whitespace-delimited -- <question>.",
                         file=error_stream,
                     )
                     continue
@@ -813,6 +815,12 @@ def _handle_repl_read_command(
     return outcome.command_consumed
 
 
+def _is_repl_command_invocation(command: str, command_name: str) -> bool:
+    return command == command_name or (
+        command.startswith(command_name) and command[len(command_name)].isspace()
+    )
+
+
 def _read_repl_file_excerpt(
     raw_target: str,
     run_input: NativeRunInput,
@@ -898,9 +906,9 @@ def _read_repl_file_excerpt(
 
 def _parse_repl_ask_file_command(command: str) -> tuple[str, str] | None:
     body = command[len(ASK_FILE_REPL_COMMAND) :].strip()
-    if ASK_FILE_REPL_SEPARATOR not in body:
+    if _ASK_FILE_REPL_SEPARATOR_PATTERN.search(body) is None:
         return None
-    raw_target, question = body.split(ASK_FILE_REPL_SEPARATOR, 1)
+    raw_target, question = _ASK_FILE_REPL_SEPARATOR_PATTERN.split(body, 1)
     raw_target = raw_target.strip()
     question = question.strip()
     if not raw_target or not question:

@@ -467,6 +467,74 @@ def test_cli_native_repl_ask_file_requires_approval_and_sends_excerpt_only_to_pr
     assert not search_finalized_sessions("APPROVED_PROVIDER_CONTEXT", root=root)
 
 
+def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "context.txt"
+    source.parent.mkdir()
+    source.write_text("TAB_DELIMITED_PROVIDER_CONTEXT\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeAskFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ASK_FILE_PROVIDER_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeAskFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/ask-file\tdocs/context.txt\t--\tWhat does this say?\nyes\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-ask-file-tab-separator",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "ASK_FILE_PROVIDER_OUTPUT\n"
+    assert "TAB_DELIMITED_PROVIDER_CONTEXT" not in captured.out
+    assert "pipy approval required" in captured.err
+    assert len(captured_requests) == 1
+    assert "What does this say?" in captured_requests[0].user_prompt
+    assert "TAB_DELIMITED_PROVIDER_CONTEXT" in captured_requests[0].user_prompt
+    assert verify_session_archive(root=root).ok is True
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "TAB_DELIMITED_PROVIDER_CONTEXT" not in combined
+    assert "What does this say?" not in combined
+    assert "ASK_FILE_PROVIDER_OUTPUT" not in combined
+
+
 def test_cli_native_repl_ask_file_denied_does_not_call_provider(
     tmp_path,
     capfd,
@@ -1003,7 +1071,10 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == "READ_AFTER_MALFORMED_ASK_FILE\n"
-    assert "/ask-file requires <workspace-relative-path> -- <question>" in captured.err
+    assert (
+        "/ask-file requires <workspace-relative-path> whitespace-delimited -- <question>"
+        in captured.err
+    )
     assert "read_command_limit_reached" not in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])

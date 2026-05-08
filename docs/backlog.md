@@ -302,31 +302,43 @@ reviewable change while keeping the source-of-truth design constraints in
   tool results, stdout, stderr, diffs, full file contents, command output,
   auth material, secrets, credentials, tokens, private keys, and sensitive
   personal data.
+- Native `/ask-file` smoke and separator hardening: focused CLI tests and
+  fake-provider terminal smoke runs confirmed the explicit `/read` and
+  `/ask-file` approval prompts, stdout/stderr behavior, provider turn label,
+  and metadata-only archive shape. `pipy-session verify`, `list`, `search`, and
+  `inspect` remained compatible with finalized REPL records. OpenRouter smoke
+  was skipped because `OPENROUTER_API_KEY` was unavailable in the local
+  environment. The smallest hardening selected from the smoke pass was command
+  parsing: `/ask-file` now accepts a whitespace-delimited `--` separator, such
+  as spaces or tabs around `--`, while preserving ordinary non-command REPL
+  turns as no-tool provider turns. Follow-up review hardening also made the
+  REPL dispatcher recognize `/read` and `/ask-file` followed by any whitespace
+  rather than only a literal space, strengthened archive privacy assertions for
+  the whitespace-separator test, and updated the malformed `/ask-file`
+  diagnostic to name the whitespace-delimited separator.
 
 ## Next Slice
 
-### Smoke test and harden the explicit `/ask-file` boundary
+### Add native REPL command help and usage diagnostics
 
-Goal: manually exercise the new explicit `/ask-file` provider-visible context
-handoff, then choose the smallest hardening or usability adjustment before any
-additional interactive tool surface is added.
+Goal: improve discoverability and malformed-command feedback for the bounded
+native REPL before adding any additional interactive tool surface.
 
 Selected shape:
 
-- smoke test `/read` and `/ask-file <path> -- <question>` with the fake
-  provider and, when credentials are available, OpenRouter
-- confirm approval prompts, stdout/stderr behavior, provider turn labels, and
-  metadata-only archives are usable in a real terminal
-- decide whether the next implementation slice should be command parsing
-  hardening, clearer prompt wording, provider-turn UX polish, or another small
-  provider-visible context constraint
+- add a local `/help` command that lists only currently supported REPL commands
+  and their accepted shapes without invoking the provider or tools
+- keep help and malformed-command diagnostics on stderr with the existing REPL
+  prompt, approval prompt, and session-message stream
+- add a consistent usage-diagnostic path for malformed slash commands,
+  including `/read` and `/ask-file`
 - preserve ordinary non-command REPL turns as no-tool provider turns
 
 Keep out of scope:
 
 - arbitrary shell execution, network access, and provider-side built-in tools
 - broad TUI rendering, persistent history, rich prompt editing, and broad
-  slash-command surfaces
+  slash-command surfaces beyond `/help`
 - multiple tool requests, unbounded turns, retries, streaming, fallback, OAuth,
   provider registry, and provider routing
 - raw prompts, model output, provider responses, provider metadata, raw
@@ -337,9 +349,11 @@ Keep out of scope:
 
 Acceptance checks:
 
-- the existing `/read` and new `/ask-file` behavior keep passing focused CLI
-  tests
-- manual smoke notes are reflected in the next chosen slice
+- `/help` prints only static supported command usage and does not call a
+  provider, read a file, consume the one-read limit, or emit tool events
+- malformed `/read` and `/ask-file` diagnostics remain on stderr and do not
+  archive raw command text, paths, questions, or excerpt data
+- existing `/read` and `/ask-file` behavior keeps passing focused CLI tests
 - archive records remain metadata-only and compatible with `pipy-session
   verify`, `list`, `search`, and `inspect`
 - normal one-shot native behavior and ordinary no-tool REPL turns remain
@@ -355,8 +369,7 @@ agent CLI.
 
 The immediate implementation path stays architecture-first:
 
-1. Smoke test the explicit `/ask-file` provider-visible context boundary and
-   choose the next small hardening slice.
+1. Add native REPL command help and usage diagnostics.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -364,9 +377,9 @@ text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through `pipy repl --agent pipy-native`; it now has one
 approved display-only `/read <workspace-relative-path>` command and one
 approved provider-visible `/ask-file <workspace-relative-path> -- <question>`
-command sharing the same one-read limit, but it still does not apply patches,
-execute commands, run verification, expose provider-side tools, or support a
-general model/tool loop.
+command with a whitespace-delimited `--` separator sharing the same one-read
+limit, but it still does not apply patches, execute commands, run
+verification, expose provider-side tools, or support a general model/tool loop.
 
 Provider access remains OpenRouter-first for near-term manual smoke testing.
 OpenAI subscription-backed native provider auth is `blocked-for-now` because
@@ -382,8 +395,7 @@ should be the first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Smoke test and harden the explicit `/ask-file` provider-visible context
-   boundary.
+1. Add native REPL command help and usage diagnostics.
 
 Foundation gates toward an interactive shell:
 
@@ -403,9 +415,9 @@ Foundation gates toward an interactive shell:
   <workspace-relative-path>`, bounded to one approved explicit-file-excerpt
   request per REPL session.
 - Provider-visible interactive context gate: available now through `/ask-file
-  <workspace-relative-path> -- <question>`, bounded to one approved
-  explicit-file-excerpt request shared with `/read`, one in-memory provider
-  handoff, and metadata-only archive handling.
+  <workspace-relative-path> -- <question>` with a whitespace-delimited `--`
+  separator, bounded to one approved explicit-file-excerpt request shared with
+  `/read`, one in-memory provider handoff, and metadata-only archive handling.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

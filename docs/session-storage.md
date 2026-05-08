@@ -477,18 +477,19 @@ command-skip messages, and turn-limit notices on stderr. `/exit` and `/quit`
 terminate cleanly. `/read <workspace-relative-path>` prompts for visible
 approval before a bounded explicit-file-excerpt read can occur, prints a
 successful excerpt only to interactive stdout, and does not provider-forward the
-excerpt. `/ask-file <workspace-relative-path> -- <question>` shares the same
-one-read per-session limit and approval/read path, but forwards the successful
-excerpt plus question only in memory to one provider turn labeled
-`ask_file_repl`; it prints only provider final text to stdout. REPL session
-records use the same metadata-only lifecycle vocabulary and do not archive raw
-input lines, provider final text, provider metadata, provider-returned tool
-intent markers, raw approval prompts, raw tool arguments, raw tool results,
-stdout, stderr, prompts, model output, provider responses, provider-native
-payloads, repo context, patches, command output, full file contents, auth
-material, secrets, credentials, tokens, private keys, or sensitive personal
-data. The REPL still does not apply patches, run shell commands, run
-verification, enable provider-side tools, or expose a general model/tool loop.
+excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
+whitespace-delimited `--` separator and shares the same one-read per-session
+limit and approval/read path, but forwards the successful excerpt plus question
+only in memory to one provider turn labeled `ask_file_repl`; it prints only
+provider final text to stdout. REPL session records use the same metadata-only
+lifecycle vocabulary and do not archive raw input lines, provider final text,
+provider metadata, provider-returned tool intent markers, raw approval prompts,
+raw tool arguments, raw tool results, stdout, stderr, prompts, model output,
+provider responses, provider-native payloads, repo context, patches, command
+output, full file contents, auth material, secrets, credentials, tokens,
+private keys, or sensitive personal data. The REPL still does not apply
+patches, run shell commands, run verification, enable provider-side tools, or
+expose a general model/tool loop.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one

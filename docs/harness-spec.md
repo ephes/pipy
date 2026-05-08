@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-32 interactive read-only REPL command
+Status: slice-34 ask-file smoke hardening
 
 <style>
 .mermaid,
@@ -676,18 +676,18 @@ with one fresh pipy-owned `NativeConversationState`.
 Each non-empty non-command input line becomes one provider turn. `/exit` and
 `/quit` terminate the session. `/read <workspace-relative-path>` remains the
 display-only workspace command. `/ask-file <workspace-relative-path> --
-<question>` is the first explicit provider-visible context command: it uses the
-same approved bounded file excerpt path as `/read`, then sends exactly that
-in-memory excerpt plus the question to one provider turn. EOF exits cleanly,
-interrupt exits with code `130`, and the fixed in-memory turn bound stops
-provider turns before they can become unbounded. The first provider request
-uses the conversation-state turn index `0` and label `initial`; later no-tool
-REPL provider requests use subsequent conversation-state turn indexes and the
-closed label `no_tool_repl`. The `/ask-file` provider request uses the next
-conversation-state turn index and the closed label `ask_file_repl`. These turn
-indexes and labels are pipy-owned; they are not copied from provider metadata
-and are not derived from prompts, model output, filesystem paths, stdout,
-stderr, secrets, or credentials.
+<question>` is the first explicit provider-visible context command: it uses a
+whitespace-delimited `--` separator, the same approved bounded file excerpt
+path as `/read`, then sends exactly that in-memory excerpt plus the question to
+one provider turn. EOF exits cleanly, interrupt exits with code `130`, and the
+fixed in-memory turn bound stops provider turns before they can become
+unbounded. The first provider request uses the conversation-state turn index
+`0` and label `initial`; later no-tool REPL provider requests use subsequent
+conversation-state turn indexes and the closed label `no_tool_repl`. The
+`/ask-file` provider request uses the next conversation-state turn index and
+the closed label `ask_file_repl`. These turn indexes and labels are pipy-owned;
+they are not copied from provider metadata and are not derived from prompts,
+model output, filesystem paths, stdout, stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary or `/ask-file` turns and successful `/read` excerpt text
@@ -2075,10 +2075,11 @@ bounded interactive shell. Its ordinary provider turns are allocated from
 `no_tool_repl` for later REPL turns. It exposes one approved display-only
 `/read` command and one approved provider-visible `/ask-file <path> --
 <question>` command. The two commands share one bounded explicit-file-excerpt
-request per REPL session; `/ask-file` forwards the approved excerpt only in
-memory to one provider turn labeled `ask_file_repl`. It still does not expose
-provider metadata, patching, verification, streaming, retries, fallback, TUI
-rendering, conversation export, or a general model/tool loop. A broader
+request per REPL session; `/ask-file` accepts a whitespace-delimited `--`
+separator and forwards the approved excerpt only in memory to one provider turn
+labeled `ask_file_repl`. It still does not expose provider metadata, patching,
+verification, streaming, retries, fallback, TUI rendering, conversation export,
+or a general model/tool loop. A broader
 tool-capable shell should not be introduced before approval and sandbox
 boundaries are ready for interactive use.
 

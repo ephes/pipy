@@ -311,9 +311,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native explicit provider-visible `/ask-file` REPL boundary" in compact_done
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_done
     assert "labeled `ask_file_repl`" in compact_done
-    assert "### Smoke test and harden the explicit `/ask-file` boundary" in next_slice
-    assert "manually exercise the new explicit `/ask-file` provider-visible context handoff" in compact_next_slice
-    assert "command parsing hardening" in compact_next_slice
+    assert "Native `/ask-file` smoke and separator hardening" in compact_done
+    assert "whitespace-delimited `--` separator" in compact_done
+    assert "OpenRouter smoke was skipped" in compact_done
+    assert "### Add native REPL command help and usage diagnostics" in next_slice
+    assert "improve discoverability and malformed-command feedback" in compact_next_slice
+    assert "consistent usage-diagnostic path" in compact_next_slice
     assert "ordinary non-command REPL turns as no-tool provider turns" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
@@ -324,6 +327,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Narrow read-only shell command gate: available now" in compact_near_term
     assert "Provider-visible interactive context gate: available now" in compact_near_term
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
+    assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
