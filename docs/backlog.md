@@ -461,6 +461,9 @@ Implementation points:
   credentials are available
 - target one tiny docs or test change that can be reviewed and reverted
   manually if needed
+- keep the trial target within the explicit-file-excerpt per-source limits:
+  8 KiB and 160 lines. Larger files such as `docs/backlog.md` skip with
+  `oversized_file` before provider visibility.
 - keep the public REPL proposal-only: no `/apply`, no automatic writes, no
   shell execution, no verification command from the REPL, no provider-side
   tools, no multi-file read, no multiple tool requests, and no general
@@ -479,6 +482,16 @@ Keep out of scope for this trial:
 - archiving raw prompts, excerpts, model output, provider responses, patch
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
+
+Blocked status: a local preflight on 2026-05-09 attempted the exact REPL
+`/propose-file` path with `--native-provider openai-codex` against `LICENSE`
+using a tiny wording-only change request. The command successfully exercised
+the bounded explicit-file-excerpt read and `propose_file_repl` provider-turn
+label, then failed closed at the provider-auth boundary because
+`openai-codex.json` under `PIPY_AUTH_DIR` was absent. The finalized
+metadata-only record passed `pipy-session verify`, but the real-provider trial
+remains blocked until a human completes `pipy auth openai-codex login` or
+supplies an alternate real-provider credential path.
 
 ## Near Term
 

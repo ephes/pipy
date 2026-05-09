@@ -407,9 +407,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_next_slice
     )
     assert "target one tiny docs or test change" in compact_next_slice
+    assert "8 KiB and 160 lines" in compact_next_slice
+    assert "`docs/backlog.md` skip with `oversized_file`" in compact_next_slice
     assert "no `/apply`" in compact_next_slice
     assert "no automatic writes" in compact_next_slice
     assert "record whether the provider proposal was useful" in compact_next_slice
+    assert "Blocked status: a local preflight on" in compact_next_slice
+    assert "failed closed at the provider-auth boundary" in compact_next_slice
+    assert "real-provider trial remains blocked until a human completes" in (
+        compact_next_slice
+    )
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
