@@ -544,9 +544,40 @@ bodies, raw provider responses, provider response ids, prompts, model output,
 auth material, or provider-native payloads in JSONL, Markdown, or
 `--native-output json`.
 
+The third real provider is the distinct OpenAI Codex subscription provider. It
+is selected explicitly as `--native-provider openai-codex`, requires
+`--native-model`, and uses pipy's own OAuth state under
+`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json` rather than
+Pi's `~/.pi/agent/auth.json` or any Codex/ChatGPT credential store:
+
+```sh
+uv run pipy auth openai-codex login
+uv run pipy run --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-smoke --goal "Say hello briefly"
+uv run pipy repl --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-repl
+```
+
+The login boundary follows the local Pi reference shape: PKCE OAuth with client
+id `app_EMoamEEZ73f0CkXaXp7hrann`, authorize/token URLs under
+`https://auth.openai.com/oauth`, redirect
+`http://localhost:1455/auth/callback`, scope
+`openid profile email offline_access`, a local callback server, manual-paste
+fallback, refresh-token support, and `chatgpt_account_id` extraction from the
+access-token JWT. Provider calls use one non-streaming request to
+`https://chatgpt.com/backend-api/codex/responses` with `store: false`,
+pipy-owned system/user input, `Authorization`, `chatgpt-account-id`,
+`originator: pipy`, and `OpenAI-Beta: responses=experimental`. The provider
+maps final text and normalized usage into the existing provider result shape,
+and archives only safe metadata such as provider, model, status, duration,
+storage booleans, response status, and normalized counters. Auth material,
+authorization URLs, raw request bodies, raw provider responses, headers with
+credentials, prompts, model output, provider-native payloads, stdout, stderr,
+tool payloads, diffs, file contents, secrets, credentials, tokens, refresh
+tokens, private keys, and sensitive personal data remain out of JSONL,
+Markdown, catalog/search/inspect surfaces, and `--native-output json`.
+
 ### OpenAI Subscription-Backed Native Auth Decision
 
-Decision: `blocked-for-now`.
+Decision: reopened and implemented as a distinct `openai-codex` provider.
 
 Decision date: 2026-05-07.
 
@@ -588,11 +619,12 @@ an official, stable, locally usable OAuth or device-code provider auth flow that
 lets a third-party native application call OpenAI models directly using a
 ChatGPT or Codex subscription without running Codex itself.
 
-Implication: `pipy-native` must not implement OpenAI subscription-backed native
-provider auth in this slice. The existing `--native-provider openai` Responses
-API provider remains the OpenAI baseline and continues to require
-`OPENAI_API_KEY` plus `--native-model`. Pay-by-token API usage remains
-compatible but is not promoted as the preferred self-bootstrap path.
+Original implication, now superseded for the separate `openai-codex` path:
+`pipy-native` must not turn the existing `--native-provider openai` Responses
+API provider into subscription auth. The existing `openai` provider remains the
+OpenAI Platform API-key baseline and continues to require `OPENAI_API_KEY` plus
+`--native-model`. Pay-by-token API usage remains compatible but is not promoted
+as the preferred self-bootstrap path.
 
 Rejected approaches:
 
@@ -606,12 +638,11 @@ Rejected approaches:
 - archiving any auth material, raw provider response, prompt, model output, or
   provider-native payload
 
-Provider priority after this decision: OpenRouter provider support with
-explicit model selection is implemented as the provider-access path, and the
-backlog can continue to wiring bounded read-only observations into the existing
-post-tool provider turn. Local model provider integrations remain deferred
+Historical provider priority after the original blocked decision: OpenRouter
+provider support with explicit model selection was implemented as the
+provider-access path. Local model provider integrations remained deferred
 pending benchmark work, and Anthropic subscription-backed native provider
-support is not promoted to the near-term provider priority.
+support was not promoted to the near-term provider priority.
 
 Provider priority update after Pi inspection: OpenRouter remains implemented
 and usable for manual smoke tests, but it is no longer the preferred
@@ -644,9 +675,11 @@ provider-native payloads, prompts, model output, stdout, and stderr out of
 JSONL, Markdown, catalog/search/inspect surfaces, and structured stdout. It
 must also continue to reject credential-store scraping, copying cached tokens
 from Pi or Codex, reverse-engineering by archive capture, and CLI/UI wrapping.
-The provider may become the default real provider only after focused tests and
-manual smoke show that login, refresh, provider calls, and archive privacy all
-hold.
+The provider is now implemented as a separate native path with focused tests
+for OAuth shape, credential storage, refresh, request headers, response
+parsing, conservative errors, and CLI selection. It may become the default real
+provider only after manual smoke confirms that live login, refresh, provider
+calls, and archive privacy all hold.
 
 The native tool boundary defines explicit request/result/status value objects
 plus approval and sandbox policy data. The native provider-to-tool bridge first
@@ -712,7 +745,7 @@ uv run pipy repl --agent pipy-native --slug native-repl
 
 It is intentionally a thin REPL over the same native provider/session/turn core
 used by one-shot `pipy run --agent pipy-native`. The CLI validates the same
-native provider choices, uses the same OpenAI/OpenRouter model requirements,
+native provider choices, uses the same real-provider model requirements,
 creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
 with one fresh pipy-owned `NativeConversationState`.
 
@@ -890,10 +923,9 @@ was unavailable in the local environment.
 ### Selected Follow-Up REPL Boundary: Human-Applied Proposal Trial
 
 The selected follow-up native REPL boundary is not a new write-capable command.
-After the `openai-codex` provider-access slice, the next REPL workflow slice
-should keep the public shell proposal-only and run a human-applied proposal
-trial using the existing `/propose-file <workspace-relative-path> --
-<change-request>` path.
+The next REPL workflow slice should keep the public shell proposal-only and run
+a human-applied proposal trial using the existing `/propose-file
+<workspace-relative-path> -- <change-request>` path.
 
 Rationale: `/propose-file` now proves the narrow file-context handoff,
 provider turn label, metadata-only proposal event, and archive privacy shape,
@@ -918,14 +950,14 @@ The trial should reuse unchanged:
 - the default stdout/stderr split and metadata-only archive, Markdown, catalog,
   and structured-output contracts
 
-The trial should use `openai-codex` once that provider exists. Until then,
-OpenRouter remains a usable alternate real-provider smoke path when
-`OPENROUTER_API_KEY` is available, and the fake provider remains sufficient for
-no-credential terminal smoke. The trial should target a tiny, reviewable docs
-or test change, let a human translate or apply the proposal outside the REPL,
-run focused verification such as `just check` when practical, and record
-whether the proposal was useful enough to consider a later write-capable
-boundary.
+The trial should use `openai-codex` as the preferred real-provider path after a
+successful manual login smoke. OpenRouter remains a usable alternate
+real-provider smoke path when `OPENROUTER_API_KEY` is available, and the fake
+provider remains sufficient for no-credential terminal smoke. The trial should
+target a tiny, reviewable docs or test change, let a human translate or apply
+the proposal outside the REPL, run focused verification such as `just check`
+when practical, and record whether the proposal was useful enough to consider a
+later write-capable boundary.
 
 This decision deliberately does not expose `/apply`, `/apply-file`,
 `/verify`, automatic patch application, shell execution, provider-side tools,
@@ -2296,13 +2328,13 @@ verification, shell execution, network access, provider-side tools, multiple
 tool requests, or a general model/tool loop.
 
 The follow-up REPL boundary decision keeps that public shell surface
-proposal-only. After the `openai-codex` provider-access slice, run
-`/propose-file` against a tiny docs or test target, preferably through
-`openai-codex` and optionally with OpenRouter when `OPENROUTER_API_KEY` is
-available, let a human apply or translate the suggested change outside the
-REPL, verify the result, and evaluate whether a later write-capable REPL
-command is justified. Public patch application, verification commands, and
-shell execution remain deferred to separately named slices.
+proposal-only. Run `/propose-file` against a tiny docs or test target,
+preferably through `openai-codex` after manual login smoke and optionally with
+OpenRouter when `OPENROUTER_API_KEY` is available, let a human apply or
+translate the suggested change outside the REPL, verify the result, and
+evaluate whether a later write-capable REPL command is justified. Public patch
+application, verification commands, and shell execution remain deferred to
+separately named slices.
 
 ## Deferred Work
 

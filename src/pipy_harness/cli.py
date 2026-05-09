@@ -13,6 +13,9 @@ from pipy_harness.adapters import PipyNativeAdapter, PipyNativeReplAdapter, Subp
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest, RunResult
 from pipy_harness.native import (
+    OpenAICodexAuthManager,
+    OpenAICodexProviderError,
+    OpenAICodexResponsesProvider,
     FakeNativeProvider,
     OpenAIResponsesProvider,
     OpenRouterChatCompletionsProvider,
@@ -27,6 +30,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    auth_parser = subparsers.add_parser("auth", help="Manage provider authentication.")
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_provider", required=True)
+    openai_codex_auth = auth_subparsers.add_parser(
+        "openai-codex",
+        help="Manage OpenAI Codex subscription OAuth credentials.",
+    )
+    openai_codex_auth_subparsers = openai_codex_auth.add_subparsers(dest="auth_action", required=True)
+    openai_codex_login = openai_codex_auth_subparsers.add_parser(
+        "login",
+        help="Run OpenAI Codex OAuth login and store pipy-owned credentials.",
+    )
+    openai_codex_login.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Print the OAuth URL without attempting to open a browser.",
+    )
+
     run_parser = subparsers.add_parser("run", help="Run one agent command with partial capture.")
     run_parser.add_argument("--agent", required=True, help="Logical agent name, for example codex.")
     run_parser.add_argument("--slug", required=True, help="Short run label for the session filename.")
@@ -39,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=["fake", "openai", "openrouter"],
+        choices=["fake", "openai", "openai-codex", "openrouter"],
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -48,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-model",
         help=(
             "Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap "
-            "for --native-provider fake and is required for --native-provider openai or openrouter."
+            "for --native-provider fake and is required for real native providers."
         ),
     )
     run_parser.add_argument(
@@ -86,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repl_parser.add_argument(
         "--native-provider",
-        choices=["fake", "openai", "openrouter"],
+        choices=["fake", "openai", "openai-codex", "openrouter"],
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -95,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-model",
         help=(
             "Native model identifier for --agent pipy-native. Defaults to fake-native-bootstrap "
-            "for --native-provider fake and is required for --native-provider openai or openrouter."
+            "for --native-provider fake and is required for real native providers."
         ),
     )
     repl_parser.add_argument(
@@ -112,6 +132,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "auth":
+            if args.auth_provider == "openai-codex" and args.auth_action == "login":
+                OpenAICodexAuthManager().login_interactive(
+                    input_stream=sys.stdin,
+                    output_stream=sys.stderr,
+                    open_browser=not args.no_browser,
+                )
+                print(
+                    "pipy: openai-codex OAuth login stored.",
+                    file=sys.stderr,
+                )
+                return 0
         if args.command == "run":
             _validate_native_output(args.agent, args.native_output)
             command = _native_command(args.native_command, agent=args.agent)
@@ -178,6 +210,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 2
+    except OpenAICodexProviderError as exc:
+        print(
+            f"pipy: openai-codex auth failed with {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
     except OSError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 1
@@ -258,12 +296,16 @@ def _adapter_for(
     native_model: str | None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
-        if native_provider not in (None, "fake", "openai", "openrouter"):
+        if native_provider not in (None, "fake", "openai", "openai-codex", "openrouter"):
             raise ValueError(f"unsupported native provider: {native_provider}")
         if native_provider == "openai":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openai")
             return PipyNativeAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
+        if native_provider == "openai-codex":
+            if not native_model:
+                raise ValueError("--native-model is required for --native-provider openai-codex")
+            return PipyNativeAdapter(provider=OpenAICodexResponsesProvider(model_id=native_model))
         if native_provider == "openrouter":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openrouter")
@@ -282,12 +324,16 @@ def _repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
 ) -> PipyNativeReplAdapter:
-    if native_provider not in (None, "fake", "openai", "openrouter"):
+    if native_provider not in (None, "fake", "openai", "openai-codex", "openrouter"):
         raise ValueError(f"unsupported native provider: {native_provider}")
     if native_provider == "openai":
         if not native_model:
             raise ValueError("--native-model is required for --native-provider openai")
         return PipyNativeReplAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
+    if native_provider == "openai-codex":
+        if not native_model:
+            raise ValueError("--native-model is required for --native-provider openai-codex")
+        return PipyNativeReplAdapter(provider=OpenAICodexResponsesProvider(model_id=native_model))
     if native_provider == "openrouter":
         if not native_model:
             raise ValueError("--native-model is required for --native-provider openrouter")

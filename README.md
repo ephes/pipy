@@ -83,6 +83,8 @@ conservative partial lifecycle metadata into the session archive:
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
 uv run pipy run --agent pipy-native --native-output json --slug native-json --goal "Native JSON smoke"
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
+uv run pipy auth openai-codex login
+uv run pipy run --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-smoke --goal "Say hello briefly"
 ```
 
 The same command can also wrap an arbitrary subprocess for conservative
@@ -107,15 +109,19 @@ Optional flags:
 - `--cwd <path>`: child process working directory, defaulting to the current directory
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
-- `--native-provider fake|openai|openrouter`: native provider for `--agent pipy-native`, defaulting to `fake`
-- `--native-model <id>`: model label for the native provider; required for `--native-provider openai` or `openrouter`
+- `--native-provider fake|openai|openai-codex|openrouter`: native provider for `--agent pipy-native`, defaulting to `fake`
+- `--native-model <id>`: model label for the native provider; required for real native providers
 - `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
-Planned provider direction: add a separate `openai-codex` native provider for
-ChatGPT Plus/Pro Codex subscription auth, based on local Pi prior art under
-`/Users/jochen/src/pi-mono`. Until that exists, use `openrouter` for a real
-provider smoke test or `fake` for no-credential smoke. The existing `openai`
-provider remains the OpenAI Platform API-key path using `OPENAI_API_KEY`.
+The separate `openai-codex` native provider is the ChatGPT Plus/Pro Codex
+subscription path, based on local Pi prior art under
+`/Users/jochen/src/pi-mono`. Run `pipy auth openai-codex login` once to store
+pipy-owned OAuth state under
+`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; pipy does not
+read or copy Pi's `~/.pi/agent/auth.json`. The existing `openai` provider
+remains the OpenAI Platform API-key path using `OPENAI_API_KEY`. OpenRouter
+remains available for manual smoke tests with `OPENROUTER_API_KEY`, and `fake`
+remains the no-credential smoke provider.
 Shell direction: native REPL read/context commands are Pi-like for normal
 interactive use: explicit `/read`, `/ask-file`, and `/propose-file` commands do
 not display approval popups.
@@ -142,7 +148,7 @@ import. Provider final text is printed to stdout by the CLI contract only when
 the native run succeeds, but the pipy archive still stores only lifecycle
 metadata.
 
-OpenRouter is already usable for real-provider smoke testing:
+OpenRouter remains usable for real-provider smoke testing:
 
 ```sh
 uv run pipy repl --agent pipy-native --slug openrouter-smoke \
@@ -245,11 +251,12 @@ provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes only the explicit `/read`
 and `/ask-file` commands plus the proposal-only `/propose-file` command; normal
-OpenAI/OpenRouter CLI runs still do not expose general model-selected tool use,
-provider-side tools, public patch-apply or verification controls, arbitrary
-shell execution, retries, streaming, provider registry, or raw transcript
-import. Native OAuth is planned first for the distinct `openai-codex`
-subscription provider, not for the existing `openai` API-key provider.
+OpenAI, OpenAI Codex, and OpenRouter CLI runs still do not expose general
+model-selected tool use, provider-side tools, public patch-apply or
+verification controls, arbitrary shell execution, retries, streaming, provider
+registry, or raw transcript import. Native OAuth belongs only to the distinct
+`openai-codex` subscription provider, not to the existing `openai` API-key
+provider.
 
 ## Session Recorder CLI
 

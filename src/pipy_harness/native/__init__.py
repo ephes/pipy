@@ -67,6 +67,16 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.openai_codex_provider import (
+    FileOpenAICodexCredentialStore,
+    OpenAICodexAuthManager,
+    OpenAICodexCredentials,
+    OpenAICodexProviderError,
+    OpenAICodexResponsesProvider,
+    create_authorization_flow,
+    default_openai_codex_auth_path,
+    parse_authorization_input,
+)
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
 from pipy_harness.native.openrouter_provider import OpenRouterChatCompletionsProvider
 from pipy_harness.native.patch_apply import (
@@ -100,6 +110,7 @@ from pipy_harness.native.verification import (
 __all__ = [
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
+    "FileOpenAICodexCredentialStore",
     "NATIVE_TURN_METADATA_KEYS",
     "NATIVE_TURN_PAYLOAD_KEYS",
     "NATIVE_TURN_STORAGE_KEYS",
@@ -173,6 +184,10 @@ __all__ = [
     "NativeVerificationResult",
     "NativeVerificationTool",
     "NORMALIZED_PROVIDER_USAGE_KEYS",
+    "OpenAICodexAuthManager",
+    "OpenAICodexCredentials",
+    "OpenAICodexProviderError",
+    "OpenAICodexResponsesProvider",
     "OpenAIResponsesProvider",
     "OpenRouterChatCompletionsProvider",
     "PROVIDER_PATCH_PROPOSAL_METADATA_KEY",
@@ -183,6 +198,9 @@ __all__ = [
     "ProviderRequest",
     "ProviderResult",
     "ToolPort",
+    "create_authorization_flow",
+    "default_openai_codex_auth_path",
     "normalize_provider_usage",
+    "parse_authorization_input",
     "resolve_read_only_workspace_approval",
 ]

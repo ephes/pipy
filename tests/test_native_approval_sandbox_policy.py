@@ -180,7 +180,9 @@ def test_openai_subscription_auth_decision_is_documented():
     decision_section = markdown_section(spec, "OpenAI Subscription-Backed Native Auth Decision")
     compact_decision = collapse_whitespace(decision_section)
 
-    assert "Decision: `blocked-for-now`" in compact_decision
+    assert "Decision: reopened and implemented as a distinct `openai-codex` provider." in (
+        compact_decision
+    )
     assert "Decision date: 2026-05-07." in compact_decision
     assert "Decision update: reopened for a distinct `openai-codex` provider" in (
         compact_decision
@@ -211,9 +213,10 @@ def test_openai_subscription_auth_decision_is_documented():
         compact_decision
     )
     assert "third-party native application call OpenAI models directly" in compact_decision
-    assert "`--native-provider openai` Responses API provider remains the OpenAI baseline" in (
+    assert "must not turn the existing `--native-provider openai` Responses API provider" in (
         compact_decision
     )
+    assert "OpenAI Platform API-key baseline" in compact_decision
     assert "`OPENAI_API_KEY` plus `--native-model`" in compact_decision
     assert "existing `openai` provider" in compact_decision
     assert "remain the OpenAI Platform API-key provider" in compact_decision
@@ -242,10 +245,17 @@ def test_openai_subscription_auth_decision_is_documented():
     assert "packages/ai/src/providers/openai-codex-responses.ts" in compact_decision
     assert "https://chatgpt.com/backend-api/codex/responses" in compact_decision
     assert "must also continue to reject credential-store scraping" in compact_decision
-    assert "Local model provider integrations remain deferred pending benchmark work" in (
+    assert "Historical provider priority after the original blocked decision" in (
         compact_decision
     )
-    assert "Anthropic subscription-backed native provider support is not promoted" in (
+    assert "Local model provider integrations remained deferred pending benchmark work" in (
+        compact_decision
+    )
+    assert "Anthropic subscription-backed native provider support was not promoted" in (
+        compact_decision
+    )
+    assert "focused tests for OAuth shape, credential storage, refresh" in compact_decision
+    assert "manual smoke confirms that live login, refresh, provider calls" in (
         compact_decision
     )
 
@@ -280,6 +290,18 @@ def test_openrouter_provider_baseline_is_documented():
         "auth material",
     ):
         assert forbidden in compact_runtime
+    assert "The third real provider is the distinct OpenAI Codex subscription provider" in (
+        compact_runtime
+    )
+    assert "--native-provider openai-codex" in compact_runtime
+    assert "pipy auth openai-codex login" in compact_runtime
+    assert "${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json" in (
+        compact_runtime
+    )
+    assert "https://chatgpt.com/backend-api/codex/responses" in compact_runtime
+    assert "`originator: pipy`" in compact_runtime
+    assert "`OpenAI-Beta: responses=experimental`" in compact_runtime
+    assert "Auth material, authorization URLs, raw request bodies" in compact_runtime
 
 
 def test_backlog_records_done_completion_and_provider_priority_order():
@@ -370,13 +392,24 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native REPL approval prompt removal" in compact_done
     assert "`not-required` approval policy data" in compact_done
     assert "no longer wired into the normal product REPL path" in compact_done
-    assert "### Native `openai-codex` OAuth provider from Pi reference" in next_slice
-    assert "distinct native `openai-codex` provider path" in compact_next_slice
-    assert "Pi's PKCE OAuth shape" in compact_next_slice
-    assert "pipy-owned auth state" in compact_next_slice
-    assert "Codex Responses endpoint" in compact_next_slice
-    assert "credential-store scraping" in compact_next_slice
-    assert "wrapping Pi or Codex CLI" in compact_next_slice
+    assert "Native `openai-codex` OAuth provider from Pi reference" in compact_done
+    assert "`--native-provider openai-codex --native-model <model>`" in compact_done
+    assert "`pipy auth openai-codex login`" in compact_done
+    assert "`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`" in (
+        compact_done
+    )
+    assert "one non-streaming request to `https://chatgpt.com/backend-api/codex/responses`" in (
+        compact_done
+    )
+    assert "### Native human-applied `/propose-file` trial" in next_slice
+    assert "proposal-only REPL trial" in compact_next_slice
+    assert "`pipy repl --agent pipy-native --native-provider openai-codex" in (
+        compact_next_slice
+    )
+    assert "target one tiny docs or test change" in compact_next_slice
+    assert "no `/apply`" in compact_next_slice
+    assert "no automatic writes" in compact_next_slice
+    assert "record whether the provider proposal was useful" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -394,9 +427,6 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Add a native `openai-codex` OAuth provider from the Pi reference" in (
-        compact_near_term
-    )
     assert "Run a native human-applied `/propose-file` trial" in compact_near_term
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
@@ -404,13 +434,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "labeled `propose_file_repl`" in compact_near_term
     assert "Proposal-only review gate: available now" in compact_near_term
-    assert "Human-applied proposal trial gate: selected after the `openai-codex`" in (
+    assert "Human-applied proposal trial gate: selected now that the `openai-codex`" in (
         compact_near_term
     )
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
     assert "General native model/tool loop beyond bounded provider turns" in compact_deferred
+    assert "Generic OpenAI subscription-backed native provider auth beyond the distinct" in (
+        compact_deferred
+    )
+    assert "additional OAuth providers" in compact_deferred
     assert "Interactive TUI" in compact_deferred
     assert "RPC mode" in compact_deferred
     assert "### Run the first supervised self-bootstrap trial" not in next_slice

@@ -10,6 +10,7 @@ from typing import Any
 from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
+    OpenAICodexProviderError,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
@@ -71,6 +72,49 @@ def safe_repl_patch_proposal() -> dict[str, object]:
         "raw_transcript_imported": False,
         "workspace_mutated": False,
     }
+
+
+def test_cli_openai_codex_auth_login_uses_no_browser_and_reports_success(
+    capfd,
+    monkeypatch,
+) -> None:
+    captured_call: dict[str, object] = {}
+
+    class CliFakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            captured_call["input_stream"] = input_stream
+            captured_call["output_stream"] = output_stream
+            captured_call["open_browser"] = open_browser
+            return object()
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
+
+    exit_code = main(["auth", "openai-codex", "login", "--no-browser"])
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert "openai-codex OAuth login stored" in captured.err
+    assert captured_call["open_browser"] is False
+
+
+def test_cli_openai_codex_auth_login_reports_sanitized_provider_error(
+    capfd,
+    monkeypatch,
+) -> None:
+    class CliFailingAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            raise OpenAICodexProviderError("safe auth failure")
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFailingAuthManager)
+
+    exit_code = main(["auth", "openai-codex", "login", "--no-browser"])
+
+    captured = capfd.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "OpenAICodexProviderError" in captured.err
+    assert "safe auth failure" in captured.err
 
 
 def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
@@ -2600,6 +2644,206 @@ def test_cli_native_openrouter_provider_json_mode_omits_provider_final_text(
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
+    tmp_path, capfd, monkeypatch
+):
+    root = tmp_path / "sessions"
+
+    class CliFakeOpenAICodexProvider:
+        name = "openai-codex"
+        model_id = "gpt-test"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY",
+                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+                metadata={
+                    "provider_response_store_requested": False,
+                    "response_status": "completed",
+                },
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider)
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openai-codex",
+            "--native-model",
+            "gpt-test",
+            "--slug",
+            "openai-codex-smoke",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY\n"
+    assert_no_structured_status_stdout(captured.out)
+    assert "OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY" not in captured.err
+    assert "session finalized" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    provider_completed = [event for event in events if event["type"] == "native.provider.completed"][0]
+    assert provider_completed["payload"]["provider"] == "openai-codex"
+    assert provider_completed["payload"]["model_id"] == "gpt-test"
+    assert provider_completed["payload"]["usage"] == {
+        "input_tokens": 1,
+        "output_tokens": 2,
+        "total_tokens": 3,
+    }
+    assert provider_completed["payload"]["provider_metadata"] == {
+        "provider_response_store_requested": False,
+        "response_status": "completed",
+    }
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY" not in combined
+    assert "You are the native pipy runtime bootstrap" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_openai_codex_provider_json_mode_omits_provider_final_text(
+    tmp_path, capfd, monkeypatch
+):
+    root = tmp_path / "sessions"
+
+    class CliFakeOpenAICodexProvider:
+        name = "openai-codex"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
+                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+                metadata={"provider_response_store_requested": False},
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider)
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openai-codex",
+            "--native-model",
+            "gpt-test",
+            "--native-output",
+            "json",
+            "--slug",
+            "openai-codex-json",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    output = parse_single_json_stdout(captured.out)
+    assert exit_code == 0
+    assert output["status"] == "succeeded"
+    assert output["provider"] == "openai-codex"
+    assert output["model_id"] == "gpt-test"
+    assert output["usage"] == {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
+    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
+    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.err
+    finalized = Path(output["record"]["jsonl_path"])
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_openai_codex_provider_is_selectable(tmp_path, capfd, monkeypatch):
+    root = tmp_path / "sessions"
+
+    class CliFakeOpenAICodexProvider:
+        name = "openai-codex"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="OPENAI_CODEX_REPL_OUTPUT",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openai-codex",
+            "--native-model",
+            "gpt-test",
+            "--slug",
+            "openai-codex-repl",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "OPENAI_CODEX_REPL_OUTPUT\n"
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    provider_completed = [event for event in events if event["type"] == "native.provider.completed"][0]
+    assert provider_completed["payload"]["provider"] == "openai-codex"
+    assert provider_completed["payload"]["model_id"] == "gpt-test"
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "OPENAI_CODEX_REPL_OUTPUT" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     tmp_path, capfd, monkeypatch
 ):
@@ -2856,6 +3100,81 @@ def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_openai_codex_missing_credentials_finalizes_failed_record(
+    tmp_path, capfd, monkeypatch
+):
+    root = tmp_path / "sessions"
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "empty-auth"))
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openai-codex",
+            "--native-model",
+            "gpt-test",
+            "--slug",
+            "openai-codex-missing-auth",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "OpenAICodexAuthError" in captured.err
+    assert "OpenAI Codex login is required" in captured.err
+    assert "session finalized" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    assert provider_failed["payload"]["provider"] == "openai-codex"
+    assert provider_failed["payload"]["model_id"] == "gpt-test"
+    assert provider_failed["payload"]["error_type"] == "OpenAICodexAuthError"
+    assert "OpenAI Codex login is required" in provider_failed["payload"]["error_message"]
+    serialized = finalized[0].read_text(encoding="utf-8")
+    assert "access_token" not in serialized
+    assert "refresh_token" not in serialized
+    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_openai_codex_requires_model_before_creating_record(tmp_path, capsys):
+    root = tmp_path / "sessions"
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openai-codex",
+            "--slug",
+            "openai-codex-missing-model",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "--native-model is required" in captured.err
+    assert not root.exists()
 
 
 def test_cli_native_openrouter_requires_model_before_creating_record(tmp_path, capsys):

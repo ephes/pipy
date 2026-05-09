@@ -427,44 +427,58 @@ reviewable change while keeping the source-of-truth design constraints in
   metadata-only archives, and stdout/stderr separation. The historical
   approval prompt helper remains test-covered but is no longer wired into the
   normal product REPL path.
+- Native `openai-codex` OAuth provider from Pi reference:
+  `pipy run` and `pipy repl` now accept
+  `--native-provider openai-codex --native-model <model>` as a distinct native
+  provider selection, separate from the existing `openai` API-key provider.
+  `pipy auth openai-codex login` implements a pipy-owned PKCE OAuth login
+  boundary with local callback and manual-paste fallback, stores credentials
+  under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json` rather
+  than Pi's `~/.pi/agent/auth.json`, refreshes expiring tokens through an
+  injected auth boundary, and sends one non-streaming request to
+  `https://chatgpt.com/backend-api/codex/responses` with pipy-owned
+  system/user inputs, `store: false`, and safe required provider headers. The
+  provider maps final text and normalized usage into the existing provider
+  result shape while JSONL, Markdown, default stdout, and
+  `--native-output json` remain metadata-only. Raw auth material, tokens,
+  refresh tokens, request bodies, prompts, model output, provider responses,
+  headers with credentials, provider-native payloads, stdout, stderr, diffs,
+  patches, command output, file contents, secrets, credentials, private keys,
+  and sensitive personal data remain out of archives.
 
 ## Next Slice
 
-### Native `openai-codex` OAuth provider from Pi reference
+### Native human-applied `/propose-file` trial
 
-Goal: add a distinct native `openai-codex` provider path for OpenAI Codex
-subscription-backed access, modeled on the local Pi reference, without treating
-the existing `openai` API-key provider as subscription auth and without copying
-or scraping Pi's credential store.
+Goal: run one small real-provider proposal-only REPL trial using the existing
+`/propose-file <workspace-relative-path> -- <change-request>` command, then
+have a human apply or translate the useful parts outside the REPL.
 
 Implementation points:
 
-- add `--native-provider openai-codex` as a separate provider selection for
-  `pipy run` and `pipy repl`, requiring an explicit `--native-model`
-- implement a small auth boundary based on Pi's PKCE OAuth shape, including
-  local callback and manual-paste fallback when practical
-- store pipy-owned auth state under pipy's own state/config location, not
-  Pi's `~/.pi/agent/auth.json`, and never archive raw auth material
-- send one non-streaming request through the Codex Responses endpoint using
-  only pipy-owned system/user inputs and safe headers required by the provider
-- map final text and normalized usage into the existing provider result shape
-  while keeping JSONL, Markdown, default stdout, and `--native-output json`
-  metadata-only
-- add focused unit tests with injected HTTP/auth boundaries and CLI selection
-  coverage; real OAuth smoke may be manual and skipped without credentials
+- use `pipy repl --agent pipy-native --native-provider openai-codex
+  --native-model <model>` after a successful manual OAuth login smoke when
+  credentials are available
+- target one tiny docs or test change that can be reviewed and reverted
+  manually if needed
+- keep the public REPL proposal-only: no `/apply`, no automatic writes, no
+  shell execution, no verification command from the REPL, no provider-side
+  tools, no multi-file read, no multiple tool requests, and no general
+  model/tool loop
+- reuse the existing explicit-file-excerpt path, one-read limit,
+  `propose_file_repl` provider turn label, metadata-only observation/proposal
+  events, and archive privacy contract
+- record whether the provider proposal was useful enough to justify designing
+  a later write-capable boundary
 
-Keep out of scope for this provider slice:
+Keep out of scope for this trial:
 
-- credential-store scraping, token copying from Pi, wrapping Pi or Codex CLI,
-  reverse engineering beyond the local Pi reference, or treating ChatGPT/Codex
-  subscription auth as the normal OpenAI Platform API-key provider
-- provider-side tools, streaming, retries, fallback routing, OAuth device-code
-  UX, account switching, broad provider registry changes, TUI/RPC work, shell
-  execution, patch apply, write tools, or persistent conversation history
-- storing raw prompts, model output, provider responses, request bodies,
-  headers with auth material, tokens, refresh tokens, credentials, private
-  keys, stdout, stderr, diffs, patches, command output, file contents, or
-  sensitive personal data in archives
+- changing provider auth, token storage, provider routing, or model defaults
+- exposing mutation, patch apply, verification, shell, or provider-side tool
+  controls in the REPL
+- archiving raw prompts, excerpts, model output, provider responses, patch
+  text, diffs, file contents, command output, auth material, secrets,
+  credentials, tokens, private keys, or sensitive personal data
 
 ## Near Term
 
@@ -477,8 +491,7 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Add a native `openai-codex` OAuth provider from the Pi reference.
-2. Run a native human-applied `/propose-file` trial.
+1. Run a native human-applied `/propose-file` trial.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -495,15 +508,14 @@ execute commands, run verification, expose provider-side tools, or support a
 general model/tool loop. The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented and reviewed; the selected next step is a human-applied proposal
-trial using that existing command after the `openai-codex` provider-access
-slice, while the broader public mutation and tool-loop boundaries remain
-deferred.
+trial using that existing command, while the broader public mutation and
+tool-loop boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains
-the pay-by-token OpenAI Platform API-key baseline, while the desired
-subscription path should be a separate `openai-codex` provider modeled on Pi's
-PKCE OAuth and `chatgpt.com/backend-api/codex/responses` implementation.
+the pay-by-token OpenAI Platform API-key baseline, while the implemented
+subscription path is the separate `openai-codex` provider modeled on Pi's PKCE
+OAuth and `chatgpt.com/backend-api/codex/responses` implementation.
 OpenRouter remains implemented and useful for immediate manual smoke testing
 with `OPENROUTER_API_KEY`, but it should no longer be treated as the preferred
 default provider-access direction. Anthropic subscription access is not a
@@ -515,8 +527,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native `openai-codex` OAuth provider from Pi reference.
-2. Native human-applied `/propose-file` trial.
+1. Native human-applied `/propose-file` trial.
 
 Foundation gates toward an interactive shell:
 
@@ -552,21 +563,20 @@ Foundation gates toward an interactive shell:
 - Proposal-only review gate: available now. Focused tests and fake-provider
   terminal smoke covered the boundary and found no required implementation
   hardening; broader mutation remains behind a new named slice.
-- Human-applied proposal trial gate: selected after the `openai-codex`
-  provider-access slice. The public shell remains proposal-only while a human
-  applies or translates one tiny proposed change outside the REPL, verifies it,
-  and records whether the workflow is ready to inform a later write-capable
-  boundary.
+- Human-applied proposal trial gate: selected now that the `openai-codex`
+  provider-access slice exists. The public shell remains proposal-only while a
+  human applies or translates one tiny proposed change outside the REPL,
+  verifies it, and records whether the workflow is ready to inform a later
+  write-capable boundary.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
 - Proposal-only trial: available now in the interactive shell. Pipy may use the
   existing bounded read-only context and propose structured edit metadata, but
   writes remain manual and archives stay metadata-only.
-- Human-applied patch trial: selected after the `openai-codex` provider-access
-  slice through the existing `/propose-file` command. No public write command
-  is added for this gate, and independent review is still required before
-  trusting the result.
+- Human-applied patch trial: selected through the existing `/propose-file`
+  command. No public write command is added for this gate, and independent
+  review is still required before trusting the result.
 - Pipy-applied patch trial: available after the explicit patch-apply slice,
   with conservative file scope, no arbitrary shell execution, and metadata-only
   archives.
@@ -607,9 +617,10 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or
   similar runtimes until separate benchmark work identifies the best first
   local runtime and connection shape.
-- OpenAI subscription-backed native provider auth until official OpenAI docs
-  expose a stable third-party/native provider auth flow that is not specific to
-  Codex, ChatGPT, or another OpenAI product client.
+- Generic OpenAI subscription-backed native provider auth beyond the distinct
+  `openai-codex` provider path until official OpenAI docs expose a stable
+  third-party/native provider auth flow that is not specific to Codex,
+  ChatGPT, or another OpenAI product client.
 - Interactive TUI.
 - RPC mode.
 - Multi-agent task delegation.
@@ -623,9 +634,10 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Storing full system prompts, user prompts, model outputs, stdout, stderr,
   tool payloads, secrets, tokens, credentials, private keys, or sensitive
   personal data by default.
-- Building broad approvals, sandboxing, retries, streaming, OAuth, provider
-  registry, raw transcript import, multiple native tool requests, post-tool
-  provider turns, general write tools beyond supervised patch apply,
+- Building broad approvals, sandboxing, retries, streaming, additional OAuth
+  providers, provider registry, raw transcript import, multiple native tool
+  requests, post-tool provider turns, general write tools beyond supervised
+  patch apply,
   non-allowlisted verification commands, TUI, RPC, compaction, branching, or
   orchestration in the upcoming slices; real execution work must wait for its
   named slice.

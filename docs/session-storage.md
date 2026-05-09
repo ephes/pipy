@@ -457,17 +457,22 @@ The fake provider and fake no-op tool are for tests and smoke runs, not a
 production AI/tool runtime. The runtime does not execute shell commands, mutate
 the workspace, or run provider-side tools. Provider final text prints to stdout
 through the explicit CLI contract when the native run succeeds. API-key
-providers currently include `openai` with
-`OPENAI_API_KEY` and `openrouter` with `OPENROUTER_API_KEY`; both require an
-explicit `--native-model` and do not add credential storage. JSONL and Markdown
-archive records store only
-provider/session/tool lifecycle metadata, safe labels, durations, normalized
-usage counters, policy labels, and storage booleans. Normalized provider usage
-is limited to finite non-negative `input_tokens`, `output_tokens`,
-`total_tokens`, `cached_tokens`, and `reasoning_tokens`; unknown
-provider-native usage keys and unavailable counters are omitted. Native runs
-require `--goal`; that field remains user-visible archive metadata, so keep it
-short and non-sensitive.
+providers currently include `openai` with `OPENAI_API_KEY` and `openrouter`
+with `OPENROUTER_API_KEY`; both require an explicit `--native-model` and do not
+add credential storage. The distinct `openai-codex` provider is selected with
+`--native-provider openai-codex --native-model <model>` and uses pipy-owned
+OAuth state from
+`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, created by
+`pipy auth openai-codex login` with private file permissions. Pipy does not
+read or copy Pi's `~/.pi/agent/auth.json`, and auth material from the
+`openai-codex` credential file is not copied into JSONL or Markdown archives.
+JSONL and Markdown archive records store only provider/session/tool lifecycle
+metadata, safe labels, durations, normalized usage counters, policy labels, and
+storage booleans. Normalized provider usage is limited to finite non-negative
+`input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and
+`reasoning_tokens`; unknown provider-native usage keys and unavailable counters
+are omitted. Native runs require `--goal`; that field remains user-visible
+archive metadata, so keep it short and non-sensitive.
 
 The native REPL is selected with `pipy repl --agent pipy-native`. It reads input
 lines from stdin, sends each non-empty non-command line to the selected provider
@@ -475,17 +480,17 @@ as one provider turn, prints successful provider final text to stdout, and keeps
 prompts, help, approval prompts, diagnostics, finalization, interrupt handling,
 command-skip messages, and turn-limit notices on stderr. `/help` prints only
 static supported command usage without invoking the provider or tools. `/exit`
-and `/quit` terminate cleanly. `/read <workspace-relative-path>` prompts for
-visible approval before a bounded explicit-file-excerpt read can occur, prints
-a successful excerpt only to interactive stdout, and does not provider-forward
+and `/quit` terminate cleanly. `/read <workspace-relative-path>` runs the
+bounded explicit-file-excerpt read without a visible approval prompt, prints a
+successful excerpt only to interactive stdout, and does not provider-forward
 the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
 whitespace-delimited `--` separator and shares the same one-read per-session
-limit and approval/read path, but forwards the successful excerpt plus question
-only in memory to one provider turn labeled `ask_file_repl`; it prints only
-provider final text to stdout. `/propose-file <workspace-relative-path> --
-<change-request>` uses the same separator and shared one-read approval/read
-path, forwards the successful excerpt plus change request only in memory to
-one provider turn labeled `propose_file_repl`, parses at most one pipy-owned
+limit and read path, but forwards the successful excerpt plus question only in
+memory to one provider turn labeled `ask_file_repl`; it prints only provider
+final text to stdout. `/propose-file <workspace-relative-path> --
+<change-request>` uses the same separator and shared one-read path, forwards
+the successful excerpt plus change request only in memory to one provider turn
+labeled `propose_file_repl`, parses at most one pipy-owned
 structured patch proposal metadata object, records at most one metadata-only
 `native.patch.proposal.recorded` event, and prints only provider final text to
 stdout. Malformed supported slash commands and
