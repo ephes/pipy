@@ -14,32 +14,32 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
-    JsonResponse,
     OAuthTokenResponse,
     OpenAICodexCredentials,
     OpenAICodexHTTPStatusError,
     OpenAICodexResponsesProvider,
+    SseResponse,
     OpenAICodexAuthManager,
-    UrllibJsonHTTPClient,
+    UrllibSseHTTPClient,
     create_authorization_flow,
     parse_authorization_input,
 )
 
 
-class FakeJsonHTTPClient:
-    def __init__(self, response: JsonResponse | None = None, error: Exception | None = None) -> None:
+class FakeSseHTTPClient:
+    def __init__(self, response: SseResponse | None = None, error: Exception | None = None) -> None:
         self.response = response
         self.error = error
         self.requests: list[dict[str, Any]] = []
 
-    def post_json(
+    def post_sse(
         self,
         url: str,
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
-    ) -> JsonResponse:
+    ) -> SseResponse:
         self.requests.append(
             {
                 "url": url,
@@ -124,29 +124,35 @@ def auth_manager_with(credentials_value: OpenAICodexCredentials | None) -> OpenA
 
 
 def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_path):
-    client = FakeJsonHTTPClient(
-        JsonResponse(
+    client = FakeSseHTTPClient(
+        SseResponse(
             status_code=200,
-            body={
-                "status": "completed",
-                "output": [
+            body=sse_payload(
+                [
                     {
-                        "type": "message",
-                        "content": [
-                            {"type": "output_text", "text": "hello"},
-                            {"type": "output_text", "text": " codex"},
-                        ],
-                    }
-                ],
-                "usage": {
-                    "input_tokens": 10,
-                    "input_tokens_details": {"cached_tokens": 4},
-                    "output_tokens": 2,
-                    "output_tokens_details": {"reasoning_tokens": 1},
-                    "total_tokens": 12,
-                    "native_unlisted": 99,
-                },
-            },
+                        "type": "response.output_text.delta",
+                        "delta": "hello",
+                    },
+                    {
+                        "type": "response.output_text.delta",
+                        "delta": " codex",
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "status": "completed",
+                            "usage": {
+                                "input_tokens": 10,
+                                "input_tokens_details": {"cached_tokens": 4},
+                                "output_tokens": 2,
+                                "output_tokens_details": {"reasoning_tokens": 1},
+                                "total_tokens": 12,
+                                "native_unlisted": 99,
+                            },
+                        },
+                    },
+                ]
+            ),
         )
     )
     provider = OpenAICodexResponsesProvider(
@@ -175,6 +181,7 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
     posted = client.requests[0]
     assert posted["url"] == "https://chatgpt.com/backend-api/codex/responses"
     assert posted["headers"]["Authorization"] == f"Bearer {fake_jwt('acct_original')}"
+    assert posted["headers"]["Accept"] == "text/event-stream"
     assert posted["headers"]["chatgpt-account-id"] == "acct_original"
     assert posted["headers"]["originator"] == "pipy"
     assert posted["headers"]["OpenAI-Beta"] == "responses=experimental"
@@ -182,15 +189,38 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
     assert posted["body"] == {
         "model": "gpt-test",
         "instructions": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
-        "input": "SAFE_GOAL_METADATA",
+        "input": [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "SAFE_GOAL_METADATA"}],
+            }
+        ],
         "store": False,
-        "stream": False,
+        "stream": True,
+        "text": {"verbosity": "medium"},
+        "include": ["reasoning.encrypted_content"],
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
     }
 
 
-def test_openai_codex_provider_accepts_top_level_output_text(tmp_path):
-    client = FakeJsonHTTPClient(
-        JsonResponse(status_code=200, body={"status": "completed", "output_text": "short text"})
+def test_openai_codex_provider_accepts_output_item_done_text_without_delta(tmp_path):
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "message",
+                            "content": [{"type": "output_text", "text": "short text"}],
+                        },
+                    },
+                    {"type": "response.completed", "response": {"status": "completed"}},
+                ]
+            ),
+        )
     )
     provider = OpenAICodexResponsesProvider(
         model_id="gpt-test",
@@ -204,8 +234,36 @@ def test_openai_codex_provider_accepts_top_level_output_text(tmp_path):
     assert result.final_text == "short text"
 
 
+def test_openai_codex_provider_accepts_crlf_done_and_ignores_non_data_sse_lines(tmp_path):
+    delta = json.dumps({"type": "response.output_text.delta", "delta": "hello"})
+    completed = json.dumps({"type": "response.completed", "response": {"status": "completed"}})
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=(
+                "event: response.created\r\n\r\n"
+                ": keepalive\r\n\r\n"
+                f"data: {delta}\r\n\r\n"
+                "not-data: ignored\r\n\r\n"
+                f"data: {completed}\r\n\r\n"
+                "data: [DONE]\r\n\r\n"
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "hello"
+
+
 def test_openai_codex_provider_missing_credentials_fails_without_http(tmp_path):
-    client = FakeJsonHTTPClient()
+    client = FakeSseHTTPClient()
     provider = OpenAICodexResponsesProvider(
         model_id="gpt-test",
         auth_manager=auth_manager_with(None),
@@ -295,7 +353,7 @@ def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):
     provider = OpenAICodexResponsesProvider(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
-        http_client=FakeJsonHTTPClient(error=OpenAICodexHTTPStatusError.from_http_error(http_error)),
+        http_client=FakeSseHTTPClient(error=OpenAICodexHTTPStatusError.from_http_error(http_error)),
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -313,10 +371,18 @@ def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):
 
 
 def test_openai_codex_provider_non_success_boundary_status_fails_safely(tmp_path):
-    client = FakeJsonHTTPClient(
-        JsonResponse(
+    client = FakeSseHTTPClient(
+        SseResponse(
             status_code=503,
-            body={"status": "completed", "output_text": "MODEL_OUTPUT_SHOULD_NOT_PRINT"},
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.output_text.delta",
+                        "delta": "MODEL_OUTPUT_SHOULD_NOT_PRINT",
+                    },
+                    {"type": "response.completed", "response": {"status": "completed"}},
+                ]
+            ),
         )
     )
     provider = OpenAICodexResponsesProvider(
@@ -367,7 +433,7 @@ def test_openai_codex_parse_authorization_input_accepts_url_query_and_code_state
     assert parsed_code.state is None
 
 
-def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypatch):
+def test_urllib_sse_http_client_translates_http_error_without_raw_body(monkeypatch):
     error_body = json.dumps(
         {
             "error": {
@@ -396,7 +462,7 @@ def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypa
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     try:
-        UrllibJsonHTTPClient().post_json(
+        UrllibSseHTTPClient().post_sse(
             "https://chatgpt.com/backend-api/codex/responses",
             headers={"Content-Type": "application/json"},
             body={"model": "gpt-test"},
@@ -416,3 +482,7 @@ def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypa
 
 def _base64url(value: Mapping[str, Any]) -> str:
     return base64.urlsafe_b64encode(json.dumps(value).encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def sse_payload(events: list[Mapping[str, Any]]) -> str:
+    return "".join(f"data: {json.dumps(event)}\n\n" for event in events)

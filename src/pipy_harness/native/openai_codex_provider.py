@@ -41,11 +41,11 @@ OPENAI_CODEX_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
-class JsonResponse:
-    """Small JSON response boundary used by provider tests."""
+class SseResponse:
+    """Small SSE response boundary used by the Codex subscription endpoint."""
 
     status_code: int
-    body: Mapping[str, Any]
+    body: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,18 +71,18 @@ class OpenAICodexCredentials:
         return self.expires_at <= current + OPENAI_CODEX_MIN_TOKEN_TTL_SECONDS
 
 
-class JsonHTTPClient(Protocol):
-    """Minimal injectable JSON HTTP client."""
+class SseHTTPClient(Protocol):
+    """Minimal injectable HTTP client for Codex Responses calls."""
 
-    def post_json(
+    def post_sse(
         self,
         url: str,
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
-    ) -> JsonResponse:
-        """POST JSON and return parsed JSON metadata."""
+    ) -> SseResponse:
+        """POST JSON and return the SSE response body."""
 
 
 class OAuthHTTPClient(Protocol):
@@ -112,17 +112,17 @@ class OpenAICodexCredentialStore(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Codex Responses calls."""
+class UrllibSseHTTPClient:
+    """Standard-library SSE client for Codex Responses calls."""
 
-    def post_json(
+    def post_sse(
         self,
         url: str,
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
-    ) -> JsonResponse:
+    ) -> SseResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             url,
@@ -140,7 +140,7 @@ class UrllibJsonHTTPClient:
             reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
             raise OpenAICodexTransportError(f"OpenAI Codex request failed: {reason}") from exc
 
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+        return SseResponse(status_code=status_code, body=payload.decode("utf-8", errors="replace"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,7 +347,7 @@ class OpenAICodexResponsesProvider:
 
     model_id: str
     auth_manager: OpenAICodexAuthManager = field(default_factory=OpenAICodexAuthManager)
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
     timeout_seconds: float = 60.0
 
@@ -392,12 +392,22 @@ class OpenAICodexResponsesProvider:
         body = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": request.user_prompt,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": request.user_prompt}],
+                }
+            ],
             "store": False,
-            "stream": False,
+            "stream": True,
+            "text": {"verbosity": "medium"},
+            "include": ["reasoning.encrypted_content"],
+            "tool_choice": "auto",
+            "parallel_tool_calls": True,
         }
         headers = {
             "Authorization": f"Bearer {credentials.access_token}",
+            "Accept": "text/event-stream",
             "Content-Type": "application/json",
             "OpenAI-Beta": "responses=experimental",
             "chatgpt-account-id": credentials.account_id,
@@ -406,7 +416,7 @@ class OpenAICodexResponsesProvider:
         }
 
         try:
-            response = self.http_client.post_json(
+            response = self.http_client.post_sse(
                 self.endpoint,
                 headers=headers,
                 body=body,
@@ -417,7 +427,7 @@ class OpenAICodexResponsesProvider:
                     f"OpenAI Codex request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = _parse_sse_response(response.body)
         except OpenAICodexProviderError as exc:
             return _failed_result(
                 request,
@@ -593,9 +603,53 @@ def _extract_account_id(access_token: str) -> str | None:
     return account_id if isinstance(account_id, str) and account_id else None
 
 
-def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICodexResponse:
-    status = body.get("status")
-    response_status = _safe_response_label(status, default="unknown")
+def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
+    text_chunks: list[str] = []
+    fallback_text_chunks: list[str] = []
+    terminal_response: Mapping[str, Any] | None = None
+
+    for event in _iter_sse_events(body):
+        event_type = event.get("type")
+        if event_type == "error":
+            code = event.get("code")
+            safe_code = sanitize_text(str(code)) if code is not None else "unknown"
+            raise OpenAICodexResponseParseError(
+                "OpenAI Codex stream returned an error event.",
+                metadata={"provider_response_store_requested": False, "response_status": safe_code},
+            )
+        if event_type == "response.failed":
+            terminal_response = _event_response(event)
+            response_status = _safe_response_label(
+                terminal_response.get("status") if terminal_response is not None else None,
+                default="failed",
+            )
+            raise OpenAICodexResponseParseError(
+                f"OpenAI Codex response status was {response_status}.",
+                metadata={
+                    "provider_response_store_requested": False,
+                    "response_status": response_status,
+                },
+            )
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str):
+                text_chunks.append(delta)
+            continue
+        if event_type == "response.output_item.done":
+            item = event.get("item")
+            if isinstance(item, Mapping):
+                fallback_text_chunks.extend(_extract_output_text_chunks(item))
+            continue
+        if event_type in {"response.completed", "response.done", "response.incomplete"}:
+            terminal_response = _event_response(event)
+
+    if terminal_response is None:
+        raise OpenAICodexResponseParseError(
+            "OpenAI Codex stream did not include a terminal response event.",
+            metadata={"provider_response_store_requested": False, "response_status": "unknown"},
+        )
+
+    response_status = _safe_response_label(terminal_response.get("status"), default="unknown")
     if response_status and response_status != "completed":
         raise OpenAICodexResponseParseError(
             f"OpenAI Codex response status was {response_status}.",
@@ -605,7 +659,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICodexResponse:
             },
         )
 
-    final_text = _extract_final_text(body)
+    final_text = "".join(text_chunks) if text_chunks else "".join(fallback_text_chunks)
     if not final_text:
         raise OpenAICodexResponseParseError(
             "OpenAI Codex response did not include final output text.",
@@ -617,35 +671,51 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICodexResponse:
 
     return ParsedOpenAICodexResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=_extract_usage(terminal_response.get("usage")),
         response_status=response_status,
     )
 
 
-def _extract_final_text(body: Mapping[str, Any]) -> str | None:
-    output_text = body.get("output_text")
-    if isinstance(output_text, str):
-        return output_text
+def _iter_sse_events(body: str) -> list[Mapping[str, Any]]:
+    events: list[Mapping[str, Any]] = []
+    for block in body.replace("\r\n", "\n").split("\n\n"):
+        data_lines = [
+            line.removeprefix("data:").strip()
+            for line in block.split("\n")
+            if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        data = "\n".join(data_lines).strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError as exc:
+            raise OpenAICodexResponseParseError(
+                "OpenAI Codex stream included malformed event JSON."
+            ) from exc
+        if isinstance(parsed, Mapping):
+            events.append(parsed)
+    return events
 
-    output = body.get("output")
-    if not isinstance(output, list):
-        return None
 
+def _event_response(event: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    response = event.get("response")
+    return response if isinstance(response, Mapping) else None
+
+
+def _extract_output_text_chunks(item: Mapping[str, Any]) -> list[str]:
+    content = item.get("content")
+    if not isinstance(content, list):
+        return []
     chunks: list[str] = []
-    for item in output:
-        if not isinstance(item, Mapping):
+    for content_item in content:
+        if not isinstance(content_item, Mapping):
             continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        for content_item in content:
-            if not isinstance(content_item, Mapping):
-                continue
-            if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
-                chunks.append(content_item["text"])
-    if not chunks:
-        return None
-    return "".join(chunks)
+        if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
+            chunks.append(content_item["text"])
+    return chunks
 
 
 def _extract_usage(value: Any) -> dict[str, int | float]:

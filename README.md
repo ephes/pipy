@@ -118,7 +118,7 @@ Optional flags:
 The separate `openai-codex` native provider is the ChatGPT Plus/Pro Codex
 subscription path, based on local Pi prior art under
 `/Users/jochen/src/pi-mono`. From the native shell, use `/login openai-codex`
-and then `/model openai-codex/gpt-5.4`; the standalone
+and then `/model openai-codex/gpt-5.2` or another available Codex model; the standalone
 `pipy auth openai-codex login` command remains available for one-shot smoke
 runs. Both paths store pipy-owned OAuth state under
 `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; pipy does not

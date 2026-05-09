@@ -435,9 +435,10 @@ reviewable change while keeping the source-of-truth design constraints in
   boundary with local callback and manual-paste fallback, stores credentials
   under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json` rather
   than Pi's `~/.pi/agent/auth.json`, refreshes expiring tokens through an
-  injected auth boundary, and sends one non-streaming request to
+  injected auth boundary, and sends one SSE Responses request to
   `https://chatgpt.com/backend-api/codex/responses` with pipy-owned
-  system/user inputs, `store: false`, and safe required provider headers. The
+  system/user inputs, `store: false`, `stream: true`, and safe required
+  provider headers. The
   provider maps final text and normalized usage into the existing provider
   result shape while JSONL, Markdown, default stdout, and
   `--native-output json` remain metadata-only. Raw auth material, tokens,
@@ -462,50 +463,70 @@ reviewable change while keeping the source-of-truth design constraints in
   diffs, patches, secrets, credentials, private keys, or sensitive personal
   data. Successful model selections persist only non-secret provider/model
   defaults under local pipy state.
+- Native OpenAI Codex provider SSE transport correction: the
+  `openai-codex` provider now matches the local Pi reference by sending one
+  SSE Responses request with `stream: true`, Responses-style user input,
+  `Accept: text/event-stream`, `OpenAI-Beta: responses=experimental`,
+  `store: false`, and the existing pipy-owned OAuth headers. It parses streamed
+  text and terminal usage into the existing `ProviderResult` shape while
+  archives remain metadata-only and continue to omit raw request bodies,
+  prompts, model output, provider responses, SSE events, headers with
+  credentials, auth material, tokens, file contents, diffs, stdout, stderr,
+  secrets, credentials, private keys, and sensitive personal data.
+- Native human-applied `/propose-file` trial through shell auth/model
+  commands: the shell-first flow was run on 2026-05-09 with `uv run pipy`,
+  `/login openai-codex`, `/model openai-codex/gpt-5.2`, and `/propose-file
+  pyproject.toml -- <change-request>` against a 28-line file within the
+  explicit-file-excerpt limits. An initial attempt against
+  `tests/test_native_usage.py` failed closed with `secret_looking_content`
+  because the test file intentionally contains archive privacy sentinel text,
+  and the one-read session limit blocked a second read in that same REPL
+  record. The successful trial produced a useful readability-only proposal to
+  document the intentionally empty runtime dependencies list; the suggestion
+  was manually applied outside the REPL as a one-line TOML comment. The public
+  REPL remained proposal-only: no `/apply`, automatic writes, verification,
+  shell execution, provider-side tools, multi-file reads, multiple tool
+  requests, or general model/tool loop were exposed. Metadata-only archive
+  contracts held, and the trial outcome is useful enough to justify a narrow
+  write-capable boundary design slice, with model availability/defaults tracked
+  separately because `gpt-5.4`, `gpt-5.1-codex`, and
+  `gpt-5.1-codex-mini` were rejected by this ChatGPT-backed Codex account while
+  `gpt-5.2` succeeded.
 
 ## Next Slice
 
-### Native human-applied `/propose-file` trial through shell auth/model commands
+### Native write-capable REPL boundary decision after proposal trial
 
-Goal: run one small real-provider proposal-only REPL trial using the existing
-`/propose-file <workspace-relative-path> -- <change-request>` command, then
-have a human apply or translate the useful parts outside the REPL.
+Goal: choose the smallest write-capable native shell boundary justified by the
+successful proposal-only trial, without implementing mutation yet.
 
 Implementation points:
 
-- start `uv run pipy`, use `/login openai-codex` if credentials are absent,
-  then use `/model openai-codex/gpt-5.4` or another available
-  `openai-codex/<model>` before the `/propose-file` command
-- target one tiny docs or test change that can be reviewed and reverted
-  manually if needed
-- keep the trial target within the explicit-file-excerpt per-source limits:
-  8 KiB and 160 lines. Larger files such as `docs/backlog.md` skip with
-  `oversized_file` before provider visibility.
-- keep the public REPL proposal-only: no `/apply`, no automatic writes, no
-  shell execution, no verification command from the REPL, no provider-side
-  tools, no multi-file read, no multiple tool requests, and no general
-  model/tool loop
-- reuse the existing explicit-file-excerpt path, one-read limit,
-  `propose_file_repl` provider turn label, metadata-only observation/proposal
-  events, and archive privacy contract
-- record whether the provider proposal was useful enough to justify designing
-  a later write-capable boundary
+- decide whether the next public write-capable command should be a constrained
+  `/apply-proposal`-style operation, a separate human-reviewed patch input, or
+  another narrower boundary
+- preserve the Pi-like no-popup product posture while keeping non-interactive
+  safety checks: explicit command syntax, workspace-relative paths,
+  ignored/generated-file rejection, bounded file sizes, secret-looking content
+  rejection, expected hashes for existing files, and metadata-only archives
+- decide how a proposal produced in one provider turn becomes a pipy-owned
+  human-reviewed patch apply request without archiving raw patch text, diffs,
+  file contents, prompts, model output, provider responses, or auth material
+- keep the first write boundary limited to one file and one reviewed operation
+  unless the decision records a stronger reason to broaden it
+- document how verification remains outside the REPL for the first write
+  boundary, or explicitly choose a later separate verification-command slice
 
-Keep out of scope for this trial:
+Keep out of scope for this decision:
 
+- implementing mutation, patch apply, verification, shell execution, or
+  provider-side tools
 - changing provider auth, token storage, provider routing, or model defaults
-- exposing mutation, patch apply, verification, shell, or provider-side tool
-  controls in the REPL
+- adding multi-file reads, multiple tool requests, automatic provider-selected
+  filesystem paths, or a general model/tool loop
 - archiving raw prompts, excerpts, model output, provider responses, patch
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
-
-Prior blocked status: a local preflight on 2026-05-09 attempted the exact REPL
-`/propose-file` path with `--native-provider openai-codex` against `LICENSE`
-using a tiny wording-only change request. It failed closed at the provider-auth
-boundary because `openai-codex.json` under `PIPY_AUTH_DIR` was absent. The
-native shell now exposes `/login` and `/model`, so the next trial should use
-the shell-first flow rather than requiring preconfiguration on the CLI.
 
 ## Near Term
 
@@ -518,8 +539,8 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Run a native human-applied `/propose-file` trial through the shell-first
-   `/login` and `/model` flow.
+1. Decide the narrow write-capable REPL boundary after the successful
+   human-applied `/propose-file` trial.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -536,9 +557,9 @@ archiving, but the REPL still does not apply patches, execute commands, run
 verification, expose provider-side tools, or support a general model/tool loop.
 The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
-implemented and reviewed; the selected next step is a human-applied proposal
-trial using that existing command, while the broader public mutation and
-tool-loop boundaries remain deferred.
+implemented, reviewed, and trialed with a real `openai-codex` provider turn;
+the selected next step is deciding the narrow write-capable boundary, while the
+broader public mutation and tool-loop boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains
@@ -556,7 +577,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native human-applied `/propose-file` trial through shell auth/model commands.
+1. Native write-capable REPL boundary decision after proposal trial.
 
 Foundation gates toward an interactive shell:
 
@@ -597,11 +618,10 @@ Foundation gates toward an interactive shell:
 - Proposal-only review gate: available now. Focused tests and fake-provider
   terminal smoke covered the boundary and found no required implementation
   hardening; broader mutation remains behind a new named slice.
-- Human-applied proposal trial gate: selected now that the `openai-codex`
-  provider-access slice exists. The public shell remains proposal-only while a
-  human applies or translates one tiny proposed change outside the REPL,
-  verifies it, and records whether the workflow is ready to inform a later
-  write-capable boundary.
+- Human-applied proposal trial gate: available now. A real `openai-codex`
+  proposal turn produced a useful tiny readability change that was manually
+  applied outside the REPL, confirming that the workflow is ready to inform a
+  later write-capable boundary.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

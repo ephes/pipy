@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import sys
-from io import StringIO
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
@@ -23,6 +25,11 @@ from pipy_session import (
     search_finalized_sessions,
     verify_session_archive,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_native_defaults(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "native-defaults.json"))
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -519,7 +526,6 @@ def test_cli_native_repl_model_selection_late_binds_subsequent_provider_turn_and
             )
 
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
-    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
     monkeypatch.setattr(sys, "stdin", StringIO("/model fake/fake-after-switch\nhello\n/exit\n"))
 
     exit_code = main(
@@ -830,7 +836,6 @@ def test_cli_native_repl_unavailable_stored_default_falls_back_to_fake(
     )
 
     monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "empty-auth"))
-    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
     monkeypatch.setattr(sys, "stdin", StringIO("/model\n/exit\n"))
 
     exit_code = main(
@@ -893,7 +898,6 @@ def test_cli_native_repl_logout_removes_openai_codex_credentials_and_resets_sele
             )
 
     monkeypatch.setenv("PIPY_AUTH_DIR", str(auth_dir))
-    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
     monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
     monkeypatch.setattr(
@@ -942,7 +946,6 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
             raise AssertionError("help command should not call provider")
 
     monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
-    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "native-defaults.json"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
     monkeypatch.setattr(sys, "stdin", StringIO("/help\n/exit\n"))

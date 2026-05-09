@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-39 native repl auth and model commands
+Status: slice-40 native propose-file real-provider trial
 
 <style>
 .mermaid,
@@ -562,13 +562,15 @@ id `app_EMoamEEZ73f0CkXaXp7hrann`, authorize/token URLs under
 `http://localhost:1455/auth/callback`, scope
 `openid profile email offline_access`, a local callback server, manual-paste
 fallback, refresh-token support, and `chatgpt_account_id` extraction from the
-access-token JWT. Provider calls use one non-streaming request to
+access-token JWT. Provider calls use one SSE Responses request to
 `https://chatgpt.com/backend-api/codex/responses` with `store: false`,
-pipy-owned system/user input, `Authorization`, `chatgpt-account-id`,
-`originator: pipy`, and `OpenAI-Beta: responses=experimental`. The provider
-maps final text and normalized usage into the existing provider result shape,
-and archives only safe metadata such as provider, model, status, duration,
-storage booleans, response status, and normalized counters. Auth material,
+`stream: true`, Responses-style user input, `Authorization`,
+`chatgpt-account-id`, `originator: pipy`,
+`OpenAI-Beta: responses=experimental`, and `Accept: text/event-stream`. The
+provider maps streamed final text and normalized usage into the existing
+provider result shape, and archives only safe metadata such as provider, model,
+status, duration, storage booleans, response status, and normalized counters.
+Auth material,
 authorization URLs, raw request bodies, raw provider responses, headers with
 credentials, prompts, model output, provider-native payloads, stdout, stderr,
 tool payloads, diffs, file contents, secrets, credentials, tokens, refresh
@@ -940,24 +942,34 @@ provider turn label, stdout/stderr split, finalized archive shape, and
 in the review slice; OpenRouter smoke was skipped because `OPENROUTER_API_KEY`
 was unavailable in the local environment.
 
-### Selected Follow-Up REPL Boundary: Human-Applied Proposal Trial
+### Proposal Trial Outcome And Write Boundary Direction
 
-The selected follow-up native REPL boundary is not a new write-capable command.
-The next REPL workflow slice should keep the public shell proposal-only and run
-a human-applied proposal trial using the existing `/propose-file
-<workspace-relative-path> -- <change-request>` path.
+The human-applied native REPL proposal trial completed on 2026-05-09 using the
+shell-first flow: `uv run pipy`, `/login openai-codex`,
+`/model openai-codex/gpt-5.2`, and `/propose-file pyproject.toml --
+<change-request>`. The public shell stayed proposal-only, and the useful
+readability suggestion was applied manually outside the REPL as a small TOML
+comment. The trial target stayed within the explicit-file-excerpt limits, and
+archives remained metadata-only.
 
-Rationale: `/propose-file` now proves the narrow file-context handoff,
-provider turn label, metadata-only proposal event, and archive privacy shape,
-but the project has not yet proved that provider proposals are useful enough in
-the interactive shell to justify a public mutation command. A human-applied
-trial tests the product workflow with real terminal use while keeping all
-workspace writes outside the REPL and outside the native tool loop. It also
-keeps the already implemented supervised patch-apply boundary available as
-internal foundation instead of prematurely exposing it as user-facing shell
-behavior.
+The trial also proved two safety/product details:
 
-The trial should reuse unchanged:
+- a first target containing archive privacy sentinel strings failed closed with
+  `secret_looking_content`, and the one-read session limit blocked a second
+  read in that same REPL record
+- this ChatGPT-backed Codex account accepted `gpt-5.2` and rejected
+  `gpt-5.4`, `gpt-5.1-codex`, and `gpt-5.1-codex-mini`, so model availability
+  and defaults need a separate policy slice rather than being inferred from
+  names
+
+The selected follow-up is a decision slice for the smallest write-capable REPL
+boundary. It should decide how a proposal becomes a pipy-owned human-reviewed
+patch apply request without archiving raw patch text, diffs, file contents,
+prompts, model output, provider responses, or auth material. The first public
+write boundary should stay limited to one file and one reviewed operation
+unless the decision records a stronger reason to broaden it.
+
+The next boundary should continue to reuse:
 
 - the read-only workspace sandbox policy without visible approval prompts
 - the explicit-file-excerpt target validation, ignored/generated-file checks,
@@ -970,23 +982,15 @@ The trial should reuse unchanged:
 - the default stdout/stderr split and metadata-only archive, Markdown, catalog,
   and structured-output contracts
 
-The trial should use `openai-codex` as the preferred real-provider path after a
-successful manual login smoke. OpenRouter remains a usable alternate
-real-provider smoke path when `OPENROUTER_API_KEY` is available, and the fake
-provider remains sufficient for no-credential terminal smoke. The trial should
-target a tiny, reviewable docs or test change, let a human translate or apply
-the proposal outside the REPL, run focused verification such as `just check`
-when practical, and record whether the proposal was useful enough to consider a
-later write-capable boundary.
-
-This decision deliberately does not expose `/apply`, `/apply-file`,
+The next decision deliberately does not expose `/apply`, `/apply-file`,
 `/verify`, automatic patch application, shell execution, provider-side tools,
 multiple file reads, multiple tool requests, unbounded turns, persistent
-history, TUI/RPC behavior, retries, streaming, fallback, provider routing, or
-OAuth. A future write-capable public REPL command must still have its own
-named slice with human-reviewed request data, explicit approval, a
-mutating-workspace sandbox policy, metadata-only archive events, focused tests,
-and an independent review before it is treated as complete.
+history, TUI/RPC behavior, retries, fallback, provider routing, or OAuth
+changes. A future write-capable public REPL command must still have its own
+named implementation slice with human-reviewed request data, the chosen
+Pi-like safety posture, a mutating-workspace sandbox policy, metadata-only
+archive events, focused tests, and an independent review before it is treated
+as complete.
 
 ### Native Structured Stdout JSON Mode
 

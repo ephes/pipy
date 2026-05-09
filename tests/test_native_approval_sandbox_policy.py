@@ -398,26 +398,31 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`" in (
         compact_done
     )
-    assert "one non-streaming request to `https://chatgpt.com/backend-api/codex/responses`" in (
-        compact_done
-    )
+    assert "Native OpenAI Codex provider SSE transport correction" in compact_done
+    assert "SSE Responses request with `stream: true`" in compact_done
+    assert "`https://chatgpt.com/backend-api/codex/responses`" in compact_done
     assert "Native REPL auth/model commands and late-bound provider selection" in compact_done
     assert "`pipy` now starts the native REPL" in compact_done
     assert "`/login [openai-codex]`, `/logout [openai-codex]`" in compact_done
     assert "model selection is resolved before each provider-visible turn" in compact_done
-    assert "### Native human-applied `/propose-file` trial" in next_slice
-    assert "proposal-only REPL trial" in compact_next_slice
-    assert "start `uv run pipy`, use `/login openai-codex`" in compact_next_slice
-    assert "`/model openai-codex/gpt-5.4`" in compact_next_slice
-    assert "target one tiny docs or test change" in compact_next_slice
-    assert "8 KiB and 160 lines" in compact_next_slice
-    assert "`docs/backlog.md` skip with `oversized_file`" in compact_next_slice
-    assert "no `/apply`" in compact_next_slice
-    assert "no automatic writes" in compact_next_slice
-    assert "record whether the provider proposal was useful" in compact_next_slice
-    assert "Prior blocked status: a local preflight on" in compact_next_slice
-    assert "failed closed at the provider-auth boundary" in compact_next_slice
-    assert "shell-first flow rather than requiring preconfiguration on the CLI" in compact_next_slice
+    assert "Native human-applied `/propose-file` trial through shell auth/model commands" in (
+        compact_done
+    )
+    assert "`/model openai-codex/gpt-5.2`" in compact_done
+    assert "secret_looking_content" in compact_done
+    assert "useful enough to justify a narrow write-capable boundary design slice" in (
+        compact_done
+    )
+    assert "### Native write-capable REPL boundary decision" in next_slice
+    assert "smallest write-capable native shell boundary" in compact_next_slice
+    assert "`/apply-proposal`-style operation" in compact_next_slice
+    assert "Pi-like no-popup product posture" in compact_next_slice
+    assert "expected hashes for existing files" in compact_next_slice
+    assert "human-reviewed patch apply request" in compact_next_slice
+    assert "limited to one file and one reviewed operation" in compact_next_slice
+    assert "verification remains outside the REPL" in compact_next_slice
+    assert "implementing mutation" in compact_next_slice
+    assert "changing provider auth" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -435,16 +440,18 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Run a native human-applied `/propose-file` trial" in compact_near_term
+    assert "Decide the narrow write-capable REPL boundary" in compact_near_term
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
     )
     assert "labeled `propose_file_repl`" in compact_near_term
     assert "Proposal-only review gate: available now" in compact_near_term
-    assert "Human-applied proposal trial gate: selected now that the `openai-codex`" in (
-        compact_near_term
+    assert (
+        "implemented, reviewed, and trialed with a real `openai-codex` provider turn"
+        in compact_near_term
     )
+    assert "selected next step is deciding the narrow write-capable boundary" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
