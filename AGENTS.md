@@ -44,3 +44,16 @@ This file is for coding agents working in this repository. It records local proj
   such as `codex-yolo` when the recorder or wrapper allows a better task name.
 - Do not add redundant review passes after a clean second review unless risk,
   scope, or implementation changed enough to justify another independent pass.
+
+## Session Learning Checks
+- Before backlog grooming, workflow changes, model/provider comparisons, or
+  "where are we?" planning, inspect the existing archive through summary-safe
+  surfaces such as `uv run pipy-session reflect --json` and targeted
+  `uv run pipy-session search <topic> --json`.
+- Use only metadata, event summaries, and Markdown summaries by default. Do not
+  inspect or promote raw transcript bodies unless explicitly needed and
+  privacy-reviewed.
+- Promote repeated lessons into `AGENTS.md`, `docs/backlog.md`, specs, prompts,
+  or skills rather than relying on memory.
+- Treat one-off session anecdotes as weak signal unless they are supported by
+  multiple review outcomes, workflow evaluations, or explicit decisions.
