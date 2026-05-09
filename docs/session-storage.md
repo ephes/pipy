@@ -527,6 +527,17 @@ interactive counterpart to the metadata-only patch proposal event: it forwards
 only one approved in-memory excerpt and one change request to
 `propose_file_repl`, then stops after optional proposal metadata parsing.
 
+The selected first public write-capable REPL boundary is
+`/apply-proposal <workspace-relative-path>`. It is not implemented yet in the
+public shell, but its storage contract is decided: the command may consume only
+one same-session, in-memory, human-reviewed proposal draft for the exact same
+normalized workspace-relative path and normalize it into one
+`NativePatchApplyRequest`. It must not read raw proposal text, patch text,
+diffs, replacement file contents, prompts, model output, provider responses, or
+provider metadata back from JSONL, Markdown, catalog/search/inspect surfaces,
+or structured stdout. The archive surface for the future command is only the
+existing metadata-only `native.patch.apply.recorded` event.
+
 After a successful explicit-file-excerpt read-only observation and successful
 follow-up provider turn, the native runtime may record one metadata-only patch
 proposal event before writes. `native.patch.proposal.recorded` stores only
@@ -561,6 +572,21 @@ raw provider proposal objects, raw provider metadata, raw approval prompts, raw
 tool arguments, raw tool results, command output, and replacement file
 contents. Unsafe or unsupported proposal data is dropped before persistence and
 may be represented only by a skipped proposal event with a safe reason label.
+
+Patch apply records must remain metadata-only as well. A future
+`/apply-proposal` record may store only pipy-owned `tool_request_id`,
+`turn_index`, terminal status and reason labels, duration, file and operation
+counts, closed operation labels, approval/sandbox labels and booleans,
+`workspace_mutated`, optional safe scope labels, and false storage booleans for
+patch text, diffs, file contents, prompts, model output, provider responses,
+and raw transcript import. It must not store raw proposal text, raw patch text,
+raw diffs, replacement file contents, target paths, prompts, model output,
+provider responses, provider-native payloads, raw provider metadata, raw tool
+payloads, stdout, stderr, command output, shell commands, auth material,
+secrets, credentials, API keys, tokens, private keys, or sensitive personal
+data. Verification remains manual for the first public write-capable command;
+the later verification-command boundary must record only its own safe
+metadata-only status if implemented.
 
 Provider-visible repo context is not archive content. The context policy in
 `docs/harness-spec.md` allows only bounded explicit file excerpts, bounded
@@ -745,6 +771,17 @@ native.provider.started              # label propose_file_repl
 native.provider.completed | native.provider.failed
 native.patch.proposal.recorded
 ```
+
+The selected future `/apply-proposal` command may add only one metadata-only
+patch apply event after a same-session pending proposal has been reviewed by
+the user and normalized into one pipy-owned one-file request:
+
+```text
+native.patch.apply.recorded
+```
+
+It must not add `native.verification.recorded`; verification stays outside the
+first public write-capable REPL command.
 
 REPL provider lifecycle payloads include provider turn indexes and labels from
 `NativeConversationState`, but they intentionally store

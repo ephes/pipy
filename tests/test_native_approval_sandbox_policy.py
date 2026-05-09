@@ -413,15 +413,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "useful enough to justify a narrow write-capable boundary design slice" in (
         compact_done
     )
-    assert "### Native write-capable REPL boundary decision" in next_slice
-    assert "smallest write-capable native shell boundary" in compact_next_slice
-    assert "`/apply-proposal`-style operation" in compact_next_slice
+    assert "### Native one-file `/apply-proposal` REPL command" in next_slice
+    assert "first public write-capable native shell boundary" in compact_next_slice
+    assert "/apply-proposal <workspace-relative-path>" in compact_next_slice
+    assert "same-session `/propose-file`" in compact_next_slice
     assert "Pi-like no-popup product posture" in compact_next_slice
-    assert "expected hashes for existing files" in compact_next_slice
-    assert "human-reviewed patch apply request" in compact_next_slice
-    assert "limited to one file and one reviewed operation" in compact_next_slice
-    assert "verification remains outside the REPL" in compact_next_slice
-    assert "implementing mutation" in compact_next_slice
+    assert "expected SHA-256 validation for existing files" in compact_next_slice
+    assert "`NativePatchApplyRequest`" in compact_next_slice
+    assert "one operation, one file" in compact_next_slice
+    assert "leave verification manual for this slice" in compact_next_slice
+    assert "do not run `just check`" in compact_next_slice
     assert "changing provider auth" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
@@ -440,7 +441,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Decide the narrow write-capable REPL boundary" in compact_near_term
+    assert "Native one-file `/apply-proposal` REPL command" in compact_near_term
+    assert "Native REPL verification command, likely `/verify just-check`" in (
+        compact_near_term
+    )
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
@@ -451,7 +455,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         "implemented, reviewed, and trialed with a real `openai-codex` provider turn"
         in compact_near_term
     )
-    assert "selected next step is deciding the narrow write-capable boundary" in compact_near_term
+    assert "One-file write-boundary decision gate: available now" in compact_near_term
+    assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -557,6 +562,77 @@ def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
         "sensitive personal data",
     ):
         assert forbidden in compact_proposal
+
+
+def test_selected_apply_proposal_repl_boundary_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    decision_section = markdown_section(spec, "Proposal Trial Outcome And Write Boundary Direction")
+    compact_decision = collapse_whitespace(decision_section)
+
+    assert "/apply-proposal <workspace-relative-path>" in compact_decision
+    assert "first public write-capable REPL boundary" in compact_decision
+    assert "same-session `/propose-file" in compact_decision
+    assert "exact same normalized workspace-relative path" in compact_decision
+    assert "pending in-memory proposal draft" in compact_decision
+    assert "`NativePatchApplyRequest`" in compact_decision
+    assert "`NativePatchApplyTool`" in compact_decision
+    assert "explicit slash command is the human review signal" in compact_decision
+    assert "should not add a visible approval popup" in compact_decision
+    assert "`native.patch.apply.recorded`" in compact_decision
+    assert "Verification remains manual" in compact_decision
+    assert "`/verify just-check`" in compact_decision
+    assert "must not run `just check`" in compact_decision
+
+    for required_check in (
+        "one pending proposal for one file and one operation",
+        "request_source=pipy-owned-human-reviewed",
+        "`mutating-workspace` sandbox policy",
+        "workspace read and filesystem mutation allowed",
+        "shell/network access forbidden",
+        "expected SHA-256 hashes",
+        "provider-selected paths",
+        "multi-file plans",
+        "multiple operations",
+    ):
+        assert required_check in compact_decision
+
+    for allowed_metadata in (
+        "`tool_request_id`",
+        "`turn_index`",
+        "status and reason labels",
+        "file and operation counts",
+        "closed operation labels",
+        "approval/sandbox labels",
+        "`workspace_mutated`",
+        "false storage booleans",
+    ):
+        assert allowed_metadata in compact_decision
+
+    for forbidden in (
+        "raw proposal text",
+        "raw patch text",
+        "raw diffs",
+        "replacement file contents",
+        "target paths",
+        "raw prompts",
+        "model output",
+        "provider responses",
+        "provider-native payloads",
+        "raw provider metadata",
+        "raw tool payloads",
+        "stdout",
+        "stderr",
+        "command output",
+        "shell commands",
+        "auth material",
+        "secrets",
+        "credentials",
+        "API keys",
+        "tokens",
+        "private keys",
+        "sensitive personal data",
+    ):
+        assert forbidden in compact_decision
 
 
 def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():

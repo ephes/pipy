@@ -213,6 +213,11 @@ command shares the same one-read bounded read path, forwards one excerpt plus
 change request only in memory to a provider turn labeled `propose_file_repl`,
 records only metadata-only proposal status when supported, and does not apply
 edits or run verification.
+The selected next native shell write boundary is planned as
+`/apply-proposal <workspace-relative-path>`: a same-session, one-file,
+one-operation apply of a human-reviewed proposal through pipy's existing
+metadata-only patch-apply boundary. It is not implemented yet, and
+verification remains manual until a separate verification command slice.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -267,7 +272,9 @@ and `/ask-file` commands plus the proposal-only `/propose-file` command; normal
 OpenAI, OpenAI Codex, and OpenRouter CLI runs still do not expose general
 model-selected tool use, provider-side tools, public patch-apply or
 verification controls, arbitrary shell execution, retries, streaming, provider
-registry, or raw transcript import. Native OAuth belongs only to the distinct
+registry, or raw transcript import. The selected public patch-apply shape is a
+future `/apply-proposal <workspace-relative-path>` command, and verification is
+reserved for a later command slice. Native OAuth belongs only to the distinct
 `openai-codex` subscription provider, not to the existing `openai` API-key
 provider.
 

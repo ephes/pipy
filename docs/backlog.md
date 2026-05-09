@@ -36,11 +36,12 @@ Use this page as a planning index:
 - Human-applied proposal trial: available now; the first real
   `openai-codex/gpt-5.2` trial produced a useful small change that was applied
   manually outside the REPL.
-- Public one-file apply boundary: next design target after the current
-  decision slice. It should stay human-reviewed, pipy-owned, one-file, and
+- Public one-file apply boundary: selected as the next implementation target
+  through `/apply-proposal <workspace-relative-path>`. It stays
+  human-reviewed, pipy-owned, same-session, one-file, one-operation, and
   metadata-only in the archive.
-- Public verification command: next-after-write target unless the write-boundary
-  decision deliberately keeps verification manual for one more slice.
+- Public verification command: later target after the first write-capable REPL
+  command. Verification remains manual for the first public write slice.
 - First pipy-applied pipy change: milestone after the public write and
   verification boundaries exist and still pass the privacy/archive invariants.
 
@@ -534,41 +535,71 @@ cycles stopping after a clean second review unless scope or risk changes.
   separately because `gpt-5.4`, `gpt-5.1-codex`, and
   `gpt-5.1-codex-mini` were rejected by this ChatGPT-backed Codex account while
   `gpt-5.2` succeeded.
+- Native write-capable REPL boundary decision after proposal trial: selected
+  `/apply-proposal <workspace-relative-path>` as the next implementation slice.
+  The command should be available only after a successful same-session
+  `/propose-file <workspace-relative-path> -- <change-request>` result for the
+  same path. It should consume one in-memory, pipy-owned, human-reviewed
+  proposal draft, normalize it into a `NativePatchApplyRequest`, and invoke the
+  existing `NativePatchApplyTool` boundary for exactly one file and one
+  operation. The explicit slash command is the Pi-like user review signal; no
+  visible approval popup should be added for normal interactive use. Safety
+  checks stay non-interactive: exact pending-proposal match, workspace-relative
+  target validation, ignored/generated-file rejection, bounded UTF-8 text,
+  secret-looking content rejection, `mutating-workspace` policy with only
+  workspace read and filesystem mutation allowed, no shell or network access,
+  and expected SHA-256 validation for existing files before mutation. The raw
+  proposal, replacement text, patch text, diffs, file contents, prompts, model
+  output, provider responses, command output, auth material, secrets,
+  credentials, tokens, private keys, and sensitive personal data must stay out
+  of JSONL, Markdown, catalog/search/inspect surfaces, and structured stdout.
+  Verification remains manual outside the first write-capable command; a
+  separate later `/verify just-check`-style REPL slice can wire the existing
+  `NativeVerificationRequest` boundary after the write path is reviewed.
 
 ## Next Slice
 
-### Native write-capable REPL boundary decision after proposal trial
+### Native one-file `/apply-proposal` REPL command
 
-Goal: choose the smallest write-capable native shell boundary justified by the
-successful proposal-only trial, without implementing mutation yet.
+Goal: implement the selected first public write-capable native shell boundary
+without broadening the REPL into a general tool loop.
 
-This is a decision and documentation slice. It should leave runtime behavior,
-public commands, provider calls, archive event shapes, and tests unchanged
-except for focused tests that pin the selected contract in docs when useful.
+The command shape is:
+
+```text
+/apply-proposal <workspace-relative-path>
+```
 
 Implementation points:
 
-- decide whether the next public write-capable command should be a constrained
-  `/apply-proposal`-style operation, a separate human-reviewed patch input, or
-  another narrower boundary
-- preserve the Pi-like no-popup product posture while keeping non-interactive
-  safety checks: explicit command syntax, workspace-relative paths,
-  ignored/generated-file rejection, bounded file sizes, secret-looking content
-  rejection, expected hashes for existing files, and metadata-only archives
-- decide how a proposal produced in one provider turn becomes a pipy-owned
-  human-reviewed patch apply request without archiving raw patch text, diffs,
-  file contents, prompts, model output, provider responses, or auth material
-- keep the first write boundary limited to one file and one reviewed operation
-  unless the decision records a stronger reason to broaden it
-- document how verification remains outside the REPL for the first write
-  boundary, or explicitly choose a later separate verification-command slice
-- update this backlog and the harness/session-storage docs only as needed to
-  keep the selected boundary and privacy invariants aligned
+- expose `/apply-proposal <workspace-relative-path>` only in the interactive
+  native REPL and only after a successful same-session `/propose-file` for the
+  exact same normalized workspace-relative path
+- consume one pending in-memory proposal draft; do not load raw proposal text,
+  patch text, diffs, provider output, or file contents from JSONL, Markdown,
+  catalog/search/inspect surfaces, or structured stdout
+- treat the explicit slash command as the human review signal in the Pi-like
+  no-popup product posture; do not add a visible approval prompt for normal
+  interactive use
+- normalize the reviewed draft into one `NativePatchApplyRequest` with
+  `request_source=pipy-owned-human-reviewed`, one operation, one file,
+  `mutating-workspace` sandbox policy, workspace read and filesystem mutation
+  allowed, and shell/network access forbidden
+- require expected SHA-256 validation for existing files before modify, delete,
+  or rename operations; fail closed on missing, malformed, or mismatched hashes
+- preserve the existing target and content checks: explicit command syntax,
+  workspace-relative paths, ignored/generated-file rejection, bounded UTF-8
+  replacement text, secret-looking content rejection, and no parent-directory
+  creation unless a later slice deliberately changes that policy
+- emit only the existing metadata-only `native.patch.apply.recorded` event and
+  keep the default stdout/stderr and `--native-output json` contracts aligned
+- leave verification manual for this slice; do not run `just check` or expose a
+  verification command from `/apply-proposal`
 
-Keep out of scope for this decision:
+Keep out of scope for this implementation:
 
-- implementing mutation, patch apply, verification, shell execution, or
-  provider-side tools
+- verification, shell execution, provider-side tools, or an automatic
+  post-apply provider turn
 - changing provider auth, token storage, provider routing, or model defaults
 - adding multi-file reads, multiple tool requests, automatic provider-selected
   filesystem paths, or a general model/tool loop
@@ -576,9 +607,10 @@ Keep out of scope for this decision:
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
 
-Decision output should name the next implementation slice explicitly, including
-the proposed command shape, safety checks, archive metadata boundaries, and the
-verification posture for the first write-capable shell path.
+The next-after slice should be a separate verification-command decision or
+implementation, likely a narrow `/verify just-check` command that reuses the
+existing `NativeVerificationRequest` boundary after the write command has been
+implemented, reviewed, and smoke-tested.
 
 ## Near Term
 
@@ -591,8 +623,11 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Decide the narrow write-capable REPL boundary after the successful
-   human-applied `/propose-file` trial.
+1. Implement the one-file `/apply-proposal <workspace-relative-path>` REPL
+   command after the successful human-applied `/propose-file` trial and this
+   boundary decision.
+2. Add a separate verification command, likely `/verify just-check`, after the
+   write path is implemented and reviewed.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -610,8 +645,9 @@ verification, expose provider-side tools, or support a general model/tool loop.
 The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented, reviewed, and trialed with a real `openai-codex` provider turn;
-the selected next step is deciding the narrow write-capable boundary, while the
-broader public mutation and tool-loop boundaries remain deferred.
+the selected next step is the narrow same-session `/apply-proposal
+<workspace-relative-path>` implementation, while verification and broader
+tool-loop boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains
@@ -629,7 +665,9 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native write-capable REPL boundary decision after proposal trial.
+1. Native one-file `/apply-proposal` REPL command.
+2. Native REPL verification command, likely `/verify just-check`, after the
+   write command is reviewed.
 
 Foundation gates toward an interactive shell:
 
@@ -674,6 +712,10 @@ Foundation gates toward an interactive shell:
   proposal turn produced a useful tiny readability change that was manually
   applied outside the REPL, confirming that the workflow is ready to inform a
   later write-capable boundary.
+- One-file write-boundary decision gate: available now. The selected first
+  public mutation command is `/apply-proposal <workspace-relative-path>`,
+  limited to a same-session human-reviewed proposal for one file and one
+  operation, with metadata-only archives and manual verification.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
@@ -683,9 +725,9 @@ Self-bootstrap readiness gates remain historical context for supervised writes:
 - Human-applied patch trial: selected through the existing `/propose-file`
   command. No public write command is added for this gate, and independent
   review is still required before trusting the result.
-- Pipy-applied patch trial: available after the explicit patch-apply slice,
-  with conservative file scope, no arbitrary shell execution, and metadata-only
-  archives.
+- Pipy-applied patch trial: next implementation target through
+  `/apply-proposal <workspace-relative-path>`, with conservative one-file
+  scope, no arbitrary shell execution, and metadata-only archives.
 - Verified patch trial: exercised by the first supervised self-bootstrap trial
   using the allowlisted verification-command boundary, starting with `just
   check` and recording only safe status, exit-code, duration, and label

@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-40 native propose-file real-provider trial
+Status: slice-41 native write-capable REPL boundary decision
 
 <style>
 .mermaid,
@@ -962,16 +962,67 @@ The trial also proved two safety/product details:
   and defaults need a separate policy slice rather than being inferred from
   names
 
-The selected follow-up is a decision slice for the smallest write-capable REPL
-boundary. It should decide how a proposal becomes a pipy-owned human-reviewed
-patch apply request without archiving raw patch text, diffs, file contents,
-prompts, model output, provider responses, or auth material. The first public
-write boundary should stay limited to one file and one reviewed operation
-unless the decision records a stronger reason to broaden it.
+The selected first public write-capable REPL boundary is a constrained
+same-session apply command:
 
-The next boundary should continue to reuse:
+```text
+/apply-proposal <workspace-relative-path>
+```
 
-- the read-only workspace sandbox policy without visible approval prompts
+The command is deliberately smaller than a general `/apply` command. It may be
+accepted only after a successful same-session `/propose-file
+<workspace-relative-path> -- <change-request>` for the exact same normalized
+workspace-relative path. It consumes one pending in-memory proposal draft that
+the user has reviewed in the terminal, normalizes that draft into a pipy-owned
+`NativePatchApplyRequest`, invokes the existing `NativePatchApplyTool`
+boundary, and then clears the pending proposal state. It must not look up raw
+proposal text, patch text, diffs, provider output, file contents, or prompts
+from JSONL, Markdown, catalog/search/inspect surfaces, structured stdout, or
+any other archive surface.
+
+The explicit slash command is the human review signal for the normal Pi-like
+interactive shell posture. The first public write path should not add a
+visible approval popup. Safety remains non-interactive and fail-closed:
+
+- accept only one pending proposal for one file and one operation
+- require the apply path to match the proposal path exactly after
+  workspace-relative normalization
+- require `request_source=pipy-owned-human-reviewed`
+- use `mutating-workspace` sandbox policy with workspace read and filesystem
+  mutation allowed and shell/network access forbidden
+- validate workspace-relative targets, ignored/generated-file rejection, file
+  type, UTF-8 replacement text bounds, and secret-looking replacement content
+- require expected SHA-256 hashes for existing files before modify, delete, or
+  rename operations, and distinguish missing, malformed, and mismatched hashes
+- reject provider-selected paths, multi-file plans, multiple operations,
+  shell-looking data, network access, provider-side tools, and another provider
+  turn
+
+The first public apply command uses the existing metadata-only
+`native.patch.apply.recorded` archive event. JSONL, Markdown,
+catalog/search/inspect surfaces, default stdout, and `--native-output json`
+may record only the existing safe apply metadata: pipy-owned
+`tool_request_id`, `turn_index`, status and reason labels, duration, file and
+operation counts, closed operation labels, approval/sandbox labels and
+booleans, `workspace_mutated`, optional safe scope labels, and false storage
+booleans. They must not contain raw proposal text, raw patch text, raw diffs,
+replacement file contents, target paths, raw prompts, model output, provider
+responses, provider-native payloads, raw provider metadata, raw tool payloads,
+stdout, stderr, command output, shell commands, auth material, secrets,
+credentials, API keys, tokens, private keys, or sensitive personal data.
+
+Verification remains manual for this first public write-capable REPL slice.
+The selected next-after boundary is a separately named verification command,
+likely `/verify just-check`, that reuses the existing
+`NativeVerificationRequest` boundary after `/apply-proposal` has been
+implemented, reviewed, and smoked. `/apply-proposal` itself must not run
+`just check`, execute shell commands, or emit `native.verification.recorded`.
+
+The next implementation boundary should continue to reuse the proposal path's
+read-side constraints and the apply path's metadata contracts:
+
+- the read-only workspace sandbox policy and no-popup posture used by the prior
+  `/propose-file` step
 - the explicit-file-excerpt target validation, ignored/generated-file checks,
   secret-looking content rejection, byte and line limits, and one-read
   per-session limit
@@ -982,15 +1033,12 @@ The next boundary should continue to reuse:
 - the default stdout/stderr split and metadata-only archive, Markdown, catalog,
   and structured-output contracts
 
-The next decision deliberately does not expose `/apply`, `/apply-file`,
-`/verify`, automatic patch application, shell execution, provider-side tools,
-multiple file reads, multiple tool requests, unbounded turns, persistent
-history, TUI/RPC behavior, retries, fallback, provider routing, or OAuth
-changes. A future write-capable public REPL command must still have its own
-named implementation slice with human-reviewed request data, the chosen
-Pi-like safety posture, a mutating-workspace sandbox policy, metadata-only
-archive events, focused tests, and an independent review before it is treated
-as complete.
+The implementation slice deliberately does not expose generic `/apply`,
+`/apply-file`, automatic patch application without a reviewed same-session
+proposal, shell execution, provider-side tools, multiple file reads, multiple
+tool requests, unbounded turns, persistent history, TUI/RPC behavior, retries,
+fallback, provider routing, OAuth changes, or verification execution. It needs
+focused tests and an independent review before it is treated as complete.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2353,14 +2401,17 @@ metadata object, emits at most one metadata-only
 verification, shell execution, network access, provider-side tools, multiple
 tool requests, or a general model/tool loop.
 
-The follow-up REPL boundary decision keeps that public shell surface
-proposal-only. Run `/propose-file` against a tiny docs or test target,
-preferably through `openai-codex` after manual login smoke and optionally with
-OpenRouter when `OPENROUTER_API_KEY` is available, let a human apply or
-translate the suggested change outside the REPL, verify the result, and
-evaluate whether a later write-capable REPL command is justified. Public patch
-application, verification commands, and shell execution remain deferred to
-separately named slices.
+The follow-up REPL boundary decision selected
+`/apply-proposal <workspace-relative-path>` as the first public write-capable
+shell command. It should consume only a same-session, in-memory, human-reviewed
+proposal for the exact same normalized path, normalize that draft into one
+`NativePatchApplyRequest`, apply exactly one operation to one file through the
+existing mutating-workspace boundary, and record only metadata-only
+`native.patch.apply.recorded` status. Verification remains manual for that
+first write slice; a separate later `/verify just-check`-style command can
+reuse the existing verification boundary. Generic patch application,
+verification execution, shell execution, provider-side tools, and broader tool
+loops remain deferred to separately named slices.
 
 ## Deferred Work
 
