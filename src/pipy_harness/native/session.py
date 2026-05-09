@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from math import isfinite
+from pathlib import PurePosixPath
 from typing import Iterable, Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
@@ -22,6 +24,8 @@ from pipy_harness.native.models import (
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     NativePatchApplyRequest,
+    NativePatchApplyOperation,
+    NativePatchApplyOperationRequest,
     NativePatchProposal,
     NativePatchProposalOperation,
     NativePatchProposalReason,
@@ -193,6 +197,7 @@ MODEL_REPL_COMMAND = "/model"
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
+APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
     LOGIN_REPL_COMMAND: "/login [openai-codex]",
@@ -201,10 +206,14 @@ _REPL_COMMAND_USAGE = {
     READ_ONLY_REPL_COMMAND: "/read <workspace-relative-path>",
     ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
     PROPOSE_FILE_REPL_COMMAND: "/propose-file <workspace-relative-path> -- <change-request>",
+    APPLY_PROPOSAL_REPL_COMMAND: "/apply-proposal <workspace-relative-path>",
     "/exit": "/exit",
     "/quit": "/quit",
 }
 _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
+_REPL_APPLY_PROPOSAL_FENCE = "pipy-apply-proposal-v1"
+_REPL_APPLY_PROPOSAL_REPLACEMENT_START = "--- replacement_text ---"
+_REPL_APPLY_PROPOSAL_REPLACEMENT_END = "--- end_replacement_text ---"
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +240,14 @@ class _ParsedReadOnlyToolFixture:
 @dataclass(frozen=True, slots=True)
 class _ParsedPatchProposal:
     proposal: NativePatchProposal | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingReplPatchApplyDraft:
+    workspace_relative_path: str
+    operation: NativePatchApplyOperation
+    expected_sha256: str | None = None
+    new_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -632,6 +649,7 @@ class NativeNoToolReplSession:
         ask_file_command_used = False
         propose_file_command_used = False
         provider_visible_context_used = False
+        pending_apply_draft: _PendingReplPatchApplyDraft | None = None
 
         while conversation_state.turn_count < self.max_turns:
             try:
@@ -654,12 +672,14 @@ class NativeNoToolReplSession:
             if not command:
                 continue
             if _is_repl_command_invocation(command, HELP_REPL_COMMAND):
+                pending_apply_draft = None
                 if command == HELP_REPL_COMMAND:
                     _print_repl_command_help(error_stream)
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, HELP_REPL_COMMAND)
                 continue
             if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
+                pending_apply_draft = None
                 provider_name = command[len(LOGIN_REPL_COMMAND) :].strip()
                 if not provider_name:
                     print(
@@ -677,6 +697,7 @@ class NativeNoToolReplSession:
                 print(message, file=error_stream)
                 continue
             if _is_repl_command_invocation(command, LOGOUT_REPL_COMMAND):
+                pending_apply_draft = None
                 provider_name = command[len(LOGOUT_REPL_COMMAND) :].strip()
                 if not provider_name:
                     print(
@@ -695,6 +716,7 @@ class NativeNoToolReplSession:
                 )
                 continue
             if _is_repl_command_invocation(command, MODEL_REPL_COMMAND):
+                pending_apply_draft = None
                 model_reference = command[len(MODEL_REPL_COMMAND) :].strip()
                 if not model_reference:
                     _print_repl_model_status(error_stream, provider_state)
@@ -716,6 +738,7 @@ class NativeNoToolReplSession:
                 _print_repl_command_usage_diagnostic(error_stream, exit_command)
                 continue
             if _is_repl_command_invocation(command, READ_ONLY_REPL_COMMAND):
+                pending_apply_draft = None
                 if read_command_used:
                     print(
                         "pipy: read command skipped: read_command_limit_reached.",
@@ -733,6 +756,7 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, ASK_FILE_REPL_COMMAND):
                 parsed_ask_file = _parse_repl_ask_file_command(command)
+                pending_apply_draft = None
                 if parsed_ask_file is None:
                     _print_repl_command_usage_diagnostic(error_stream, ASK_FILE_REPL_COMMAND)
                     continue
@@ -788,6 +812,7 @@ class NativeNoToolReplSession:
                 final_usage = _merge_provider_usage(final_usage, provider_usage)
                 provider_visible_context_used = True
                 if provider_result.status != HarnessStatus.SUCCEEDED:
+                    pending_apply_draft = None
                     status = provider_result.status
                     exit_code = 130 if status == HarnessStatus.ABORTED else 1
                     error_type = _safe_optional_text(provider_result.error_type)
@@ -799,6 +824,7 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, PROPOSE_FILE_REPL_COMMAND):
                 parsed_propose_file = _parse_repl_propose_file_command(command)
+                pending_apply_draft = None
                 if parsed_propose_file is None:
                     _print_repl_command_usage_diagnostic(error_stream, PROPOSE_FILE_REPL_COMMAND)
                     continue
@@ -809,6 +835,7 @@ class NativeNoToolReplSession:
                     )
                     continue
                 raw_target, change_request = parsed_propose_file
+                normalized_target = _normalize_repl_workspace_relative_path(raw_target)
                 current_run_input, safe_context = _current_repl_turn_state(
                     provider_state,
                     run_input,
@@ -845,6 +872,7 @@ class NativeNoToolReplSession:
                         change_request,
                         observation,
                         read_only_result,
+                        normalized_workspace_relative_path=normalized_target or raw_target,
                     ),
                     provider_turn=provider_turn,
                     tool_observation=observation,
@@ -861,6 +889,12 @@ class NativeNoToolReplSession:
                     exit_reason = "provider_failed"
                     break
                 parsed_proposal = _parse_patch_proposal(provider_result)
+                pending_apply_draft = _pending_repl_apply_draft(
+                    provider_result,
+                    parsed_proposal.proposal,
+                    read_only_result,
+                    normalized_workspace_relative_path=normalized_target or raw_target,
+                )
                 if parsed_proposal.proposal is not None:
                     _emit_patch_proposal_recorded(
                         event_sink,
@@ -870,10 +904,32 @@ class NativeNoToolReplSession:
                 if provider_result.final_text:
                     print(provider_result.final_text, file=output_stream, flush=True)
                 continue
+            if _is_repl_command_invocation(command, APPLY_PROPOSAL_REPL_COMMAND):
+                raw_target = command[len(APPLY_PROPOSAL_REPL_COMMAND) :].strip()
+                if not raw_target or _REPL_FILE_CONTEXT_SEPARATOR_PATTERN.search(raw_target) is not None:
+                    pending_apply_draft = None
+                    _print_repl_command_usage_diagnostic(error_stream, APPLY_PROPOSAL_REPL_COMMAND)
+                    continue
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                )
+                pending_apply_draft = _handle_repl_apply_proposal_command(
+                    raw_target,
+                    pending_apply_draft,
+                    current_run_input,
+                    event_sink,
+                    safe_context,
+                    error_stream=error_stream,
+                )
+                continue
             if command.startswith("/"):
+                pending_apply_draft = None
                 _print_repl_command_usage_diagnostic(error_stream, None)
                 continue
 
+            pending_apply_draft = None
             provider_turn_label = (
                 INITIAL_PROVIDER_TURN_LABEL
                 if conversation_state.provider_turn_count == 0
@@ -990,6 +1046,70 @@ def _handle_repl_read_command(
     if not read_only_result.excerpt.text.endswith("\n"):
         print(file=output_stream, flush=True)
     return outcome.command_consumed
+
+
+def _handle_repl_apply_proposal_command(
+    raw_target: str,
+    pending_draft: _PendingReplPatchApplyDraft | None,
+    run_input: NativeRunInput,
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    *,
+    error_stream: TextIO,
+) -> _PendingReplPatchApplyDraft | None:
+    normalized_target = _normalize_repl_workspace_relative_path(raw_target)
+    if normalized_target is None:
+        print(
+            "pipy: apply-proposal command skipped: unsafe_repl_apply_target; pending proposal cleared.",
+            file=error_stream,
+        )
+        return None
+    if pending_draft is None:
+        print("pipy: apply-proposal command skipped: no_pending_proposal.", file=error_stream)
+        return None
+    if pending_draft.workspace_relative_path != normalized_target:
+        print(
+            "pipy: apply-proposal command skipped: proposal_path_mismatch; pending proposal cleared.",
+            file=error_stream,
+        )
+        return None
+
+    identity = NativeToolRequestIdentity.current_noop()
+    try:
+        request = NativePatchApplyRequest(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            operations=(
+                NativePatchApplyOperationRequest(
+                    operation=pending_draft.operation,
+                    workspace_relative_path=pending_draft.workspace_relative_path,
+                    expected_sha256=pending_draft.expected_sha256,
+                    new_text=pending_draft.new_text,
+                ),
+            ),
+            scope_label="interactive_apply_proposal",
+        )
+        gate = NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.ALLOWED,
+            reason_label="explicit_user_command",
+        )
+    except ValueError:
+        print(
+            "pipy: apply-proposal command skipped: unsafe_apply_request; pending proposal cleared.",
+            file=error_stream,
+        )
+        return None
+
+    try:
+        result = NativePatchApplyTool(run_input.cwd).invoke(request, gate)
+    except Exception as exc:
+        result = _failed_patch_apply_result(request, gate, exc)
+    _emit_patch_apply_recorded(event_sink, safe_context, result)
+    print(
+        f"pipy: apply-proposal command {result.status.value}: {result.reason_label.value}.",
+        file=error_stream,
+    )
+    return None
 
 
 def _run_input_with_selection(
@@ -1162,6 +1282,16 @@ def _parse_repl_propose_file_command(command: str) -> tuple[str, str] | None:
     return _parse_repl_file_context_command(command, PROPOSE_FILE_REPL_COMMAND)
 
 
+def _normalize_repl_workspace_relative_path(raw_target: str) -> str | None:
+    try:
+        NativeExplicitFileExcerptTarget(workspace_relative_path=raw_target)
+        normalized = PurePosixPath(raw_target).as_posix()
+        NativeExplicitFileExcerptTarget(workspace_relative_path=normalized)
+    except ValueError:
+        return None
+    return normalized
+
+
 def _parse_repl_file_context_command(command: str, command_name: str) -> tuple[str, str] | None:
     body = command[len(command_name) :].strip()
     if _REPL_FILE_CONTEXT_SEPARATOR_PATTERN.search(body) is None:
@@ -1172,6 +1302,142 @@ def _parse_repl_file_context_command(command: str, command_name: str) -> tuple[s
     if not raw_target or not question:
         return None
     return raw_target, question
+
+
+def _pending_repl_apply_draft(
+    provider_result: ProviderResult,
+    proposal: NativePatchProposal | None,
+    read_only_result: NativeExplicitFileExcerptResult,
+    *,
+    normalized_workspace_relative_path: str,
+) -> _PendingReplPatchApplyDraft | None:
+    if proposal is not None:
+        if proposal.status != NativePatchProposalStatus.PROPOSED:
+            return None
+        if proposal.file_count != 1 or proposal.operation_count != 1:
+            return None
+        if len(proposal.operation_labels) != 1:
+            return None
+
+    draft = _parse_repl_apply_proposal_text(
+        provider_result.final_text,
+        read_only_result,
+        normalized_workspace_relative_path=normalized_workspace_relative_path,
+    )
+    if draft is None:
+        return None
+    if proposal is not None and proposal.operation_labels:
+        proposal_operation = NativePatchApplyOperation(proposal.operation_labels[0].value)
+        if proposal_operation != draft.operation:
+            return None
+    return draft
+
+def _parse_repl_apply_proposal_text(
+    final_text: str | None,
+    read_only_result: NativeExplicitFileExcerptResult,
+    *,
+    normalized_workspace_relative_path: str,
+) -> _PendingReplPatchApplyDraft | None:
+    if not final_text or read_only_result.excerpt is None:
+        return None
+    block = _extract_repl_apply_proposal_block(final_text)
+    if block is None:
+        return None
+
+    headers, replacement_text, saw_replacement = _parse_repl_apply_proposal_block(block)
+    if headers is None:
+        return None
+    operation_value = headers.get("operation")
+    if operation_value is None:
+        return None
+    try:
+        operation = NativePatchApplyOperation(operation_value)
+    except ValueError:
+        return None
+    if operation not in {NativePatchApplyOperation.MODIFY, NativePatchApplyOperation.DELETE}:
+        return None
+
+    draft_path = headers.get("workspace_relative_path")
+    if draft_path is None:
+        return None
+    normalized_draft_path = _normalize_repl_workspace_relative_path(draft_path)
+    if normalized_draft_path != normalized_workspace_relative_path:
+        return None
+
+    expected_sha256 = hashlib.sha256(read_only_result.excerpt.text.encode("utf-8")).hexdigest()
+    header_sha256 = headers.get("expected_sha256")
+    if header_sha256 is not None and header_sha256 != expected_sha256:
+        return None
+
+    if operation == NativePatchApplyOperation.MODIFY:
+        if not saw_replacement or replacement_text is None:
+            return None
+        return _PendingReplPatchApplyDraft(
+            workspace_relative_path=normalized_workspace_relative_path,
+            operation=operation,
+            expected_sha256=expected_sha256,
+            new_text=replacement_text,
+        )
+    if saw_replacement:
+        return None
+    return _PendingReplPatchApplyDraft(
+        workspace_relative_path=normalized_workspace_relative_path,
+        operation=operation,
+        expected_sha256=expected_sha256,
+    )
+
+
+def _extract_repl_apply_proposal_block(final_text: str) -> str | None:
+    pattern = re.compile(
+        rf"```{re.escape(_REPL_APPLY_PROPOSAL_FENCE)}[ \t]*\n(?P<body>.*?)\n```",
+        re.DOTALL,
+    )
+    match = pattern.search(final_text)
+    if match is None:
+        return None
+    return match.group("body")
+
+
+def _parse_repl_apply_proposal_block(
+    block: str,
+) -> tuple[dict[str, str] | None, str | None, bool]:
+    headers: dict[str, str] = {}
+    replacement_parts: list[str] = []
+    in_replacement = False
+    saw_replacement = False
+    replacement_closed = False
+    for line in block.splitlines(keepends=True):
+        stripped = line.strip()
+        if not in_replacement:
+            if stripped == _REPL_APPLY_PROPOSAL_REPLACEMENT_START:
+                in_replacement = True
+                saw_replacement = True
+                continue
+            if not stripped:
+                continue
+            if ":" not in line:
+                return None, None, False
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key not in {"operation", "workspace_relative_path", "expected_sha256"}:
+                return None, None, False
+            if key in headers:
+                return None, None, False
+            if not value:
+                return None, None, False
+            headers[key] = value
+            continue
+
+        if stripped == _REPL_APPLY_PROPOSAL_REPLACEMENT_END:
+            replacement_closed = True
+            in_replacement = False
+            continue
+        replacement_parts.append(line)
+
+    if saw_replacement and not replacement_closed:
+        return None, None, False
+    return headers, "".join(replacement_parts) if saw_replacement else None, saw_replacement
 
 
 def _build_system_prompt() -> str:
@@ -2150,14 +2416,27 @@ def _build_repl_propose_file_user_prompt(
     change_request: str,
     observation: NativeToolObservation,
     read_only_result: NativeExplicitFileExcerptResult,
+    *,
+    normalized_workspace_relative_path: str,
 ) -> str:
     if read_only_result.excerpt is None:
         raise ValueError("propose-file provider prompt requires an in-memory excerpt")
     excerpt = read_only_result.excerpt
+    expected_sha256 = hashlib.sha256(excerpt.text.encode("utf-8")).hexdigest()
     return (
         "Propose metadata for a possible change using this bounded read-only context. "
         "Do not apply edits, write files, run commands, request tools, or assume access to more file content. "
-        "If you return structured proposal metadata, use only the pipy_native_patch_proposal metadata key.\n\n"
+        "If you return structured proposal metadata, use only the pipy_native_patch_proposal metadata key. "
+        "If the requested change is safe and can be represented as one whole-file modify or delete of the "
+        "explicit file, include exactly one visible fenced apply draft using this format:\n"
+        f"```{_REPL_APPLY_PROPOSAL_FENCE}\n"
+        "operation: modify\n"
+        f"workspace_relative_path: {normalized_workspace_relative_path}\n"
+        f"expected_sha256: {expected_sha256}\n"
+        f"{_REPL_APPLY_PROPOSAL_REPLACEMENT_START}\n"
+        "<complete replacement file text>\n"
+        f"{_REPL_APPLY_PROPOSAL_REPLACEMENT_END}\n"
+        "```\n\n"
         "Change request:\n"
         f"{change_request}\n\n"
         "Sanitized native tool observation metadata: "

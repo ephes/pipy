@@ -13,10 +13,11 @@ Pipy has crossed from capture-only infrastructure into a small native product
 runtime. The current native shell can authenticate to the `openai-codex`
 provider, switch models, make ordinary no-tool provider turns, read one
 explicit workspace-relative file excerpt, ask a provider about that excerpt,
-and request a proposal-only change for that excerpt through `/propose-file`.
-The public shell still cannot apply edits, run verification, execute shell
-commands, request provider-side tools, read multiple files per session, or run
-a general model/tool loop.
+request a proposal-only change for that excerpt through `/propose-file`, and
+apply one same-session reviewed proposal through `/apply-proposal`. The public
+shell still cannot run verification, execute shell commands, request
+provider-side tools, read multiple files per session, or run a general
+model/tool loop.
 
 Use this page as a planning index:
 
@@ -36,12 +37,12 @@ Use this page as a planning index:
 - Human-applied proposal trial: available now; the first real
   `openai-codex/gpt-5.2` trial produced a useful small change that was applied
   manually outside the REPL.
-- Public one-file apply boundary: selected as the next implementation target
-  through `/apply-proposal <workspace-relative-path>`. It stays
-  human-reviewed, pipy-owned, same-session, one-file, one-operation, and
-  metadata-only in the archive.
-- Public verification command: later target after the first write-capable REPL
-  command. Verification remains manual for the first public write slice.
+- Public one-file apply boundary: available now through `/apply-proposal
+  <workspace-relative-path>`. It stays human-reviewed, pipy-owned,
+  same-session, one-file, one-operation, and metadata-only in the archive.
+- Public verification command: selected as the next implementation target.
+  Verification remains manual until a separate `/verify just-check`-style
+  command is implemented.
 - First pipy-applied pipy change: milestone after the public write and
   verification boundaries exist and still pass the privacy/archive invariants.
 
@@ -556,50 +557,58 @@ cycles stopping after a clean second review unless scope or risk changes.
   Verification remains manual outside the first write-capable command; a
   separate later `/verify just-check`-style REPL slice can wire the existing
   `NativeVerificationRequest` boundary after the write path is reviewed.
+- Native one-file `/apply-proposal` REPL command: the interactive native shell
+  now accepts `/apply-proposal <workspace-relative-path>` only after a
+  successful same-session `/propose-file` for the exact same normalized
+  workspace-relative path. The command consumes one pending in-memory visible
+  proposal draft, builds one `NativePatchApplyRequest` with a single
+  whole-file operation, uses a pipy-owned human-reviewed allow gate and
+  `mutating-workspace` policy, invokes `NativePatchApplyTool`, emits only the
+  existing metadata-only `native.patch.apply.recorded` event, and clears the
+  pending draft after any apply attempt, mismatch, unsupported draft, provider
+  failure, local REPL command, unsupported slash command, or later
+  provider-visible turn. Visible drafts without structured proposal metadata
+  may enable a same-session apply, but they do not synthesize a
+  `native.patch.proposal.recorded` event. It does not call a provider, run
+  verification, execute shell commands, invoke provider-side tools, support
+  multi-file writes, or read proposal data back from archives.
 
 ## Next Slice
 
-### Native one-file `/apply-proposal` REPL command
+### Native REPL verification command, likely `/verify just-check`
 
-Goal: implement the selected first public write-capable native shell boundary
-without broadening the REPL into a general tool loop.
+Goal: add the first public verification command after the reviewed
+`/apply-proposal` write boundary, without exposing arbitrary shell execution or
+a general tool loop.
 
-The command shape is:
+Likely command shape:
 
 ```text
-/apply-proposal <workspace-relative-path>
+/verify just-check
 ```
 
 Implementation points:
 
-- expose `/apply-proposal <workspace-relative-path>` only in the interactive
-  native REPL and only after a successful same-session `/propose-file` for the
-  exact same normalized workspace-relative path
-- consume one pending in-memory proposal draft; do not load raw proposal text,
-  patch text, diffs, provider output, or file contents from JSONL, Markdown,
-  catalog/search/inspect surfaces, or structured stdout
-- treat the explicit slash command as the human review signal in the Pi-like
-  no-popup product posture; do not add a visible approval prompt for normal
-  interactive use
-- normalize the reviewed draft into one `NativePatchApplyRequest` with
-  `request_source=pipy-owned-human-reviewed`, one operation, one file,
-  `mutating-workspace` sandbox policy, workspace read and filesystem mutation
-  allowed, and shell/network access forbidden
-- require expected SHA-256 validation for existing files before modify, delete,
-  or rename operations; fail closed on missing, malformed, or mismatched hashes
-- preserve the existing target and content checks: explicit command syntax,
-  workspace-relative paths, ignored/generated-file rejection, bounded UTF-8
-  replacement text, secret-looking content rejection, and no parent-directory
-  creation unless a later slice deliberately changes that policy
-- emit only the existing metadata-only `native.patch.apply.recorded` event and
-  keep the default stdout/stderr and `--native-output json` contracts aligned
-- leave verification manual for this slice; do not run `just check` or expose a
-  verification command from `/apply-proposal`
+- expose one explicit REPL command that maps only the safe label `just-check`
+  to the internal `just check` argv
+- accept it only after a successful same-session `/apply-proposal` mutation
+  when that state is available, or document a narrower accepted trigger before
+  implementation
+- reuse the existing `NativeVerificationRequest`, `NativeVerificationTool`, and
+  `native.verification.recorded` metadata-only boundary
+- keep stdout, stderr, command output, shell text, prompts, model output,
+  provider responses, auth material, secrets, credentials, tokens, private
+  keys, and sensitive personal data out of JSONL, Markdown,
+  catalog/search/inspect surfaces, and structured stdout
+- preserve the read-only workspace verification sandbox policy with workspace
+  read and allowlisted shell execution only for the internal command mapping,
+  filesystem mutation and network access forbidden
+- do not add provider-side tools, provider-selected commands, arbitrary shell
+  execution, automatic provider follow-up turns, retries, streaming, or
+  fallback
 
 Keep out of scope for this implementation:
 
-- verification, shell execution, provider-side tools, or an automatic
-  post-apply provider turn
 - changing provider auth, token storage, provider routing, or model defaults
 - adding multi-file reads, multiple tool requests, automatic provider-selected
   filesystem paths, or a general model/tool loop
@@ -607,10 +616,8 @@ Keep out of scope for this implementation:
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
 
-The next-after slice should be a separate verification-command decision or
-implementation, likely a narrow `/verify just-check` command that reuses the
-existing `NativeVerificationRequest` boundary after the write command has been
-implemented, reviewed, and smoke-tested.
+The `/apply-proposal` command should not be broadened while implementing
+verification.
 
 ## Near Term
 
@@ -623,11 +630,10 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Implement the one-file `/apply-proposal <workspace-relative-path>` REPL
-   command after the successful human-applied `/propose-file` trial and this
-   boundary decision.
+1. Review and smoke the implemented one-file `/apply-proposal
+   <workspace-relative-path>` REPL command.
 2. Add a separate verification command, likely `/verify just-check`, after the
-   write path is implemented and reviewed.
+   write path review is clean.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -640,14 +646,16 @@ with a whitespace-delimited `--` separator sharing the same one-read limit.
 Explicit read/context commands do not display approval popups. Auth/model
 commands and malformed or unsupported slash commands print stderr diagnostics
 without provider/tool execution, read-limit consumption, or raw command
-archiving, but the REPL still does not apply patches, execute commands, run
-verification, expose provider-side tools, or support a general model/tool loop.
+archiving. The REPL can now apply exactly one same-session reviewed proposal
+through `/apply-proposal <workspace-relative-path>`, but it still does not
+execute commands, run verification, expose provider-side tools, or support a
+general model/tool loop.
 The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented, reviewed, and trialed with a real `openai-codex` provider turn;
-the selected next step is the narrow same-session `/apply-proposal
-<workspace-relative-path>` implementation, while verification and broader
-tool-loop boundaries remain deferred.
+the first public write boundary is implemented as the narrow same-session
+`/apply-proposal <workspace-relative-path>` command, while verification and
+broader tool-loop boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains

@@ -787,6 +787,9 @@ the closed label `ask_file_repl`. `/propose-file
 <workspace-relative-path> -- <change-request>` uses the same bounded
 explicit-file-excerpt path as `/ask-file`, then sends one in-memory excerpt
 plus one change request to one provider turn labeled `propose_file_repl`.
+`/apply-proposal <workspace-relative-path>` performs no provider turn; it
+consumes only one pending in-memory proposal draft from the same REPL session
+and exact same normalized workspace-relative path.
 These turn indexes and labels are pipy-owned; they are not copied from provider
 metadata and are not derived from prompts, model output, filesystem paths,
 stdout, stderr, secrets, or credentials.
@@ -795,11 +798,12 @@ The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
 `/read` excerpt text print to stdout, while prompts, help, auth/model status,
 malformed-command usage diagnostics, unsupported slash-command diagnostics,
-finalization, errors, interrupt handling, command-skip messages, and the
-turn-limit notice stay on stderr. `/model` with no arguments prints the
-current selection and conservative configured-model information to stderr
-only. `/ask-file` and `/propose-file` never print their raw excerpts directly.
-This is separate from one-shot
+finalization, errors, interrupt handling, apply status, command-skip messages,
+and the turn-limit notice stay on stderr. `/model` with no arguments prints
+the current selection and conservative configured-model information to stderr
+only. `/ask-file` and `/propose-file` never print their raw excerpts directly;
+`/apply-proposal` does not print raw replacement text or diffs. This is
+separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
@@ -841,6 +845,8 @@ REPL archives reuse existing safe lifecycle event names:
   `/propose-file` provider visibility only
 - `native.patch.proposal.recorded` for the proposal-only `/propose-file`
   boundary only
+- `native.patch.apply.recorded` for successful, skipped, or failed
+  `/apply-proposal` attempts that reach the patch-apply tool
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
@@ -852,6 +858,10 @@ count, read-command-used state, ask-file-command-used state, and an exit reason
 label. Tool lifecycle payloads remain metadata-only and may include safe
 read-tool status, reason labels, approval/sandbox labels, capability booleans,
 counts, source labels, path hashes, and storage booleans.
+Patch-apply payloads remain the existing metadata-only apply shape with safe
+status/reason labels, operation counts and labels, approval/sandbox labels,
+capability booleans, workspace mutation state, optional safe scope labels, and
+false storage booleans.
 JSONL, Markdown, catalog/search/inspect surfaces, and one-shot
 `--native-output json` must still omit raw prompts, model output, provider
 responses, provider-native payloads, provider metadata, raw approval prompts,
@@ -898,10 +908,20 @@ content. If the proposal is supported, the REPL emits at most one
 proposal payload allowlist. If proposal data is missing, unsafe, or
 unsupported, the safe outcome is no proposal event or one skipped proposal
 event with safe reason labels and zero counts. The command hard-stops after the
-provider result and proposal parse; it must not apply edits, mutate files, run
-verification, run shell commands, request network access, invoke provider-side
-tools, create another provider turn, or persist provider-visible context for
-later turns.
+provider result and proposal parse; it must not apply edits by itself, mutate
+files, run verification, run shell commands, request network access, invoke
+provider-side tools, create another provider turn, or persist provider-visible
+context for later turns. When provider final text contains a strict visible
+`pipy-apply-proposal-v1` block for one whole-file modify or delete of the
+explicit file, the REPL may keep that draft in memory only for a later
+same-session `/apply-proposal` command. The visible draft is the human review
+surface; the archive event remains metadata-only and does not store the draft,
+replacement text, diff, path, prompt, or provider output. A visible draft
+without structured proposal metadata may create only the pending in-memory
+apply draft; it must not synthesize `native.patch.proposal.recorded` or reuse
+the `structured_proposal_accepted` reason label. The current visible draft
+format is line-oriented and does not guarantee exact preservation of non-empty
+files without a trailing newline.
 
 The `/propose-file` command is a public REPL command, not a public automation
 control and not a broad slash-command surface. Malformed `/propose-file`
@@ -962,14 +982,14 @@ The trial also proved two safety/product details:
   and defaults need a separate policy slice rather than being inferred from
   names
 
-The selected first public write-capable REPL boundary is a constrained
+The implemented first public write-capable REPL boundary is a constrained
 same-session apply command:
 
 ```text
 /apply-proposal <workspace-relative-path>
 ```
 
-The command is deliberately smaller than a general `/apply` command. It may be
+The command is deliberately smaller than a general `/apply` command. It is
 accepted only after a successful same-session `/propose-file
 <workspace-relative-path> -- <change-request>` for the exact same normalized
 workspace-relative path. It consumes one pending in-memory proposal draft that
@@ -981,8 +1001,8 @@ from JSONL, Markdown, catalog/search/inspect surfaces, structured stdout, or
 any other archive surface.
 
 The explicit slash command is the human review signal for the normal Pi-like
-interactive shell posture. The first public write path should not add a
-visible approval popup. Safety remains non-interactive and fail-closed:
+interactive shell posture. The first public write path does not add a visible
+approval popup. Safety remains non-interactive and fail-closed:
 
 - accept only one pending proposal for one file and one operation
 - require the apply path to match the proposal path exactly after
@@ -997,6 +1017,9 @@ visible approval popup. Safety remains non-interactive and fail-closed:
 - reject provider-selected paths, multi-file plans, multiple operations,
   shell-looking data, network access, provider-side tools, and another provider
   turn
+- clear the pending proposal on any apply attempt, mismatch, unsupported draft,
+  provider failure, local REPL command, unsupported slash command, or later
+  provider-visible turn
 
 The first public apply command uses the existing metadata-only
 `native.patch.apply.recorded` archive event. JSONL, Markdown,
@@ -1011,11 +1034,11 @@ responses, provider-native payloads, raw provider metadata, raw tool payloads,
 stdout, stderr, command output, shell commands, auth material, secrets,
 credentials, API keys, tokens, private keys, or sensitive personal data.
 
-Verification remains manual for this first public write-capable REPL slice.
-The selected next-after boundary is a separately named verification command,
-likely `/verify just-check`, that reuses the existing
-`NativeVerificationRequest` boundary after `/apply-proposal` has been
-implemented, reviewed, and smoked. `/apply-proposal` itself must not run
+Verification remains manual after this first public write-capable REPL slice.
+The selected next boundary is a separately named verification command, likely
+`/verify just-check`, that reuses the existing `NativeVerificationRequest`
+boundary after `/apply-proposal` has been reviewed and smoked.
+`/apply-proposal` itself must not run
 `just check`, execute shell commands, or emit `native.verification.recorded`.
 
 The next implementation boundary should continue to reuse the proposal path's
@@ -1685,12 +1708,14 @@ archive events.
 ### Native Patch Apply Boundary
 
 The native patch apply boundary is the first supervised workspace mutation path.
-It is not provider tool calling. It consumes only an in-memory
-`NativePatchApplyRequest` supplied to `NativeAgentSession` by pipy-owned control
-flow after human review, and only after a supported
-`native.patch.proposal.recorded` event with `status=proposed`. Normal CLI,
-OpenAI, OpenRouter, and fake provider runs do not supply this request and remain
-proposal-only.
+It is not provider tool calling. Non-interactive `NativeAgentSession` consumes
+only an injected in-memory `NativePatchApplyRequest` supplied by pipy-owned
+control flow after human review, and only after a supported
+`native.patch.proposal.recorded` event with `status=proposed`. The interactive
+native REPL now exposes the same boundary through `/apply-proposal
+<workspace-relative-path>` after a successful same-session `/propose-file` for
+the exact same normalized path. Ordinary provider turns, OpenAI, OpenRouter,
+and fake provider runs without an explicit apply command remain proposal-only.
 
 The request requires:
 
@@ -1739,12 +1764,14 @@ patch text, raw diffs, replacement file contents, target paths, raw prompts,
 model output, provider responses, provider-native payloads, tool payloads,
 stdout, stderr, shell commands, auth material, secrets, credentials, tokens,
 private keys, or sensitive personal data. Unsafe or unsupported apply data fails
-closed before mutation; a skipped or failed patch apply result makes the native
-run fail with only safe error labels. Hash failures distinguish missing,
-malformed, and mismatched expected hashes. If an unexpected write error happens
-after one or more operations have already applied, the terminal result records
-`reason_label=write_partially_applied` and `workspace_mutated=true` so archives
-do not claim a clean no-mutation failure.
+closed before mutation; skipped or failed apply attempts record only safe status
+and reason labels. In one-shot injected sessions, a skipped or failed patch
+apply result makes the native run fail with only safe error labels; in the
+interactive REPL, the shell stays open and prints a safe stderr diagnostic.
+Hash failures distinguish missing, malformed, and mismatched expected hashes.
+If an unexpected write error happens after one or more operations have already
+applied, the terminal result records `reason_label=write_partially_applied` and
+`workspace_mutated=true` so archives do not claim a clean no-mutation failure.
 
 ### Native Verification Command Boundary
 
@@ -2387,9 +2414,8 @@ and forward the bounded excerpt only in memory to one provider turn labeled
 supported slash commands, and unsupported slash commands print static or safe
 status diagnostics on stderr without provider/tool execution, read-limit
 consumption, tool events, or raw command archiving. It still does not expose
-provider metadata, write-capable REPL commands, verification, shell execution,
-streaming, retries, fallback, TUI rendering, conversation export, or a general
-model/tool loop.
+provider metadata, verification, shell execution, streaming, retries,
+fallback, TUI rendering, conversation export, or a general model/tool loop.
 
 The proposal-only REPL boundary is available as
 `/propose-file <path> -- <change-request>`. It reuses the same bounded
@@ -2401,17 +2427,17 @@ metadata object, emits at most one metadata-only
 verification, shell execution, network access, provider-side tools, multiple
 tool requests, or a general model/tool loop.
 
-The follow-up REPL boundary decision selected
-`/apply-proposal <workspace-relative-path>` as the first public write-capable
-shell command. It should consume only a same-session, in-memory, human-reviewed
-proposal for the exact same normalized path, normalize that draft into one
-`NativePatchApplyRequest`, apply exactly one operation to one file through the
-existing mutating-workspace boundary, and record only metadata-only
-`native.patch.apply.recorded` status. Verification remains manual for that
-first write slice; a separate later `/verify just-check`-style command can
-reuse the existing verification boundary. Generic patch application,
-verification execution, shell execution, provider-side tools, and broader tool
-loops remain deferred to separately named slices.
+The follow-up REPL boundary is implemented as
+`/apply-proposal <workspace-relative-path>`, the first public write-capable
+shell command. It consumes only a same-session, in-memory, human-reviewed
+proposal for the exact same normalized path, normalizes that draft into one
+`NativePatchApplyRequest`, applies exactly one operation to one file through the
+existing mutating-workspace boundary, and records only metadata-only
+`native.patch.apply.recorded` status. Verification remains manual; a separate
+later `/verify just-check`-style command can reuse the existing verification
+boundary. Generic patch application, verification execution, shell execution,
+provider-side tools, and broader tool loops remain deferred to separately named
+slices.
 
 ## Deferred Work
 

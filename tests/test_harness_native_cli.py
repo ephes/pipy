@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from datetime import UTC, datetime
 from io import StringIO
@@ -12,6 +13,8 @@ import pytest
 from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
+    NATIVE_PATCH_APPLY_RECORDED_EVENT,
+    NATIVE_VERIFICATION_RECORDED_EVENT,
     OpenAICodexProviderError,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
@@ -79,6 +82,20 @@ def safe_repl_patch_proposal() -> dict[str, object]:
         "raw_transcript_imported": False,
         "workspace_mutated": False,
     }
+
+
+def repl_apply_proposal_text(path: str, old_text: str, new_text: str) -> str:
+    return (
+        "Review this one-file proposal.\n"
+        "```pipy-apply-proposal-v1\n"
+        "operation: modify\n"
+        f"workspace_relative_path: {path}\n"
+        f"expected_sha256: {hashlib.sha256(old_text.encode('utf-8')).hexdigest()}\n"
+        "--- replacement_text ---\n"
+        f"{new_text}"
+        "--- end_replacement_text ---\n"
+        "```\n"
+    )
 
 
 def test_cli_openai_codex_auth_login_uses_no_browser_and_reports_success(
@@ -420,6 +437,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert "  /read <workspace-relative-path>" in captured.err
     assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
     assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
+    assert "  /apply-proposal <workspace-relative-path>" in captured.err
     assert "  /exit" in captured.err
     assert "  /quit" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -2434,6 +2452,506 @@ def test_cli_native_repl_propose_file_unsafe_proposal_metadata_is_skipped_metada
     assert "UNSAFE_PROPOSAL_PROVIDER_OUTPUT" not in combined
     assert "SHOULD_NOT_PERSIST" not in combined
     assert "pipy_native_patch_proposal" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_apply_proposal_does_not_call_provider_or_mutate(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text("unchanged\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed apply-proposal should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/apply-proposal\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-apply-proposal",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert target.read_text(encoding="utf-8") == "unchanged\n"
+    assert "malformed /apply-proposal command. Supported command usage:" in captured.err
+    assert "  /apply-proposal <workspace-relative-path>" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert NATIVE_PATCH_APPLY_RECORDED_EVENT not in event_types
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_apply_proposal_without_pending_fails_closed_without_mutation(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text("unchanged\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("apply-proposal without pending proposal should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/apply-proposal docs/target.txt\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-apply-proposal-no-pending",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert target.read_text(encoding="utf-8") == "unchanged\n"
+    assert "apply-proposal command skipped: no_pending_proposal" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert NATIVE_PATCH_APPLY_RECORDED_EVENT not in event_types
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_apply_proposal_mismatched_path_fails_closed_without_mutation(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value\n"
+    proposed = tmp_path / "docs" / "proposed.txt"
+    other = tmp_path / "docs" / "other.txt"
+    proposed.parent.mkdir()
+    proposed.write_text(old_text, encoding="utf-8")
+    other.write_text("other value\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/proposed.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/proposed.txt -- Change it\n"
+            "/apply-proposal docs/other.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-apply-proposal-mismatch",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert proposed.read_text(encoding="utf-8") == old_text
+    assert other.read_text(encoding="utf-8") == "other value\n"
+    assert "apply-proposal command skipped: proposal_path_mismatch" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 1
+    assert NATIVE_PATCH_APPLY_RECORDED_EVENT not in event_types
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_apply_proposal_mutates_one_file_and_archives_metadata_only(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value from reviewed proposal\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                usage={"input_tokens": 5, "output_tokens": 7, "total_tokens": 12},
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-apply-proposal-success",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "apply-proposal command succeeded: patch_applied" in captured.err
+
+    finalized = next((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized)
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert NATIVE_VERIFICATION_RECORDED_EVENT not in event_types
+    apply_payload = [
+        event["payload"] for event in events if event["type"] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
+    assert apply_payload["status"] == "succeeded"
+    assert apply_payload["reason_label"] == "patch_applied"
+    assert apply_payload["file_count"] == 1
+    assert apply_payload["operation_count"] == 1
+    assert apply_payload["operation_labels"] == ["modify"]
+    assert apply_payload["approval_decision"] == "allowed"
+    assert apply_payload["sandbox_policy"] == "mutating-workspace"
+    assert apply_payload["workspace_read_allowed"] is True
+    assert apply_payload["filesystem_mutation_allowed"] is True
+    assert apply_payload["shell_execution_allowed"] is False
+    assert apply_payload["network_access_allowed"] is False
+    assert apply_payload["workspace_mutated"] is True
+    assert apply_payload["patch_text_stored"] is False
+    assert apply_payload["diffs_stored"] is False
+    assert apply_payload["file_contents_stored"] is False
+
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    for forbidden in (
+        old_text.strip(),
+        new_text.strip(),
+        "Change it",
+        "pipy-apply-proposal-v1",
+        "replacement_text",
+    ):
+        assert forbidden not in combined
+        assert not search_finalized_sessions(forbidden, root=root)
+    assert search_finalized_sessions(NATIVE_PATCH_APPLY_RECORDED_EVENT, root=root)
+    inspection = inspect_finalized_session(finalized, root=root)
+    assert inspection.event_types[NATIVE_PATCH_APPLY_RECORDED_EVENT] == 1
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_visible_apply_draft_without_metadata_does_not_synthesize_proposal_event(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value from visible draft\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-visible-apply-no-proposal-event",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "apply-proposal command succeeded: patch_applied" in captured.err
+
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert "native.patch.proposal.recorded" not in event_types
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_local_command_clears_pending_apply_proposal(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value from reviewed proposal\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/help\n"
+            "/apply-proposal docs/target.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-local-command-clears-apply-proposal",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert target.read_text(encoding="utf-8") == old_text
+    assert "apply-proposal command skipped: no_pending_proposal" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 0
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_apply_proposal_stale_hash_fails_closed_without_mutation(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    intervening_text = "changed before apply\n"
+    new_text = "new value from reviewed proposal\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            result = ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+            target.write_text(intervening_text, encoding="utf-8")
+            return result
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-apply-proposal-stale-hash",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert target.read_text(encoding="utf-8") == intervening_text
+    assert "apply-proposal command skipped: expected_hash_mismatch" in captured.err
+    finalized = next((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized)
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert NATIVE_VERIFICATION_RECORDED_EVENT not in event_types
+    apply_payload = [
+        event["payload"] for event in events if event["type"] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
+    assert apply_payload["status"] == "skipped"
+    assert apply_payload["reason_label"] == "expected_hash_mismatch"
+    assert apply_payload["workspace_mutated"] is False
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert new_text.strip() not in combined
+    assert intervening_text.strip() not in combined
     assert verify_session_archive(root=root).ok is True
 
 

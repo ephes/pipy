@@ -497,7 +497,12 @@ the successful excerpt plus change request only in memory to one provider turn
 labeled `propose_file_repl`, parses at most one pipy-owned
 structured patch proposal metadata object, records at most one metadata-only
 `native.patch.proposal.recorded` event, and prints only provider final text to
-stdout. Malformed supported slash commands and
+stdout. `/apply-proposal <workspace-relative-path>` is available only after a
+successful same-session `/propose-file` for the exact same normalized path. It
+uses one pending in-memory, human-reviewed proposal draft to invoke the
+existing patch-apply boundary, emits only `native.patch.apply.recorded` when it
+reaches that tool, prints only safe status diagnostics to stderr, and does not
+call a provider or run verification. Malformed supported slash commands and
 unsupported slash commands print static usage diagnostics on stderr without
 provider/tool execution, read-limit consumption, tool events, or raw command
 archiving. REPL session records use the same metadata-only lifecycle vocabulary
@@ -506,11 +511,11 @@ provider-returned tool intent markers, raw approval prompts, raw tool
 arguments, raw tool results, stdout, stderr, prompts, model output, provider
 responses, provider-native payloads, repo context, patches, command output,
 full file contents, auth material, secrets, credentials, tokens, private keys,
-or sensitive personal data. The REPL still does not apply patches, mutate
-files, run shell commands, run verification, enable provider-side tools, create
-another provider turn after proposal parsing, persist repo context, or expose a
-general model/tool loop. In particular, `/propose-file` must not apply edits or
-store raw proposal data.
+or sensitive personal data. The REPL still does not run shell commands, run
+verification, enable provider-side tools, create another provider turn after
+proposal parsing, persist repo context, or expose a general model/tool loop. In
+particular, `/propose-file` must not apply edits or store raw proposal data,
+and `/apply-proposal` must not read proposal data back from archives.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -527,16 +532,21 @@ interactive counterpart to the metadata-only patch proposal event: it forwards
 only one approved in-memory excerpt and one change request to
 `propose_file_repl`, then stops after optional proposal metadata parsing.
 
-The selected first public write-capable REPL boundary is
-`/apply-proposal <workspace-relative-path>`. It is not implemented yet in the
-public shell, but its storage contract is decided: the command may consume only
-one same-session, in-memory, human-reviewed proposal draft for the exact same
+The first public write-capable REPL boundary is available as
+`/apply-proposal <workspace-relative-path>`. The command may consume only one
+same-session, in-memory, human-reviewed proposal draft for the exact same
 normalized workspace-relative path and normalize it into one
 `NativePatchApplyRequest`. It must not read raw proposal text, patch text,
 diffs, replacement file contents, prompts, model output, provider responses, or
 provider metadata back from JSONL, Markdown, catalog/search/inspect surfaces,
-or structured stdout. The archive surface for the future command is only the
-existing metadata-only `native.patch.apply.recorded` event.
+or structured stdout. The archive surface for the command is only the existing
+metadata-only `native.patch.apply.recorded` event.
+If provider final text contains a visible apply draft but no structured
+proposal metadata, the REPL may keep only the pending in-memory apply draft; it
+must not synthesize `native.patch.proposal.recorded`. Local REPL commands,
+unsupported slash commands, provider failures, later provider-visible turns,
+and any apply attempt clear the pending draft so archive surfaces never become
+the source of apply data.
 
 After a successful explicit-file-excerpt read-only observation and successful
 follow-up provider turn, the native runtime may record one metadata-only patch
@@ -573,8 +583,8 @@ tool arguments, raw tool results, command output, and replacement file
 contents. Unsafe or unsupported proposal data is dropped before persistence and
 may be represented only by a skipped proposal event with a safe reason label.
 
-Patch apply records must remain metadata-only as well. A future
-`/apply-proposal` record may store only pipy-owned `tool_request_id`,
+Patch apply records must remain metadata-only as well. An `/apply-proposal`
+record may store only pipy-owned `tool_request_id`,
 `turn_index`, terminal status and reason labels, duration, file and operation
 counts, closed operation labels, approval/sandbox labels and booleans,
 `workspace_mutated`, optional safe scope labels, and false storage booleans for
@@ -772,7 +782,7 @@ native.provider.completed | native.provider.failed
 native.patch.proposal.recorded
 ```
 
-The selected future `/apply-proposal` command may add only one metadata-only
+The `/apply-proposal` command may add only one metadata-only
 patch apply event after a same-session pending proposal has been reviewed by
 the user and normalized into one pipy-owned one-file request:
 

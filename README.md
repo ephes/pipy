@@ -213,11 +213,20 @@ command shares the same one-read bounded read path, forwards one excerpt plus
 change request only in memory to a provider turn labeled `propose_file_repl`,
 records only metadata-only proposal status when supported, and does not apply
 edits or run verification.
-The selected next native shell write boundary is planned as
-`/apply-proposal <workspace-relative-path>`: a same-session, one-file,
-one-operation apply of a human-reviewed proposal through pipy's existing
-metadata-only patch-apply boundary. It is not implemented yet, and
-verification remains manual until a separate verification command slice.
+The explicit `/apply-proposal <workspace-relative-path>` command is available
+only after a successful same-session `/propose-file` for the exact same
+normalized workspace-relative path. It consumes one pending in-memory,
+human-reviewed visible proposal draft, invokes pipy's existing
+`NativePatchApplyTool` as one file and one operation, emits only the
+metadata-only `native.patch.apply.recorded` event, prints safe status
+diagnostics to stderr, and then clears the pending draft. Local REPL commands,
+unsupported slash commands, provider failures, later provider-visible turns,
+and any apply attempt also clear the pending draft. A visible draft without
+structured proposal metadata can enable only the in-memory apply draft; it does
+not synthesize a proposal archive event. It does not call a provider, run
+verification, execute shell commands, invoke provider-side tools, support
+multi-file writes, or read proposal data back from archives.
+Verification remains manual until a separate verification command slice.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -268,12 +277,12 @@ read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes only the explicit `/read`
-and `/ask-file` commands plus the proposal-only `/propose-file` command; normal
+and `/ask-file` commands, the proposal-only `/propose-file` command, and the
+same-session one-file `/apply-proposal` command; normal
 OpenAI, OpenAI Codex, and OpenRouter CLI runs still do not expose general
-model-selected tool use, provider-side tools, public patch-apply or
-verification controls, arbitrary shell execution, retries, streaming, provider
-registry, or raw transcript import. The selected public patch-apply shape is a
-future `/apply-proposal <workspace-relative-path>` command, and verification is
+model-selected tool use, provider-side tools, public verification controls,
+arbitrary shell execution, retries, streaming, provider registry, or raw
+transcript import. Verification is
 reserved for a later command slice. Native OAuth belongs only to the distinct
 `openai-codex` subscription provider, not to the existing `openai` API-key
 provider.

@@ -413,16 +413,15 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "useful enough to justify a narrow write-capable boundary design slice" in (
         compact_done
     )
-    assert "### Native one-file `/apply-proposal` REPL command" in next_slice
-    assert "first public write-capable native shell boundary" in compact_next_slice
-    assert "/apply-proposal <workspace-relative-path>" in compact_next_slice
-    assert "same-session `/propose-file`" in compact_next_slice
-    assert "Pi-like no-popup product posture" in compact_next_slice
-    assert "expected SHA-256 validation for existing files" in compact_next_slice
-    assert "`NativePatchApplyRequest`" in compact_next_slice
-    assert "one operation, one file" in compact_next_slice
-    assert "leave verification manual for this slice" in compact_next_slice
-    assert "do not run `just check`" in compact_next_slice
+    assert "Native one-file `/apply-proposal` REPL command" in compact_done
+    assert "/apply-proposal <workspace-relative-path>" in compact_done
+    assert "same-session `/propose-file`" in compact_done
+    assert "NativePatchApplyRequest" in compact_done
+    assert "native.patch.apply.recorded" in compact_done
+    assert "### Native REPL verification command, likely `/verify just-check`" in next_slice
+    assert "/verify just-check" in compact_next_slice
+    assert "NativeVerificationRequest" in compact_next_slice
+    assert "native.verification.recorded" in compact_next_slice
     assert "changing provider auth" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
@@ -442,9 +441,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
     assert "Native one-file `/apply-proposal` REPL command" in compact_near_term
-    assert "Native REPL verification command, likely `/verify just-check`" in (
-        compact_near_term
-    )
+    assert "Native REPL verification command, likely `/verify just-check`" in next_slice
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
@@ -577,7 +574,7 @@ def test_selected_apply_proposal_repl_boundary_is_documented():
     assert "`NativePatchApplyRequest`" in compact_decision
     assert "`NativePatchApplyTool`" in compact_decision
     assert "explicit slash command is the human review signal" in compact_decision
-    assert "should not add a visible approval popup" in compact_decision
+    assert "does not add a visible approval popup" in compact_decision
     assert "`native.patch.apply.recorded`" in compact_decision
     assert "Verification remains manual" in compact_decision
     assert "`/verify just-check`" in compact_decision
