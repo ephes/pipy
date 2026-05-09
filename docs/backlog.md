@@ -7,6 +7,48 @@ level. It is not a full issue tracker. Use it to choose the next small,
 reviewable change while keeping the source-of-truth design constraints in
 `docs/harness-spec.md` and `docs/session-storage.md`.
 
+## Current State
+
+Pipy has crossed from capture-only infrastructure into a small native product
+runtime. The current native shell can authenticate to the `openai-codex`
+provider, switch models, make ordinary no-tool provider turns, read one
+explicit workspace-relative file excerpt, ask a provider about that excerpt,
+and request a proposal-only change for that excerpt through `/propose-file`.
+The public shell still cannot apply edits, run verification, execute shell
+commands, request provider-side tools, read multiple files per session, or run
+a general model/tool loop.
+
+Use this page as a planning index:
+
+- `Done` is the detailed historical ledger. Keep it useful for archaeology,
+  review, and tests, but do not make future agents infer the next slice from
+  this section alone.
+- `Next Slice` is the only current implementation target.
+- `Near Term` explains why that slice is the next one and how it fits the
+  self-bootstrap path.
+- `Deferred` and `Explicitly Not Now` define boundaries that should not be
+  crossed opportunistically.
+
+## Self-Bootstrap Roadmap
+
+- Proposal-only file context: available now through `/propose-file
+  <workspace-relative-path> -- <change-request>`.
+- Human-applied proposal trial: available now; the first real
+  `openai-codex/gpt-5.2` trial produced a useful small change that was applied
+  manually outside the REPL.
+- Public one-file apply boundary: next design target after the current
+  decision slice. It should stay human-reviewed, pipy-owned, one-file, and
+  metadata-only in the archive.
+- Public verification command: next-after-write target unless the write-boundary
+  decision deliberately keeps verification manual for one more slice.
+- First pipy-applied pipy change: milestone after the public write and
+  verification boundaries exist and still pass the privacy/archive invariants.
+
+The stored session archive supports this direction: repeated workflow
+evaluations favor small native boundary slices, focused tests, documentation
+updates, summary-safe workflow capture, and independent review, with review
+cycles stopping after a clean second review unless scope or risk changes.
+
 ## Done
 
 - Durable file-based session archive with active/finalized lifecycle.
@@ -500,6 +542,10 @@ reviewable change while keeping the source-of-truth design constraints in
 Goal: choose the smallest write-capable native shell boundary justified by the
 successful proposal-only trial, without implementing mutation yet.
 
+This is a decision and documentation slice. It should leave runtime behavior,
+public commands, provider calls, archive event shapes, and tests unchanged
+except for focused tests that pin the selected contract in docs when useful.
+
 Implementation points:
 
 - decide whether the next public write-capable command should be a constrained
@@ -516,6 +562,8 @@ Implementation points:
   unless the decision records a stronger reason to broaden it
 - document how verification remains outside the REPL for the first write
   boundary, or explicitly choose a later separate verification-command slice
+- update this backlog and the harness/session-storage docs only as needed to
+  keep the selected boundary and privacy invariants aligned
 
 Keep out of scope for this decision:
 
@@ -527,6 +575,10 @@ Keep out of scope for this decision:
 - archiving raw prompts, excerpts, model output, provider responses, patch
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
+
+Decision output should name the next implementation slice explicitly, including
+the proposed command shape, safety checks, archive metadata boundaries, and the
+verification posture for the first write-capable shell path.
 
 ## Near Term
 
@@ -653,19 +705,12 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 
 ## Deferred
 
+### Deferred For Self-Bootstrap
+
 - Full tool-capable native pipy agent runtime beyond the provider,
   conversation, approval, sandbox, and tool-boundary slices.
 - General native model/tool loop beyond bounded provider turns and explicitly
   approved tool boundaries.
-- Codex JSONL event adapter.
-- Claude integration beyond the existing conservative `pipy-session auto`
-  metadata capture.
-- Pi-native session inspection beyond metadata references.
-- Raw transcript import with explicit opt-in and redaction policy.
-- Indexed archive search or SQLite-backed query layer.
-- Review-cycle metadata for `pipy-session workflow review-outcome`, including
-  explicit per-round versus cumulative scope, review round number, and optional
-  cycle identity so `reflect` can avoid double-counting iterative reviews.
 - Broad repo maps or persistent workspace summaries beyond the first bounded
   provider-visible context policy.
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or
@@ -675,6 +720,18 @@ Do not move to a tool-capable shell until these existing invariants still hold:
   `openai-codex` provider path until official OpenAI docs expose a stable
   third-party/native provider auth flow that is not specific to Codex,
   ChatGPT, or another OpenAI product client.
+
+### Deferred For Product Maturity
+
+- Codex JSONL event adapter.
+- Claude integration beyond the existing conservative `pipy-session auto`
+  metadata capture.
+- Pi-native session inspection beyond metadata references.
+- Raw transcript import with explicit opt-in and redaction policy.
+- Indexed archive search or SQLite-backed query layer.
+- Review-cycle metadata for `pipy-session workflow review-outcome`, including
+  explicit per-round versus cumulative scope, review round number, and optional
+  cycle identity so `reflect` can avoid double-counting iterative reviews.
 - Interactive TUI.
 - RPC mode.
 - Multi-agent task delegation.
