@@ -88,6 +88,11 @@ class InMemoryCredentialStore:
         self.credentials = credentials
         self.saved.append(credentials)
 
+    def delete(self) -> bool:
+        had_credentials = self.credentials is not None
+        self.credentials = None
+        return had_credentials
+
 
 def provider_request(tmp_path: Path) -> ProviderRequest:
     return ProviderRequest(
@@ -254,6 +259,20 @@ def test_openai_codex_credential_store_uses_pipy_owned_private_file(tmp_path):
     body = json.loads(auth_path.read_text(encoding="utf-8"))
     assert body["provider"] == "openai-codex"
     assert body["type"] == "oauth"
+    assert store.delete() is True
+    assert not auth_path.exists()
+    assert store.delete() is False
+
+
+def test_openai_codex_auth_manager_logout_deletes_stored_credentials(tmp_path):
+    auth_path = tmp_path / "auth" / "openai-codex.json"
+    store = FileOpenAICodexCredentialStore(auth_path)
+    manager = OpenAICodexAuthManager(store=store)
+    store.save(credentials())
+
+    assert manager.logout() is True
+    assert not auth_path.exists()
+    assert manager.logout() is False
 
 
 def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):

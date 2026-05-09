@@ -96,6 +96,17 @@ from pipy_harness.native.read_only_tool import (
     NativeReadOnlyApprovalDecision,
     NativeReadOnlyGateDecision,
 )
+from pipy_harness.native.repl_state import (
+    DEFAULT_NATIVE_MODELS,
+    SUPPORTED_NATIVE_PROVIDERS,
+    NativeDefaultsStore,
+    NativeModelOption,
+    NativeModelSelection,
+    NativeReplProviderState,
+    StaticNativeReplProviderState,
+    default_native_defaults_path,
+    default_selection_for,
+)
 from pipy_harness.native.session import NativeAgentSession, NativeNoToolReplSession
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
@@ -111,6 +122,7 @@ __all__ = [
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
     "FileOpenAICodexCredentialStore",
+    "DEFAULT_NATIVE_MODELS",
     "NATIVE_TURN_METADATA_KEYS",
     "NATIVE_TURN_PAYLOAD_KEYS",
     "NATIVE_TURN_STORAGE_KEYS",
@@ -139,6 +151,9 @@ __all__ = [
     "NativeExplicitFileExcerptTool",
     "NativeInMemoryFileExcerpt",
     "NativeInteractiveApprovalPromptResolver",
+    "NativeDefaultsStore",
+    "NativeModelOption",
+    "NativeModelSelection",
     "NativeNoToolReplSession",
     "NativePatchApplyApprovalDecision",
     "NativePatchApplyGateDecision",
@@ -158,6 +173,7 @@ __all__ = [
     "NativeReadOnlyToolLimits",
     "NativeReadOnlyToolRequest",
     "NativeReadOnlyToolRequestKind",
+    "NativeReplProviderState",
     "NativeRunInput",
     "NativeRunOutput",
     "NativeToolApprovalMode",
@@ -197,9 +213,13 @@ __all__ = [
     "ProviderPort",
     "ProviderRequest",
     "ProviderResult",
+    "StaticNativeReplProviderState",
+    "SUPPORTED_NATIVE_PROVIDERS",
     "ToolPort",
     "create_authorization_flow",
+    "default_native_defaults_path",
     "default_openai_codex_auth_path",
+    "default_selection_for",
     "normalize_provider_usage",
     "parse_authorization_input",
     "resolve_read_only_workspace_approval",

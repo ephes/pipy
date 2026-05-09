@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from math import isfinite
 from typing import Iterable, Mapping, TextIO
@@ -62,6 +62,11 @@ from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptTool,
     NativeReadOnlyApprovalDecision,
     NativeReadOnlyGateDecision,
+)
+from pipy_harness.native.repl_state import (
+    NativeModelSelection,
+    NativeReplProviderState,
+    StaticNativeReplProviderState,
 )
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
@@ -182,11 +187,17 @@ PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL = "propose_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
+LOGIN_REPL_COMMAND = "/login"
+LOGOUT_REPL_COMMAND = "/logout"
+MODEL_REPL_COMMAND = "/model"
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
+    LOGIN_REPL_COMMAND: "/login [openai-codex]",
+    LOGOUT_REPL_COMMAND: "/logout [openai-codex]",
+    MODEL_REPL_COMMAND: "/model [<provider>/<model>|<model>]",
     READ_ONLY_REPL_COMMAND: "/read <workspace-relative-path>",
     ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
     PROPOSE_FILE_REPL_COMMAND: "/propose-file <workspace-relative-path> -- <change-request>",
@@ -568,8 +579,15 @@ class NativeAgentSession:
 class NativeNoToolReplSession:
     """Owns one bounded native REPL session with explicit read commands."""
 
-    provider: ProviderPort
+    provider: ProviderPort | None = None
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     max_turns: int = NativeConversationState.MAX_TURNS
+
+    def __post_init__(self) -> None:
+        if self.provider_state is None:
+            if self.provider is None:
+                raise ValueError("NativeNoToolReplSession requires provider or provider_state")
+            self.provider_state = StaticNativeReplProviderState(self.provider)
 
     def run(
         self,
@@ -581,20 +599,21 @@ class NativeNoToolReplSession:
         error_stream: TextIO,
     ) -> NativeRunOutput:
         started_at = _utc_now()
+        provider_state = self.provider_state
+        if provider_state is None:
+            raise ValueError("NativeNoToolReplSession requires provider state")
+        current_run_input, safe_context = _current_repl_turn_state(
+            provider_state,
+            run_input,
+            self.max_turns,
+        )
         conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
-        safe_context = {
-            **_safe_context(run_input),
-            "mode": "repl",
-            "tools_enabled": True,
-            "read_only_commands_enabled": True,
-            "provider_visible_context_enabled": True,
-            "max_turns": self.max_turns,
-        }
         event_sink.emit(
             "native.session.started",
             summary=(
                 "Native pipy REPL started: "
-                f"provider={sanitize_text(run_input.provider_name)}, model={sanitize_text(run_input.model_id)}."
+                f"provider={sanitize_text(current_run_input.provider_name)}, "
+                f"model={sanitize_text(current_run_input.model_id)}."
             ),
             payload={
                 **safe_context,
@@ -640,6 +659,55 @@ class NativeNoToolReplSession:
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, HELP_REPL_COMMAND)
                 continue
+            if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
+                provider_name = command[len(LOGIN_REPL_COMMAND) :].strip()
+                if not provider_name:
+                    print(
+                        "pipy: /login defaults to openai-codex; only openai-codex OAuth is supported.",
+                        file=error_stream,
+                    )
+                try:
+                    _ok, message = provider_state.login(
+                        provider_name or "openai-codex",
+                        input_stream=input_stream,
+                        output_stream=error_stream,
+                    )
+                except Exception as exc:
+                    message = f"pipy: openai-codex login failed with {type(exc).__name__}: {sanitize_text(str(exc))}"
+                print(message, file=error_stream)
+                continue
+            if _is_repl_command_invocation(command, LOGOUT_REPL_COMMAND):
+                provider_name = command[len(LOGOUT_REPL_COMMAND) :].strip()
+                if not provider_name:
+                    print(
+                        "pipy: /logout defaults to openai-codex; only openai-codex OAuth is supported.",
+                        file=error_stream,
+                    )
+                try:
+                    _ok, message = provider_state.logout(provider_name or "openai-codex")
+                except Exception as exc:
+                    message = f"pipy: openai-codex logout failed with {type(exc).__name__}: {sanitize_text(str(exc))}"
+                print(message, file=error_stream)
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                )
+                continue
+            if _is_repl_command_invocation(command, MODEL_REPL_COMMAND):
+                model_reference = command[len(MODEL_REPL_COMMAND) :].strip()
+                if not model_reference:
+                    _print_repl_model_status(error_stream, provider_state)
+                    continue
+                ok, message = provider_state.select_model(model_reference)
+                print(message, file=error_stream)
+                if ok:
+                    current_run_input, safe_context = _current_repl_turn_state(
+                        provider_state,
+                        run_input,
+                        self.max_turns,
+                    )
+                continue
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
                 exit_reason = "explicit_exit"
                 break
@@ -675,9 +743,14 @@ class NativeNoToolReplSession:
                     )
                     continue
                 raw_target, question = parsed_ask_file
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                )
                 read_outcome = _read_repl_file_excerpt(
                     raw_target,
-                    run_input,
+                    current_run_input,
                     event_sink,
                     safe_context,
                     error_stream=error_stream,
@@ -696,9 +769,10 @@ class NativeNoToolReplSession:
                     conversation_state,
                     provider_turn_label=ASK_FILE_REPL_PROVIDER_TURN_LABEL,
                 )
+                provider = provider_state.current_provider()
                 provider_result, provider_usage = _call_provider_turn(
-                    self.provider,
-                    run_input,
+                    provider,
+                    current_run_input,
                     event_sink,
                     safe_context,
                     user_prompt=_build_repl_ask_file_user_prompt(
@@ -735,9 +809,14 @@ class NativeNoToolReplSession:
                     )
                     continue
                 raw_target, change_request = parsed_propose_file
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                )
                 read_outcome = _read_repl_file_excerpt(
                     raw_target,
-                    run_input,
+                    current_run_input,
                     event_sink,
                     safe_context,
                     error_stream=error_stream,
@@ -756,9 +835,10 @@ class NativeNoToolReplSession:
                     conversation_state,
                     provider_turn_label=PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL,
                 )
+                provider = provider_state.current_provider()
                 provider_result, provider_usage = _call_provider_turn(
-                    self.provider,
-                    run_input,
+                    provider,
+                    current_run_input,
                     event_sink,
                     safe_context,
                     user_prompt=_build_repl_propose_file_user_prompt(
@@ -803,9 +883,15 @@ class NativeNoToolReplSession:
                 conversation_state,
                 provider_turn_label=provider_turn_label,
             )
-            provider_result, provider_usage = _call_provider_turn(
-                self.provider,
+            current_run_input, safe_context = _current_repl_turn_state(
+                provider_state,
                 run_input,
+                self.max_turns,
+            )
+            provider = provider_state.current_provider()
+            provider_result, provider_usage = _call_provider_turn(
+                provider,
+                current_run_input,
                 event_sink,
                 safe_context,
                 user_prompt=user_prompt,
@@ -829,6 +915,11 @@ class NativeNoToolReplSession:
             print("pipy: native REPL turn limit reached.", file=error_stream)
 
         ended_at = _utc_now()
+        current_run_input, safe_context = _current_repl_turn_state(
+            provider_state,
+            run_input,
+            self.max_turns,
+        )
         event_sink.emit(
             "native.session.completed",
             summary=f"Native pipy REPL completed: status={status.value}.",
@@ -854,10 +945,12 @@ class NativeNoToolReplSession:
             provider_name=(
                 final_provider_result.provider_name
                 if final_provider_result is not None
-                else run_input.provider_name
+                else current_run_input.provider_name
             ),
             model_id=(
-                final_provider_result.model_id if final_provider_result is not None else run_input.model_id
+                final_provider_result.model_id
+                if final_provider_result is not None
+                else current_run_input.model_id
             ),
             usage=final_usage,
             error_type=error_type,
@@ -899,6 +992,37 @@ def _handle_repl_read_command(
     return outcome.command_consumed
 
 
+def _run_input_with_selection(
+    run_input: NativeRunInput,
+    selection: NativeModelSelection,
+) -> NativeRunInput:
+    return replace(
+        run_input,
+        provider_name=selection.provider_name,
+        model_id=selection.model_id,
+    )
+
+
+def _current_repl_turn_state(
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    run_input: NativeRunInput,
+    max_turns: int,
+) -> tuple[NativeRunInput, dict[str, object]]:
+    current = _run_input_with_selection(run_input, provider_state.current_selection())
+    return current, _repl_safe_context(current, max_turns)
+
+
+def _repl_safe_context(run_input: NativeRunInput, max_turns: int) -> dict[str, object]:
+    return {
+        **_safe_context(run_input),
+        "mode": "repl",
+        "tools_enabled": True,
+        "read_only_commands_enabled": True,
+        "provider_visible_context_enabled": True,
+        "max_turns": max_turns,
+    }
+
+
 def _is_repl_command_invocation(command: str, command_name: str) -> bool:
     return command == command_name or (
         command.startswith(command_name) and command[len(command_name)].isspace()
@@ -920,6 +1044,21 @@ def _print_repl_command_help(error_stream: TextIO) -> None:
     print("pipy native REPL commands:", file=error_stream)
     for usage in _REPL_COMMAND_USAGE.values():
         print(f"  {usage}", file=error_stream)
+
+
+def _print_repl_model_status(
+    error_stream: TextIO,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+) -> None:
+    current = provider_state.current_selection()
+    print(f"pipy: current model: {current.reference}", file=error_stream)
+    print("pipy: available model references:", file=error_stream)
+    available = [option for option in provider_state.model_options() if option.available]
+    for option in available:
+        print(f"  {option.selection.reference}", file=error_stream)
+    if not available:
+        print("  none", file=error_stream)
+    print("pipy: /login supports openai-codex OAuth.", file=error_stream)
 
 
 def _print_repl_command_usage_diagnostic(

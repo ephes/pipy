@@ -13,12 +13,21 @@ from pipy_harness.adapters import PipyNativeAdapter, PipyNativeReplAdapter, Subp
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest, RunResult
 from pipy_harness.native import (
+    DEFAULT_NATIVE_MODELS,
+    SUPPORTED_NATIVE_PROVIDERS,
+    NativeDefaultsStore,
+    NativeModelSelection,
+    NativeReplProviderState,
     OpenAICodexAuthManager,
     OpenAICodexProviderError,
     OpenAICodexResponsesProvider,
     FakeNativeProvider,
     OpenAIResponsesProvider,
     OpenRouterChatCompletionsProvider,
+    ProviderPort,
+    default_native_defaults_path,
+    default_openai_codex_auth_path,
+    default_selection_for,
 )
 from pipy_harness.runner import HarnessRunner
 
@@ -92,8 +101,16 @@ def build_parser() -> argparse.ArgumentParser:
         "repl",
         help="Run the bounded pipy-native REPL.",
     )
-    repl_parser.add_argument("--agent", required=True, help="Logical agent name. Only pipy-native is supported.")
-    repl_parser.add_argument("--slug", required=True, help="Short run label for the session filename.")
+    repl_parser.add_argument(
+        "--agent",
+        default="pipy-native",
+        help="Logical agent name. Only pipy-native is supported. Defaults to pipy-native.",
+    )
+    repl_parser.add_argument(
+        "--slug",
+        default="native-repl",
+        help="Short run label for the session filename. Defaults to native-repl.",
+    )
     repl_parser.add_argument(
         "--cwd",
         type=Path,
@@ -129,7 +146,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = sys.argv[1:] if argv is None else argv
+    if not raw_argv:
+        raw_argv = ["repl"]
+    args = parser.parse_args(raw_argv)
 
     try:
         if args.command == "auth":
@@ -324,25 +344,37 @@ def _repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
 ) -> PipyNativeReplAdapter:
-    if native_provider not in (None, "fake", "openai", "openai-codex", "openrouter"):
+    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
-    if native_provider == "openai":
-        if not native_model:
-            raise ValueError("--native-model is required for --native-provider openai")
-        return PipyNativeReplAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
-    if native_provider == "openai-codex":
-        if not native_model:
-            raise ValueError("--native-model is required for --native-provider openai-codex")
-        return PipyNativeReplAdapter(provider=OpenAICodexResponsesProvider(model_id=native_model))
-    if native_provider == "openrouter":
-        if not native_model:
-            raise ValueError("--native-model is required for --native-provider openrouter")
-        return PipyNativeReplAdapter(
-            provider=OpenRouterChatCompletionsProvider(model_id=native_model)
-        )
-    return PipyNativeReplAdapter(
-        provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap")
+    defaults_store = NativeDefaultsStore(default_native_defaults_path())
+    selection = default_selection_for(
+        native_provider=native_provider,
+        native_model=native_model,
+        defaults_store=defaults_store if native_provider is None and native_model is None else None,
     )
+    using_stored_default = native_provider is None and native_model is None
+    provider_state = NativeReplProviderState(
+        selection=selection,
+        provider_factory=_native_provider_for_selection,
+        defaults_store=defaults_store,
+        auth_manager_factory=OpenAICodexAuthManager,
+        openai_codex_auth_path=default_openai_codex_auth_path(),
+    )
+    if using_stored_default and not provider_state.provider_available(selection.provider_name):
+        provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+    return PipyNativeReplAdapter(provider_state=provider_state)
+
+
+def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:
+    if selection.provider_name == "openai":
+        return OpenAIResponsesProvider(model_id=selection.model_id)
+    if selection.provider_name == "openai-codex":
+        return OpenAICodexResponsesProvider(model_id=selection.model_id)
+    if selection.provider_name == "openrouter":
+        return OpenRouterChatCompletionsProvider(model_id=selection.model_id)
+    if selection.provider_name == "fake":
+        return FakeNativeProvider(model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"])
+    raise ValueError(f"unsupported native provider: {selection.provider_name}")
 
 
 if __name__ == "__main__":

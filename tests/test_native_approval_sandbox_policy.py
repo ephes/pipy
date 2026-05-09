@@ -401,22 +401,23 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "one non-streaming request to `https://chatgpt.com/backend-api/codex/responses`" in (
         compact_done
     )
+    assert "Native REPL auth/model commands and late-bound provider selection" in compact_done
+    assert "`pipy` now starts the native REPL" in compact_done
+    assert "`/login [openai-codex]`, `/logout [openai-codex]`" in compact_done
+    assert "model selection is resolved before each provider-visible turn" in compact_done
     assert "### Native human-applied `/propose-file` trial" in next_slice
     assert "proposal-only REPL trial" in compact_next_slice
-    assert "`pipy repl --agent pipy-native --native-provider openai-codex" in (
-        compact_next_slice
-    )
+    assert "start `uv run pipy`, use `/login openai-codex`" in compact_next_slice
+    assert "`/model openai-codex/gpt-5.4`" in compact_next_slice
     assert "target one tiny docs or test change" in compact_next_slice
     assert "8 KiB and 160 lines" in compact_next_slice
     assert "`docs/backlog.md` skip with `oversized_file`" in compact_next_slice
     assert "no `/apply`" in compact_next_slice
     assert "no automatic writes" in compact_next_slice
     assert "record whether the provider proposal was useful" in compact_next_slice
-    assert "Blocked status: a local preflight on" in compact_next_slice
+    assert "Prior blocked status: a local preflight on" in compact_next_slice
     assert "failed closed at the provider-auth boundary" in compact_next_slice
-    assert "real-provider trial remains blocked until a human completes" in (
-        compact_next_slice
-    )
+    assert "shell-first flow rather than requiring preconfiguration on the CLI" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
     assert "architecture-first" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term

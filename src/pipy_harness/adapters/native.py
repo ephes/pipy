@@ -11,6 +11,7 @@ from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session import (
     NativeAgentSession,
     NativeNoToolReplSession,
@@ -95,13 +96,17 @@ class PipyNativeReplAdapter:
 
     def __init__(
         self,
-        provider: ProviderPort,
+        provider: ProviderPort | None = None,
         *,
+        provider_state: NativeReplProviderState | None = None,
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
     ) -> None:
+        if provider is None and provider_state is None:
+            raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
         self.provider = provider
+        self.provider_state = provider_state
         self.input_stream = input_stream or sys.stdin
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
@@ -115,14 +120,15 @@ class PipyNativeReplAdapter:
         if request.command:
             raise ValueError("pipy-native repl does not accept a command after --")
 
+        selection = self._current_selection()
         return PreparedRun(
             command=(),
             cwd=cwd,
             adapter=self.name,
             command_executable=self.name,
             goal=request.goal or "Native REPL",
-            native_provider=request.native_provider or self.provider.name,
-            native_model=request.native_model or self.provider.model_id,
+            native_provider=request.native_provider or selection.provider_name,
+            native_model=request.native_model or selection.model_id,
         )
 
     def run(
@@ -132,12 +138,16 @@ class PipyNativeReplAdapter:
         event_sink: EventSink,
         capture_policy: CapturePolicy,
     ) -> AdapterResult:
-        run_output = NativeNoToolReplSession(provider=self.provider).run(
+        selection = self._current_selection()
+        run_output = NativeNoToolReplSession(
+            provider=self.provider,
+            provider_state=self.provider_state,
+        ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
                 cwd=prepared.cwd,
-                provider_name=prepared.native_provider or self.provider.name,
-                model_id=prepared.native_model or self.provider.model_id,
+                provider_name=prepared.native_provider or selection.provider_name,
+                model_id=prepared.native_model or selection.model_id,
                 system_prompt_id=SYSTEM_PROMPT_ID,
                 system_prompt_version=SYSTEM_PROMPT_VERSION,
             ),
@@ -161,3 +171,10 @@ class PipyNativeReplAdapter:
                 "error_message": run_output.error_message,
             },
         )
+
+    def _current_selection(self) -> NativeModelSelection:
+        if self.provider_state is not None:
+            return self.provider_state.current_selection()
+        if self.provider is None:
+            raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
+        return NativeModelSelection(self.provider.name, self.provider.model_id)

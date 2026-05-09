@@ -463,9 +463,13 @@ add credential storage. The distinct `openai-codex` provider is selected with
 `--native-provider openai-codex --native-model <model>` and uses pipy-owned
 OAuth state from
 `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, created by
-`pipy auth openai-codex login` with private file permissions. Pipy does not
-read or copy Pi's `~/.pi/agent/auth.json`, and auth material from the
-`openai-codex` credential file is not copied into JSONL or Markdown archives.
+`pipy auth openai-codex login` or the native REPL `/login openai-codex`
+command with private file permissions. The native REPL may also persist the
+selected provider/model default as non-secret JSON under local pipy state, for
+example `~/.local/state/pipy/native-defaults.json`; that file stores only
+provider and model identifiers, not auth material. Pipy does not read or copy
+Pi's `~/.pi/agent/auth.json`, and auth material from the `openai-codex`
+credential file is not copied into JSONL or Markdown archives.
 JSONL and Markdown archive records store only provider/session/tool lifecycle
 metadata, safe labels, durations, normalized usage counters, policy labels, and
 storage booleans. Normalized provider usage is limited to finite non-negative

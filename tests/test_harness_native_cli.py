@@ -407,6 +407,9 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert captured.out == ""
     assert "pipy native REPL commands:" in captured.err
     assert "  /help" in captured.err
+    assert "  /login [openai-codex]" in captured.err
+    assert "  /logout [openai-codex]" in captured.err
+    assert "  /model [<provider>/<model>|<model>]" in captured.err
     assert "  /read <workspace-relative-path>" in captured.err
     assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
     assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
@@ -427,6 +430,533 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     )
     assert "/help" not in combined
     assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_model_status_prints_to_stderr_without_provider_or_read_limit(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("model status should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/model\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-model-status",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy: current model: fake/fake-native-bootstrap" in captured.err
+    assert "fake/fake-native-bootstrap" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is False
+    assert completed_payload["turn_count"] == 0
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/model" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_model_selection_late_binds_subsequent_provider_turn_and_persists_default(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    defaults_path = tmp_path / "native-defaults.json"
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=f"MODEL={self.model_id}",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.setattr(sys, "stdin", StringIO("/model fake/fake-after-switch\nhello\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-model-switch",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "MODEL=fake-after-switch\n"
+    assert "selected model fake/fake-after-switch" in captured.err
+    assert [(request.provider_name, request.model_id, request.user_prompt) for request in captured_requests] == [
+        ("fake", "fake-after-switch", "hello")
+    ]
+    defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
+    assert defaults["provider"] == "fake"
+    assert defaults["model_id"] == "fake-after-switch"
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    provider_started = [event["payload"] for event in events if event["type"] == "native.provider.started"]
+    assert provider_started[0]["provider"] == "fake"
+    assert provider_started[0]["model_id"] == "fake-after-switch"
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/model fake/fake-after-switch" not in combined
+    assert "hello" not in combined
+    assert "MODEL=fake-after-switch" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_login_invokes_openai_codex_auth_manager_without_provider_turn(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    captured_call: dict[str, object] = {}
+    provider_calls = 0
+
+    class CliFakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            captured_call["input_stream"] = input_stream
+            captured_call["output_stream"] = output_stream
+            captured_call["open_browser"] = open_browser
+            return object()
+
+        def logout(self) -> bool:
+            raise AssertionError("logout should not be called")
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("login command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/login openai-codex\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-login",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert provider_calls == 0
+    assert captured_call["open_browser"] is True
+    assert "openai-codex OAuth login stored" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/login" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_login_logout_reject_unsupported_provider_without_side_effects(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            raise AssertionError("unsupported login provider should not start OAuth")
+
+        def logout(self) -> bool:
+            raise AssertionError("unsupported logout provider should not touch credentials")
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("unsupported auth commands should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/login openai\n/logout openai\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-unsupported-auth",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert provider_calls == 0
+    assert "unsupported login provider" in captured.err
+    assert "unsupported logout provider" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/login openai" not in combined
+    assert "/logout openai" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_model_resolution_rejects_unavailable_ambiguous_and_unknown_models(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    (auth_dir / "openai-codex.json").write_text("{}", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("model diagnostics should not call provider")
+
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(auth_dir))
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/model gpt-5.4\n/model missing-model\n/model openrouter/example\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-model-rejections",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert provider_calls == 0
+    assert "ambiguous model reference" in captured.err
+    assert "unsupported or unavailable model reference" in captured.err
+    assert "openrouter is unavailable because OPENROUTER_API_KEY is not set" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "missing-model" not in combined
+    assert "openrouter/example" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_model_bare_single_match_and_unavailable_provider_gate(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=f"{request.provider_name}/{request.model_id}",
+            )
+
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "empty-auth"))
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/model fake-native-bootstrap\n/model openai-codex/gpt-test\nhello\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-model-gates",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert "selected model fake/fake-native-bootstrap" in captured.err
+    assert "openai-codex is not logged in" in captured.err
+    assert captured.out == "fake/fake-native-bootstrap\n"
+    assert [(request.provider_name, request.model_id, request.user_prompt) for request in captured_requests] == [
+        ("fake", "fake-native-bootstrap", "hello")
+    ]
+
+
+def test_cli_native_repl_unavailable_stored_default_falls_back_to_fake(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    defaults_path = tmp_path / "native-defaults.json"
+    defaults_path.write_text(
+        json.dumps(
+            {
+                "schema": "pipy.native-defaults",
+                "schema_version": 1,
+                "provider": "openai-codex",
+                "model_id": "gpt-test",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "empty-auth"))
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.setattr(sys, "stdin", StringIO("/model\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-stored-default-fallback",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == ""
+    assert "pipy: current model: fake/fake-native-bootstrap" in captured.err
+    assert "openai-codex/gpt-test" not in captured.err
+
+
+def test_cli_native_repl_logout_removes_openai_codex_credentials_and_resets_selection(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    defaults_path = tmp_path / "native-defaults.json"
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir()
+    (auth_dir / "openai-codex.json").write_text("{}", encoding="utf-8")
+    logout_calls = 0
+
+    class CliFakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            raise AssertionError("login should not be called")
+
+        def logout(self) -> bool:
+            nonlocal logout_calls
+            logout_calls += 1
+            return True
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=f"{request.provider_name}/{request.model_id}",
+            )
+
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(auth_dir))
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(defaults_path))
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/model openai-codex/gpt-test\n/logout openai-codex\nhello\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-logout",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert logout_calls == 1
+    assert "openai-codex OAuth credentials removed" in captured.err
+    assert captured.out == "fake/fake-native-bootstrap\n"
+    defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
+    assert defaults["provider"] == "fake"
+    assert defaults["model_id"] == "fake-native-bootstrap"
+
+
+def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, monkeypatch) -> None:
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("help command should not call provider")
+
+    monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "native-defaults.json"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/help\n/exit\n"))
+
+    exit_code = main([])
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy native REPL commands:" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    assert "native-repl" in finalized[0].name
 
 
 def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(

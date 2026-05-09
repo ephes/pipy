@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-38 repl next-boundary decision
+Status: slice-39 native repl auth and model commands
 
 <style>
 .mermaid,
@@ -553,7 +553,7 @@ Pi's `~/.pi/agent/auth.json` or any Codex/ChatGPT credential store:
 ```sh
 uv run pipy auth openai-codex login
 uv run pipy run --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-smoke --goal "Say hello briefly"
-uv run pipy repl --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-repl
+uv run pipy
 ```
 
 The login boundary follows the local Pi reference shape: PKCE OAuth with client
@@ -574,6 +574,10 @@ credentials, prompts, model output, provider-native payloads, stdout, stderr,
 tool payloads, diffs, file contents, secrets, credentials, tokens, refresh
 tokens, private keys, and sensitive personal data remain out of JSONL,
 Markdown, catalog/search/inspect surfaces, and `--native-output json`.
+The standalone `pipy auth openai-codex login` command remains supported, and
+the native shell exposes the same auth boundary through `/login openai-codex`
+plus `/logout openai-codex`. Shell login/logout diagnostics stay on stderr and
+do not create provider turns or archive auth material.
 
 ### OpenAI Subscription-Backed Native Auth Decision
 
@@ -740,18 +744,32 @@ Structured machine-readable native stdout is available only through explicit
 The first interactive native shell is available as:
 
 ```sh
+uv run pipy
 uv run pipy repl --agent pipy-native --slug native-repl
 ```
 
 It is intentionally a thin REPL over the same native provider/session/turn core
-used by one-shot `pipy run --agent pipy-native`. The CLI validates the same
-native provider choices, uses the same real-provider model requirements,
-creates a normal harness record, and runs a bounded `NativeNoToolReplSession`
-with one fresh pipy-owned `NativeConversationState`.
+used by one-shot `pipy run --agent pipy-native`. Bare `pipy` defaults to the
+native REPL in the current directory with slug `native-repl`. The REPL creates
+a normal harness record and runs a bounded `NativeNoToolReplSession` with one
+fresh pipy-owned `NativeConversationState`.
 
-Each non-empty non-command input line becomes one provider turn. `/help` prints
-only static supported command shapes on stderr without invoking the provider or
-tools. `/exit` and `/quit` terminate the session. `/read
+Each non-empty non-command input line becomes one provider turn. Provider
+construction is late-bound: immediately before each provider-visible turn, the
+REPL resolves the current provider/model selection to a concrete
+`ProviderPort`, and the `NativeRunInput` metadata for that turn reflects that
+selection. `/help` prints only static supported command shapes on stderr
+without invoking the provider or tools. `/login [openai-codex]` reuses
+`OpenAICodexAuthManager.login_interactive()` with REPL stdin and stderr,
+`/logout [openai-codex]` removes pipy-owned OpenAI Codex credentials through
+the same auth-manager boundary, and `/model [<provider>/<model>|<model>]`
+prints or changes the current provider/model selection. These local
+auth/model commands do not invoke providers, do not consume provider turns, do
+not consume the one-read limit, and do not archive raw command text,
+authorization URLs, prompts, provider responses, tokens, or auth material.
+Successful `/model` selections are persisted as non-secret native defaults
+under local pipy state with only provider and model identifiers.
+`/exit` and `/quit` terminate the session. `/read
 <workspace-relative-path>` remains the display-only workspace command.
 `/ask-file <workspace-relative-path> -- <question>` is the first explicit
 provider-visible context command: it uses a whitespace-delimited `--`
@@ -773,11 +791,13 @@ stdout, stderr, secrets, or credentials.
 
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
-`/read` excerpt text print to stdout, while prompts, help,
+`/read` excerpt text print to stdout, while prompts, help, auth/model status,
 malformed-command usage diagnostics, unsupported slash-command diagnostics,
 finalization, errors, interrupt handling, command-skip messages, and the
-turn-limit notice stay on stderr. `/ask-file` and `/propose-file` never print
-their raw excerpts directly. This is separate from one-shot
+turn-limit notice stay on stderr. `/model` with no arguments prints the
+current selection and conservative configured-model information to stderr
+only. `/ask-file` and `/propose-file` never print their raw excerpts directly.
+This is separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
@@ -2300,22 +2320,24 @@ This rebase does not emit new conversation or turn archive events. Existing
 `pipy run --agent pipy-native` text stdout, `--native-output json`,
 metadata-only archive, and provider/tool behavior remain unchanged.
 
-`pipy repl --agent pipy-native` now uses the same conversation/turn core for a
-bounded interactive shell. Its ordinary provider turns are allocated from
-`NativeConversationState`, with `initial` for the first turn and
-`no_tool_repl` for later REPL turns. It exposes one local `/help` command, one
-display-only `/read` command, and one provider-visible
-`/ask-file <path> -- <question>` command. The read commands share one bounded
-explicit-file-excerpt request per REPL session; `/ask-file` accepts a
-whitespace-delimited `--` separator and forwards the bounded excerpt only in
-memory to one provider turn labeled `ask_file_repl`. Help, malformed supported
-slash commands, and unsupported slash commands print static usage diagnostics
-on stderr without provider/tool execution, read-limit consumption, tool events,
-or raw command archiving. It still does not expose provider metadata, patching,
-verification, streaming, retries, fallback, TUI rendering, conversation export,
-or a general model/tool loop. A broader
-tool-capable shell should not be introduced before approval and sandbox
-boundaries are ready for interactive use.
+`pipy` and `pipy repl --agent pipy-native` now use the same conversation/turn
+core for a bounded interactive shell. Its ordinary provider turns are allocated
+from `NativeConversationState`, with `initial` for the first turn and
+`no_tool_repl` for later REPL turns. Provider construction is late-bound from
+the current REPL provider/model selection before each provider-visible turn.
+The shell exposes local `/help`, `/login`, `/logout`, and `/model` commands,
+one display-only `/read` command, and provider-visible `/ask-file <path> --
+<question>` and `/propose-file <path> -- <change-request>` commands. The read
+commands share one bounded explicit-file-excerpt request per REPL session;
+`/ask-file` and `/propose-file` accept a whitespace-delimited `--` separator
+and forward the bounded excerpt only in memory to one provider turn labeled
+`ask_file_repl` or `propose_file_repl`. Help, auth/model commands, malformed
+supported slash commands, and unsupported slash commands print static or safe
+status diagnostics on stderr without provider/tool execution, read-limit
+consumption, tool events, or raw command archiving. It still does not expose
+provider metadata, write-capable REPL commands, verification, shell execution,
+streaming, retries, fallback, TUI rendering, conversation export, or a general
+model/tool loop.
 
 The proposal-only REPL boundary is available as
 `/propose-file <path> -- <change-request>`. It reuses the same bounded

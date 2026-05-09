@@ -107,6 +107,9 @@ class OpenAICodexCredentialStore(Protocol):
     def save(self, credentials: OpenAICodexCredentials) -> None:
         """Save credentials with private file permissions when file-backed."""
 
+    def delete(self) -> bool:
+        """Delete stored credentials, if present."""
+
 
 @dataclass(frozen=True, slots=True)
 class UrllibJsonHTTPClient:
@@ -248,6 +251,13 @@ class FileOpenAICodexCredentialStore:
         temporary_path.replace(self.path)
         self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
+    def delete(self) -> bool:
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
 
 @dataclass(slots=True)
 class OpenAICodexAuthManager:
@@ -326,6 +336,9 @@ class OpenAICodexAuthManager:
             return credentials
         finally:
             server.close()
+
+    def logout(self) -> bool:
+        return self.store.delete()
 
 
 @dataclass(frozen=True, slots=True)

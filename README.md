@@ -80,6 +80,8 @@ minimal native turn through a direct provider boundary while pipy records
 conservative partial lifecycle metadata into the session archive:
 
 ```sh
+uv run pipy
+uv run pipy repl
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
 uv run pipy run --agent pipy-native --native-output json --slug native-json --goal "Native JSON smoke"
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
@@ -110,20 +112,23 @@ Optional flags:
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
 - `--native-provider fake|openai|openai-codex|openrouter`: native provider for `--agent pipy-native`, defaulting to `fake`
-- `--native-model <id>`: model label for the native provider; required for real native providers
+- `--native-model <id>`: model label for the native provider; required for real providers in one-shot `pipy run`
 - `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
 The separate `openai-codex` native provider is the ChatGPT Plus/Pro Codex
 subscription path, based on local Pi prior art under
-`/Users/jochen/src/pi-mono`. Run `pipy auth openai-codex login` once to store
-pipy-owned OAuth state under
+`/Users/jochen/src/pi-mono`. From the native shell, use `/login openai-codex`
+and then `/model openai-codex/gpt-5.4`; the standalone
+`pipy auth openai-codex login` command remains available for one-shot smoke
+runs. Both paths store pipy-owned OAuth state under
 `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; pipy does not
 read or copy Pi's `~/.pi/agent/auth.json`. The existing `openai` provider
 remains the OpenAI Platform API-key path using `OPENAI_API_KEY`. OpenRouter
 remains available for manual smoke tests with `OPENROUTER_API_KEY`, and `fake`
 remains the no-credential smoke provider.
-Shell direction: native REPL read/context commands are Pi-like for normal
-interactive use: explicit `/read`, `/ask-file`, and `/propose-file` commands do
+Shell direction: native REPL auth/model/read/context commands are Pi-like for
+normal interactive use. `/login`, `/logout`, and `/model` are local shell
+commands, while explicit `/read`, `/ask-file`, and `/propose-file` commands do
 not display approval popups.
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
@@ -181,8 +186,16 @@ raw tool arguments, shell commands, model-selected filesystem paths, secrets,
 credentials, tokens, private keys, and sensitive personal data must not be
 stored by default.
 
-`pipy repl --agent pipy-native` is the first interactive native shell. Ordinary
-non-command input lines remain bounded no-tool provider turns. The explicit
+`pipy` and `pipy repl` start the interactive native shell in the current
+directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
+remains accepted. Ordinary non-command input lines remain bounded no-tool
+provider turns. Local `/login [openai-codex]`, `/logout [openai-codex]`, and
+`/model [<provider>/<model>|<model>]` commands run inside the shell, print
+status to stderr, do not invoke providers, do not consume provider turns, and
+do not consume the one-read limit. `/model` with no argument shows the current
+selection and configured usable model references. Successful `/model`
+selections are persisted as non-secret native defaults under local pipy state.
+The explicit
 `/read <workspace-relative-path>` command may run once per REPL session without
 an approval prompt; a successful bounded excerpt prints only to the interactive
 stdout stream and is not provider-forwarded or archived.

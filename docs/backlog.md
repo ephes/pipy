@@ -445,10 +445,27 @@ reviewable change while keeping the source-of-truth design constraints in
   headers with credentials, provider-native payloads, stdout, stderr, diffs,
   patches, command output, file contents, secrets, credentials, private keys,
   and sensitive personal data remain out of archives.
+- Native REPL auth/model commands and late-bound provider selection:
+  `pipy` now starts the native REPL in the current directory with slug
+  `native-repl`, while `pipy repl --agent pipy-native` remains compatible.
+  The REPL accepts local `/login [openai-codex]`, `/logout [openai-codex]`,
+  and `/model [<provider>/<model>|<model>]` commands. Login reuses the
+  pipy-owned `OpenAICodexAuthManager` OAuth boundary; logout removes
+  pipy-owned OpenAI Codex credentials; model selection is resolved before each
+  provider-visible turn so subsequent ordinary, `/ask-file`, and
+  `/propose-file` turns use the current provider/model without restarting.
+  `/model` with no args prints current selection and conservative configured
+  provider/model information to stderr only. Local auth/model commands do not
+  invoke providers, consume provider turns, consume the one-read limit, execute
+  tools, or archive raw command text, prompts, authorization URLs, provider
+  responses, tokens, auth material, excerpts, file contents, stdout, stderr,
+  diffs, patches, secrets, credentials, private keys, or sensitive personal
+  data. Successful model selections persist only non-secret provider/model
+  defaults under local pipy state.
 
 ## Next Slice
 
-### Native human-applied `/propose-file` trial
+### Native human-applied `/propose-file` trial through shell auth/model commands
 
 Goal: run one small real-provider proposal-only REPL trial using the existing
 `/propose-file <workspace-relative-path> -- <change-request>` command, then
@@ -456,9 +473,9 @@ have a human apply or translate the useful parts outside the REPL.
 
 Implementation points:
 
-- use `pipy repl --agent pipy-native --native-provider openai-codex
-  --native-model <model>` after a successful manual OAuth login smoke when
-  credentials are available
+- start `uv run pipy`, use `/login openai-codex` if credentials are absent,
+  then use `/model openai-codex/gpt-5.4` or another available
+  `openai-codex/<model>` before the `/propose-file` command
 - target one tiny docs or test change that can be reviewed and reverted
   manually if needed
 - keep the trial target within the explicit-file-excerpt per-source limits:
@@ -483,15 +500,12 @@ Keep out of scope for this trial:
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
 
-Blocked status: a local preflight on 2026-05-09 attempted the exact REPL
+Prior blocked status: a local preflight on 2026-05-09 attempted the exact REPL
 `/propose-file` path with `--native-provider openai-codex` against `LICENSE`
-using a tiny wording-only change request. The command successfully exercised
-the bounded explicit-file-excerpt read and `propose_file_repl` provider-turn
-label, then failed closed at the provider-auth boundary because
-`openai-codex.json` under `PIPY_AUTH_DIR` was absent. The finalized
-metadata-only record passed `pipy-session verify`, but the real-provider trial
-remains blocked until a human completes `pipy auth openai-codex login` or
-supplies an alternate real-provider credential path.
+using a tiny wording-only change request. It failed closed at the provider-auth
+boundary because `openai-codex.json` under `PIPY_AUTH_DIR` was absent. The
+native shell now exposes `/login` and `/model`, so the next trial should use
+the shell-first flow rather than requiring preconfiguration on the CLI.
 
 ## Near Term
 
@@ -504,21 +518,23 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Run a native human-applied `/propose-file` trial.
+1. Run a native human-applied `/propose-file` trial through the shell-first
+   `/login` and `/model` flow.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
-shell is available through `pipy repl --agent pipy-native`; it now has one
-local `/help` command, one display-only `/read <workspace-relative-path>`
-command, and one provider-visible
-`/ask-file <workspace-relative-path> -- <question>` command with a
-whitespace-delimited `--` separator sharing the same one-read limit. Explicit
-read/context commands do not display approval popups. Malformed or unsupported
-slash commands print static usage diagnostics on stderr without provider/tool
-execution or raw command archiving, but the REPL still does not apply patches,
-execute commands, run verification, expose provider-side tools, or support a
-general model/tool loop. The proposal-only
+shell is available through bare `pipy` or `pipy repl --agent pipy-native`; it
+now has local `/help`, `/login`, `/logout`, and `/model` commands, one
+display-only `/read <workspace-relative-path>` command, and one
+provider-visible `/ask-file <workspace-relative-path> -- <question>` command
+with a whitespace-delimited `--` separator sharing the same one-read limit.
+Explicit read/context commands do not display approval popups. Auth/model
+commands and malformed or unsupported slash commands print stderr diagnostics
+without provider/tool execution, read-limit consumption, or raw command
+archiving, but the REPL still does not apply patches, execute commands, run
+verification, expose provider-side tools, or support a general model/tool loop.
+The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented and reviewed; the selected next step is a human-applied proposal
 trial using that existing command, while the broader public mutation and
@@ -540,7 +556,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native human-applied `/propose-file` trial.
+1. Native human-applied `/propose-file` trial through shell auth/model commands.
 
 Foundation gates toward an interactive shell:
 
@@ -567,6 +583,11 @@ Foundation gates toward an interactive shell:
   commands. These paths do not invoke providers, execute tools, consume the
   one-read limit, emit tool events, or archive raw command text, paths,
   questions, or excerpt data.
+- Auth/model command gate: available now through local `/login`, `/logout`, and
+  `/model` commands. These reuse the pipy-owned OpenAI Codex auth boundary,
+  late-bind provider construction before each provider-visible turn, persist
+  non-secret provider/model defaults, and keep auth/model status on stderr
+  without consuming provider turns or the one-read limit.
 - Proposal-only interactive file gate: available now through `/propose-file
   <workspace-relative-path> -- <change-request>`. It reuses the existing
   explicit-file-excerpt path, sends one in-memory excerpt plus request to one
