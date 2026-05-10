@@ -4,7 +4,7 @@ set dotenv-load := false
 default:
     just --list
 
-SLOPSCOPE_PATH := env_var_or_default("SLOPSCOPE_PATH", "../slopscope")
+SLOPSCOPE_SPEC := env_var_or_default("SLOPSCOPE_SPEC", "slopscope")
 
 # Run the Python test suite.
 test:
@@ -23,7 +23,7 @@ check: lint typecheck test
 
 # Count repository lines with language, area, and directory summaries.
 loc:
-    uv run --with-editable {{SLOPSCOPE_PATH}} slopscope .
+    uv run --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .
 
 # Prepare the local session directories.
 sessions-init:
