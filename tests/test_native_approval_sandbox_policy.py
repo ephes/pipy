@@ -445,32 +445,33 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "The selected next boundary is therefore a failed-read recovery slice" in (
         compact_done
     )
+    assert "Native bounded read-failure recovery for explicit REPL file commands" in (
+        compact_done
+    )
+    assert "one failed or skipped read attempt can happen before that successful excerpt" in (
+        compact_done
+    )
+    assert "Archive payloads remain metadata-only and add only safe budget booleans" in (
+        compact_done
+    )
     assert (
-        "### Add bounded read-failure recovery for explicit REPL file commands"
+        "### Review bounded read-failure recovery for explicit REPL file commands"
         in next_slice
     )
-    assert "one successful explicit file excerpt budget" in compact_next_slice
-    assert "one small failed or skipped read-attempt budget" in compact_next_slice
-    assert "at most one successful explicit file excerpt per REPL session" in (
+    assert "review and smoke the implemented split-budget read-failure recovery path" in (
         compact_next_slice
     )
-    assert "allow exactly one failed or skipped explicit read attempt" in (
+    assert "successful excerpt budget use" in compact_next_slice
+    assert "failed or skipped attempt budget use" in compact_next_slice
+    assert "recovery-attempt exhaustion" in compact_next_slice
+    assert "second successful read/context blocking" in compact_next_slice
+    assert "preserve the existing one-successful-read product boundary" in (
         compact_next_slice
     )
-    assert "preserve current behavior for a second successful read/context attempt" in (
-        compact_next_slice
-    )
-    assert "changing provider auth" in compact_next_slice
     assert "multi-file reads" in compact_next_slice
     assert "a second successful read/context handoff" in compact_next_slice
-    assert "changing which local commands consume explicit-read budgets" in (
-        compact_next_slice
-    )
-    assert "`/help`, `/login`, `/logout`, `/model`, `/apply-proposal`, `/verify just-check`" in (
-        compact_next_slice
-    )
     assert "Pi-like interactive shell" in compact_near_term
-    assert "read-failure recovery after the first real self-bootstrap trial" in (
+    assert "review and smoke for the read-failure recovery implementation" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -504,7 +505,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Bounded read-failure recovery for explicit REPL file commands" in (
+    assert "Review bounded read-failure recovery for explicit REPL file commands" in (
         compact_near_term
     )
     assert "removed from the normal product REPL path" in compact_near_term
@@ -561,7 +562,7 @@ def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
         "read-only sandbox policy",
         "explicit-file-excerpt tool",
         "workspace-relative target validation",
-        "one-read per-session limit",
+        "shared successful-read budget",
     ):
         assert required_boundary in compact_proposal
 
@@ -757,7 +758,11 @@ def test_selected_read_failure_recovery_boundary_is_documented():
         compact_boundary
     )
     assert "`Read-Failure Recovery Boundary Direction`" in compact_repl
-    assert "split this current single request limit into separate successful-read" in (
+    assert "one successful explicit file excerpt budget per REPL session" in (
+        compact_repl
+    )
+    assert "one bounded failed or skipped read-attempt budget" in compact_repl
+    assert "leaves the one successful excerpt budget available" in (
         compact_repl
     )
 

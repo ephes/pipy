@@ -263,6 +263,44 @@ class _ReplReadOutcome:
     command_consumed: bool
     read_only_result: NativeExplicitFileExcerptResult | None = None
 
+    @property
+    def excerpt_succeeded(self) -> bool:
+        return (
+            self.read_only_result is not None
+            and self.read_only_result.status == NativeToolStatus.SUCCEEDED
+            and self.read_only_result.excerpt is not None
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplReadBudgets:
+    successful_excerpt_used: bool = False
+    failed_or_skipped_attempt_used: bool = False
+    recovery_attempt_after_failure_used: bool = False
+
+    @property
+    def can_attempt(self) -> bool:
+        if self.successful_excerpt_used:
+            return False
+        return not (self.failed_or_skipped_attempt_used and self.recovery_attempt_after_failure_used)
+
+    @property
+    def any_command_consumed(self) -> bool:
+        return (
+            self.successful_excerpt_used
+            or self.failed_or_skipped_attempt_used
+            or self.recovery_attempt_after_failure_used
+        )
+
+    def after(self, outcome: _ReplReadOutcome) -> "_ReplReadBudgets":
+        if not outcome.command_consumed:
+            return self
+        if outcome.excerpt_succeeded:
+            return replace(self, successful_excerpt_used=True)
+        if self.failed_or_skipped_attempt_used:
+            return replace(self, recovery_attempt_after_failure_used=True)
+        return replace(self, failed_or_skipped_attempt_used=True)
+
 
 @dataclass(slots=True)
 class NativeAgentSession:
@@ -653,7 +691,7 @@ class NativeNoToolReplSession:
         error_type: str | None = None
         error_message: str | None = None
         exit_reason = "eof"
-        read_command_used = False
+        read_budgets = _ReplReadBudgets()
         ask_file_command_used = False
         propose_file_command_used = False
         apply_proposal_command_used = False
@@ -750,20 +788,26 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, READ_ONLY_REPL_COMMAND):
                 pending_apply_draft = None
-                if read_command_used:
+                if not read_budgets.can_attempt:
                     print(
                         "pipy: read command skipped: read_command_limit_reached.",
                         file=error_stream,
                     )
                     continue
-                read_command_used = _handle_repl_read_command(
-                    command,
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
                     run_input,
+                    self.max_turns,
+                )
+                read_outcome = _handle_repl_read_command(
+                    command,
+                    current_run_input,
                     event_sink,
                     safe_context,
                     output_stream=output_stream,
                     error_stream=error_stream,
                 )
+                read_budgets = read_budgets.after(read_outcome)
                 continue
             if _is_repl_command_invocation(command, ASK_FILE_REPL_COMMAND):
                 parsed_ask_file = _parse_repl_ask_file_command(command)
@@ -771,7 +815,7 @@ class NativeNoToolReplSession:
                 if parsed_ask_file is None:
                     _print_repl_command_usage_diagnostic(error_stream, ASK_FILE_REPL_COMMAND)
                     continue
-                if read_command_used:
+                if not read_budgets.can_attempt:
                     print(
                         "pipy: ask-file command skipped: read_command_limit_reached.",
                         file=error_stream,
@@ -792,8 +836,8 @@ class NativeNoToolReplSession:
                     scope_label="interactive_ask_file",
                     command_label="ask-file",
                 )
-                read_command_used = read_outcome.command_consumed
-                ask_file_command_used = read_outcome.command_consumed
+                read_budgets = read_budgets.after(read_outcome)
+                ask_file_command_used = ask_file_command_used or read_outcome.command_consumed
                 read_only_result = read_outcome.read_only_result
                 if read_only_result is None:
                     continue
@@ -839,7 +883,7 @@ class NativeNoToolReplSession:
                 if parsed_propose_file is None:
                     _print_repl_command_usage_diagnostic(error_stream, PROPOSE_FILE_REPL_COMMAND)
                     continue
-                if read_command_used:
+                if not read_budgets.can_attempt:
                     print(
                         "pipy: propose-file command skipped: read_command_limit_reached.",
                         file=error_stream,
@@ -861,8 +905,8 @@ class NativeNoToolReplSession:
                     scope_label="interactive_propose_file",
                     command_label="propose-file",
                 )
-                read_command_used = read_outcome.command_consumed
-                propose_file_command_used = read_outcome.command_consumed
+                read_budgets = read_budgets.after(read_outcome)
+                propose_file_command_used = propose_file_command_used or read_outcome.command_consumed
                 read_only_result = read_outcome.read_only_result
                 if read_only_result is None:
                     continue
@@ -1034,7 +1078,12 @@ class NativeNoToolReplSession:
                 "status": status.value,
                 "exit_code": exit_code,
                 "turn_count": conversation_state.provider_turn_count,
-                "read_command_used": read_command_used,
+                "read_command_used": read_budgets.any_command_consumed,
+                "successful_read_budget_used": read_budgets.successful_excerpt_used,
+                "failed_read_attempt_budget_used": read_budgets.failed_or_skipped_attempt_used,
+                "read_recovery_attempt_after_failure_used": (
+                    read_budgets.recovery_attempt_after_failure_used
+                ),
                 "ask_file_command_used": ask_file_command_used,
                 "propose_file_command_used": propose_file_command_used,
                 "apply_proposal_command_used": apply_proposal_command_used,
@@ -1074,11 +1123,11 @@ def _handle_repl_read_command(
     *,
     output_stream: TextIO,
     error_stream: TextIO,
-) -> bool:
+) -> _ReplReadOutcome:
     raw_target = command[len(READ_ONLY_REPL_COMMAND) :].strip()
     if not raw_target:
         _print_repl_command_usage_diagnostic(error_stream, READ_ONLY_REPL_COMMAND)
-        return False
+        return _ReplReadOutcome(command_consumed=False)
     outcome = _read_repl_file_excerpt(
         raw_target,
         run_input,
@@ -1090,14 +1139,14 @@ def _handle_repl_read_command(
     )
     read_only_result = outcome.read_only_result
     if read_only_result is None:
-        return outcome.command_consumed
+        return outcome
 
     if read_only_result.excerpt is None:
-        return outcome.command_consumed
+        return outcome
     print(read_only_result.excerpt.text, end="", file=output_stream, flush=True)
     if not read_only_result.excerpt.text.endswith("\n"):
         print(file=output_stream, flush=True)
-    return outcome.command_consumed
+    return outcome
 
 
 def _handle_repl_apply_proposal_command(

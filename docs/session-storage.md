@@ -488,13 +488,14 @@ and `/quit` terminate cleanly. `/read <workspace-relative-path>` runs the
 bounded explicit-file-excerpt read without a visible approval prompt, prints a
 successful excerpt only to interactive stdout, and does not provider-forward
 the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
-whitespace-delimited `--` separator and shares the same one-read per-session
-limit and read path, but forwards the successful excerpt plus question only in
-memory to one provider turn labeled `ask_file_repl`; it prints only provider
-final text to stdout. `/propose-file <workspace-relative-path> --
-<change-request>` uses the same separator and shared one-read path, forwards
-the successful excerpt plus change request only in memory to one provider turn
-labeled `propose_file_repl`, parses at most one pipy-owned
+whitespace-delimited `--` separator and shares the same successful-read budget
+and explicit-file-excerpt path, but forwards the successful excerpt plus
+question only in memory to one provider turn labeled `ask_file_repl`; it
+prints only provider final text to stdout. `/propose-file
+<workspace-relative-path> -- <change-request>` uses the same separator and
+shared successful-read budget, forwards the successful excerpt plus change
+request only in memory to one provider turn labeled `propose_file_repl`, parses
+at most one pipy-owned
 structured patch proposal metadata object, records at most one metadata-only
 `native.patch.proposal.recorded` event, and prints only provider final text to
 stdout. `/apply-proposal <workspace-relative-path>` is available only after a

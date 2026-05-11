@@ -46,8 +46,9 @@ Use this page as a planning index:
   post-apply-only, metadata-only, and fails the REPL run if verification is
   skipped or fails.
 - First pipy-applied pipy change: completed through the public native REPL.
-  The next milestone is a narrow read-failure recovery boundary based on the
-  self-bootstrap trial and existing archive lessons.
+  The read-failure recovery boundary from that trial is now implemented; the
+  next milestone is a focused review and smoke pass before selecting another
+  native-shell boundary.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -633,44 +634,47 @@ cycles stopping after a clean second review unless scope or risk changes.
   deferral, not multi-file context, not a second successful read, not provider
   path selection, not arbitrary shell execution, and not a general model/tool
   loop.
+- Native bounded read-failure recovery for explicit REPL file commands:
+  `/read`, `/ask-file`, and `/propose-file` now use split in-memory read
+  budgets in the interactive native shell. One successful explicit file
+  excerpt remains the per-session product boundary, shared by all three
+  commands, while one failed or skipped read attempt can happen before that
+  successful excerpt without consuming the success budget. Malformed supported
+  slash commands, unsupported slash commands, `/help`, `/login`, `/logout`,
+  `/model`, `/apply-proposal`, and `/verify just-check` remain outside both
+  budgets. After a successful excerpt, later read/context attempts still fail
+  closed before reading, before provider visibility, and before proposal
+  parsing. A second failed recovery attempt closes the recovery path before a
+  later read can run. Archive payloads remain metadata-only and add only safe
+  budget booleans; raw paths, prompts, excerpts, provider output, command
+  output, proposal text, patch text, diffs, file contents, auth material,
+  secrets, credentials, tokens, private keys, and sensitive personal data
+  remain out of JSONL, Markdown, catalog/search/inspect surfaces, stdout,
+  stderr, and structured output.
 
 ## Next Slice
 
-### Add bounded read-failure recovery for explicit REPL file commands
+### Review bounded read-failure recovery for explicit REPL file commands
 
-Goal: let a failed or skipped explicit REPL file read stop short of consuming
-the only successful read/context opportunity for the session, while preserving
-the existing one-successful-read product boundary.
+Goal: independently review and smoke the implemented split-budget read-failure
+recovery path before selecting the next native-shell boundary.
 
 Implementation focus:
 
-- split the current single read-command limit into two explicit in-memory REPL
-  counters: one successful explicit file excerpt budget and one small failed or
-  skipped read-attempt budget
-- keep `/read`, `/ask-file`, and `/propose-file` limited to at most one
-  successful explicit file excerpt per REPL session
-- allow exactly one failed or skipped explicit read attempt, such as
-  unsafe-target, ignored/generated, secret-looking, oversized, binary,
-  unreadable, unsupported-encoding, or tool-skipped, before the successful read
-  budget is spent
-- keep malformed supported slash commands, unsupported slash commands, `/help`,
-  `/login`, `/logout`, `/model`, `/apply-proposal`, and `/verify just-check`
-  from consuming either budget
-- preserve current behavior for a second successful read/context attempt:
-  fail closed before reading, before provider visibility, and before proposal
-  parsing
-- record only existing metadata-only tool lifecycle and observation events for
-  attempts that reach the explicit-file-excerpt tool; do not add raw path,
-  prompt, excerpt, provider-output, command-output, stdout, stderr, patch, diff,
-  or file-content archive fields
+- review the REPL state transitions for successful excerpt budget use, failed
+  or skipped attempt budget use, recovery-attempt exhaustion, and second
+  successful read/context blocking
+- review focused CLI coverage across `/read`, `/ask-file`, and
+  `/propose-file`, including malformed commands and local commands that should
+  stay outside both budgets
+- smoke a fake-provider REPL sequence that exercises failed-read recovery and
+  confirms finalized archive compatibility with `pipy-session verify`
+- preserve the existing one-successful-read product boundary and
+  metadata-only archive rules
 
 Completion focus:
 
-- update focused REPL CLI tests for unsafe, skipped, failed, and successful
-  read/context command ordering across `/read`, `/ask-file`, and
-  `/propose-file`
-- update documentation-policy tests and docs to describe the split budget
-  without implying multi-file context
+- record review findings and fixes, if any, in focused tests and docs
 - run focused tests plus `just check`
 
 Keep out of scope:
@@ -697,11 +701,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now read-failure recovery after the first
-real self-bootstrap trial:
+The immediate implementation path is now review and smoke for the
+read-failure recovery implementation after the first real self-bootstrap trial:
 
-1. Split the REPL explicit-read budget so a failed or skipped first read
-   attempt does not consume the one successful read/context opportunity.
+1. Review and smoke the split REPL explicit-read budgets before selecting the
+   next native-shell boundary.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -710,7 +714,8 @@ shell is available through bare `pipy` or `pipy repl --agent pipy-native`; it
 now has local `/help`, `/login`, `/logout`, and `/model` commands, one
 display-only `/read <workspace-relative-path>` command, and one
 provider-visible `/ask-file <workspace-relative-path> -- <question>` command
-with a whitespace-delimited `--` separator sharing the same one-read limit.
+with a whitespace-delimited `--` separator sharing the same successful-read
+budget.
 Explicit read/context commands do not display approval popups. Auth/model
 commands and malformed or unsupported slash commands print stderr diagnostics
 without provider/tool execution, read-limit consumption, or raw command
@@ -744,7 +749,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Bounded read-failure recovery for explicit REPL file commands.
+1. Review bounded read-failure recovery for explicit REPL file commands.
 
 Foundation gates toward an interactive shell:
 

@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-44 read-failure recovery boundary selected
+Status: slice-44 read-failure recovery boundary implemented
 
 <style>
 .mermaid,
@@ -767,7 +767,7 @@ without invoking the provider or tools. `/login [openai-codex]` reuses
 the same auth-manager boundary, and `/model [<provider>/<model>|<model>]`
 prints or changes the current provider/model selection. These local
 auth/model commands do not invoke providers, do not consume provider turns, do
-not consume the one-read limit, and do not archive raw command text,
+not consume explicit-read budgets, and do not archive raw command text,
 authorization URLs, prompts, provider responses, tokens, or auth material.
 Successful `/model` selections are persisted as non-secret native defaults
 under local pipy state with only provider and model identifiers.
@@ -811,22 +811,26 @@ is separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
-The `/read`, `/ask-file`, and `/propose-file` commands share one per-session
-read-only workspace request limit. Each accepted command builds one pipy-owned
+The `/read`, `/ask-file`, and `/propose-file` commands share one successful
+explicit file excerpt budget per REPL session plus one bounded failed or
+skipped read-attempt budget. Each accepted command builds one pipy-owned
 `NativeReadOnlyToolRequest` with request kind `explicit-file-excerpt`, a
 pipy-owned `NativeExplicitFileExcerptTarget`, and the existing read-only
 workspace sandbox policy. Explicit user-entered REPL read/context commands use
 `not-required` approval policy data and do not render a visible approval prompt
 before invoking `NativeExplicitFileExcerptTool`. Malformed
 `/read`, `/ask-file`, and `/propose-file` commands and unsupported slash
-commands fail closed before any read, tool event, or provider visibility.
-Unsupported, mismatched, unsafe-target, skipped, failed, and repeated
-read-command cases fail closed before any read, before any second read request,
-or before provider visibility. Static help and usage diagnostics are not
-archived and do not consume the one-read limit. See
-`Read-Failure Recovery Boundary Direction` for the selected next boundary that
-will split this current single request limit into separate successful-read and
-failed-attempt budgets.
+commands fail closed before any read, tool event, provider visibility, or
+budget consumption. A failed or skipped first read attempt, such as
+unsafe-target, ignored/generated, secret-looking, oversized, binary,
+unreadable, unsupported-encoding, or tool-skipped, leaves the one successful
+excerpt budget available for one later explicit file command. After one
+successful excerpt, later `/read`, `/ask-file`, and `/propose-file` attempts
+still fail closed before reading, before provider visibility, and before
+proposal parsing. If the recovery attempt after a failed/skipped read also
+fails, later read/context attempts fail closed before another read. Static
+help and usage diagnostics are not archived and do not consume either budget.
+See `Read-Failure Recovery Boundary Direction` for the implemented split.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
@@ -897,9 +901,9 @@ context, provider-side tools, or a general model/tool loop.
 The implementation reuses the existing read-only sandbox policy,
 explicit-file-excerpt tool, workspace-relative target validation,
 ignored/generated-file rejection, secret-looking content rejection, byte and
-line limits, and the one-read per-session limit shared by `/read` and
-`/ask-file`. After one successful bounded excerpt, it sends the excerpt and
-change request only in memory to exactly one provider turn labeled
+line limits, and the shared successful-read budget for `/read`, `/ask-file`,
+and `/propose-file`. After one successful bounded excerpt, it sends the excerpt
+and change request only in memory to exactly one provider turn labeled
 `propose_file_repl`. That label and its turn index are allocated by
 `NativeConversationState`; they are not copied from provider metadata and are
 not derived from prompts, model output, filesystem paths, stdout, stderr,
@@ -1124,8 +1128,8 @@ based on summary-safe archive evidence only:
   one secret-looking target failed closed as intended, but the one-read session
   limit then blocked a second explicit target in the same REPL record
 
-The selected implementation boundary is to split the current single read
-command limit into two in-memory REPL budgets:
+The implemented boundary splits the previous single read command limit into
+two in-memory REPL budgets:
 
 - one successful explicit file excerpt budget per REPL session, shared by
   `/read`, `/ask-file`, and `/propose-file`
@@ -1139,8 +1143,9 @@ one of those outcomes happens before any successful excerpt is produced, the
 session may still accept one later explicit file command for one successful
 excerpt. After one successful excerpt, later `/read`, `/ask-file`, and
 `/propose-file` attempts still fail closed before reading, before provider
-visibility, and before proposal parsing. After the failed-attempt budget is
-spent, another failed/skipped read attempt also fails closed before reading.
+visibility, and before proposal parsing. If the recovery command after a
+failed/skipped read also fails or skips, later read/context commands fail
+closed before another read.
 
 Malformed supported slash commands, unsupported slash commands, `/help`,
 `/login`, `/logout`, `/model`, `/apply-proposal`, and `/verify just-check` stay
@@ -2518,8 +2523,8 @@ fallback, TUI rendering, conversation export, or a general model/tool loop.
 
 The proposal-only REPL boundary is available as
 `/propose-file <path> -- <change-request>`. It reuses the same bounded
-explicit-file-excerpt path and one-read limit, forwards one excerpt plus one
-change request only in memory to a single provider turn labeled
+explicit-file-excerpt path and successful-read budget, forwards one excerpt
+plus one change request only in memory to a single provider turn labeled
 `propose_file_repl`, accepts at most one pipy-owned structured patch proposal
 metadata object, emits at most one metadata-only
 `native.patch.proposal.recorded` event, and stops before patch apply,
