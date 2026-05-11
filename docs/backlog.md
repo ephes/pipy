@@ -665,35 +665,64 @@ cycles stopping after a clean second review unless scope or risk changes.
   required, and no provider auth, model routing, shell execution, multi-file
   context, provider-side tools, second successful read, automatic write
   selection, or general model/tool loop behavior changed.
+- Native no-tool REPL conversation-context decision after read-failure
+  recovery review: summary-safe archive inspection of the latest
+  read-failure recovery review/smoke records showed a clean closeout, green
+  focused tests and `just check`, fake-provider REPL smoke with finalized
+  archive verification, and a high-confidence recommendation to proceed to the
+  next boundary decision. Adjacent self-bootstrap, `/apply-proposal`, and
+  `/verify just-check` records showed that propose/apply/verify is useful and
+  reviewed, but still deliberately narrow. Comparing candidate boundaries
+  against the Pi-like shell direction selected bounded in-memory context for
+  ordinary no-tool REPL turns as the next implementation slice: later ordinary
+  non-command turns may receive prior successful ordinary no-tool user/provider
+  exchanges in memory only, under explicit turn and byte limits, while file
+  excerpts, proposal drafts, patch text, verification output, command output,
+  provider metadata, auth material, and tool observations remain excluded from
+  history. The decision slice changed no runtime behavior, stdout/stderr
+  contract, archive schema, provider auth, model routing, explicit-read
+  budgets, writes, verification, or tool-loop behavior.
 
 ## Next Slice
 
-### Select next native-shell boundary after read-failure recovery review
+### Implement bounded no-tool REPL conversation context
 
-Goal: choose the next small, reviewable native-shell boundary using the clean
-read-failure recovery review/smoke result and summary-safe archive evidence,
-without changing runtime behavior in the decision slice.
+Goal: make ordinary non-command `pipy-native` REPL turns behave like a bounded
+conversation by forwarding prior successful ordinary no-tool exchanges in
+memory only, without broadening file, write, verification, provider-auth, or
+tool-loop scope.
 
 Implementation focus:
 
-- inspect summary-safe archive signals for the latest native REPL work,
-  including review outcomes, smoke outcomes, and workflow evaluations
-- compare candidate boundaries against the current Pi-like shell direction and
-  the existing public gates: no-tool turns, `/read`, `/ask-file`,
-  `/propose-file`, `/apply-proposal`, and `/verify just-check`
-- select exactly one next implementation slice with clear acceptance criteria
-  and explicit non-goals
-- preserve the existing runtime, stdout/stderr, archive, provider, auth,
-  model, read, write, verification, and tool-loop behavior in this decision
-  slice
+- add an explicit in-memory conversation-context value object or equivalent
+  internal boundary for ordinary no-tool REPL turns
+- include only prior successful ordinary non-command user prompts and provider
+  final text in later ordinary no-tool provider requests
+- keep `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`, malformed commands, unsupported slash commands,
+  `/help`, `/login`, `/logout`, and `/model` outside the retained no-tool
+  history
+- clear retained no-tool history on provider/model changes, logout, provider
+  failure, or any path where carrying context across providers would be
+  ambiguous
+- enforce fixed bounds, starting with at most the existing REPL provider-turn
+  bound and a small provider-visible history byte budget; drop oldest history
+  before provider visibility rather than exceeding limits
+- preserve current metadata-only archive rules; archives may record only safe
+  booleans and counters such as context enabled/used, history exchanges
+  forwarded, and history bytes forwarded
 
 Completion focus:
 
-- update this backlog and the harness spec with the selected boundary and
-  deferred boundaries
-- keep the decision grounded in summary-safe session surfaces, not raw
-  transcripts or prompt bodies
-- run documentation-policy tests plus `just check`
+- focused unit/CLI coverage for ordinary no-tool history forwarding,
+  provider/model change clearing, provider failure clearing, command paths
+  staying outside retained history, and history-bound truncation
+- archive privacy assertions that raw prompts, provider final text, excerpts,
+  proposal text, patch text, command output, and provider metadata are not
+  written to JSONL, Markdown, catalog/search/inspect surfaces, or structured
+  output
+- docs updates in this backlog and `docs/harness-spec.md`
+- run focused documentation/runtime tests plus `just check`
 
 Keep out of scope:
 
@@ -706,6 +735,13 @@ Keep out of scope:
   them; `/help`, `/login`, `/logout`, `/model`, `/apply-proposal`,
   `/verify just-check`, malformed supported slash commands, and unsupported
   slash commands must stay outside those budgets
+- retaining or replaying `/read` excerpts, `/ask-file` questions or excerpts,
+  `/propose-file` change requests, visible proposal drafts, patch apply data,
+  verification status/output, provider metadata, tool observations, or local
+  slash-command text as conversation history
+- persisting conversation history, exporting transcripts, adding structured
+  conversation stdout, adding conversation archive events, or importing raw
+  transcripts
 - archiving raw prompts, excerpts, model output, provider responses, proposal
   text, patch text, diffs, file contents, command output, auth material,
   secrets, credentials, tokens, private keys, or sensitive personal data
@@ -719,11 +755,12 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now a next-boundary decision after the
-clean read-failure recovery review and smoke:
+The immediate implementation path is now bounded in-memory no-tool
+conversation context after the clean read-failure recovery review and smoke:
 
-1. Select the next small native-shell boundary from summary-safe session
-   evidence, without changing runtime behavior in the decision slice.
+1. Add bounded in-memory conversation context for ordinary no-tool REPL turns,
+   without retaining file/tool/write/verification context or persisting raw
+   history.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -767,7 +804,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Select next native-shell boundary after read-failure recovery review.
+1. Implement bounded no-tool REPL conversation context.
 
 Foundation gates toward an interactive shell:
 
@@ -779,7 +816,9 @@ Foundation gates toward an interactive shell:
 - No-tool provider-turn REPL gate: available now through `pipy repl --agent
   pipy-native`.
   It reuses the same conversation state for repeated no-tool provider turns and
-  keeps archives metadata-only.
+  keeps archives metadata-only. It is currently stateless across provider
+  turns; the next slice adds bounded in-memory history only for successful
+  ordinary no-tool exchanges.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
@@ -820,6 +859,9 @@ Foundation gates toward an interactive shell:
   after a successful same-session `/apply-proposal`. It records only
   metadata-only status, suppresses command stdout/stderr, and fails the REPL run
   on skipped or failed verification.
+- Read-failure recovery review gate: available now. The split explicit-read
+  budget implementation is reviewed and smoked, and summary-safe archive
+  signals selected no-tool REPL conversation context as the next boundary.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 

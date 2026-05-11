@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-45 read-failure recovery review and smoke completed
+Status: slice-46 no-tool REPL conversation-context decision completed
 
 <style>
 .mermaid,
@@ -1184,6 +1184,62 @@ separation, and the existing one-successful-read product boundary intact. No
 provider auth, model routing, shell execution, multi-file context,
 provider-side tools, second successful read, automatic writes, or general
 model/tool loop behavior changed.
+
+### No-Tool REPL Conversation Context Direction
+
+The next native-shell boundary selected after the clean read-failure recovery
+review and smoke is bounded in-memory conversation context for ordinary
+no-tool REPL turns. The rationale is based on summary-safe archive evidence
+only:
+
+- the latest read-failure recovery review and smoke records show a clean
+  closeout, green focused tests and `just check`, fake-provider REPL smoke
+  with finalized archive verification, and a high-confidence recommendation to
+  proceed to the next boundary decision
+- the adjacent `/apply-proposal`, `/verify just-check`, and first
+  self-bootstrap records show that propose/apply/verify is useful and reviewed,
+  while still intentionally narrow
+- the most visible remaining shell gap is that ordinary non-command REPL turns
+  are provider turns in one interactive session but do not yet carry bounded
+  no-tool conversational context forward
+
+The selected next implementation slice should add an explicit in-memory
+conversation-context boundary for ordinary non-command REPL turns. Later
+ordinary no-tool provider requests may receive prior successful ordinary
+no-tool user prompts and provider final text, but only in memory and only under
+fixed bounds. Start with the existing REPL provider-turn bound and a small
+provider-visible history byte budget; if the retained context would exceed the
+budget, drop oldest no-tool exchanges before provider visibility rather than
+exceeding the limit.
+
+Retained no-tool history must be cleared when provider/model selection changes,
+on logout, after provider failure, or on any path where carrying context across
+providers would be ambiguous. Only successful ordinary non-command provider
+turns may be appended to this history. Local commands, malformed supported
+slash commands, unsupported slash commands, `/help`, `/login`, `/logout`,
+`/model`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+`/verify just-check` must stay outside retained no-tool history.
+
+This boundary must not retain or replay file excerpts, `/ask-file` questions,
+`/propose-file` change requests, visible proposal drafts, raw proposal text,
+patch text, diffs, patch apply data, verification status or output, command
+output, provider metadata, tool observations, auth material, or local
+slash-command text as conversation history. It must not add persistent
+conversation history, transcript export, structured conversation stdout,
+conversation archive events, provider auth changes, token storage changes,
+provider routing changes, model default changes, arbitrary shell execution,
+non-allowlisted verification commands, multi-file reads, a second successful
+read/context handoff, provider-selected filesystem paths, automatic write
+selection, provider-side tools, or a general model/tool loop.
+
+Archives, Markdown, catalog/search/inspect surfaces, and structured output
+must remain metadata-only. They may record only safe booleans and counters such
+as whether no-tool conversation context was enabled or used, how many history
+exchanges were forwarded, and how many history bytes were forwarded. They must
+not store raw prompts, provider final text, model output, provider responses,
+provider-native payloads, excerpts, proposal text, patch text, diffs, file
+contents, command stdout, command stderr, auth material, secrets, credentials,
+API keys, tokens, private keys, or sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 

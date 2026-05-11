@@ -462,26 +462,39 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_done
     )
     assert "fake-provider REPL smoke exercised failed-read recovery" in compact_done
-    assert (
-        "### Select next native-shell boundary after read-failure recovery review"
-        in next_slice
+    assert "Native no-tool REPL conversation-context decision after read-failure recovery review" in (
+        compact_done
     )
-    assert "choose the next small, reviewable native-shell boundary" in (
+    assert "bounded in-memory context for ordinary no-tool REPL turns" in compact_done
+    assert "under explicit turn and byte limits" in compact_done
+    assert "file excerpts, proposal drafts, patch text, verification output" in (
+        compact_done
+    )
+    assert "The decision slice changed no runtime behavior" in compact_done
+    assert "### Implement bounded no-tool REPL conversation context" in next_slice
+    assert "ordinary non-command `pipy-native` REPL turns" in compact_next_slice
+    assert "prior successful ordinary no-tool exchanges in memory only" in (
         compact_next_slice
     )
-    assert "summary-safe archive evidence" in compact_next_slice
-    assert "without changing runtime behavior in the decision slice" in (
+    assert "explicit in-memory conversation-context value object" in compact_next_slice
+    assert "prior successful ordinary non-command user prompts and provider final text" in (
         compact_next_slice
     )
-    assert "existing public gates: no-tool turns, `/read`, `/ask-file`" in (
+    assert "`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`" in (
         compact_next_slice
     )
-    assert "select exactly one next implementation slice" in compact_next_slice
+    assert "clear retained no-tool history on provider/model changes" in (
+        compact_next_slice
+    )
+    assert "history exchanges forwarded" in compact_next_slice
     assert "multi-file reads" in compact_next_slice
     assert "a second successful read/context handoff" in compact_next_slice
     assert "must stay outside those budgets" in compact_next_slice
+    assert "retaining or replaying `/read` excerpts" in compact_next_slice
+    assert "persisting conversation history" in compact_next_slice
+    assert "adding conversation archive events" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "next-boundary decision after the clean read-failure recovery review and smoke" in (
+    assert "bounded in-memory no-tool conversation context after the clean read-failure recovery review and smoke" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -493,6 +506,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "No-tool provider-turn REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
+    assert "currently stateless across provider turns" in compact_near_term
+    assert "bounded in-memory history only for successful ordinary no-tool exchanges" in (
+        compact_near_term
+    )
     assert "Historical visible approval prompt gate" in compact_near_term
     assert "Narrow read-only shell command gate: available now" in compact_near_term
     assert "Provider-visible interactive context gate: available now" in compact_near_term
@@ -515,9 +532,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Select next native-shell boundary after read-failure recovery review" in (
+    assert "Implement bounded no-tool REPL conversation context" in (
         compact_near_term
     )
+    assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -821,6 +839,99 @@ def test_selected_read_failure_recovery_boundary_is_documented():
         "sensitive personal data",
     ):
         assert forbidden in compact_boundary
+
+
+def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    boundary_section = markdown_section(spec, "No-Tool REPL Conversation Context Direction")
+    compact_boundary = collapse_whitespace(boundary_section)
+
+    assert "bounded in-memory conversation context for ordinary no-tool REPL turns" in (
+        compact_boundary
+    )
+    assert "summary-safe archive evidence only" in compact_boundary
+    assert "read-failure recovery review and smoke records show a clean closeout" in (
+        compact_boundary
+    )
+    assert "fake-provider REPL smoke with finalized archive verification" in (
+        compact_boundary
+    )
+    assert "ordinary non-command REPL turns" in compact_boundary
+    assert "prior successful ordinary no-tool user prompts and provider final text" in (
+        compact_boundary
+    )
+    assert "existing REPL provider-turn bound" in compact_boundary
+    assert "provider-visible history byte budget" in compact_boundary
+    assert "drop oldest no-tool exchanges before provider visibility" in compact_boundary
+    assert "cleared when provider/model selection changes" in compact_boundary
+    assert "on logout" in compact_boundary
+    assert "after provider failure" in compact_boundary
+    assert "`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and `/verify just-check`" in (
+        compact_boundary
+    )
+    assert "metadata-only" in compact_boundary
+    assert "history exchanges were forwarded" in compact_boundary
+    assert "history bytes were forwarded" in compact_boundary
+
+    for excluded_history in (
+        "file excerpts",
+        "`/ask-file` questions",
+        "`/propose-file` change requests",
+        "visible proposal drafts",
+        "raw proposal text",
+        "patch text",
+        "diffs",
+        "verification status or output",
+        "command output",
+        "provider metadata",
+        "tool observations",
+        "auth material",
+        "local slash-command text",
+    ):
+        assert excluded_history in compact_boundary
+
+    for deferred in (
+        "persistent conversation history",
+        "transcript export",
+        "structured conversation stdout",
+        "conversation archive events",
+        "provider auth changes",
+        "token storage changes",
+        "provider routing changes",
+        "model default changes",
+        "arbitrary shell execution",
+        "non-allowlisted verification commands",
+        "multi-file reads",
+        "second successful read/context handoff",
+        "provider-selected filesystem paths",
+        "automatic write selection",
+        "provider-side tools",
+        "general model/tool loop",
+    ):
+        assert deferred in compact_boundary
+
+    for forbidden_archive in (
+        "raw prompts",
+        "provider final text",
+        "model output",
+        "provider responses",
+        "provider-native payloads",
+        "excerpts",
+        "proposal text",
+        "patch text",
+        "diffs",
+        "file contents",
+        "command stdout",
+        "command stderr",
+        "auth material",
+        "secrets",
+        "credentials",
+        "API keys",
+        "tokens",
+        "private keys",
+        "sensitive personal data",
+    ):
+        assert forbidden_archive in compact_boundary
 
 
 def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():
