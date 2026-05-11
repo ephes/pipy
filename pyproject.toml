@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Local tooling for pipy coding-agent session records."
 readme = "README.md"
 requires-python = ">=3.11"
-# Intentionally no runtime dependencies; developer tooling lives under [dependency-groups].dev.
+# No runtime dependencies are declared; development tools live in the dev dependency group.
 dependencies = []
 
 [project.scripts]

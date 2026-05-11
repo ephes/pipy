@@ -45,9 +45,9 @@ Use this page as a planning index:
   a successful same-session `/apply-proposal`. It stays allowlisted,
   post-apply-only, metadata-only, and fails the REPL run if verification is
   skipped or fails.
-- First pipy-applied pipy change: next milestone now that the public write and
-  verification boundaries have been reviewed/smoked together and still pass the
-  privacy/archive invariants.
+- First pipy-applied pipy change: completed through the public native REPL.
+  The next milestone is a narrow next-boundary decision based on the
+  self-bootstrap trial and existing archive lessons.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -599,39 +599,52 @@ cycles stopping after a clean second review unless scope or risk changes.
   `pipy-session verify`, `list`, `search`, and `inspect` remained compatible
   with both finalized REPL records, and no implementation hardening was
   required.
+- Native first pipy-applied, pipy-verified tiny change: on 2026-05-11, a fresh
+  `pipy-native` REPL session from the repository root used
+  `openai-codex/gpt-5.2` and `/propose-file pyproject.toml -- <change-request>`
+  against the small non-secret `pyproject.toml` file. The visible one-file
+  draft was reviewed in the terminal, then applied through `/apply-proposal
+  pyproject.toml` and verified in the same session with `/verify just-check`.
+  The applied change only reworded the comment above the empty runtime
+  dependency list to state that no runtime dependencies are declared and that
+  development tools live in the dev dependency group. Verification succeeded,
+  `pipy-session verify` reported `ok`, and summary-safe `list`, `search`, and
+  `inspect` surfaces remained compatible with the finalized
+  `native-self-bootstrap-trial` record. The trial did not broaden provider
+  auth, token storage, provider routing, model defaults, arbitrary shell
+  execution, non-allowlisted verification commands, multi-file reads, multiple
+  tool requests, automatic write selection, provider follow-up turns, or the
+  general model/tool loop, and raw prompts, model output, proposal text, diffs,
+  file contents, command output, auth material, secrets, credentials, tokens,
+  private keys, and sensitive personal data remained out of the archive.
 
 ## Next Slice
 
-### Use the native shell for the first pipy-applied, pipy-verified tiny change
+### Choose the next native shell boundary after the self-bootstrap trial
 
-Goal: make one intentionally tiny repository change through the public
-`pipy-native` REPL propose/apply/verify flow now that `/propose-file`,
-`/apply-proposal`, and `/verify just-check` have been reviewed and smoked
-together.
+Goal: select the next small, reviewable native-shell boundary now that the
+public `/propose-file`, `/apply-proposal`, and `/verify just-check` flow has
+made and verified one real repository change.
 
 Implementation focus:
 
-- start a fresh native REPL session from the repository root with a real
-  provider/model selection that is available locally, preferably
-  `openai-codex/gpt-5.2` when authenticated
-- use `/propose-file <workspace-relative-path> -- <change-request>` on one
-  small non-secret text file within the explicit excerpt limits
-- review the visible one-file proposal draft in the terminal before issuing
-  `/apply-proposal <same-workspace-relative-path>`
-- run `/verify just-check` in the same REPL session after the successful apply
-- keep any follow-up manual edits limited to review/doc/test corrections that
-  are necessary to make the slice truthful and green
+- inspect the finalized `native-self-bootstrap-trial` record through
+  summary-safe archive surfaces only
+- review existing reflection/search signals for repeated lessons about the
+  native shell, model availability, and self-bootstrap workflow
+- choose exactly one next boundary, such as model availability/default policy,
+  a second same-session read/context command, a tighter apply-draft format, or
+  another narrowly named shell capability
+- document why that boundary is next and what remains explicitly deferred
 
 Completion focus:
 
-- record the provider/model, target file, applied change summary, and
-  verification result without raw prompts, model output, proposal text, diffs,
-  file contents, command output, auth material, secrets, credentials, tokens,
-  private keys, or sensitive personal data
-- inspect the finalized REPL record through summary-safe catalog surfaces such
-  as `pipy-session verify`, `list`, `search`, or `inspect`
-- update docs/backlog and focused tests only as needed to record the outcome
-  and select the next boundary
+- update `docs/backlog.md` and `docs/harness-spec.md` with the selected
+  boundary, rationale, and non-goals
+- add or adjust focused documentation-policy tests if they currently encode
+  the completed self-bootstrap trial as the active next slice
+- keep the slice decision-only unless the chosen boundary is already fully
+  specified, tiny, and testable without crossing deferred scope
 
 Keep out of scope:
 
@@ -640,9 +653,9 @@ Keep out of scope:
   multi-file reads, multiple tool requests, automatic provider-selected
   filesystem paths, provider follow-up turns, automatic write selection, or a
   general model/tool loop
-- archiving raw prompts, excerpts, model output, provider responses, patch
-  text, diffs, file contents, command output, auth material, secrets,
-  credentials, tokens, private keys, or sensitive personal data
+- archiving raw prompts, excerpts, model output, provider responses, proposal
+  text, patch text, diffs, file contents, command output, auth material,
+  secrets, credentials, tokens, private keys, or sensitive personal data
 
 ## Near Term
 
@@ -653,10 +666,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now a self-bootstrap trial:
+The immediate implementation path is now a next-boundary decision after the
+first real self-bootstrap trial:
 
-1. Use the propose/apply/verify flow for the first real pipy-applied,
-   pipy-verified tiny change.
+1. Choose exactly one next native-shell boundary from the self-bootstrap trial
+   evidence and existing summary-safe archive lessons.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -699,7 +713,8 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. First real pipy-applied, pipy-verified tiny change.
+1. Next native-shell boundary decision after the first real self-bootstrap
+   trial.
 
 Foundation gates toward an interactive shell:
 

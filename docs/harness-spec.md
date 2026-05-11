@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-42 native verification REPL review and smoke
+Status: slice-43 first native self-bootstrap trial completed
 
 <style>
 .mermaid,
@@ -1075,6 +1075,34 @@ safe `command_failed` metadata. `pipy-session verify`, `list`, `search`, and
 `inspect` remained compatible with both finalized REPL records. No
 implementation hardening was required before the first real pipy-applied,
 pipy-verified tiny change.
+
+### First Native Self-Bootstrap Trial Outcome
+
+The first real pipy-applied, pipy-verified repository change completed on
+2026-05-11 through the public native REPL. The trial used
+`openai-codex/gpt-5.2`, targeted `pyproject.toml`, reviewed the visible
+one-file draft in the terminal, applied it with `/apply-proposal
+pyproject.toml`, and verified it in the same REPL with `/verify just-check`.
+The applied change was intentionally tiny: a comment above the empty runtime
+dependency list now states that no runtime dependencies are declared and that
+development tools live in the dev dependency group.
+
+Summary-safe archive inspection remained compatible after finalization:
+`pipy-session verify` reported `ok`; `pipy-session list` showed the finalized
+`native-self-bootstrap-trial` record; `pipy-session search
+native-self-bootstrap-trial --json` found only metadata references; and
+`pipy-session inspect` showed the expected metadata-only lifecycle, provider,
+tool, patch-apply, and verification event types. The finalized record stayed
+partial lifecycle metadata only with no raw transcript import, no stdout or
+stderr storage, no prompt or model output storage, and no changed-file path
+recording.
+
+This trial did not require provider auth changes, token storage changes,
+provider routing changes, model default changes, arbitrary shell execution,
+non-allowlisted verification commands, multi-file reads, multiple tool
+requests, automatic write selection, provider follow-up turns, or a general
+model/tool loop. The next implementation boundary should be selected in a
+separate decision slice from the trial evidence and existing archive lessons.
 
 ### Native Structured Stdout JSON Mode
 

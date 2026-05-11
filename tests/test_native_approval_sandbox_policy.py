@@ -428,17 +428,30 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`pipy-session verify`, `list`, `search`, and `inspect` remained compatible" in (
         compact_done
     )
+    assert "Native first pipy-applied, pipy-verified tiny change" in compact_done
+    assert "2026-05-11" in compact_done
+    assert "`openai-codex/gpt-5.2`" in compact_done
+    assert "`/propose-file pyproject.toml -- <change-request>`" in compact_done
+    assert "`/apply-proposal pyproject.toml`" in compact_done
+    assert "`/verify just-check`" in compact_done
+    assert "`native-self-bootstrap-trial`" in compact_done
+    assert "no runtime dependencies are declared" in compact_done
     assert (
-        "### Use the native shell for the first pipy-applied, pipy-verified tiny change"
+        "### Choose the next native shell boundary after the self-bootstrap trial"
         in next_slice
     )
-    assert "`pipy-native` REPL propose/apply/verify flow" in compact_next_slice
-    assert "`/apply-proposal <same-workspace-relative-path>`" in compact_next_slice
-    assert "/verify just-check" in compact_next_slice
-    assert "provider/model, target file, applied change summary" in compact_next_slice
+    assert "public `/propose-file`, `/apply-proposal`, and `/verify just-check` flow" in (
+        compact_next_slice
+    )
+    assert "summary-safe archive surfaces only" in compact_next_slice
+    assert "choose exactly one next boundary" in compact_next_slice
+    assert "model availability/default policy" in compact_next_slice
+    assert "second same-session read/context command" in compact_next_slice
+    assert "tighter apply-draft format" in compact_next_slice
+    assert "decision-only" in compact_next_slice
     assert "changing provider auth" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "self-bootstrap trial" in compact_near_term
+    assert "next-boundary decision after the first real self-bootstrap trial" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
     assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
         compact_near_term
@@ -470,7 +483,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "first real pipy-applied, pipy-verified tiny change" in compact_near_term
+    assert "Next native-shell boundary decision after the first real self-bootstrap trial" in (
+        compact_near_term
+    )
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -653,6 +668,40 @@ def test_selected_apply_proposal_repl_boundary_is_documented():
         "sensitive personal data",
     ):
         assert forbidden in compact_decision
+
+
+def test_first_native_self_bootstrap_trial_outcome_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    outcome_section = markdown_section(spec, "First Native Self-Bootstrap Trial Outcome")
+    compact_outcome = collapse_whitespace(outcome_section)
+
+    assert "2026-05-11" in compact_outcome
+    assert "`openai-codex/gpt-5.2`" in compact_outcome
+    assert "`pyproject.toml`" in compact_outcome
+    assert "`/apply-proposal pyproject.toml`" in compact_outcome
+    assert "`/verify just-check`" in compact_outcome
+    assert "no runtime dependencies are declared" in compact_outcome
+    assert "`pipy-session verify` reported `ok`" in compact_outcome
+    assert "`native-self-bootstrap-trial`" in compact_outcome
+    assert "metadata-only lifecycle, provider, tool, patch-apply, and verification event types" in (
+        compact_outcome
+    )
+    assert "partial lifecycle metadata only" in compact_outcome
+
+    for deferred in (
+        "provider auth changes",
+        "token storage changes",
+        "provider routing changes",
+        "model default changes",
+        "arbitrary shell execution",
+        "non-allowlisted verification commands",
+        "multi-file reads",
+        "multiple tool requests",
+        "automatic write selection",
+        "provider follow-up turns",
+        "general model/tool loop",
+    ):
+        assert deferred in compact_outcome
 
 
 def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():
