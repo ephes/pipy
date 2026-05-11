@@ -229,9 +229,15 @@ unsupported slash commands, provider failures, later provider-visible turns,
 and any apply attempt also clear the pending draft. A visible draft without
 structured proposal metadata can enable only the in-memory apply draft; it does
 not synthesize a proposal archive event. It does not call a provider, run
-verification, execute shell commands, invoke provider-side tools, support
-multi-file writes, or read proposal data back from archives.
-Verification remains manual until a separate verification command slice.
+verification itself, invoke provider-side tools, support multi-file writes, or
+read proposal data back from archives.
+The explicit `/verify just-check` command is available only after a successful
+same-session `/apply-proposal` mutation. It maps the safe label `just-check` to
+the internal `just check` argv through the existing `NativeVerificationTool`,
+emits only the metadata-only `native.verification.recorded` event, suppresses
+command stdout and stderr, and fails the REPL run when verification is skipped
+or fails. It does not accept arbitrary command text, provider-selected commands,
+network access, filesystem mutation, provider follow-up turns, or retries.
 
 Native stdout is intentionally human-readable by default: a successful
 `pipy-native` run prints only the provider final text to stdout. Session
@@ -282,13 +288,13 @@ read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes only the explicit `/read`
-and `/ask-file` commands, the proposal-only `/propose-file` command, and the
-same-session one-file `/apply-proposal` command; normal
+and `/ask-file` commands, the proposal-only `/propose-file` command, the
+same-session one-file `/apply-proposal` command, and one post-apply
+`/verify just-check` command; normal
 OpenAI, OpenAI Codex, and OpenRouter CLI runs still do not expose general
-model-selected tool use, provider-side tools, public verification controls,
-arbitrary shell execution, retries, streaming, provider registry, or raw
-transcript import. Verification is
-reserved for a later command slice. Native OAuth belongs only to the distinct
+model-selected tool use, provider-side tools, arbitrary shell execution,
+non-allowlisted verification commands, retries, streaming, provider registry,
+or raw transcript import. Native OAuth belongs only to the distinct
 `openai-codex` subscription provider, not to the existing `openai` API-key
 provider.
 

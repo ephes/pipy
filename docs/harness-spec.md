@@ -789,7 +789,10 @@ explicit-file-excerpt path as `/ask-file`, then sends one in-memory excerpt
 plus one change request to one provider turn labeled `propose_file_repl`.
 `/apply-proposal <workspace-relative-path>` performs no provider turn; it
 consumes only one pending in-memory proposal draft from the same REPL session
-and exact same normalized workspace-relative path.
+and exact same normalized workspace-relative path. `/verify just-check`
+performs no provider turn; it is accepted only after a successful same-session
+`/apply-proposal` mutation and maps the safe command label to the internal
+`just check` argv through the existing verification boundary.
 These turn indexes and labels are pipy-owned; they are not copied from provider
 metadata and are not derived from prompts, model output, filesystem paths,
 stdout, stderr, secrets, or credentials.
@@ -798,12 +801,13 @@ The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
 `/read` excerpt text print to stdout, while prompts, help, auth/model status,
 malformed-command usage diagnostics, unsupported slash-command diagnostics,
-finalization, errors, interrupt handling, apply status, command-skip messages,
-and the turn-limit notice stay on stderr. `/model` with no arguments prints
-the current selection and conservative configured-model information to stderr
-only. `/ask-file` and `/propose-file` never print their raw excerpts directly;
-`/apply-proposal` does not print raw replacement text or diffs. This is
-separate from one-shot
+finalization, errors, interrupt handling, apply status, verification status,
+command-skip messages, and the turn-limit notice stay on stderr. `/model` with
+no arguments prints the current selection and conservative configured-model
+information to stderr only. `/ask-file` and `/propose-file` never print their
+raw excerpts directly; `/apply-proposal` does not print raw replacement text or
+diffs, and `/verify just-check` does not print command stdout or stderr. This
+is separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
@@ -847,6 +851,8 @@ REPL archives reuse existing safe lifecycle event names:
   boundary only
 - `native.patch.apply.recorded` for successful, skipped, or failed
   `/apply-proposal` attempts that reach the patch-apply tool
+- `native.verification.recorded` for successful, skipped, or failed
+  `/verify just-check` attempts that reach the verification tool
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
@@ -1034,34 +1040,28 @@ responses, provider-native payloads, raw provider metadata, raw tool payloads,
 stdout, stderr, command output, shell commands, auth material, secrets,
 credentials, API keys, tokens, private keys, or sensitive personal data.
 
-Verification remains manual after this first public write-capable REPL slice.
-The selected next boundary is a separately named verification command, likely
-`/verify just-check`, that reuses the existing `NativeVerificationRequest`
-boundary after `/apply-proposal` has been reviewed and smoked.
-`/apply-proposal` itself must not run
-`just check`, execute shell commands, or emit `native.verification.recorded`.
+Verification is now exposed through the separately named `/verify just-check`
+REPL command after a successful same-session `/apply-proposal` mutation.
+`/apply-proposal` itself must not run `just check`, execute shell commands, or
+emit `native.verification.recorded`.
 
-The next implementation boundary should continue to reuse the proposal path's
-read-side constraints and the apply path's metadata contracts:
+The verification boundary keeps the apply path's metadata contracts:
 
-- the read-only workspace sandbox policy and no-popup posture used by the prior
-  `/propose-file` step
-- the explicit-file-excerpt target validation, ignored/generated-file checks,
-  secret-looking content rejection, byte and line limits, and one-read
-  per-session limit
-- the `propose_file_repl` provider turn label allocated by
-  `NativeConversationState`
-- the metadata-only `native.tool.observation.recorded` and
-  `native.patch.proposal.recorded` event shapes
+- the read-only workspace verification sandbox policy with workspace read and
+  allowlisted shell execution only
+- the explicit safe command label `just-check`, internally mapped to `just
+  check` without shell text or provider-selected command data
+- one metadata-only `native.verification.recorded` event only after the command
+  reaches the verification tool
 - the default stdout/stderr split and metadata-only archive, Markdown, catalog,
   and structured-output contracts
 
-The implementation slice deliberately does not expose generic `/apply`,
-`/apply-file`, automatic patch application without a reviewed same-session
-proposal, shell execution, provider-side tools, multiple file reads, multiple
-tool requests, unbounded turns, persistent history, TUI/RPC behavior, retries,
-fallback, provider routing, OAuth changes, or verification execution. It needs
-focused tests and an independent review before it is treated as complete.
+The implemented verification command deliberately does not expose generic
+`/verify`, arbitrary shell command text, provider-selected commands, provider
+follow-up turns, provider-side tools, multiple file reads, multiple tool
+requests, unbounded turns, persistent history, TUI/RPC behavior, retries,
+fallback, provider routing, or OAuth changes. It needs focused tests and an
+independent review before it is treated as complete.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2405,16 +2405,18 @@ from `NativeConversationState`, with `initial` for the first turn and
 `no_tool_repl` for later REPL turns. Provider construction is late-bound from
 the current REPL provider/model selection before each provider-visible turn.
 The shell exposes local `/help`, `/login`, `/logout`, and `/model` commands,
-one display-only `/read` command, and provider-visible `/ask-file <path> --
-<question>` and `/propose-file <path> -- <change-request>` commands. The read
-commands share one bounded explicit-file-excerpt request per REPL session;
-`/ask-file` and `/propose-file` accept a whitespace-delimited `--` separator
-and forward the bounded excerpt only in memory to one provider turn labeled
-`ask_file_repl` or `propose_file_repl`. Help, auth/model commands, malformed
-supported slash commands, and unsupported slash commands print static or safe
-status diagnostics on stderr without provider/tool execution, read-limit
-consumption, tool events, or raw command archiving. It still does not expose
-provider metadata, verification, shell execution, streaming, retries,
+one display-only `/read` command, provider-visible `/ask-file <path> --
+<question>` and `/propose-file <path> -- <change-request>` commands, the
+same-session one-file `/apply-proposal <path>` command, and one post-apply
+`/verify just-check` command. The read commands share one bounded
+explicit-file-excerpt request per REPL session; `/ask-file` and `/propose-file`
+accept a whitespace-delimited `--` separator and forward the bounded excerpt
+only in memory to one provider turn labeled `ask_file_repl` or
+`propose_file_repl`. Help, auth/model commands, malformed supported slash
+commands, and unsupported slash commands print static or safe status diagnostics
+on stderr without provider/tool execution, read-limit consumption, tool events,
+or raw command archiving. It still does not expose provider metadata, arbitrary
+shell execution, non-allowlisted verification commands, streaming, retries,
 fallback, TUI rendering, conversation export, or a general model/tool loop.
 
 The proposal-only REPL boundary is available as
@@ -2433,9 +2435,15 @@ shell command. It consumes only a same-session, in-memory, human-reviewed
 proposal for the exact same normalized path, normalizes that draft into one
 `NativePatchApplyRequest`, applies exactly one operation to one file through the
 existing mutating-workspace boundary, and records only metadata-only
-`native.patch.apply.recorded` status. Verification remains manual; a separate
-later `/verify just-check`-style command can reuse the existing verification
-boundary. Generic patch application, verification execution, shell execution,
+`native.patch.apply.recorded` status.
+
+The verification REPL boundary is implemented as `/verify just-check`, accepted
+only after a successful same-session `/apply-proposal` mutation. It maps the
+safe label to the internal `just check` argv through the existing
+`NativeVerificationTool`, records only metadata-only
+`native.verification.recorded` status, suppresses command stdout and stderr, and
+fails the REPL run when verification is skipped or fails. Generic patch
+application, arbitrary shell execution, non-allowlisted verification commands,
 provider-side tools, and broader tool loops remain deferred to separately named
 slices.
 

@@ -19,6 +19,12 @@ from pipy_harness.native import (
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
+    NativeToolStatus,
+    NativeVerificationApprovalDecision,
+    NativeVerificationGateDecision,
+    NativeVerificationReason,
+    NativeVerificationRequest,
+    NativeVerificationResult,
     ProviderRequest,
     ProviderResult,
 )
@@ -95,6 +101,38 @@ def repl_apply_proposal_text(path: str, old_text: str, new_text: str) -> str:
         f"{new_text}"
         "--- end_replacement_text ---\n"
         "```\n"
+    )
+
+
+def repl_verification_result(
+    request: NativeVerificationRequest,
+    gate: NativeVerificationGateDecision,
+    *,
+    status: NativeToolStatus,
+    reason: NativeVerificationReason,
+    exit_code: int,
+) -> NativeVerificationResult:
+    now = datetime.now(UTC)
+    return NativeVerificationResult(
+        status=status,
+        reason_label=reason,
+        tool_request_id=request.tool_request_id,
+        turn_index=request.turn_index,
+        command_label="just-check",
+        started_at=now,
+        ended_at=now,
+        exit_code=exit_code,
+        approval_policy=request.approval_policy.mode,
+        approval_decision=gate.approval_decision,
+        sandbox_policy=request.sandbox_policy.mode,
+        workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
+        filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
+        shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
+        network_access_allowed=request.sandbox_policy.network_access_allowed,
+        scope_label=request.scope_label,
+        error_label=None
+        if status == NativeToolStatus.SUCCEEDED
+        else NativeVerificationReason.COMMAND_FAILED.value,
     )
 
 
@@ -438,6 +476,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
     assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
     assert "  /apply-proposal <workspace-relative-path>" in captured.err
+    assert "  /verify just-check" in captured.err
     assert "  /exit" in captured.err
     assert "  /quit" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -2732,6 +2771,452 @@ def test_cli_native_repl_apply_proposal_mutates_one_file_and_archives_metadata_o
     assert search_finalized_sessions(NATIVE_PATCH_APPLY_RECORDED_EVENT, root=root)
     inspection = inspect_finalized_session(finalized, root=root)
     assert inspection.event_types[NATIVE_PATCH_APPLY_RECORDED_EVENT] == 1
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_verify_requires_successful_apply_without_provider_or_tool(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    provider_calls = 0
+    verification_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("verify without apply should not call provider")
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            nonlocal verification_calls
+            verification_calls += 1
+            raise AssertionError("verify without apply should not invoke verification")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(sys, "stdin", StringIO("/verify just-check\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-verify-no-apply",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert verification_calls == 0
+    assert "verify command skipped: no_successful_apply_proposal" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert NATIVE_VERIFICATION_RECORDED_EVENT not in event_types
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value after skipped early verification\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    verification_calls = 0
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            nonlocal verification_calls
+            verification_calls += 1
+            raise AssertionError("verify before apply should not invoke verification")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/verify just-check\n"
+            "/apply-proposal docs/target.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-verify-before-apply-preserves-draft",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert verification_calls == 0
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "verify command skipped: no_successful_apply_proposal" in captured.err
+    assert "apply-proposal command succeeded: patch_applied" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert NATIVE_VERIFICATION_RECORDED_EVENT not in event_types
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provider_call(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value before verification\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+    verification_calls: list[tuple[Path, NativeVerificationRequest, NativeVerificationGateDecision]] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            verification_calls.append((self.workspace, request, gate))
+            return repl_verification_result(
+                request,
+                gate,
+                status=NativeToolStatus.SUCCEEDED,
+                reason=NativeVerificationReason.VERIFICATION_SUCCEEDED,
+                exit_code=0,
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n"
+            "/verify just-check\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-verify-success",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert len(verification_calls) == 1
+    workspace, request, gate = verification_calls[0]
+    assert workspace == tmp_path
+    assert request.command_label == "just-check"
+    assert request.scope_label == "interactive_verify"
+    assert request.sandbox_policy.mode.value == "read-only-workspace"
+    assert request.sandbox_policy.workspace_read_allowed is True
+    assert request.sandbox_policy.filesystem_mutation_allowed is False
+    assert request.sandbox_policy.shell_execution_allowed is True
+    assert request.sandbox_policy.network_access_allowed is False
+    assert gate.approval_decision == NativeVerificationApprovalDecision.ALLOWED
+    assert "verify command succeeded: verification_succeeded" in captured.err
+    assert target.read_text(encoding="utf-8") == new_text
+
+    finalized = next((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized)
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert event_types.count(NATIVE_VERIFICATION_RECORDED_EVENT) == 1
+    verification_payload = [
+        event["payload"] for event in events if event["type"] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert verification_payload["command_label"] == "just-check"
+    assert verification_payload["status"] == "succeeded"
+    assert verification_payload["reason_label"] == "verification_succeeded"
+    assert verification_payload["exit_code"] == 0
+    assert verification_payload["approval_decision"] == "allowed"
+    assert verification_payload["sandbox_policy"] == "read-only-workspace"
+    assert verification_payload["workspace_read_allowed"] is True
+    assert verification_payload["filesystem_mutation_allowed"] is False
+    assert verification_payload["shell_execution_allowed"] is True
+    assert verification_payload["network_access_allowed"] is False
+    assert verification_payload["stdout_stored"] is False
+    assert verification_payload["stderr_stored"] is False
+    assert verification_payload["command_output_stored"] is False
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["apply_proposal_command_used"] is True
+    assert completed_payload["verification_command_used"] is True
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "just check" not in combined
+    assert old_text.strip() not in combined
+    assert new_text.strip() not in combined
+    assert search_finalized_sessions(NATIVE_VERIFICATION_RECORDED_EVENT, root=root)
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_failed_second_apply_does_not_relock_verification(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value before verification\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    verification_calls: list[tuple[Path, NativeVerificationRequest, NativeVerificationGateDecision]] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            verification_calls.append((self.workspace, request, gate))
+            return repl_verification_result(
+                request,
+                gate,
+                status=NativeToolStatus.SUCCEEDED,
+                reason=NativeVerificationReason.VERIFICATION_SUCCEEDED,
+                exit_code=0,
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n"
+            "/apply-proposal docs/target.txt\n"
+            "/verify just-check\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-second-apply-does-not-relock-verify",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(verification_calls) == 1
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "apply-proposal command skipped: no_pending_proposal" in captured.err
+    assert "verify command succeeded: verification_succeeded" in captured.err
+    events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
+    event_types = [event["type"] for event in events]
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert event_types.count(NATIVE_VERIFICATION_RECORDED_EVENT) == 1
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_failed_verify_after_apply_fails_run_with_metadata_only_event(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value before failed verification\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            return repl_verification_result(
+                request,
+                gate,
+                status=NativeToolStatus.FAILED,
+                reason=NativeVerificationReason.COMMAND_FAILED,
+                exit_code=7,
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n"
+            "/verify just-check\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-verify-failed",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 1
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "verify command failed: command_failed" in captured.err
+    finalized = next((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized)
+    verification_payload = [
+        event["payload"] for event in events if event["type"] == NATIVE_VERIFICATION_RECORDED_EVENT
+    ][0]
+    assert verification_payload["status"] == "failed"
+    assert verification_payload["reason_label"] == "command_failed"
+    assert verification_payload["exit_code"] == 7
+    assert verification_payload["command_output_stored"] is False
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "just check" not in combined
+    assert old_text.strip() not in combined
+    assert new_text.strip() not in combined
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["status"] == "failed"
+    assert completed_payload["exit_code"] == 1
+    assert completed_payload["exit_reason"] == "verification_failed"
     assert verify_session_archive(root=root).ok is True
 
 

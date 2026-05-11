@@ -418,7 +418,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "same-session `/propose-file`" in compact_done
     assert "NativePatchApplyRequest" in compact_done
     assert "native.patch.apply.recorded" in compact_done
-    assert "### Native REPL verification command, likely `/verify just-check`" in next_slice
+    assert "Native REPL `/verify just-check` command" in compact_done
+    assert "NativeVerificationRequest" in compact_done
+    assert "native.verification.recorded" in compact_done
+    assert "### Review and smoke the native REPL verification command" in next_slice
     assert "/verify just-check" in compact_next_slice
     assert "NativeVerificationRequest" in compact_next_slice
     assert "native.verification.recorded" in compact_next_slice
@@ -440,8 +443,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
     assert "whitespace-delimited `--` separator" in compact_near_term
     assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "Native one-file `/apply-proposal` REPL command" in compact_near_term
-    assert "Native REPL verification command, likely `/verify just-check`" in next_slice
+    assert "one-file `/apply-proposal <workspace-relative-path>` path" in compact_near_term
+    assert "Review and smoke the native REPL verification command" in next_slice
     assert "Proposal-only interactive file gate: available now" in compact_near_term
     assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
         compact_near_term
@@ -454,6 +457,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
+    assert "Allowlisted verification gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
     assert "Full tool-capable native pipy agent runtime" in compact_deferred
@@ -576,7 +580,7 @@ def test_selected_apply_proposal_repl_boundary_is_documented():
     assert "explicit slash command is the human review signal" in compact_decision
     assert "does not add a visible approval popup" in compact_decision
     assert "`native.patch.apply.recorded`" in compact_decision
-    assert "Verification remains manual" in compact_decision
+    assert "Verification is now exposed" in compact_decision
     assert "`/verify just-check`" in compact_decision
     assert "must not run `just check`" in compact_decision
 

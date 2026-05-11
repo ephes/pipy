@@ -502,20 +502,26 @@ successful same-session `/propose-file` for the exact same normalized path. It
 uses one pending in-memory, human-reviewed proposal draft to invoke the
 existing patch-apply boundary, emits only `native.patch.apply.recorded` when it
 reaches that tool, prints only safe status diagnostics to stderr, and does not
-call a provider or run verification. Malformed supported slash commands and
-unsupported slash commands print static usage diagnostics on stderr without
-provider/tool execution, read-limit consumption, tool events, or raw command
-archiving. REPL session records use the same metadata-only lifecycle vocabulary
-and do not archive raw input lines, provider final text, provider metadata,
-provider-returned tool intent markers, raw approval prompts, raw tool
-arguments, raw tool results, stdout, stderr, prompts, model output, provider
-responses, provider-native payloads, repo context, patches, command output,
-full file contents, auth material, secrets, credentials, tokens, private keys,
-or sensitive personal data. The REPL still does not run shell commands, run
-verification, enable provider-side tools, create another provider turn after
-proposal parsing, persist repo context, or expose a general model/tool loop. In
-particular, `/propose-file` must not apply edits or store raw proposal data,
-and `/apply-proposal` must not read proposal data back from archives.
+call a provider or run verification itself. `/verify just-check` is available
+only after a successful same-session `/apply-proposal` mutation. It maps the
+safe label `just-check` to the internal `just check` argv through the existing
+verification boundary, emits only `native.verification.recorded`, suppresses
+command stdout and stderr, and fails the REPL run when verification is skipped
+or fails. Malformed supported slash commands and unsupported slash commands
+print static usage diagnostics on stderr without provider/tool execution,
+read-limit consumption, tool events, or raw command archiving. REPL session
+records use the same metadata-only lifecycle vocabulary and do not archive raw
+input lines, provider final text, provider metadata, provider-returned tool
+intent markers, raw approval prompts, raw tool arguments, raw tool results,
+stdout, stderr, prompts, model output, provider responses, provider-native
+payloads, repo context, patches, command output, full file contents, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data. The REPL still does not run arbitrary shell commands, enable
+provider-side tools, create another provider turn after proposal parsing,
+persist repo context, accept non-allowlisted verification commands, or expose a
+general model/tool loop. In particular, `/propose-file` must not apply edits or
+store raw proposal data, and `/apply-proposal` must not read proposal data back
+from archives.
 
 The native intent path remains bounded to one initial provider turn, at most
 one no-op or explicit-file-excerpt read-only tool invocation, and at most one
@@ -790,8 +796,17 @@ the user and normalized into one pipy-owned one-file request:
 native.patch.apply.recorded
 ```
 
-It must not add `native.verification.recorded`; verification stays outside the
-first public write-capable REPL command.
+The `/verify just-check` command may add only one metadata-only verification
+event after a successful same-session `/apply-proposal` mutation:
+
+```text
+native.verification.recorded
+```
+
+The event must not include command stdout, command stderr, shell text, prompts,
+model output, provider responses, patch text, diffs, file contents, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data.
 
 REPL provider lifecycle payloads include provider turn indexes and labels from
 `NativeConversationState`, but they intentionally store

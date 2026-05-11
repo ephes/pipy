@@ -198,6 +198,7 @@ READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
+VERIFY_REPL_COMMAND = "/verify"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
     LOGIN_REPL_COMMAND: "/login [openai-codex]",
@@ -207,6 +208,7 @@ _REPL_COMMAND_USAGE = {
     ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
     PROPOSE_FILE_REPL_COMMAND: "/propose-file <workspace-relative-path> -- <change-request>",
     APPLY_PROPOSAL_REPL_COMMAND: "/apply-proposal <workspace-relative-path>",
+    VERIFY_REPL_COMMAND: "/verify just-check",
     "/exit": "/exit",
     "/quit": "/quit",
 }
@@ -248,6 +250,12 @@ class _PendingReplPatchApplyDraft:
     operation: NativePatchApplyOperation
     expected_sha256: str | None = None
     new_text: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplPatchApplyOutcome:
+    pending_draft: _PendingReplPatchApplyDraft | None = None
+    apply_succeeded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,8 +656,11 @@ class NativeNoToolReplSession:
         read_command_used = False
         ask_file_command_used = False
         propose_file_command_used = False
+        apply_proposal_command_used = False
+        verification_command_used = False
         provider_visible_context_used = False
         pending_apply_draft: _PendingReplPatchApplyDraft | None = None
+        verify_after_apply_available = False
 
         while conversation_state.turn_count < self.max_turns:
             try:
@@ -915,7 +926,7 @@ class NativeNoToolReplSession:
                     run_input,
                     self.max_turns,
                 )
-                pending_apply_draft = _handle_repl_apply_proposal_command(
+                apply_outcome = _handle_repl_apply_proposal_command(
                     raw_target,
                     pending_apply_draft,
                     current_run_input,
@@ -923,6 +934,45 @@ class NativeNoToolReplSession:
                     safe_context,
                     error_stream=error_stream,
                 )
+                pending_apply_draft = apply_outcome.pending_draft
+                apply_proposal_command_used = apply_proposal_command_used or apply_outcome.apply_succeeded
+                verify_after_apply_available = verify_after_apply_available or apply_outcome.apply_succeeded
+                continue
+            if _is_repl_command_invocation(command, VERIFY_REPL_COMMAND):
+                command_label = command[len(VERIFY_REPL_COMMAND) :].strip()
+                if command_label != "just-check":
+                    _print_repl_command_usage_diagnostic(error_stream, VERIFY_REPL_COMMAND)
+                    continue
+                if not verify_after_apply_available:
+                    print(
+                        "pipy: verify command skipped: no_successful_apply_proposal.",
+                        file=error_stream,
+                    )
+                    continue
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                )
+                verification_result = _handle_repl_verify_command(
+                    current_run_input,
+                    event_sink,
+                    safe_context,
+                    error_stream=error_stream,
+                )
+                verification_command_used = True
+                verify_after_apply_available = False
+                if verification_result.status != NativeToolStatus.SUCCEEDED:
+                    status = HarnessStatus.FAILED
+                    exit_code = 1
+                    error_type = (
+                        "NativeVerificationSkipped"
+                        if verification_result.status == NativeToolStatus.SKIPPED
+                        else "NativeVerificationFailed"
+                    )
+                    error_message = verification_result.reason_label.value
+                    exit_reason = "verification_failed"
+                    break
                 continue
             if command.startswith("/"):
                 pending_apply_draft = None
@@ -987,6 +1037,8 @@ class NativeNoToolReplSession:
                 "read_command_used": read_command_used,
                 "ask_file_command_used": ask_file_command_used,
                 "propose_file_command_used": propose_file_command_used,
+                "apply_proposal_command_used": apply_proposal_command_used,
+                "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
@@ -1056,23 +1108,23 @@ def _handle_repl_apply_proposal_command(
     safe_context: Mapping[str, object],
     *,
     error_stream: TextIO,
-) -> _PendingReplPatchApplyDraft | None:
+) -> _ReplPatchApplyOutcome:
     normalized_target = _normalize_repl_workspace_relative_path(raw_target)
     if normalized_target is None:
         print(
             "pipy: apply-proposal command skipped: unsafe_repl_apply_target; pending proposal cleared.",
             file=error_stream,
         )
-        return None
+        return _ReplPatchApplyOutcome()
     if pending_draft is None:
         print("pipy: apply-proposal command skipped: no_pending_proposal.", file=error_stream)
-        return None
+        return _ReplPatchApplyOutcome()
     if pending_draft.workspace_relative_path != normalized_target:
         print(
             "pipy: apply-proposal command skipped: proposal_path_mismatch; pending proposal cleared.",
             file=error_stream,
         )
-        return None
+        return _ReplPatchApplyOutcome()
 
     identity = NativeToolRequestIdentity.current_noop()
     try:
@@ -1098,7 +1150,7 @@ def _handle_repl_apply_proposal_command(
             "pipy: apply-proposal command skipped: unsafe_apply_request; pending proposal cleared.",
             file=error_stream,
         )
-        return None
+        return _ReplPatchApplyOutcome()
 
     try:
         result = NativePatchApplyTool(run_input.cwd).invoke(request, gate)
@@ -1109,7 +1161,60 @@ def _handle_repl_apply_proposal_command(
         f"pipy: apply-proposal command {result.status.value}: {result.reason_label.value}.",
         file=error_stream,
     )
-    return None
+    return _ReplPatchApplyOutcome(apply_succeeded=result.status == NativeToolStatus.SUCCEEDED)
+
+
+def _handle_repl_verify_command(
+    run_input: NativeRunInput,
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    *,
+    error_stream: TextIO,
+) -> NativeVerificationResult:
+    identity = NativeToolRequestIdentity.current_noop()
+    try:
+        request = NativeVerificationRequest(
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            command_label="just-check",
+            scope_label="interactive_verify",
+        )
+        gate = NativeVerificationGateDecision(
+            approval_decision=NativeVerificationApprovalDecision.ALLOWED,
+            reason_label="explicit_user_command",
+        )
+    except ValueError:
+        now = _utc_now()
+        result = NativeVerificationResult(
+            status=NativeToolStatus.SKIPPED,
+            reason_label=NativeVerificationReason.UNSAFE_COMMAND,
+            tool_request_id=identity.request_id,
+            turn_index=identity.turn_index,
+            command_label="unsafe",
+            started_at=now,
+            ended_at=now,
+            exit_code=None,
+            approval_decision=NativeVerificationApprovalDecision.SKIPPED,
+            scope_label="interactive_verify",
+            error_label=NativeVerificationReason.UNSAFE_COMMAND.value,
+        )
+        _emit_verification_recorded(event_sink, safe_context, result)
+        print(
+            "pipy: verify command skipped: unsafe_verification_request.",
+            file=error_stream,
+        )
+        return result
+
+    try:
+        result = NativeVerificationTool(run_input.cwd).invoke(request, gate)
+    except Exception:
+        result = _failed_verification_result(request, gate)
+    _emit_verification_recorded(event_sink, safe_context, result)
+    print(
+        f"pipy: verify command {result.status.value}: {result.reason_label.value}.",
+        file=error_stream,
+    )
+    return result
 
 
 def _run_input_with_selection(

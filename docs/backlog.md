@@ -14,10 +14,11 @@ runtime. The current native shell can authenticate to the `openai-codex`
 provider, switch models, make ordinary no-tool provider turns, read one
 explicit workspace-relative file excerpt, ask a provider about that excerpt,
 request a proposal-only change for that excerpt through `/propose-file`, and
-apply one same-session reviewed proposal through `/apply-proposal`. The public
-shell still cannot run verification, execute shell commands, request
-provider-side tools, read multiple files per session, or run a general
-model/tool loop.
+apply one same-session reviewed proposal through `/apply-proposal`, then run
+one post-apply allowlisted verification command through `/verify just-check`.
+The public shell still cannot execute arbitrary shell commands, request
+provider-side tools, read multiple files per session, run non-allowlisted
+verification commands, or run a general model/tool loop.
 
 Use this page as a planning index:
 
@@ -40,11 +41,13 @@ Use this page as a planning index:
 - Public one-file apply boundary: available now through `/apply-proposal
   <workspace-relative-path>`. It stays human-reviewed, pipy-owned,
   same-session, one-file, one-operation, and metadata-only in the archive.
-- Public verification command: selected as the next implementation target.
-  Verification remains manual until a separate `/verify just-check`-style
-  command is implemented.
+- Public verification command: available now through `/verify just-check` after
+  a successful same-session `/apply-proposal`. It stays allowlisted,
+  post-apply-only, metadata-only, and fails the REPL run if verification is
+  skipped or fails.
 - First pipy-applied pipy change: milestone after the public write and
-  verification boundaries exist and still pass the privacy/archive invariants.
+  verification boundaries are reviewed/smoked together and still pass the
+  privacy/archive invariants.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -572,52 +575,58 @@ cycles stopping after a clean second review unless scope or risk changes.
   `native.patch.proposal.recorded` event. It does not call a provider, run
   verification, execute shell commands, invoke provider-side tools, support
   multi-file writes, or read proposal data back from archives.
+- Native REPL `/verify just-check` command: the interactive native shell now
+  accepts `/verify just-check` only after a successful same-session
+  `/apply-proposal` mutation. The command builds one pipy-owned
+  `NativeVerificationRequest`, maps only the safe label `just-check` to the
+  internal `just check` argv through `NativeVerificationTool`, emits only the
+  metadata-only `native.verification.recorded` event, suppresses command stdout
+  and stderr, and fails the REPL run if verification is skipped or fails. It
+  does not call a provider, accept arbitrary command text, permit
+  provider-selected commands, allow filesystem mutation or network access,
+  retry, stream, create a provider follow-up turn, invoke provider-side tools,
+  support multi-file context, or broaden `/apply-proposal`.
 
 ## Next Slice
 
-### Native REPL verification command, likely `/verify just-check`
+### Review and smoke the native REPL verification command
 
-Goal: add the first public verification command after the reviewed
-`/apply-proposal` write boundary, without exposing arbitrary shell execution or
-a general tool loop.
+Goal: independently review and smoke the implemented `/verify just-check`
+boundary before using pipy for its first real pipy-applied, pipy-verified
+change.
 
-Likely command shape:
+Review focus:
 
-```text
-/verify just-check
-```
+- `/verify just-check` is accepted only after a successful same-session
+  `/apply-proposal` mutation and is unavailable before that state exists
+- the command invokes only the existing `NativeVerificationRequest`,
+  `NativeVerificationTool`, and `native.verification.recorded` metadata-only
+  boundary
+- skipped or failed verification makes the REPL run fail after recording only
+  safe status metadata
+- stdout, stderr, command output, shell text, prompts, model output, provider
+  responses, auth material, secrets, credentials, tokens, private keys, and
+  sensitive personal data stay out of JSONL, Markdown, catalog/search/inspect
+  surfaces, and structured stdout
+- `/apply-proposal` remains narrow and does not run verification itself
 
-Implementation points:
+Smoke focus:
 
-- expose one explicit REPL command that maps only the safe label `just-check`
-  to the internal `just check` argv
-- accept it only after a successful same-session `/apply-proposal` mutation
-  when that state is available, or document a narrower accepted trigger before
-  implementation
-- reuse the existing `NativeVerificationRequest`, `NativeVerificationTool`, and
-  `native.verification.recorded` metadata-only boundary
-- keep stdout, stderr, command output, shell text, prompts, model output,
-  provider responses, auth material, secrets, credentials, tokens, private
-  keys, and sensitive personal data out of JSONL, Markdown,
-  catalog/search/inspect surfaces, and structured stdout
-- preserve the read-only workspace verification sandbox policy with workspace
-  read and allowlisted shell execution only for the internal command mapping,
-  filesystem mutation and network access forbidden
-- do not add provider-side tools, provider-selected commands, arbitrary shell
-  execution, automatic provider follow-up turns, retries, streaming, or
-  fallback
+- fake-provider terminal smoke for propose/apply/verify success
+- failure smoke where `just check` returns nonzero and only exit code/status
+  metadata is recorded
+- `pipy-session verify`, `list`, `search`, and `inspect` compatibility against
+  finalized REPL records
 
-Keep out of scope for this implementation:
+Keep out of scope:
 
 - changing provider auth, token storage, provider routing, or model defaults
-- adding multi-file reads, multiple tool requests, automatic provider-selected
-  filesystem paths, or a general model/tool loop
+- adding arbitrary shell execution, non-allowlisted verification commands,
+  multi-file reads, multiple tool requests, automatic provider-selected
+  filesystem paths, provider follow-up turns, or a general model/tool loop
 - archiving raw prompts, excerpts, model output, provider responses, patch
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
-
-The `/apply-proposal` command should not be broadened while implementing
-verification.
 
 ## Near Term
 
@@ -630,10 +639,10 @@ popups for normal interactive use.
 
 The immediate implementation path stays architecture-first:
 
-1. Review and smoke the implemented one-file `/apply-proposal
-   <workspace-relative-path>` REPL command.
-2. Add a separate verification command, likely `/verify just-check`, after the
-   write path review is clean.
+1. Review and smoke the implemented `/verify just-check` REPL command together
+   with the existing one-file `/apply-proposal <workspace-relative-path>` path.
+2. If that review is clean, use the propose/apply/verify flow for the first
+   real pipy-applied, pipy-verified tiny change.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -647,15 +656,18 @@ Explicit read/context commands do not display approval popups. Auth/model
 commands and malformed or unsupported slash commands print stderr diagnostics
 without provider/tool execution, read-limit consumption, or raw command
 archiving. The REPL can now apply exactly one same-session reviewed proposal
-through `/apply-proposal <workspace-relative-path>`, but it still does not
-execute commands, run verification, expose provider-side tools, or support a
-general model/tool loop.
+through `/apply-proposal <workspace-relative-path>` and then run one
+allowlisted post-apply verification command through `/verify just-check`, but
+it still does not execute arbitrary shell commands, run non-allowlisted
+verification commands, expose provider-side tools, or support a general
+model/tool loop.
 The proposal-only
 `/propose-file <workspace-relative-path> -- <change-request>` command is now
 implemented, reviewed, and trialed with a real `openai-codex` provider turn;
 the first public write boundary is implemented as the narrow same-session
-`/apply-proposal <workspace-relative-path>` command, while verification and
-broader tool-loop boundaries remain deferred.
+`/apply-proposal <workspace-relative-path>` command, and the first public
+verification boundary is implemented as `/verify just-check`; broader tool-loop
+boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains
@@ -673,9 +685,8 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native one-file `/apply-proposal` REPL command.
-2. Native REPL verification command, likely `/verify just-check`, after the
-   write command is reviewed.
+1. Review and smoke native `/verify just-check`.
+2. First real pipy-applied, pipy-verified tiny change if review is clean.
 
 Foundation gates toward an interactive shell:
 
@@ -723,7 +734,11 @@ Foundation gates toward an interactive shell:
 - One-file write-boundary decision gate: available now. The selected first
   public mutation command is `/apply-proposal <workspace-relative-path>`,
   limited to a same-session human-reviewed proposal for one file and one
-  operation, with metadata-only archives and manual verification.
+  operation, with metadata-only archives.
+- Allowlisted verification gate: available now through `/verify just-check`
+  after a successful same-session `/apply-proposal`. It records only
+  metadata-only status, suppresses command stdout/stderr, and fails the REPL run
+  on skipped or failed verification.
 
 Self-bootstrap readiness gates remain historical context for supervised writes:
 
@@ -733,13 +748,13 @@ Self-bootstrap readiness gates remain historical context for supervised writes:
 - Human-applied patch trial: selected through the existing `/propose-file`
   command. No public write command is added for this gate, and independent
   review is still required before trusting the result.
-- Pipy-applied patch trial: next implementation target through
+- Pipy-applied patch trial: available now through
   `/apply-proposal <workspace-relative-path>`, with conservative one-file
   scope, no arbitrary shell execution, and metadata-only archives.
-- Verified patch trial: exercised by the first supervised self-bootstrap trial
-  using the allowlisted verification-command boundary, starting with `just
-  check` and recording only safe status, exit-code, duration, and label
-  metadata; stdout/stderr remain excluded from archives.
+- Verified patch trial: available now through `/verify just-check` after a
+  successful same-session `/apply-proposal`, starting with `just check` and
+  recording only safe status, exit-code, duration, and label metadata;
+  stdout/stderr remain excluded from archives.
 
 Do not move to a tool-capable shell until these existing invariants still hold:
 
