@@ -45,8 +45,8 @@ Use this page as a planning index:
   a successful same-session `/apply-proposal`. It stays allowlisted,
   post-apply-only, metadata-only, and fails the REPL run if verification is
   skipped or fails.
-- First pipy-applied pipy change: milestone after the public write and
-  verification boundaries are reviewed/smoked together and still pass the
+- First pipy-applied pipy change: next milestone now that the public write and
+  verification boundaries have been reviewed/smoked together and still pass the
   privacy/archive invariants.
 
 The stored session archive supports this direction: repeated workflow
@@ -586,44 +586,60 @@ cycles stopping after a clean second review unless scope or risk changes.
   provider-selected commands, allow filesystem mutation or network access,
   retry, stream, create a provider follow-up turn, invoke provider-side tools,
   support multi-file context, or broaden `/apply-proposal`.
+- Native REPL `/verify just-check` review and smoke: focused review found the
+  implemented verification boundary aligned with the selected contract. Focused
+  verification-tool, CLI, native-session, value-object, and documentation
+  policy tests covered the post-apply-only gate, unsupported command labels,
+  failed and skipped verification behavior, metadata-only archive payloads, and
+  the guarantee that `/apply-proposal` does not run verification itself.
+  Fake-provider terminal smoke runs exercised propose/apply/verify success and
+  a failing `just check` path with real workspace mutation and real
+  `NativeVerificationTool` execution. The success smoke exited `0`; the failure
+  smoke exited `1` after recording only safe `command_failed` metadata.
+  `pipy-session verify`, `list`, `search`, and `inspect` remained compatible
+  with both finalized REPL records, and no implementation hardening was
+  required.
 
 ## Next Slice
 
-### Review and smoke the native REPL verification command
+### Use the native shell for the first pipy-applied, pipy-verified tiny change
 
-Goal: independently review and smoke the implemented `/verify just-check`
-boundary before using pipy for its first real pipy-applied, pipy-verified
-change.
+Goal: make one intentionally tiny repository change through the public
+`pipy-native` REPL propose/apply/verify flow now that `/propose-file`,
+`/apply-proposal`, and `/verify just-check` have been reviewed and smoked
+together.
 
-Review focus:
+Implementation focus:
 
-- `/verify just-check` is accepted only after a successful same-session
-  `/apply-proposal` mutation and is unavailable before that state exists
-- the command invokes only the existing `NativeVerificationRequest`,
-  `NativeVerificationTool`, and `native.verification.recorded` metadata-only
-  boundary
-- skipped or failed verification makes the REPL run fail after recording only
-  safe status metadata
-- stdout, stderr, command output, shell text, prompts, model output, provider
-  responses, auth material, secrets, credentials, tokens, private keys, and
-  sensitive personal data stay out of JSONL, Markdown, catalog/search/inspect
-  surfaces, and structured stdout
-- `/apply-proposal` remains narrow and does not run verification itself
+- start a fresh native REPL session from the repository root with a real
+  provider/model selection that is available locally, preferably
+  `openai-codex/gpt-5.2` when authenticated
+- use `/propose-file <workspace-relative-path> -- <change-request>` on one
+  small non-secret text file within the explicit excerpt limits
+- review the visible one-file proposal draft in the terminal before issuing
+  `/apply-proposal <same-workspace-relative-path>`
+- run `/verify just-check` in the same REPL session after the successful apply
+- keep any follow-up manual edits limited to review/doc/test corrections that
+  are necessary to make the slice truthful and green
 
-Smoke focus:
+Completion focus:
 
-- fake-provider terminal smoke for propose/apply/verify success
-- failure smoke where `just check` returns nonzero and only exit code/status
-  metadata is recorded
-- `pipy-session verify`, `list`, `search`, and `inspect` compatibility against
-  finalized REPL records
+- record the provider/model, target file, applied change summary, and
+  verification result without raw prompts, model output, proposal text, diffs,
+  file contents, command output, auth material, secrets, credentials, tokens,
+  private keys, or sensitive personal data
+- inspect the finalized REPL record through summary-safe catalog surfaces such
+  as `pipy-session verify`, `list`, `search`, or `inspect`
+- update docs/backlog and focused tests only as needed to record the outcome
+  and select the next boundary
 
 Keep out of scope:
 
 - changing provider auth, token storage, provider routing, or model defaults
 - adding arbitrary shell execution, non-allowlisted verification commands,
   multi-file reads, multiple tool requests, automatic provider-selected
-  filesystem paths, provider follow-up turns, or a general model/tool loop
+  filesystem paths, provider follow-up turns, automatic write selection, or a
+  general model/tool loop
 - archiving raw prompts, excerpts, model output, provider responses, patch
   text, diffs, file contents, command output, auth material, secrets,
   credentials, tokens, private keys, or sensitive personal data
@@ -637,12 +653,10 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path stays architecture-first:
+The immediate implementation path is now a self-bootstrap trial:
 
-1. Review and smoke the implemented `/verify just-check` REPL command together
-   with the existing one-file `/apply-proposal <workspace-relative-path>` path.
-2. If that review is clean, use the propose/apply/verify flow for the first
-   real pipy-applied, pipy-verified tiny change.
+1. Use the propose/apply/verify flow for the first real pipy-applied,
+   pipy-verified tiny change.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -666,8 +680,8 @@ The proposal-only
 implemented, reviewed, and trialed with a real `openai-codex` provider turn;
 the first public write boundary is implemented as the narrow same-session
 `/apply-proposal <workspace-relative-path>` command, and the first public
-verification boundary is implemented as `/verify just-check`; broader tool-loop
-boundaries remain deferred.
+verification boundary is implemented and reviewed as `/verify just-check`;
+broader tool-loop boundaries remain deferred.
 
 Provider access is corrected back to OpenAI Codex subscription auth as the
 preferred near-term real-provider path. The existing `openai` provider remains
@@ -685,8 +699,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Review and smoke native `/verify just-check`.
-2. First real pipy-applied, pipy-verified tiny change if review is clean.
+1. First real pipy-applied, pipy-verified tiny change.
 
 Foundation gates toward an interactive shell:
 

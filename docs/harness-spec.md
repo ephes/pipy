@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-41 native write-capable REPL boundary decision
+Status: slice-42 native verification REPL review and smoke
 
 <style>
 .mermaid,
@@ -1060,8 +1060,21 @@ The implemented verification command deliberately does not expose generic
 `/verify`, arbitrary shell command text, provider-selected commands, provider
 follow-up turns, provider-side tools, multiple file reads, multiple tool
 requests, unbounded turns, persistent history, TUI/RPC behavior, retries,
-fallback, provider routing, or OAuth changes. It needs focused tests and an
-independent review before it is treated as complete.
+fallback, provider routing, or OAuth changes.
+
+Review and smoke status: focused review of `/verify just-check` found the
+implementation aligned with this contract. Focused verification-tool, CLI,
+native-session, value-object, and documentation policy tests cover the
+post-apply-only gate, unsupported command labels, skipped and failed
+verification behavior, metadata-only archive payloads, and the guarantee that
+`/apply-proposal` does not run verification itself. Fake-provider terminal
+smoke runs exercised propose/apply/verify success and a failing `just check`
+path with real workspace mutation and real `NativeVerificationTool` execution.
+The success smoke exited `0`; the failure smoke exited `1` after recording only
+safe `command_failed` metadata. `pipy-session verify`, `list`, `search`, and
+`inspect` remained compatible with both finalized REPL records. No
+implementation hardening was required before the first real pipy-applied,
+pipy-verified tiny change.
 
 ### Native Structured Stdout JSON Mode
 
