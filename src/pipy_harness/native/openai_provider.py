@@ -113,7 +113,7 @@ class OpenAIResponsesProvider:
         body = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": request.user_prompt,
+            "input": _responses_input(request),
             "store": False,
         }
         headers = {
@@ -157,6 +157,32 @@ class OpenAIResponsesProvider:
                 "response_status": result.response_status,
             },
         )
+
+
+def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
+    if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
+        return request.user_prompt
+    messages: list[dict[str, object]] = []
+    for exchange in request.no_tool_repl_context.exchanges:
+        messages.append(
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": exchange.user_prompt}],
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": exchange.provider_final_text}],
+            }
+        )
+    messages.append(
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": request.user_prompt}],
+        }
+    )
+    return messages
 
 
 @dataclass(frozen=True, slots=True)

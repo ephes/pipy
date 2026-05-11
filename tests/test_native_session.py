@@ -25,6 +25,8 @@ from pipy_harness.native import (
     NativePatchApplyOperation,
     NativePatchApplyOperationRequest,
     NativePatchApplyRequest,
+    NativeModelSelection,
+    NativeReplProviderState,
     NativeRunInput,
     NativeToolRequestIdentity,
     NativeToolRequest,
@@ -368,6 +370,259 @@ def test_native_no_tool_repl_stops_at_turn_limit(tmp_path):
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "first" not in serialized
     assert "SECOND_REPL_OUTPUT" not in serialized
+
+
+def test_native_no_tool_repl_forwards_prior_successful_no_tool_history_in_memory(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(final_text="SECOND_REPL_OUTPUT"),
+        ]
+    )
+    sink = RecordingSink()
+    output_stream = StringIO()
+    error_stream = StringIO()
+
+    NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("first prompt\nsecond prompt\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert provider.captured_requests is not None
+    first_request, second_request = provider.captured_requests
+    assert first_request.user_prompt == "first prompt"
+    assert first_request.no_tool_repl_context is not None
+    assert first_request.no_tool_repl_context.exchanges == ()
+    assert second_request.user_prompt == "second prompt"
+    assert second_request.no_tool_repl_context is not None
+    assert [
+        (exchange.user_prompt, exchange.provider_final_text)
+        for exchange in second_request.no_tool_repl_context.exchanges
+    ] == [("first prompt", "FIRST_REPL_OUTPUT")]
+    provider_started_payloads = [
+        payload for event_type, _, payload in sink.events if event_type == "native.provider.started"
+    ]
+    assert provider_started_payloads[0]["no_tool_context_used"] is False
+    assert provider_started_payloads[0]["no_tool_context_exchange_count"] == 0
+    assert provider_started_payloads[1]["no_tool_context_used"] is True
+    assert provider_started_payloads[1]["no_tool_context_exchange_count"] == 1
+    completed_payload = [
+        payload for event_type, _, payload in sink.events if event_type == "native.session.completed"
+    ][0]
+    assert completed_payload["no_tool_context_retained_at_end"] is True
+    assert completed_payload["no_tool_context_retained_exchange_count"] == 2
+    assert "no_tool_context_used" not in completed_payload
+    assert "no_tool_context_exchange_count" not in completed_payload
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "first prompt" not in serialized
+    assert "FIRST_REPL_OUTPUT" not in serialized
+    assert "second prompt" not in serialized
+    assert "SECOND_REPL_OUTPUT" not in serialized
+
+
+def test_native_no_tool_repl_keeps_commands_out_of_retained_history(tmp_path):
+    (tmp_path / "visible.txt").write_text("display-only excerpt\n", encoding="utf-8")
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(final_text="SECOND_REPL_OUTPUT"),
+        ]
+    )
+    sink = RecordingSink()
+    output_stream = StringIO()
+    error_stream = StringIO()
+
+    NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("first prompt\n/help\n/read visible.txt\nsecond prompt\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert provider.captured_requests is not None
+    assert len(provider.captured_requests) == 2
+    second_context = provider.captured_requests[1].no_tool_repl_context
+    assert second_context is not None
+    assert [
+        (exchange.user_prompt, exchange.provider_final_text)
+        for exchange in second_context.exchanges
+    ] == [("first prompt", "FIRST_REPL_OUTPUT")]
+    serialized_context = repr(second_context.exchanges)
+    assert "/help" not in serialized_context
+    assert "/read visible.txt" not in serialized_context
+    assert "display-only excerpt" not in serialized_context
+
+
+def test_native_no_tool_repl_clears_history_on_provider_failure(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(
+                final_text="FAILED_OUTPUT_SHOULD_NOT_PRINT",
+                status=HarnessStatus.FAILED,
+            ),
+        ]
+    )
+    sink = RecordingSink()
+
+    output = NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("first prompt\nsecond prompt\nthird prompt\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert output.status == HarnessStatus.FAILED
+    assert provider.captured_requests is not None
+    assert len(provider.captured_requests) == 2
+    second_context = provider.captured_requests[1].no_tool_repl_context
+    assert second_context is not None
+    assert [(exchange.user_prompt, exchange.provider_final_text) for exchange in second_context.exchanges] == [
+        ("first prompt", "FIRST_REPL_OUTPUT")
+    ]
+    completed_payload = [
+        payload for event_type, _, payload in sink.events if event_type == "native.session.completed"
+    ][0]
+    assert completed_payload["no_tool_context_retained_at_end"] is False
+    assert completed_payload["no_tool_context_retained_exchange_count"] == 0
+
+
+def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
+    captured_requests: list[ProviderRequest] = []
+
+    class ModelCapturingProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            return provider_result(final_text=f"MODEL={self.model_id}")
+
+    def provider_factory(selection: NativeModelSelection) -> ModelCapturingProvider:
+        return ModelCapturingProvider(selection.model_id)
+
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "before-model"),
+        provider_factory=provider_factory,
+        persist_defaults=False,
+    )
+
+    NativeNoToolReplSession(provider_state=provider_state, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name="fake",
+            model_id="before-model",
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO("first prompt\n/model fake/after-model\nsecond prompt\n/exit\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert [(request.model_id, request.user_prompt) for request in captured_requests] == [
+        ("before-model", "first prompt"),
+        ("after-model", "second prompt"),
+    ]
+    assert captured_requests[0].no_tool_repl_context is not None
+    assert captured_requests[0].no_tool_repl_context.exchanges == ()
+    assert captured_requests[1].no_tool_repl_context is not None
+    assert captured_requests[1].no_tool_repl_context.exchanges == ()
+
+
+def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):
+    captured_requests: list[ProviderRequest] = []
+    login_calls = 0
+    logout_calls = 0
+
+    class ModelCapturingProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            return provider_result(final_text=f"MODEL={self.model_id}:{len(captured_requests)}")
+
+    class FakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            nonlocal login_calls
+            login_calls += 1
+            return object()
+
+        def logout(self) -> bool:
+            nonlocal logout_calls
+            logout_calls += 1
+            return True
+
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-model"),
+        provider_factory=lambda selection: ModelCapturingProvider(selection.model_id),
+        auth_manager_factory=FakeAuthManager,
+        persist_defaults=False,
+    )
+
+    NativeNoToolReplSession(provider_state=provider_state, max_turns=5).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name="fake",
+            model_id="fake-model",
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO(
+            "first prompt\n/login openai-codex\nsecond prompt\n/logout openai-codex\nthird prompt\n/exit\n"
+        ),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert login_calls == 1
+    assert logout_calls == 1
+    assert [request.user_prompt for request in captured_requests] == [
+        "first prompt",
+        "second prompt",
+        "third prompt",
+    ]
+    assert captured_requests[0].no_tool_repl_context is not None
+    assert captured_requests[0].no_tool_repl_context.exchanges == ()
+    assert captured_requests[1].no_tool_repl_context is not None
+    assert captured_requests[1].no_tool_repl_context.exchanges == ()
+    assert captured_requests[2].no_tool_repl_context is not None
+    assert captured_requests[2].no_tool_repl_context.exchanges == ()
 
 
 def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):

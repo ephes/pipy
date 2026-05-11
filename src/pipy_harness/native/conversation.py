@@ -40,6 +40,27 @@ NATIVE_TURN_METADATA_KEYS = frozenset(
     }
 )
 NATIVE_TURN_PAYLOAD_KEYS = NATIVE_TURN_METADATA_KEYS
+NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES = 4096
+NATIVE_NO_TOOL_REPL_CONTEXT_METADATA_KEYS = frozenset(
+    {
+        "no_tool_context_enabled",
+        "no_tool_context_used",
+        "no_tool_context_exchange_count",
+        "no_tool_context_bytes",
+        "no_tool_context_max_exchanges",
+        "no_tool_context_max_bytes",
+    }
+)
+NATIVE_NO_TOOL_REPL_CONTEXT_RETAINED_METADATA_KEYS = frozenset(
+    {
+        "no_tool_context_enabled",
+        "no_tool_context_retained_at_end",
+        "no_tool_context_retained_exchange_count",
+        "no_tool_context_retained_bytes",
+        "no_tool_context_max_exchanges",
+        "no_tool_context_max_bytes",
+    }
+)
 
 
 class NativeTurnRole(StrEnum):
@@ -357,6 +378,125 @@ class NativeConversationState:
 
     def metadata_payloads(self) -> tuple[dict[str, object], ...]:
         return tuple(turn.metadata.archive_payload() for turn in self.turns)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeNoToolReplExchange:
+    """One in-memory ordinary REPL exchange retained for provider context only."""
+
+    user_prompt: str
+    provider_final_text: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.user_prompt, str) or not self.user_prompt:
+            raise ValueError("no-tool REPL exchange requires a non-empty user prompt")
+        if not isinstance(self.provider_final_text, str) or not self.provider_final_text:
+            raise ValueError("no-tool REPL exchange requires non-empty provider final text")
+
+    @property
+    def byte_count(self) -> int:
+        return len(self.user_prompt.encode("utf-8")) + len(self.provider_final_text.encode("utf-8"))
+
+
+@dataclass(frozen=True, slots=True)
+class NativeNoToolReplConversationContext:
+    """Bounded in-memory history for ordinary no-tool REPL provider turns.
+
+    This is provider-visible context, not archive content. Raw prompts and
+    provider text must only live in this in-memory value and ProviderRequest.
+    """
+
+    exchanges: tuple[NativeNoToolReplExchange, ...] = ()
+    max_exchanges: int = NativeConversationState.MAX_TURNS
+    max_bytes: int = NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES
+
+    def __post_init__(self) -> None:
+        _validate_bounded_integer(
+            "max_exchanges",
+            self.max_exchanges,
+            lower_bound=1,
+            upper_bound=NativeConversationState.MAX_TURNS,
+        )
+        _validate_bounded_integer(
+            "max_bytes",
+            self.max_bytes,
+            lower_bound=1,
+            upper_bound=NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES,
+        )
+        for exchange in self.exchanges:
+            if not isinstance(exchange, NativeNoToolReplExchange):
+                raise ValueError("no-tool REPL context requires no-tool exchanges")
+        if len(self.exchanges) > self.max_exchanges:
+            raise ValueError("no-tool REPL context exchange count exceeds bound")
+        if self.byte_count > self.max_bytes:
+            raise ValueError("no-tool REPL context byte count exceeds bound")
+
+    @classmethod
+    def empty(
+        cls,
+        *,
+        max_exchanges: int = NativeConversationState.MAX_TURNS,
+        max_bytes: int = NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES,
+    ) -> "NativeNoToolReplConversationContext":
+        return cls(max_exchanges=max_exchanges, max_bytes=max_bytes)
+
+    @property
+    def byte_count(self) -> int:
+        return sum(exchange.byte_count for exchange in self.exchanges)
+
+    @property
+    def used(self) -> bool:
+        return bool(self.exchanges)
+
+    def append_successful_exchange(
+        self,
+        *,
+        user_prompt: str,
+        provider_final_text: str | None,
+    ) -> "NativeNoToolReplConversationContext":
+        if not provider_final_text:
+            return self
+        exchange = NativeNoToolReplExchange(user_prompt, provider_final_text)
+        if exchange.byte_count > self.max_bytes:
+            return self
+        exchanges = (*self.exchanges, exchange)
+        return self._bounded(exchanges)
+
+    def clear(self) -> "NativeNoToolReplConversationContext":
+        return replace(self, exchanges=())
+
+    def safe_metadata(self) -> dict[str, object]:
+        return {
+            "no_tool_context_enabled": True,
+            "no_tool_context_used": self.used,
+            "no_tool_context_exchange_count": len(self.exchanges),
+            "no_tool_context_bytes": self.byte_count,
+            "no_tool_context_max_exchanges": self.max_exchanges,
+            "no_tool_context_max_bytes": self.max_bytes,
+        }
+
+    def safe_retained_metadata(self) -> dict[str, object]:
+        return {
+            "no_tool_context_enabled": True,
+            "no_tool_context_retained_at_end": self.used,
+            "no_tool_context_retained_exchange_count": len(self.exchanges),
+            "no_tool_context_retained_bytes": self.byte_count,
+            "no_tool_context_max_exchanges": self.max_exchanges,
+            "no_tool_context_max_bytes": self.max_bytes,
+        }
+
+    def _bounded(
+        self,
+        exchanges: tuple[NativeNoToolReplExchange, ...],
+    ) -> "NativeNoToolReplConversationContext":
+        bounded = exchanges[-self.max_exchanges :]
+        while bounded and _exchange_byte_count(bounded) > self.max_bytes:
+            bounded = bounded[1:]
+        return replace(self, exchanges=bounded)
+
+
+def _exchange_byte_count(exchanges: tuple[NativeNoToolReplExchange, ...]) -> int:
+    return sum(exchange.byte_count for exchange in exchanges)
 
 
 def _validate_bounded_integer(

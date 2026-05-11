@@ -834,16 +834,22 @@ See `Read-Failure Recovery Boundary Direction` for the implemented split.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
-only provider-visible content added by ordinary REPL turns is the current input
-line sent as the user prompt for that turn. Successful `/read` excerpts are
-printed only to the interactive stdout stream; they are not provider-forwarded,
-archived, included in Markdown, included in catalog/search surfaces, or
-included in one-shot `--native-output json`. Successful `/ask-file` and
-`/propose-file` excerpts are provider-forwarded only in memory to the single
-corresponding provider turn and are not printed directly, archived, included in
-Markdown, included in catalog/search surfaces, included in one-shot
-`--native-output json`, persisted as provider context, or reused by later
-turns.
+provider-visible content added by ordinary REPL turns is the current input line
+plus bounded in-memory ordinary no-tool history. Later ordinary no-tool turns
+receive only prior successful ordinary non-command user prompts and provider
+final text, translated into prior user/assistant messages for providers that
+support message-shaped requests. This history is bounded by the REPL provider
+turn limit and a 4 KiB provider-visible byte budget, drops oldest exchanges
+before provider visibility, and clears on provider/model changes, login,
+logout, provider failure, or ambiguous provider-carryover paths. Successful
+`/read` excerpts are printed only to the interactive stdout stream; they are
+not provider-forwarded, archived, included in Markdown, included in
+catalog/search surfaces, or included in one-shot `--native-output json`.
+Successful `/ask-file` and `/propose-file` excerpts are provider-forwarded
+only in memory to the single corresponding provider turn and are not printed
+directly, archived, included in Markdown, included in catalog/search surfaces,
+included in one-shot `--native-output json`, persisted as provider context, or
+reused by later turns.
 
 REPL archives reuse existing safe lifecycle event names:
 
@@ -1185,12 +1191,11 @@ provider auth, model routing, shell execution, multi-file context,
 provider-side tools, second successful read, automatic writes, or general
 model/tool loop behavior changed.
 
-### No-Tool REPL Conversation Context Direction
+### No-Tool REPL Conversation Context
 
-The next native-shell boundary selected after the clean read-failure recovery
-review and smoke is bounded in-memory conversation context for ordinary
-no-tool REPL turns. The rationale is based on summary-safe archive evidence
-only:
+The native shell now has bounded in-memory conversation context for ordinary
+no-tool REPL turns. The selection rationale was based on summary-safe archive
+evidence only:
 
 - the latest read-failure recovery review and smoke records show a clean
   closeout, green focused tests and `just check`, fake-provider REPL smoke
@@ -1203,22 +1208,23 @@ only:
   are provider turns in one interactive session but do not yet carry bounded
   no-tool conversational context forward
 
-The selected next implementation slice should add an explicit in-memory
-conversation-context boundary for ordinary non-command REPL turns. Later
-ordinary no-tool provider requests may receive prior successful ordinary
-no-tool user prompts and provider final text, but only in memory and only under
-fixed bounds. Start with the existing REPL provider-turn bound and a small
-provider-visible history byte budget; if the retained context would exceed the
-budget, drop oldest no-tool exchanges before provider visibility rather than
-exceeding the limit.
+The implemented boundary adds an explicit `NativeNoToolReplConversationContext`
+for ordinary non-command REPL turns. Later ordinary no-tool provider requests
+may receive prior successful ordinary no-tool user prompts and provider final
+text, but only in memory and only under fixed bounds. The first bound uses the
+existing REPL provider-turn limit plus a 4 KiB provider-visible history byte
+budget; if retained context would exceed the budget, the oldest no-tool
+exchanges are dropped before provider visibility rather than exceeding the
+limit.
 
-Retained no-tool history must be cleared when provider/model selection changes,
-on logout, after provider failure, or on any path where carrying context across
-providers would be ambiguous. Only successful ordinary non-command provider
-turns may be appended to this history. Local commands, malformed supported
-slash commands, unsupported slash commands, `/help`, `/login`, `/logout`,
-`/model`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
-`/verify just-check` must stay outside retained no-tool history.
+Retained no-tool history is cleared when provider/model selection changes, on
+login, on logout, after provider failure, or on any path where carrying context
+across providers would be ambiguous. Only successful ordinary non-command
+provider turns are appended to this history. Local commands, malformed
+supported slash commands, unsupported slash commands, `/help`, `/login`,
+`/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
+`/apply-proposal`, and `/verify just-check` stay outside retained no-tool
+history.
 
 This boundary must not retain or replay file excerpts, `/ask-file` questions,
 `/propose-file` change requests, visible proposal drafts, raw proposal text,
@@ -1233,13 +1239,17 @@ read/context handoff, provider-selected filesystem paths, automatic write
 selection, provider-side tools, or a general model/tool loop.
 
 Archives, Markdown, catalog/search/inspect surfaces, and structured output
-must remain metadata-only. They may record only safe booleans and counters such
-as whether no-tool conversation context was enabled or used, how many history
-exchanges were forwarded, and how many history bytes were forwarded. They must
-not store raw prompts, provider final text, model output, provider responses,
-provider-native payloads, excerpts, proposal text, patch text, diffs, file
-contents, command stdout, command stderr, auth material, secrets, credentials,
-API keys, tokens, private keys, or sensitive personal data.
+remain metadata-only. Provider lifecycle events may record only safe booleans
+and counters for the history forwarded to that provider call, such as whether
+no-tool conversation context was enabled or used, how many history exchanges
+were forwarded, and how many history bytes were forwarded. The terminal session
+event may record only safe retained-at-end counters such as whether no-tool
+history was still retained, how many exchanges remained retained, and how many
+history bytes remained retained. They must not store raw prompts, provider
+final text, model output, provider responses, provider-native payloads,
+excerpts, proposal text, patch text, diffs, file contents, command stdout,
+command stderr, auth material, secrets, credentials, API keys, tokens, private
+keys, or sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2582,6 +2592,13 @@ core for a bounded interactive shell. Its ordinary provider turns are allocated
 from `NativeConversationState`, with `initial` for the first turn and
 `no_tool_repl` for later REPL turns. Provider construction is late-bound from
 the current REPL provider/model selection before each provider-visible turn.
+Ordinary successful non-command turns are also retained in a bounded
+`NativeNoToolReplConversationContext` and forwarded only in memory to later
+ordinary no-tool provider requests as prior user/assistant messages. Local
+commands, explicit file context, proposal drafts, patch apply data,
+verification output, provider metadata, and tool observations are excluded from
+that history, and archive payloads record only safe counters and booleans for
+context use.
 The shell exposes local `/help`, `/login`, `/logout`, and `/model` commands,
 one display-only `/read` command, provider-visible `/ask-file <path> --
 <question>` and `/propose-file <path> -- <change-request>` commands, the

@@ -5,12 +5,17 @@ from dataclasses import asdict, fields
 import pytest
 
 from pipy_harness.native import (
+    NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES,
+    NATIVE_NO_TOOL_REPL_CONTEXT_METADATA_KEYS,
+    NATIVE_NO_TOOL_REPL_CONTEXT_RETAINED_METADATA_KEYS,
     NATIVE_TURN_METADATA_KEYS,
     NATIVE_TURN_PAYLOAD_KEYS,
     NATIVE_TURN_STORAGE_KEYS,
     NativeConversationIdentity,
     NativeConversationState,
     NativeConversationTurn,
+    NativeNoToolReplConversationContext,
+    NativeNoToolReplExchange,
     NativeTurnIdentity,
     NativeTurnMetadata,
     NativeTurnRole,
@@ -221,3 +226,60 @@ def test_native_conversation_state_rejects_non_contiguous_or_foreign_turns():
     )
     with pytest.raises(ValueError, match="next pipy-owned turn identity"):
         state.append_turn(skipped_turn)
+
+
+def test_native_no_tool_repl_context_is_bounded_in_memory_metadata_only():
+    context = NativeNoToolReplConversationContext.empty(max_exchanges=2, max_bytes=40)
+
+    context = context.append_successful_exchange(
+        user_prompt="first prompt",
+        provider_final_text="first answer",
+    )
+    context = context.append_successful_exchange(
+        user_prompt="second prompt",
+        provider_final_text="second answer",
+    )
+    context = context.append_successful_exchange(
+        user_prompt="third prompt",
+        provider_final_text="third answer",
+    )
+
+    assert [exchange.user_prompt for exchange in context.exchanges] == ["third prompt"]
+    assert context.safe_metadata() == {
+        "no_tool_context_enabled": True,
+        "no_tool_context_used": True,
+        "no_tool_context_exchange_count": 1,
+        "no_tool_context_bytes": len("third promptthird answer".encode("utf-8")),
+        "no_tool_context_max_exchanges": 2,
+        "no_tool_context_max_bytes": 40,
+    }
+    assert set(context.safe_metadata()) == NATIVE_NO_TOOL_REPL_CONTEXT_METADATA_KEYS
+    assert set(context.safe_retained_metadata()) == NATIVE_NO_TOOL_REPL_CONTEXT_RETAINED_METADATA_KEYS
+    assert context.safe_retained_metadata() == {
+        "no_tool_context_enabled": True,
+        "no_tool_context_retained_at_end": True,
+        "no_tool_context_retained_exchange_count": 1,
+        "no_tool_context_retained_bytes": len("third promptthird answer".encode("utf-8")),
+        "no_tool_context_max_exchanges": 2,
+        "no_tool_context_max_bytes": 40,
+    }
+    serialized = str(context.safe_metadata())
+    assert "first prompt" not in serialized
+    assert "third answer" not in serialized
+
+
+def test_native_no_tool_repl_context_clears_and_ignores_oversized_exchange():
+    context = NativeNoToolReplConversationContext.empty(max_exchanges=2, max_bytes=10)
+
+    retained = context.append_successful_exchange(user_prompt="hi", provider_final_text="ok")
+    oversized = retained.append_successful_exchange(
+        user_prompt="prompt-too-large",
+        provider_final_text="answer-too-large",
+    )
+
+    assert retained.used is True
+    assert retained.clear().exchanges == ()
+    assert oversized.exchanges == retained.exchanges
+    assert NativeNoToolReplConversationContext.empty().max_bytes == NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES
+    with pytest.raises(ValueError, match="non-empty user prompt"):
+        NativeNoToolReplExchange(user_prompt="", provider_final_text="ok")

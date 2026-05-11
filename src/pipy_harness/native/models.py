@@ -7,9 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pipy_harness.models import HarnessStatus
+
+if TYPE_CHECKING:
+    from pipy_harness.native.conversation import NativeNoToolReplConversationContext
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
 PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
@@ -131,6 +134,7 @@ class ProviderRequest:
     provider_turn_index: int = 0
     provider_turn_label: str = "initial"
     tool_observation: NativeToolObservation | None = None
+    no_tool_repl_context: NativeNoToolReplConversationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)

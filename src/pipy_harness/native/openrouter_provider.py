@@ -118,10 +118,7 @@ class OpenRouterChatCompletionsProvider:
 
         body = {
             "model": self.model_id,
-            "messages": [
-                {"role": "system", "content": request.system_prompt},
-                {"role": "user", "content": request.user_prompt},
-            ],
+            "messages": _chat_messages(request),
             "stream": False,
         }
         headers = {
@@ -259,6 +256,16 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
         response_object=response_object,
         finish_reason=finish_reason,
     )
+
+
+def _chat_messages(request: ProviderRequest) -> list[dict[str, str]]:
+    messages = [{"role": "system", "content": request.system_prompt}]
+    if request.no_tool_repl_context is not None:
+        for exchange in request.no_tool_repl_context.exchanges:
+            messages.append({"role": "user", "content": exchange.user_prompt})
+            messages.append({"role": "assistant", "content": exchange.provider_final_text})
+    messages.append({"role": "user", "content": request.user_prompt})
+    return messages
 
 
 def _extract_text_content(value: Any) -> str | None:

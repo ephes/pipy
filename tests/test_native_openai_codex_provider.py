@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest
+from pipy_harness.native import NativeNoToolReplConversationContext, ProviderRequest
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
     OAuthTokenResponse,
@@ -101,6 +101,20 @@ def provider_request(tmp_path: Path) -> ProviderRequest:
         provider_name="openai-codex",
         model_id="gpt-test",
         cwd=tmp_path,
+    )
+
+
+def provider_request_with_context(tmp_path: Path) -> ProviderRequest:
+    return ProviderRequest(
+        system_prompt="SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
+        user_prompt="CURRENT_PROMPT",
+        provider_name="openai-codex",
+        model_id="gpt-test",
+        cwd=tmp_path,
+        no_tool_repl_context=NativeNoToolReplConversationContext.empty().append_successful_exchange(
+            user_prompt="PRIOR_PROMPT",
+            provider_final_text="PRIOR_OUTPUT",
+        ),
     )
 
 
@@ -202,6 +216,43 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
         "tool_choice": "auto",
         "parallel_tool_calls": True,
     }
+
+
+def test_openai_codex_provider_sends_no_tool_repl_context_as_prior_messages(tmp_path):
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {"type": "response.output_text.delta", "delta": "ok"},
+                    {"type": "response.completed", "response": {"status": "completed"}},
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request_with_context(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert client.requests[0]["body"]["input"] == [
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "PRIOR_PROMPT"}],
+        },
+        {
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "PRIOR_OUTPUT"}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "CURRENT_PROMPT"}],
+        },
+    ]
 
 
 def test_openai_codex_provider_accepts_output_item_done_text_without_delta(tmp_path):

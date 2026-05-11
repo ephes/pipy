@@ -392,12 +392,7 @@ class OpenAICodexResponsesProvider:
         body = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": [
-                {
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": request.user_prompt}],
-                }
-            ],
+            "input": _responses_input_messages(request),
             "store": False,
             "stream": True,
             "text": {"verbosity": "medium"},
@@ -451,6 +446,31 @@ class OpenAICodexResponsesProvider:
                 "response_status": result.response_status,
             },
         )
+
+
+def _responses_input_messages(request: ProviderRequest) -> list[dict[str, object]]:
+    messages: list[dict[str, object]] = []
+    if request.no_tool_repl_context is not None:
+        for exchange in request.no_tool_repl_context.exchanges:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": exchange.user_prompt}],
+                }
+            )
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": exchange.provider_final_text}],
+                }
+            )
+    messages.append(
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": request.user_prompt}],
+        }
+    )
+    return messages
 
 
 @dataclass(frozen=True, slots=True)

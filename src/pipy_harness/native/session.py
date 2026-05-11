@@ -13,7 +13,11 @@ from typing import Iterable, Mapping, TextIO
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.conversation import NativeConversationState, NativeTurnMetadata
+from pipy_harness.native.conversation import (
+    NativeConversationState,
+    NativeNoToolReplConversationContext,
+    NativeTurnMetadata,
+)
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
@@ -694,9 +698,12 @@ class NativeNoToolReplSession:
         read_budgets = _ReplReadBudgets()
         ask_file_command_used = False
         propose_file_command_used = False
+        # This legacy flag tracks explicit file-context handoffs only; no-tool
+        # conversational context is reported through no_tool_context_* metadata.
         apply_proposal_command_used = False
         verification_command_used = False
         provider_visible_context_used = False
+        no_tool_context = NativeNoToolReplConversationContext.empty(max_exchanges=self.max_turns)
         pending_apply_draft: _PendingReplPatchApplyDraft | None = None
         verify_after_apply_available = False
 
@@ -729,6 +736,7 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
                 pending_apply_draft = None
+                no_tool_context = no_tool_context.clear()
                 provider_name = command[len(LOGIN_REPL_COMMAND) :].strip()
                 if not provider_name:
                     print(
@@ -747,6 +755,7 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, LOGOUT_REPL_COMMAND):
                 pending_apply_draft = None
+                no_tool_context = no_tool_context.clear()
                 provider_name = command[len(LOGOUT_REPL_COMMAND) :].strip()
                 if not provider_name:
                     print(
@@ -773,6 +782,7 @@ class NativeNoToolReplSession:
                 ok, message = provider_state.select_model(model_reference)
                 print(message, file=error_stream)
                 if ok:
+                    no_tool_context = no_tool_context.clear()
                     current_run_input, safe_context = _current_repl_turn_state(
                         provider_state,
                         run_input,
@@ -868,6 +878,7 @@ class NativeNoToolReplSession:
                 provider_visible_context_used = True
                 if provider_result.status != HarnessStatus.SUCCEEDED:
                     pending_apply_draft = None
+                    no_tool_context = no_tool_context.clear()
                     status = provider_result.status
                     exit_code = 130 if status == HarnessStatus.ABORTED else 1
                     error_type = _safe_optional_text(provider_result.error_type)
@@ -937,6 +948,7 @@ class NativeNoToolReplSession:
                 final_usage = _merge_provider_usage(final_usage, provider_usage)
                 provider_visible_context_used = True
                 if provider_result.status != HarnessStatus.SUCCEEDED:
+                    no_tool_context = no_tool_context.clear()
                     status = provider_result.status
                     exit_code = 130 if status == HarnessStatus.ABORTED else 1
                     error_type = _safe_optional_text(provider_result.error_type)
@@ -1048,16 +1060,22 @@ class NativeNoToolReplSession:
                 provider_turn=provider_turn,
                 tool_observation=None,
                 archive_provider_metadata=False,
+                no_tool_repl_context=no_tool_context,
             )
             final_provider_result = provider_result
             final_usage = _merge_provider_usage(final_usage, provider_usage)
             if provider_result.status != HarnessStatus.SUCCEEDED:
+                no_tool_context = no_tool_context.clear()
                 status = provider_result.status
                 exit_code = 130 if status == HarnessStatus.ABORTED else 1
                 error_type = _safe_optional_text(provider_result.error_type)
                 error_message = _safe_optional_text(provider_result.error_message)
                 exit_reason = "provider_failed"
                 break
+            no_tool_context = no_tool_context.append_successful_exchange(
+                user_prompt=user_prompt,
+                provider_final_text=provider_result.final_text,
+            )
             if provider_result.final_text:
                 print(provider_result.final_text, file=output_stream, flush=True)
         else:
@@ -1089,6 +1107,7 @@ class NativeNoToolReplSession:
                 "apply_proposal_command_used": apply_proposal_command_used,
                 "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
+                **no_tool_context.safe_retained_metadata(),
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
             },
@@ -1611,12 +1630,16 @@ def _call_provider_turn(
     provider_turn: NativeTurnMetadata,
     tool_observation: NativeToolObservation | None,
     archive_provider_metadata: bool = True,
+    no_tool_repl_context: NativeNoToolReplConversationContext | None = None,
 ) -> tuple[ProviderResult, dict[str, int | float]]:
     provider_turn_label = _required_provider_turn_label(provider_turn)
     provider_turn_context = {
         "provider_turn_index": provider_turn.turn_index,
         "provider_turn_label": provider_turn_label,
     }
+    no_tool_context_payload = (
+        no_tool_repl_context.safe_metadata() if no_tool_repl_context is not None else {}
+    )
     event_sink.emit(
         "native.provider.started",
         summary=(
@@ -1627,6 +1650,7 @@ def _call_provider_turn(
         payload={
             **safe_context,
             **provider_turn_context,
+            **no_tool_context_payload,
             "status": HarnessStatus.RUNNING.value,
         },
     )
@@ -1643,6 +1667,7 @@ def _call_provider_turn(
                 provider_turn_index=provider_turn.turn_index,
                 provider_turn_label=provider_turn_label,
                 tool_observation=tool_observation,
+                no_tool_repl_context=no_tool_repl_context,
             )
         )
     except Exception as exc:
@@ -1664,6 +1689,7 @@ def _call_provider_turn(
         payload={
             **safe_context,
             **provider_turn_context,
+            **no_tool_context_payload,
             "status": provider_result.status.value,
             "duration_seconds": _duration_seconds(provider_result.started_at, provider_result.ended_at),
             "usage": provider_usage,

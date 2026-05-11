@@ -471,30 +471,24 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_done
     )
     assert "The decision slice changed no runtime behavior" in compact_done
-    assert "### Implement bounded no-tool REPL conversation context" in next_slice
-    assert "ordinary non-command `pipy-native` REPL turns" in compact_next_slice
-    assert "prior successful ordinary no-tool exchanges in memory only" in (
+    assert "Native bounded no-tool REPL conversation context" in compact_done
+    assert "`NativeNoToolReplConversationContext`" in compact_done
+    assert "4 KiB provider-visible byte budget" in compact_done
+    assert "clears on login, logout, provider/model changes" in compact_done
+    assert "raw prompts, provider final text, excerpts" in compact_done
+    assert "### Review and smoke bounded no-tool REPL conversation context" in next_slice
+    assert "independently review and smoke" in compact_next_slice
+    assert "bounded no-tool REPL conversation context implementation" in (
         compact_next_slice
     )
-    assert "explicit in-memory conversation-context value object" in compact_next_slice
-    assert "prior successful ordinary non-command user prompts and provider final text" in (
+    assert "provider request shapes" in compact_next_slice
+    assert "metadata-only archive counters" in compact_next_slice
+    assert "fake-provider REPL smoke covering at least two ordinary no-tool turns" in (
         compact_next_slice
     )
-    assert "`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`" in (
-        compact_next_slice
-    )
-    assert "clear retained no-tool history on provider/model changes" in (
-        compact_next_slice
-    )
-    assert "history exchanges forwarded" in compact_next_slice
-    assert "multi-file reads" in compact_next_slice
-    assert "a second successful read/context handoff" in compact_next_slice
-    assert "must stay outside those budgets" in compact_next_slice
-    assert "retaining or replaying `/read` excerpts" in compact_next_slice
-    assert "persisting conversation history" in compact_next_slice
-    assert "adding conversation archive events" in compact_next_slice
+    assert "finalized archive verification" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "bounded in-memory no-tool conversation context after the clean read-failure recovery review and smoke" in (
+    assert "review and smoke for bounded in-memory no-tool conversation context" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -506,8 +500,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "No-tool provider-turn REPL gate: available now" in compact_near_term
     assert "`pipy repl --agent pipy-native`" in compact_near_term
-    assert "currently stateless across provider turns" in compact_near_term
-    assert "bounded in-memory history only for successful ordinary no-tool exchanges" in (
+    assert "Later ordinary no-tool turns now receive bounded in-memory history" in (
         compact_near_term
     )
     assert "Historical visible approval prompt gate" in compact_near_term
@@ -532,7 +525,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Implement bounded no-tool REPL conversation context" in (
+    assert "Review and smoke bounded no-tool REPL conversation context" in (
         compact_near_term
     )
     assert "Read-failure recovery review gate: available now" in compact_near_term
@@ -843,10 +836,10 @@ def test_selected_read_failure_recovery_boundary_is_documented():
 
 def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
     spec = read_repo_file("docs/harness-spec.md")
-    boundary_section = markdown_section(spec, "No-Tool REPL Conversation Context Direction")
+    boundary_section = markdown_section(spec, "No-Tool REPL Conversation Context")
     compact_boundary = collapse_whitespace(boundary_section)
 
-    assert "bounded in-memory conversation context for ordinary no-tool REPL turns" in (
+    assert "now has bounded in-memory conversation context for ordinary no-tool REPL turns" in (
         compact_boundary
     )
     assert "summary-safe archive evidence only" in compact_boundary
@@ -860,18 +853,24 @@ def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
     assert "prior successful ordinary no-tool user prompts and provider final text" in (
         compact_boundary
     )
-    assert "existing REPL provider-turn bound" in compact_boundary
-    assert "provider-visible history byte budget" in compact_boundary
-    assert "drop oldest no-tool exchanges before provider visibility" in compact_boundary
+    assert "`NativeNoToolReplConversationContext`" in compact_boundary
+    assert "existing REPL provider-turn limit" in compact_boundary
+    assert "4 KiB provider-visible history byte budget" in compact_boundary
+    assert "oldest no-tool exchanges are dropped before provider visibility" in compact_boundary
     assert "cleared when provider/model selection changes" in compact_boundary
+    assert "on login" in compact_boundary
     assert "on logout" in compact_boundary
     assert "after provider failure" in compact_boundary
     assert "`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and `/verify just-check`" in (
         compact_boundary
     )
     assert "metadata-only" in compact_boundary
+    assert "Provider lifecycle events" in compact_boundary
     assert "history exchanges were forwarded" in compact_boundary
     assert "history bytes were forwarded" in compact_boundary
+    assert "terminal session event" in compact_boundary
+    assert "retained-at-end counters" in compact_boundary
+    assert "how many exchanges remained retained" in compact_boundary
 
     for excluded_history in (
         "file excerpts",

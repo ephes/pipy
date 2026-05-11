@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest
+from pipy_harness.native import NativeNoToolReplConversationContext, ProviderRequest
 from pipy_harness.native.openrouter_provider import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
@@ -53,6 +53,20 @@ def provider_request(tmp_path: Path) -> ProviderRequest:
         provider_name="openrouter",
         model_id="openai/gpt-test",
         cwd=tmp_path,
+    )
+
+
+def provider_request_with_context(tmp_path: Path) -> ProviderRequest:
+    return ProviderRequest(
+        system_prompt="SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
+        user_prompt="CURRENT_PROMPT",
+        provider_name="openrouter",
+        model_id="openai/gpt-test",
+        cwd=tmp_path,
+        no_tool_repl_context=NativeNoToolReplConversationContext.empty().append_successful_exchange(
+            user_prompt="PRIOR_PROMPT",
+            provider_final_text="PRIOR_OUTPUT",
+        ),
     )
 
 
@@ -114,6 +128,33 @@ def test_openrouter_provider_posts_chat_completion_request_and_parses_output(tmp
         ],
         "stream": False,
     }
+
+
+def test_openrouter_provider_sends_no_tool_repl_context_as_prior_messages(tmp_path):
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "object": "chat.completion",
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            },
+        )
+    )
+    provider = OpenRouterChatCompletionsProvider(
+        model_id="openai/gpt-test",
+        api_key="sk-or-test",
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request_with_context(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert client.requests[0]["body"]["messages"] == [
+        {"role": "system", "content": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED"},
+        {"role": "user", "content": "PRIOR_PROMPT"},
+        {"role": "assistant", "content": "PRIOR_OUTPUT"},
+        {"role": "user", "content": "CURRENT_PROMPT"},
+    ]
 
 
 def test_openrouter_provider_accepts_text_content_parts(tmp_path):
