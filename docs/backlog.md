@@ -47,8 +47,10 @@ Use this page as a planning index:
   skipped or fails.
 - First pipy-applied pipy change: completed through the public native REPL.
   The read-failure recovery boundary from that trial is now implemented,
-  reviewed, and smoked; the next milestone is selecting another native-shell
-  boundary without broadening the tool loop opportunistically.
+  reviewed, and smoked; bounded no-tool REPL conversation context is now
+  implemented, reviewed, and smoked; the next milestone is a local clear
+  command for interactive conversation state without broadening the tool loop
+  opportunistically.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -700,23 +702,47 @@ cycles stopping after a clean second review unless scope or risk changes.
   metadata, tool observations, auth material, secrets, credentials, tokens,
   private keys, and sensitive personal data remain out of JSONL, Markdown,
   catalog/search/inspect surfaces, stdout, stderr, and structured output.
+- Native bounded no-tool REPL conversation context review and smoke:
+  summary-safe archive checks showed the implementation had already received a
+  two-round independent review cycle. The first round found one warning and
+  three suggestions, all accepted and fixed; the second round reported zero
+  findings and recommended stopping the review cycle. The implementer-side
+  closeout audit of the in-memory history boundary, provider request shapes,
+  clear conditions, fixed bounds, and metadata-only counters found no
+  additional issues.
+  Focused no-tool context tests, the CLI finalized-record coverage pin, `just
+  check`, and a fake-provider REPL smoke with two ordinary turns plus
+  `pipy-session verify` all passed. The next selected native-shell boundary is
+  a local `/clear` command because bounded history is now useful enough to need
+  an explicit user reset path, while provider-side tools, arbitrary shell
+  execution, multi-file reads, broader writes, streaming, retries, fallback,
+  TUI/RPC, and a general model/tool loop remain deferred.
 
 ## Next Slice
 
-### Review and smoke bounded no-tool REPL conversation context
+### Native local `/clear` REPL command
 
-Goal: independently review and smoke the bounded no-tool REPL conversation
-context implementation before selecting the next native-shell boundary.
+Goal: add a local `pipy-native` REPL command that clears bounded no-tool
+conversation context without invoking providers, tools, reads, writes, auth,
+verification, shell commands, or archive-visible raw text.
 
 Completion focus:
 
-- focused review of the in-memory history boundary, provider request shapes,
-  clear conditions, fixed bounds, and metadata-only archive counters
-- fake-provider REPL smoke covering at least two ordinary no-tool turns and
-  finalized archive verification
-- run focused native tests plus `just check`
-- record the review/smoke outcome here and only then select the next small
-  native-shell boundary
+- `/clear` appears in `/help` and static usage diagnostics, and malformed
+  `/clear <text>` stays local
+- successful `/clear` resets only retained no-tool conversation context and any
+  pending same-session proposal draft; it must not reset provider/model
+  selection, auth state, read budgets, verification state, or provider turn
+  indexes unless a narrower implementation review finds a stronger reason
+- `/clear` does not call providers, execute tools, consume read budgets, emit
+  tool events, run verification, or archive raw command text, prompts, provider
+  output, excerpts, proposals, diffs, file contents, stdout, stderr, auth
+  material, secrets, credentials, tokens, private keys, or sensitive personal
+  data
+- focused tests cover context before and after clear, pending proposal discard,
+  malformed command behavior, metadata-only archives, and existing ordinary
+  no-tool/file/proposal/apply/verify behavior
+- run a fake-provider REPL smoke and `just check`
 
 ## Near Term
 
@@ -727,8 +753,8 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now review and smoke for bounded
-in-memory no-tool conversation context after the implementation slice.
+The immediate implementation path is now a local `/clear` command for bounded
+in-memory no-tool conversation context after the review/smoke closeout.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -772,7 +798,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Review and smoke bounded no-tool REPL conversation context.
+1. Native local `/clear` REPL command.
 
 Foundation gates toward an interactive shell:
 
@@ -787,7 +813,12 @@ Foundation gates toward an interactive shell:
   keeps archives metadata-only. Later ordinary no-tool turns now receive
   bounded in-memory history only from prior successful ordinary no-tool
   exchanges; file/tool/write/verification context is not retained in that
-  history.
+  history. The implementation is reviewed and smoked.
+- Local conversation clear gate: selected next. `/clear` should reset bounded
+  retained no-tool conversation context through a local command path without
+  provider calls, tool execution, read-budget consumption, raw command
+  archiving, provider/model selection changes, auth changes, or broader
+  model/tool-loop behavior.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

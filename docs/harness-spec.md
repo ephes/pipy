@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-46 no-tool REPL conversation-context decision completed
+Status: slice-47 no-tool REPL conversation-context review and smoke completed
 
 <style>
 .mermaid,
@@ -1250,6 +1250,34 @@ final text, model output, provider responses, provider-native payloads,
 excerpts, proposal text, patch text, diffs, file contents, command stdout,
 command stderr, auth material, secrets, credentials, API keys, tokens, private
 keys, or sensitive personal data.
+
+### No-Tool REPL Conversation Context Review And Smoke
+
+The bounded no-tool REPL conversation context implementation is reviewed and
+smoked. Summary-safe archive checks showed a two-round independent review
+cycle: the first round reported one warning and three suggestions that were
+accepted and fixed, and the second round reported zero findings with a
+recommendation to stop the review cycle.
+
+The closeout smoke covered two ordinary fake-provider REPL turns and finalized
+archive verification with `pipy-session verify`. Focused no-tool context tests,
+the CLI finalized-record coverage pin, and `just check` passed. The closeout
+did not require implementation hardening and did not change provider auth,
+model routing, stdout/stderr behavior, archive schema, read budgets, writes,
+verification, shell execution, provider-side tools, streaming, retries,
+fallback, TUI/RPC behavior, or the general model/tool-loop boundary.
+
+The selected next native-shell boundary is a local `/clear` command. It should
+clear retained no-tool conversation context through a local REPL command path
+without invoking providers, tools, reads, writes, auth, verification, shell
+commands, or provider-visible context handoff. It should also discard any
+pending same-session proposal draft so a stale proposal cannot be applied after
+the user clears the local conversation state. It must not reset provider/model
+selection, auth state, read budgets, verification state, or provider turn
+indexes. The command must keep archives metadata-only and must not persist raw
+command text, prompts, provider output, excerpts, proposal text, patch text,
+diffs, file contents, command stdout, command stderr, auth material, secrets,
+credentials, API keys, tokens, private keys, or sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 

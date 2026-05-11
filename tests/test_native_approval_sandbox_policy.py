@@ -476,19 +476,30 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "4 KiB provider-visible byte budget" in compact_done
     assert "clears on login, logout, provider/model changes" in compact_done
     assert "raw prompts, provider final text, excerpts" in compact_done
-    assert "### Review and smoke bounded no-tool REPL conversation context" in next_slice
-    assert "independently review and smoke" in compact_next_slice
-    assert "bounded no-tool REPL conversation context implementation" in (
+    assert "Native bounded no-tool REPL conversation context review and smoke" in (
+        compact_done
+    )
+    assert "two-round independent review cycle" in compact_done
+    assert "second round reported zero findings" in compact_done
+    assert "implementer-side closeout audit" in compact_done
+    assert "fake-provider REPL smoke with two ordinary turns" in compact_done
+    assert "The next selected native-shell boundary is a local `/clear` command" in (
+        compact_done
+    )
+    assert "### Native local `/clear` REPL command" in next_slice
+    assert "clears bounded no-tool conversation context" in compact_next_slice
+    assert "without invoking providers, tools, reads, writes, auth, verification" in (
         compact_next_slice
     )
-    assert "provider request shapes" in compact_next_slice
-    assert "metadata-only archive counters" in compact_next_slice
-    assert "fake-provider REPL smoke covering at least two ordinary no-tool turns" in (
+    assert "malformed `/clear <text>` stays local" in compact_next_slice
+    assert "resets only retained no-tool conversation context" in compact_next_slice
+    assert "pending same-session proposal draft" in compact_next_slice
+    assert "must not reset provider/model selection, auth state, read budgets" in (
         compact_next_slice
     )
-    assert "finalized archive verification" in compact_next_slice
+    assert "metadata-only archives" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "review and smoke for bounded in-memory no-tool conversation context" in (
+    assert "local `/clear` command for bounded in-memory no-tool conversation context" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -525,9 +536,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Review and smoke bounded no-tool REPL conversation context" in (
-        compact_near_term
-    )
+    assert "Local conversation clear gate: selected next" in compact_near_term
+    assert "Native local `/clear` REPL command" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
@@ -864,6 +874,37 @@ def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
     assert "`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and `/verify just-check`" in (
         compact_boundary
     )
+
+
+def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    boundary_section = markdown_section(spec, "No-Tool REPL Conversation Context")
+    compact_boundary = collapse_whitespace(boundary_section)
+    review_section = markdown_section(
+        spec,
+        "No-Tool REPL Conversation Context Review And Smoke",
+    )
+    compact_review = collapse_whitespace(review_section)
+
+    assert "bounded no-tool REPL conversation context implementation is reviewed and smoked" in (
+        compact_review
+    )
+    assert "two-round independent review cycle" in compact_review
+    assert "first round reported one warning and three suggestions" in compact_review
+    assert "second round reported zero findings" in compact_review
+    assert "two ordinary fake-provider REPL turns" in compact_review
+    assert "`pipy-session verify`" in compact_review
+    assert "`just check` passed" in compact_review
+    assert "did not require implementation hardening" in compact_review
+    assert "selected next native-shell boundary is a local `/clear` command" in (
+        compact_review
+    )
+    assert "discard any pending same-session proposal draft" in compact_review
+    assert "must not reset provider/model selection, auth state, read budgets" in (
+        compact_review
+    )
+    assert "verification state, or provider turn indexes" in compact_review
+    assert "must keep archives metadata-only" in compact_review
     assert "metadata-only" in compact_boundary
     assert "Provider lifecycle events" in compact_boundary
     assert "history exchanges were forwarded" in compact_boundary
