@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-44 read-failure recovery boundary implemented
+Status: slice-45 read-failure recovery review and smoke completed
 
 <style>
 .mermaid,
@@ -1164,6 +1164,26 @@ contracts must continue to omit raw prompts, excerpts, model output, provider
 responses, proposal text, patch text, diffs, file contents, command stdout,
 command stderr, auth material, secrets, credentials, API keys, tokens, private
 keys, and sensitive personal data.
+
+### Read-Failure Recovery Review And Smoke
+
+The read-failure recovery boundary has completed focused review and smoke. The
+review found the split in-memory budgets aligned with the selected contract:
+one successful excerpt budget remains shared by `/read`, `/ask-file`, and
+`/propose-file`; one failed or skipped attempt can precede a later success; a
+second failed recovery attempt closes the read path; and a successful excerpt
+still blocks later read/context attempts before reading, provider visibility,
+or proposal parsing.
+
+Focused CLI coverage now pins malformed supported commands, unsupported slash
+commands, local `/help`, `/model`, `/apply-proposal`, and `/verify just-check`
+diagnostic paths as outside explicit-read budgets. Fake-provider smoke covered
+failed-read recovery with finalized archive verification. The smoke and tests
+kept `pipy-session verify`, metadata-only archive payloads, stdout/stderr
+separation, and the existing one-successful-read product boundary intact. No
+provider auth, model routing, shell execution, multi-file context,
+provider-side tools, second successful read, automatic writes, or general
+model/tool loop behavior changed.
 
 ### Native Structured Stdout JSON Mode
 

@@ -2036,6 +2036,107 @@ def test_cli_native_repl_two_failed_read_attempts_exhaust_recovery_before_later_
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budget(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    valid = tmp_path / "docs" / "valid.txt"
+    valid.parent.mkdir()
+    valid.write_text("VALID_EXCERPT_AFTER_LOCAL_COMMANDS\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeAuthManager:
+        def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
+            raise AssertionError("unsupported login should not start OAuth")
+
+        def logout(self) -> bool:
+            raise AssertionError("unsupported logout should not touch credentials")
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("local commands and display reads should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFakeAuthManager)
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/read ../outside.txt\n"
+            "/help\n"
+            "/login openai\n"
+            "/logout openai\n"
+            "/model\n"
+            "/apply-proposal docs/valid.txt\n"
+            "/verify just-check\n"
+            "/unknown private/raw/path\n"
+            "/read docs/valid.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-local-commands-outside-read-budgets",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "VALID_EXCERPT_AFTER_LOCAL_COMMANDS\n"
+    assert "unsafe_repl_read_target" in captured.err
+    assert "unsupported login provider" in captured.err
+    assert "unsupported logout provider" in captured.err
+    assert "pipy: current model: fake/fake-native-bootstrap" in captured.err
+    assert "apply-proposal command skipped: no_pending_proposal" in captured.err
+    assert "verify command skipped: no_successful_apply_proposal" in captured.err
+    assert "unsupported REPL slash command. Supported command usage:" in captured.err
+    assert "read_command_limit_reached" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.skipped") == 1
+    assert event_types.count("native.tool.completed") == 1
+    assert "native.provider.started" not in event_types
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["successful_read_budget_used"] is True
+    assert completed_payload["failed_read_attempt_budget_used"] is True
+    assert completed_payload["read_recovery_attempt_after_failure_used"] is False
+    assert completed_payload["ask_file_command_used"] is False
+    assert completed_payload["propose_file_command_used"] is False
+    assert completed_payload["apply_proposal_command_used"] is False
+    assert completed_payload["verification_command_used"] is False
+    assert completed_payload["provider_visible_context_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "VALID_EXCERPT_AFTER_LOCAL_COMMANDS" not in combined
+    assert "/login openai" not in combined
+    assert "/logout openai" not in combined
+    assert "private/raw/path" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd, monkeypatch):
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"

@@ -454,24 +454,34 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Archive payloads remain metadata-only and add only safe budget booleans" in (
         compact_done
     )
+    assert "Native bounded read-failure recovery review and smoke" in compact_done
+    assert "split-budget implementation aligned with the selected contract" in (
+        compact_done
+    )
+    assert "local `/help`, `/model`, `/apply-proposal`, and `/verify just-check`" in (
+        compact_done
+    )
+    assert "fake-provider REPL smoke exercised failed-read recovery" in compact_done
     assert (
-        "### Review bounded read-failure recovery for explicit REPL file commands"
+        "### Select next native-shell boundary after read-failure recovery review"
         in next_slice
     )
-    assert "review and smoke the implemented split-budget read-failure recovery path" in (
+    assert "choose the next small, reviewable native-shell boundary" in (
         compact_next_slice
     )
-    assert "successful excerpt budget use" in compact_next_slice
-    assert "failed or skipped attempt budget use" in compact_next_slice
-    assert "recovery-attempt exhaustion" in compact_next_slice
-    assert "second successful read/context blocking" in compact_next_slice
-    assert "preserve the existing one-successful-read product boundary" in (
+    assert "summary-safe archive evidence" in compact_next_slice
+    assert "without changing runtime behavior in the decision slice" in (
         compact_next_slice
     )
+    assert "existing public gates: no-tool turns, `/read`, `/ask-file`" in (
+        compact_next_slice
+    )
+    assert "select exactly one next implementation slice" in compact_next_slice
     assert "multi-file reads" in compact_next_slice
     assert "a second successful read/context handoff" in compact_next_slice
+    assert "must stay outside those budgets" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "review and smoke for the read-failure recovery implementation" in (
+    assert "next-boundary decision after the clean read-failure recovery review and smoke" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -505,7 +515,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Review bounded read-failure recovery for explicit REPL file commands" in (
+    assert "Select next native-shell boundary after read-failure recovery review" in (
         compact_near_term
     )
     assert "removed from the normal product REPL path" in compact_near_term

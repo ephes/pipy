@@ -46,9 +46,9 @@ Use this page as a planning index:
   post-apply-only, metadata-only, and fails the REPL run if verification is
   skipped or fails.
 - First pipy-applied pipy change: completed through the public native REPL.
-  The read-failure recovery boundary from that trial is now implemented; the
-  next milestone is a focused review and smoke pass before selecting another
-  native-shell boundary.
+  The read-failure recovery boundary from that trial is now implemented,
+  reviewed, and smoked; the next milestone is selecting another native-shell
+  boundary without broadening the tool loop opportunistically.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -651,31 +651,49 @@ cycles stopping after a clean second review unless scope or risk changes.
   secrets, credentials, tokens, private keys, and sensitive personal data
   remain out of JSONL, Markdown, catalog/search/inspect surfaces, stdout,
   stderr, and structured output.
+- Native bounded read-failure recovery review and smoke: focused review found
+  the split-budget implementation aligned with the selected contract. Existing
+  and added CLI coverage pins successful excerpt budget use, failed/skipped
+  attempt budget use, second failed recovery-attempt exhaustion, second
+  successful read/context blocking across `/read`, `/ask-file`, and
+  `/propose-file`, malformed supported command diagnostics, unsupported slash
+  commands, and local `/help`, `/model`, `/apply-proposal`, and
+  `/verify just-check` paths staying outside explicit-read budgets. A
+  fake-provider REPL smoke exercised failed-read recovery and finalized archive
+  verification. `pipy-session verify` compatibility and metadata-only archive
+  rules held, no implementation hardening beyond the focused coverage pin was
+  required, and no provider auth, model routing, shell execution, multi-file
+  context, provider-side tools, second successful read, automatic write
+  selection, or general model/tool loop behavior changed.
 
 ## Next Slice
 
-### Review bounded read-failure recovery for explicit REPL file commands
+### Select next native-shell boundary after read-failure recovery review
 
-Goal: independently review and smoke the implemented split-budget read-failure
-recovery path before selecting the next native-shell boundary.
+Goal: choose the next small, reviewable native-shell boundary using the clean
+read-failure recovery review/smoke result and summary-safe archive evidence,
+without changing runtime behavior in the decision slice.
 
 Implementation focus:
 
-- review the REPL state transitions for successful excerpt budget use, failed
-  or skipped attempt budget use, recovery-attempt exhaustion, and second
-  successful read/context blocking
-- review focused CLI coverage across `/read`, `/ask-file`, and
-  `/propose-file`, including malformed commands and local commands that should
-  stay outside both budgets
-- smoke a fake-provider REPL sequence that exercises failed-read recovery and
-  confirms finalized archive compatibility with `pipy-session verify`
-- preserve the existing one-successful-read product boundary and
-  metadata-only archive rules
+- inspect summary-safe archive signals for the latest native REPL work,
+  including review outcomes, smoke outcomes, and workflow evaluations
+- compare candidate boundaries against the current Pi-like shell direction and
+  the existing public gates: no-tool turns, `/read`, `/ask-file`,
+  `/propose-file`, `/apply-proposal`, and `/verify just-check`
+- select exactly one next implementation slice with clear acceptance criteria
+  and explicit non-goals
+- preserve the existing runtime, stdout/stderr, archive, provider, auth,
+  model, read, write, verification, and tool-loop behavior in this decision
+  slice
 
 Completion focus:
 
-- record review findings and fixes, if any, in focused tests and docs
-- run focused tests plus `just check`
+- update this backlog and the harness spec with the selected boundary and
+  deferred boundaries
+- keep the decision grounded in summary-safe session surfaces, not raw
+  transcripts or prompt bodies
+- run documentation-policy tests plus `just check`
 
 Keep out of scope:
 
@@ -684,10 +702,10 @@ Keep out of scope:
   multi-file reads, a second successful read/context handoff, automatic
   provider-selected filesystem paths, provider follow-up turns, automatic write
   selection, or a general model/tool loop
-- changing which local commands consume explicit-read budgets; `/help`,
-  `/login`, `/logout`, `/model`, `/apply-proposal`, `/verify just-check`,
-  malformed supported slash commands, and unsupported slash commands must stay
-  outside those budgets
+- changing the existing explicit-read budgets or which local commands consume
+  them; `/help`, `/login`, `/logout`, `/model`, `/apply-proposal`,
+  `/verify just-check`, malformed supported slash commands, and unsupported
+  slash commands must stay outside those budgets
 - archiving raw prompts, excerpts, model output, provider responses, proposal
   text, patch text, diffs, file contents, command output, auth material,
   secrets, credentials, tokens, private keys, or sensitive personal data
@@ -701,11 +719,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now review and smoke for the
-read-failure recovery implementation after the first real self-bootstrap trial:
+The immediate implementation path is now a next-boundary decision after the
+clean read-failure recovery review and smoke:
 
-1. Review and smoke the split REPL explicit-read budgets before selecting the
-   next native-shell boundary.
+1. Select the next small native-shell boundary from summary-safe session
+   evidence, without changing runtime behavior in the decision slice.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -749,7 +767,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Review bounded read-failure recovery for explicit REPL file commands.
+1. Select next native-shell boundary after read-failure recovery review.
 
 Foundation gates toward an interactive shell:
 
