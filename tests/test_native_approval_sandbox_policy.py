@@ -436,22 +436,43 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`/verify just-check`" in compact_done
     assert "`native-self-bootstrap-trial`" in compact_done
     assert "no runtime dependencies are declared" in compact_done
+    assert "Native next-boundary decision after the first self-bootstrap trial" in (
+        compact_done
+    )
+    assert "summary-safe inspection of the finalized `native-self-bootstrap-trial`" in (
+        compact_done
+    )
+    assert "The selected next boundary is therefore a failed-read recovery slice" in (
+        compact_done
+    )
     assert (
-        "### Choose the next native shell boundary after the self-bootstrap trial"
+        "### Add bounded read-failure recovery for explicit REPL file commands"
         in next_slice
     )
-    assert "public `/propose-file`, `/apply-proposal`, and `/verify just-check` flow" in (
+    assert "one successful explicit file excerpt budget" in compact_next_slice
+    assert "one small failed or skipped read-attempt budget" in compact_next_slice
+    assert "at most one successful explicit file excerpt per REPL session" in (
         compact_next_slice
     )
-    assert "summary-safe archive surfaces only" in compact_next_slice
-    assert "choose exactly one next boundary" in compact_next_slice
-    assert "model availability/default policy" in compact_next_slice
-    assert "second same-session read/context command" in compact_next_slice
-    assert "tighter apply-draft format" in compact_next_slice
-    assert "decision-only" in compact_next_slice
+    assert "allow exactly one failed or skipped explicit read attempt" in (
+        compact_next_slice
+    )
+    assert "preserve current behavior for a second successful read/context attempt" in (
+        compact_next_slice
+    )
     assert "changing provider auth" in compact_next_slice
+    assert "multi-file reads" in compact_next_slice
+    assert "a second successful read/context handoff" in compact_next_slice
+    assert "changing which local commands consume explicit-read budgets" in (
+        compact_next_slice
+    )
+    assert "`/help`, `/login`, `/logout`, `/model`, `/apply-proposal`, `/verify just-check`" in (
+        compact_next_slice
+    )
     assert "Pi-like interactive shell" in compact_near_term
-    assert "next-boundary decision after the first real self-bootstrap trial" in compact_near_term
+    assert "read-failure recovery after the first real self-bootstrap trial" in (
+        compact_near_term
+    )
     assert "no permission popups for normal interactive use" in compact_near_term
     assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
         compact_near_term
@@ -483,7 +504,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Next native-shell boundary decision after the first real self-bootstrap trial" in (
+    assert "Bounded read-failure recovery for explicit REPL file commands" in (
         compact_near_term
     )
     assert "removed from the normal product REPL path" in compact_near_term
@@ -506,6 +527,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "### Add a minimal no-tool `pipy-native` REPL over the same core" not in next_slice
     assert "### Choose the next interactive provider-visible context boundary" not in next_slice
     assert "### Review and smoke proposal-only `/propose-file` REPL boundary" not in next_slice
+    assert "### Choose the next native shell boundary after the self-bootstrap trial" not in (
+        next_slice
+    )
 
 
 def test_implemented_repl_proposal_boundary_is_metadata_only_and_bounded():
@@ -702,6 +726,86 @@ def test_first_native_self_bootstrap_trial_outcome_is_documented():
         "general model/tool loop",
     ):
         assert deferred in compact_outcome
+
+
+def test_selected_read_failure_recovery_boundary_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    boundary_section = markdown_section(spec, "Read-Failure Recovery Boundary Direction")
+    repl_section = markdown_section(spec, "Native Interactive REPL")
+    compact_boundary = collapse_whitespace(boundary_section)
+    compact_repl = collapse_whitespace(repl_section)
+
+    assert "bounded read-failure recovery for explicit REPL file commands" in (
+        compact_boundary
+    )
+    assert "`native-self-bootstrap-trial`" in compact_boundary
+    assert "metadata-only propose/apply/verify run" in compact_boundary
+    assert "secret-looking target failed closed as intended" in compact_boundary
+    assert "one-read session limit then blocked a second explicit target" in (
+        compact_boundary
+    )
+    assert "one successful explicit file excerpt budget per REPL session" in (
+        compact_boundary
+    )
+    assert "one narrowly bounded failed or skipped explicit-read attempt budget" in (
+        compact_boundary
+    )
+    assert "`/read`, `/ask-file`, and `/propose-file`" in compact_boundary
+    assert "before provider visibility" in compact_boundary
+    assert "outside both budgets" in compact_boundary
+    assert "existing metadata-only tool lifecycle and observation events" in (
+        compact_boundary
+    )
+    assert "`Read-Failure Recovery Boundary Direction`" in compact_repl
+    assert "split this current single request limit into separate successful-read" in (
+        compact_repl
+    )
+
+    for failed_reason in (
+        "unsafe target",
+        "ignored/generated target",
+        "binary or unreadable file",
+        "unsupported encoding",
+        "secret-looking content",
+        "size or line limit failure",
+        "tool-skipped status",
+    ):
+        assert failed_reason in compact_boundary
+
+    for deferred in (
+        "multi-file context",
+        "second successful read",
+        "broad search",
+        "provider-selected filesystem paths",
+        "provider-side tools",
+        "provider follow-up turns",
+        "arbitrary shell execution",
+        "non-allowlisted verification commands",
+        "automatic write selection",
+        "general model/tool loop",
+    ):
+        assert deferred in compact_boundary
+
+    for forbidden in (
+        "raw prompts",
+        "excerpts",
+        "model output",
+        "provider responses",
+        "proposal text",
+        "patch text",
+        "diffs",
+        "file contents",
+        "command stdout",
+        "command stderr",
+        "auth material",
+        "secrets",
+        "credentials",
+        "API keys",
+        "tokens",
+        "private keys",
+        "sensitive personal data",
+    ):
+        assert forbidden in compact_boundary
 
 
 def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():

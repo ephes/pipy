@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-43 first native self-bootstrap trial completed
+Status: slice-44 read-failure recovery boundary selected
 
 <style>
 .mermaid,
@@ -823,7 +823,10 @@ commands fail closed before any read, tool event, or provider visibility.
 Unsupported, mismatched, unsafe-target, skipped, failed, and repeated
 read-command cases fail closed before any read, before any second read request,
 or before provider visibility. Static help and usage diagnostics are not
-archived and do not consume the one-read limit.
+archived and do not consume the one-read limit. See
+`Read-Failure Recovery Boundary Direction` for the selected next boundary that
+will split this current single request limit into separate successful-read and
+failed-attempt budgets.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
 so provider-returned tool intent markers cannot become archive content. The
@@ -1101,8 +1104,61 @@ This trial did not require provider auth changes, token storage changes,
 provider routing changes, model default changes, arbitrary shell execution,
 non-allowlisted verification commands, multi-file reads, multiple tool
 requests, automatic write selection, provider follow-up turns, or a general
-model/tool loop. The next implementation boundary should be selected in a
-separate decision slice from the trial evidence and existing archive lessons.
+model/tool loop.
+
+### Read-Failure Recovery Boundary Direction
+
+The next native-shell boundary selected after the first self-bootstrap trial is
+bounded read-failure recovery for explicit REPL file commands. The rationale is
+based on summary-safe archive evidence only:
+
+- `pipy-session inspect` of the finalized `native-self-bootstrap-trial` record
+  showed a successful metadata-only propose/apply/verify run with lifecycle,
+  provider, tool, patch-apply, and verification event types, and no raw
+  transcript, stdout, stderr, prompts, model output, or changed-file paths
+  stored
+- reflection and workflow evaluations continue to favor small native shell
+  slices, metadata-only capture, focused tests, and stopping review cycles
+  after a clean second review
+- the earlier human-applied proposal trial exposed concrete shell friction:
+  one secret-looking target failed closed as intended, but the one-read session
+  limit then blocked a second explicit target in the same REPL record
+
+The selected implementation boundary is to split the current single read
+command limit into two in-memory REPL budgets:
+
+- one successful explicit file excerpt budget per REPL session, shared by
+  `/read`, `/ask-file`, and `/propose-file`
+- one narrowly bounded failed or skipped explicit-read attempt budget per REPL
+  session
+
+A failed or skipped explicit-read attempt may include unsafe target,
+ignored/generated target, binary or unreadable file, unsupported encoding,
+secret-looking content, size or line limit failure, or tool-skipped status. If
+one of those outcomes happens before any successful excerpt is produced, the
+session may still accept one later explicit file command for one successful
+excerpt. After one successful excerpt, later `/read`, `/ask-file`, and
+`/propose-file` attempts still fail closed before reading, before provider
+visibility, and before proposal parsing. After the failed-attempt budget is
+spent, another failed/skipped read attempt also fails closed before reading.
+
+Malformed supported slash commands, unsupported slash commands, `/help`,
+`/login`, `/logout`, `/model`, `/apply-proposal`, and `/verify just-check` stay
+outside both budgets because they do not reach the explicit-file-excerpt tool.
+Attempts that do reach the read tool may emit only the existing metadata-only
+tool lifecycle and observation events with safe status and reason labels.
+
+This boundary does not add multi-file context, a second successful read, broad
+search, provider-selected filesystem paths, provider-side tools, provider
+follow-up turns, arbitrary shell execution, non-allowlisted verification
+commands, automatic write selection, persistent context, TUI/RPC behavior,
+provider auth changes, token storage changes, provider routing changes, model
+default changes, or a general model/tool loop. Archives, Markdown,
+catalog/search/inspect surfaces, structured stdout, and default stdout/stderr
+contracts must continue to omit raw prompts, excerpts, model output, provider
+responses, proposal text, patch text, diffs, file contents, command stdout,
+command stderr, auth material, secrets, credentials, API keys, tokens, private
+keys, and sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 

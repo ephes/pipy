@@ -46,7 +46,7 @@ Use this page as a planning index:
   post-apply-only, metadata-only, and fails the REPL run if verification is
   skipped or fails.
 - First pipy-applied pipy change: completed through the public native REPL.
-  The next milestone is a narrow next-boundary decision based on the
+  The next milestone is a narrow read-failure recovery boundary based on the
   self-bootstrap trial and existing archive lessons.
 
 The stored session archive supports this direction: repeated workflow
@@ -617,42 +617,73 @@ cycles stopping after a clean second review unless scope or risk changes.
   general model/tool loop, and raw prompts, model output, proposal text, diffs,
   file contents, command output, auth material, secrets, credentials, tokens,
   private keys, and sensitive personal data remained out of the archive.
+- Native next-boundary decision after the first self-bootstrap trial:
+  summary-safe inspection of the finalized `native-self-bootstrap-trial`
+  record showed a successful metadata-only propose/apply/verify flow with
+  provider, tool, patch-apply, and verification events only. Archive reflection
+  continued to favor small native shell slices, focused tests, metadata-only
+  capture, and stopping review cycles after a clean second review. The repeated
+  concrete friction was read recovery: the earlier human-applied proposal trial
+  failed closed on a secret-looking first target, and the one-read session limit
+  prevented a second explicit target in the same REPL. The selected next
+  boundary is therefore a failed-read recovery slice that preserves at most one
+  successful explicit file excerpt per REPL session, but allows one narrowly
+  bounded failed or skipped explicit-read attempt to leave that success budget
+  available. This is a narrow exception to the broader multiple-tool-request
+  deferral, not multi-file context, not a second successful read, not provider
+  path selection, not arbitrary shell execution, and not a general model/tool
+  loop.
 
 ## Next Slice
 
-### Choose the next native shell boundary after the self-bootstrap trial
+### Add bounded read-failure recovery for explicit REPL file commands
 
-Goal: select the next small, reviewable native-shell boundary now that the
-public `/propose-file`, `/apply-proposal`, and `/verify just-check` flow has
-made and verified one real repository change.
+Goal: let a failed or skipped explicit REPL file read stop short of consuming
+the only successful read/context opportunity for the session, while preserving
+the existing one-successful-read product boundary.
 
 Implementation focus:
 
-- inspect the finalized `native-self-bootstrap-trial` record through
-  summary-safe archive surfaces only
-- review existing reflection/search signals for repeated lessons about the
-  native shell, model availability, and self-bootstrap workflow
-- choose exactly one next boundary, such as model availability/default policy,
-  a second same-session read/context command, a tighter apply-draft format, or
-  another narrowly named shell capability
-- document why that boundary is next and what remains explicitly deferred
+- split the current single read-command limit into two explicit in-memory REPL
+  counters: one successful explicit file excerpt budget and one small failed or
+  skipped read-attempt budget
+- keep `/read`, `/ask-file`, and `/propose-file` limited to at most one
+  successful explicit file excerpt per REPL session
+- allow exactly one failed or skipped explicit read attempt, such as
+  unsafe-target, ignored/generated, secret-looking, oversized, binary,
+  unreadable, unsupported-encoding, or tool-skipped, before the successful read
+  budget is spent
+- keep malformed supported slash commands, unsupported slash commands, `/help`,
+  `/login`, `/logout`, `/model`, `/apply-proposal`, and `/verify just-check`
+  from consuming either budget
+- preserve current behavior for a second successful read/context attempt:
+  fail closed before reading, before provider visibility, and before proposal
+  parsing
+- record only existing metadata-only tool lifecycle and observation events for
+  attempts that reach the explicit-file-excerpt tool; do not add raw path,
+  prompt, excerpt, provider-output, command-output, stdout, stderr, patch, diff,
+  or file-content archive fields
 
 Completion focus:
 
-- update `docs/backlog.md` and `docs/harness-spec.md` with the selected
-  boundary, rationale, and non-goals
-- add or adjust focused documentation-policy tests if they currently encode
-  the completed self-bootstrap trial as the active next slice
-- keep the slice decision-only unless the chosen boundary is already fully
-  specified, tiny, and testable without crossing deferred scope
+- update focused REPL CLI tests for unsafe, skipped, failed, and successful
+  read/context command ordering across `/read`, `/ask-file`, and
+  `/propose-file`
+- update documentation-policy tests and docs to describe the split budget
+  without implying multi-file context
+- run focused tests plus `just check`
 
 Keep out of scope:
 
 - changing provider auth, token storage, provider routing, or model defaults
 - adding arbitrary shell execution, non-allowlisted verification commands,
-  multi-file reads, multiple tool requests, automatic provider-selected
-  filesystem paths, provider follow-up turns, automatic write selection, or a
-  general model/tool loop
+  multi-file reads, a second successful read/context handoff, automatic
+  provider-selected filesystem paths, provider follow-up turns, automatic write
+  selection, or a general model/tool loop
+- changing which local commands consume explicit-read budgets; `/help`,
+  `/login`, `/logout`, `/model`, `/apply-proposal`, `/verify just-check`,
+  malformed supported slash commands, and unsupported slash commands must stay
+  outside those budgets
 - archiving raw prompts, excerpts, model output, provider responses, proposal
   text, patch text, diffs, file contents, command output, auth material,
   secrets, credentials, tokens, private keys, or sensitive personal data
@@ -666,11 +697,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now a next-boundary decision after the
-first real self-bootstrap trial:
+The immediate implementation path is now read-failure recovery after the first
+real self-bootstrap trial:
 
-1. Choose exactly one next native-shell boundary from the self-bootstrap trial
-   evidence and existing summary-safe archive lessons.
+1. Split the REPL explicit-read budget so a failed or skipped first read
+   attempt does not consume the one successful read/context opportunity.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -713,8 +744,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Next native-shell boundary decision after the first real self-bootstrap
-   trial.
+1. Bounded read-failure recovery for explicit REPL file commands.
 
 Foundation gates toward an interactive shell:
 
