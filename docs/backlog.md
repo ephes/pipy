@@ -16,6 +16,7 @@ explicit workspace-relative file excerpt, ask a provider about that excerpt,
 request a proposal-only change for that excerpt through `/propose-file`, and
 apply one same-session reviewed proposal through `/apply-proposal`, then run
 one post-apply allowlisted verification command through `/verify just-check`.
+It can also clear retained no-tool conversation context locally with `/clear`.
 The public shell still cannot execute arbitrary shell commands, request
 provider-side tools, read multiple files per session, run non-allowlisted
 verification commands, or run a general model/tool loop.
@@ -48,9 +49,10 @@ Use this page as a planning index:
 - First pipy-applied pipy change: completed through the public native REPL.
   The read-failure recovery boundary from that trial is now implemented,
   reviewed, and smoked; bounded no-tool REPL conversation context is now
-  implemented, reviewed, and smoked; the next milestone is a local clear
-  command for interactive conversation state without broadening the tool loop
-  opportunistically.
+  implemented, reviewed, and smoked; a local clear command for interactive
+  conversation state is now implemented, reviewed, and smoked. The next
+  milestone is an explicit next-boundary decision before adding another native
+  shell feature.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -693,8 +695,9 @@ cycles stopping after a clean second review unless scope or risk changes.
   oldest exchanges before provider visibility, and clears on login, logout,
   provider/model changes, provider failure, or ambiguous carryover paths.
   `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, `/verify
-  just-check`, `/help`, `/login`, `/logout`, `/model`, malformed commands, and
-  unsupported slash commands stay outside retained history. Archives remain
+  just-check`, `/help`, `/clear`, `/login`, `/logout`, `/model`, malformed
+  commands, and unsupported slash commands stay outside retained history.
+  Archives remain
   metadata-only and record only safe provider-call forwarded-context counters
   and terminal session retained-at-end context counters; raw
   prompts, provider final text, excerpts, questions, change requests,
@@ -717,32 +720,46 @@ cycles stopping after a clean second review unless scope or risk changes.
   an explicit user reset path, while provider-side tools, arbitrary shell
   execution, multi-file reads, broader writes, streaming, retries, fallback,
   TUI/RPC, and a general model/tool loop remain deferred.
+- Native local `/clear` REPL command: the interactive native shell now accepts
+  `/clear` as a local command that clears retained bounded no-tool conversation
+  context and discards any pending same-session proposal draft without invoking
+  providers, tools, reads, writes, auth, verification, shell commands, or
+  provider-visible context handoff. `/clear` appears in `/help` and static
+  usage diagnostics; malformed `/clear <text>` stays local and does not clear
+  history. The command does not reset provider/model selection, auth state,
+  read budgets, verification availability, or provider turn indexes. Archives
+  remain metadata-only and do not persist raw command text, prompts, provider
+  output, excerpts, proposals, diffs, file contents, stdout, stderr, auth
+  material, secrets, credentials, tokens, private keys, or sensitive personal
+  data.
+- Native local `/clear` review and smoke: the implemented `/clear` boundary
+  completed a two-round independent review cycle. The first review found no
+  critical or warning findings and two suggestion-level test coverage items;
+  both were accepted and fixed by adding post-clear verification availability
+  coverage and stronger no-tool-event assertions. The second review found no
+  findings and recommended stopping the review cycle. Focused tests, `just
+  check`, and a fake-provider `/clear` REPL smoke with `pipy-session verify`
+  passed. No runtime behavior beyond the implemented local clear command was
+  broadened.
 
 ## Next Slice
 
-### Native local `/clear` REPL command
+### Native next-boundary decision after `/clear` review and smoke
 
-Goal: add a local `pipy-native` REPL command that clears bounded no-tool
-conversation context without invoking providers, tools, reads, writes, auth,
-verification, shell commands, or archive-visible raw text.
+Goal: choose and document the next small native-shell boundary after the clean
+`/clear` review/smoke closeout, using summary-safe archive reflection and the
+current product constraints before changing runtime behavior.
 
 Completion focus:
 
-- `/clear` appears in `/help` and static usage diagnostics, and malformed
-  `/clear <text>` stays local
-- successful `/clear` resets only retained no-tool conversation context and any
-  pending same-session proposal draft; it must not reset provider/model
-  selection, auth state, read budgets, verification state, or provider turn
-  indexes unless a narrower implementation review finds a stronger reason
-- `/clear` does not call providers, execute tools, consume read budgets, emit
-  tool events, run verification, or archive raw command text, prompts, provider
-  output, excerpts, proposals, diffs, file contents, stdout, stderr, auth
-  material, secrets, credentials, tokens, private keys, or sensitive personal
-  data
-- focused tests cover context before and after clear, pending proposal discard,
-  malformed command behavior, metadata-only archives, and existing ordinary
-  no-tool/file/proposal/apply/verify behavior
-- run a fake-provider REPL smoke and `just check`
+- inspect recent summary-safe session-learning signals for native-shell
+  direction, review outcomes, and deferred boundaries
+- select one small, reviewable next slice and update this backlog plus
+  `docs/harness-spec.md` with the chosen boundary and non-goals
+- keep runtime behavior unchanged in this decision slice
+- do not broaden into arbitrary shell execution, provider-side tools,
+  multi-file context, non-allowlisted verification commands, persistent
+  transcript storage, TUI/RPC behavior, or a general model/tool loop
 
 ## Near Term
 
@@ -753,15 +770,17 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate implementation path is now a local `/clear` command for bounded
-in-memory no-tool conversation context after the review/smoke closeout.
+The immediate path is now a next-boundary decision after the implemented and
+reviewed local `/clear` command. The decision should use summary-safe archive
+reflection, the current shell surface, and the deferred boundaries below to
+pick exactly one small native-shell slice before any runtime behavior changes.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through bare `pipy` or `pipy repl --agent pipy-native`; it
-now has local `/help`, `/login`, `/logout`, and `/model` commands, one
-display-only `/read <workspace-relative-path>` command, and one
+now has local `/help`, `/clear`, `/login`, `/logout`, and `/model` commands,
+one display-only `/read <workspace-relative-path>` command, and one
 provider-visible `/ask-file <workspace-relative-path> -- <question>` command
 with a whitespace-delimited `--` separator sharing the same successful-read
 budget.
@@ -798,7 +817,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native local `/clear` REPL command.
+1. Native next-boundary decision after `/clear` review and smoke.
 
 Foundation gates toward an interactive shell:
 
@@ -814,11 +833,17 @@ Foundation gates toward an interactive shell:
   bounded in-memory history only from prior successful ordinary no-tool
   exchanges; file/tool/write/verification context is not retained in that
   history. The implementation is reviewed and smoked.
-- Local conversation clear gate: selected next. `/clear` should reset bounded
-  retained no-tool conversation context through a local command path without
-  provider calls, tool execution, read-budget consumption, raw command
-  archiving, provider/model selection changes, auth changes, or broader
-  model/tool-loop behavior.
+- Local conversation clear gate: available now through `/clear`. It resets
+  bounded retained no-tool conversation context and pending proposal state
+  through a local command path without provider calls, tool execution,
+  read-budget consumption, raw command archiving, provider/model selection
+  changes, auth changes, or broader model/tool-loop behavior. The gate is
+  reviewed and smoked.
+- Next-boundary decision gate after local clear: selected next. It should use
+  summary-safe session reflection and the current shell constraints to choose
+  one small native-shell boundary without changing runtime behavior or crossing
+  deferred tool-loop, shell-execution, multi-file-context, TUI/RPC, or
+  persistent-transcript boundaries.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

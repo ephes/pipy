@@ -361,6 +361,8 @@ def test_cli_native_repl_interrupt_finalizes_aborted_record(tmp_path, capfd, mon
     assert "KeyboardInterrupt" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
     completed_payload = [
         event["payload"] for event in events if event["type"] == "native.session.completed"
     ][0]
@@ -469,6 +471,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert captured.out == ""
     assert "pipy native REPL commands:" in captured.err
     assert "  /help" in captured.err
+    assert "  /clear" in captured.err
     assert "  /login [openai-codex]" in captured.err
     assert "  /logout [openai-codex]" in captured.err
     assert "  /model [<provider>/<model>|<model>]" in captured.err
@@ -620,6 +623,89 @@ def test_cli_native_repl_model_selection_late_binds_subsequent_provider_turn_and
     assert "/model fake/fake-after-switch" not in combined
     assert "hello" not in combined
     assert "MODEL=fake-after-switch" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_clear_clears_context_without_resetting_model_or_turn_index(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=f"TURN={request.provider_turn_index};MODEL={self.model_id}",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO("/model fake/after-clear-model\nfirst prompt\n/clear\nsecond prompt\n/exit\n"),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-clear-context",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "TURN=0;MODEL=after-clear-model\nTURN=1;MODEL=after-clear-model\n"
+    assert "local conversation context cleared" in captured.err
+    assert [
+        (request.provider_turn_index, request.provider_turn_label, request.model_id)
+        for request in captured_requests
+    ] == [
+        (0, "initial", "after-clear-model"),
+        (1, "no_tool_repl", "after-clear-model"),
+    ]
+    assert captured_requests[0].no_tool_repl_context is not None
+    assert captured_requests[0].no_tool_repl_context.exchanges == ()
+    assert captured_requests[1].no_tool_repl_context is not None
+    assert captured_requests[1].no_tool_repl_context.exchanges == ()
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 2
+    assert completed_payload["read_command_used"] is False
+    assert completed_payload["no_tool_context_retained_at_end"] is True
+    assert completed_payload["no_tool_context_retained_exchange_count"] == 1
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/clear" not in combined
+    assert "first prompt" not in combined
+    assert "second prompt" not in combined
+    assert "TURN=0" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -1071,6 +1157,62 @@ def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
         encoding="utf-8"
     )
     assert "/help" not in combined
+    assert "private/noise" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_malformed_clear_prints_usage_without_provider_or_tools(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("malformed clear command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/clear private/noise\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-malformed-clear",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "malformed /clear command. Supported command usage:" in captured.err
+    assert "  /clear" in captured.err
+    assert "private/noise" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/clear" not in combined
     assert "private/noise" not in combined
     assert verify_session_archive(root=root).ok is True
 
@@ -2073,6 +2215,7 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
         StringIO(
             "/read ../outside.txt\n"
             "/help\n"
+            "/clear\n"
             "/login openai\n"
             "/logout openai\n"
             "/model\n"
@@ -2104,6 +2247,7 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
     assert "unsafe_repl_read_target" in captured.err
     assert "unsupported login provider" in captured.err
     assert "unsupported logout provider" in captured.err
+    assert "local conversation context cleared" in captured.err
     assert "pipy: current model: fake/fake-native-bootstrap" in captured.err
     assert "apply-proposal command skipped: no_pending_proposal" in captured.err
     assert "verify command skipped: no_successful_apply_proposal" in captured.err
@@ -2133,6 +2277,7 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
     assert "VALID_EXCERPT_AFTER_LOCAL_COMMANDS" not in combined
     assert "/login openai" not in combined
     assert "/logout openai" not in combined
+    assert "/clear" not in combined
     assert "private/raw/path" not in combined
     assert verify_session_archive(root=root).ok is True
 
@@ -2161,7 +2306,7 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\n/read docs/second.txt\n/exit\n"),
+        StringIO("/read docs/first.txt\n/clear\n/read docs/second.txt\n/exit\n"),
     )
 
     exit_code = main(
@@ -2182,6 +2327,7 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == "FIRST_EXCERPT_TEXT\n"
+    assert "local conversation context cleared" in captured.err
     assert "read_command_limit_reached" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
@@ -2190,6 +2336,7 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
+    assert "/clear" not in combined
     assert "FIRST_EXCERPT_TEXT" not in combined
     assert "SECOND_EXCERPT_TEXT" not in combined
     assert verify_session_archive(root=root).ok is True
@@ -3365,6 +3512,112 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_repl_clear_preserves_verify_after_apply_availability(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    old_text = "old value\n"
+    new_text = "new value before post-clear verification\n"
+    target = tmp_path / "docs" / "target.txt"
+    target.parent.mkdir()
+    target.write_text(old_text, encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+    verification_calls: list[tuple[Path, NativeVerificationRequest, NativeVerificationGateDecision]] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=repl_apply_proposal_text("docs/target.txt", old_text, new_text),
+                metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_repl_patch_proposal()},
+            )
+
+    class CliFakeVerificationTool:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+
+        def invoke(self, request, gate):
+            verification_calls.append((self.workspace, request, gate))
+            return repl_verification_result(
+                request,
+                gate,
+                status=NativeToolStatus.SUCCEEDED,
+                reason=NativeVerificationReason.VERIFICATION_SUCCEEDED,
+                exit_code=0,
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr("pipy_harness.native.session.NativeVerificationTool", CliFakeVerificationTool)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/propose-file docs/target.txt -- Change it\n"
+            "/apply-proposal docs/target.txt\n"
+            "/clear\n"
+            "/verify just-check\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-clear-preserves-verify",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert len(captured_requests) == 1
+    assert len(verification_calls) == 1
+    workspace, request, gate = verification_calls[0]
+    assert workspace == tmp_path
+    assert request.command_label == "just-check"
+    assert gate.approval_decision == NativeVerificationApprovalDecision.ALLOWED
+    assert target.read_text(encoding="utf-8") == new_text
+    assert "local conversation context cleared" in captured.err
+    assert "verify command succeeded: verification_succeeded" in captured.err
+
+    finalized = next((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized)
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.provider.started") == 1
+    assert event_types.count(NATIVE_PATCH_APPLY_RECORDED_EVENT) == 1
+    assert event_types.count(NATIVE_VERIFICATION_RECORDED_EVENT) == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["apply_proposal_command_used"] is True
+    assert completed_payload["verification_command_used"] is True
+    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/clear" not in combined
+    assert old_text.strip() not in combined
+    assert new_text.strip() not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_repl_failed_second_apply_does_not_relock_verification(
     tmp_path,
     capfd,
@@ -3653,7 +3906,7 @@ def test_cli_native_repl_local_command_clears_pending_apply_proposal(
         "stdin",
         StringIO(
             "/propose-file docs/target.txt -- Change it\n"
-            "/help\n"
+            "/clear\n"
             "/apply-proposal docs/target.txt\n/exit\n"
         ),
     )
@@ -3676,6 +3929,7 @@ def test_cli_native_repl_local_command_clears_pending_apply_proposal(
     assert exit_code == 0
     assert len(captured_requests) == 1
     assert target.read_text(encoding="utf-8") == old_text
+    assert "local conversation context cleared" in captured.err
     assert "apply-proposal command skipped: no_pending_proposal" in captured.err
     events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
     event_types = [event["type"] for event in events]

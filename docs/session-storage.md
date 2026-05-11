@@ -483,8 +483,12 @@ lines from stdin, sends each non-empty non-command line to the selected provider
 as one provider turn, prints successful provider final text to stdout, and keeps
 prompts, help, approval prompts, diagnostics, finalization, interrupt handling,
 command-skip messages, and turn-limit notices on stderr. `/help` prints only
-static supported command usage without invoking the provider or tools. `/exit`
-and `/quit` terminate cleanly. `/read <workspace-relative-path>` runs the
+static supported command usage without invoking the provider or tools. `/clear`
+clears retained no-tool conversation context and any pending proposal draft
+without invoking providers or tools, consuming read budgets, resetting
+provider/model selection, changing auth state, changing verification
+availability, or resetting provider turn indexes. `/exit` and `/quit`
+terminate cleanly. `/read <workspace-relative-path>` runs the
 bounded explicit-file-excerpt read without a visible approval prompt, prints a
 successful excerpt only to interactive stdout, and does not provider-forward
 the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
@@ -503,7 +507,8 @@ successful same-session `/propose-file` for the exact same normalized path. It
 uses one pending in-memory, human-reviewed proposal draft to invoke the
 existing patch-apply boundary, emits only `native.patch.apply.recorded` when it
 reaches that tool, prints only safe status diagnostics to stderr, and does not
-call a provider or run verification itself. `/verify just-check` is available
+call a provider or run verification itself. `/clear` discards the pending draft
+without reading it from or writing it to archives. `/verify just-check` is available
 only after a successful same-session `/apply-proposal` mutation. It maps the
 safe label `just-check` to the internal `just check` argv through the existing
 verification boundary, emits only `native.verification.recorded`, suppresses

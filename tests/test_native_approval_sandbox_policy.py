@@ -486,20 +486,25 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "The next selected native-shell boundary is a local `/clear` command" in (
         compact_done
     )
-    assert "### Native local `/clear` REPL command" in next_slice
-    assert "clears bounded no-tool conversation context" in compact_next_slice
-    assert "without invoking providers, tools, reads, writes, auth, verification" in (
-        compact_next_slice
+    assert "Native local `/clear` REPL command" in compact_done
+    assert "now accepts `/clear` as a local command" in compact_done
+    assert "malformed `/clear <text>` stays local and does not clear history" in (
+        compact_done
     )
-    assert "malformed `/clear <text>` stays local" in compact_next_slice
-    assert "resets only retained no-tool conversation context" in compact_next_slice
-    assert "pending same-session proposal draft" in compact_next_slice
-    assert "must not reset provider/model selection, auth state, read budgets" in (
-        compact_next_slice
-    )
-    assert "metadata-only archives" in compact_next_slice
+    assert "does not reset provider/model selection, auth state, read budgets" in compact_done
+    assert "Native local `/clear` review and smoke" in compact_done
+    assert "two-round independent review cycle" in compact_done
+    assert "two suggestion-level test coverage items" in compact_done
+    assert "both were accepted and fixed" in compact_done
+    assert "post-clear verification availability coverage" in compact_done
+    assert "second review found no findings" in compact_done
+    assert "fake-provider `/clear` REPL smoke" in compact_done
+    assert "### Native next-boundary decision after `/clear` review and smoke" in next_slice
+    assert "choose and document the next small native-shell boundary" in compact_next_slice
+    assert "summary-safe archive reflection" in compact_next_slice
+    assert "keep runtime behavior unchanged in this decision slice" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "local `/clear` command for bounded in-memory no-tool conversation context" in (
+    assert "next-boundary decision after the implemented and reviewed local `/clear` command" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -536,8 +541,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "One-file write-boundary decision gate: available now" in compact_near_term
     assert "/apply-proposal <workspace-relative-path>" in compact_near_term
     assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Local conversation clear gate: selected next" in compact_near_term
-    assert "Native local `/clear` REPL command" in compact_near_term
+    assert "Local conversation clear gate: available now" in compact_near_term
+    assert "available now through `/clear`" in compact_near_term
+    assert "reviewed and smoked" in compact_near_term
+    assert "Next-boundary decision gate after local clear: selected next" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
@@ -896,15 +903,28 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
     assert "`pipy-session verify`" in compact_review
     assert "`just check` passed" in compact_review
     assert "did not require implementation hardening" in compact_review
-    assert "selected next native-shell boundary is a local `/clear` command" in (
-        compact_review
+    clear_section = markdown_section(spec, "Native Local Clear REPL Command")
+    compact_clear = collapse_whitespace(clear_section)
+    clear_review_section = markdown_section(spec, "Native Local Clear Review And Smoke")
+    compact_clear_review = collapse_whitespace(clear_review_section)
+
+    assert "native shell exposes a local `/clear` command" in compact_clear
+    assert "discards any pending same-session proposal draft" in compact_clear
+    assert "Malformed `/clear <text>` remains local" in compact_clear
+    assert "does not clear retained no-tool history" in compact_clear
+    assert "does not reset provider/model selection, auth state, read budgets" in (
+        compact_clear
     )
-    assert "discard any pending same-session proposal draft" in compact_review
-    assert "must not reset provider/model selection, auth state, read budgets" in (
-        compact_review
+    assert "verification availability, or provider turn indexes" in compact_clear
+    assert "archives metadata-only" in compact_clear
+    assert "two-round independent review cycle" in compact_clear_review
+    assert "two suggestion-level coverage items" in compact_clear_review
+    assert "second review reported no findings" in compact_clear_review
+    assert "`just check` passed" in compact_clear_review
+    assert "fake-provider REPL smoke" in compact_clear_review
+    assert "decision slice to choose one small native-shell boundary after `/clear`" in (
+        compact_clear_review
     )
-    assert "verification state, or provider turn indexes" in compact_review
-    assert "must keep archives metadata-only" in compact_review
     assert "metadata-only" in compact_boundary
     assert "Provider lifecycle events" in compact_boundary
     assert "history exchanges were forwarded" in compact_boundary

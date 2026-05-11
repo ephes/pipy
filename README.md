@@ -132,9 +132,9 @@ remains the OpenAI Platform API-key path using `OPENAI_API_KEY`. OpenRouter
 remains available for manual smoke tests with `OPENROUTER_API_KEY`, and `fake`
 remains the no-credential smoke provider.
 Shell direction: native REPL auth/model/read/context commands are Pi-like for
-normal interactive use. `/login`, `/logout`, and `/model` are local shell
-commands, while explicit `/read`, `/ask-file`, and `/propose-file` commands do
-not display approval popups.
+normal interactive use. `/clear`, `/login`, `/logout`, and `/model` are local
+shell commands, while explicit `/read`, `/ask-file`, and `/propose-file`
+commands do not display approval popups.
 
 Treat `--goal` as user-visible archive metadata; do not paste full prompts,
 secrets, credentials, or sensitive personal data into it.
@@ -197,9 +197,12 @@ remains accepted. Ordinary non-command input lines remain bounded no-tool
 provider turns. Local `/login [openai-codex]`, `/logout [openai-codex]`, and
 `/model [<provider>/<model>|<model>]` commands run inside the shell, print
 status to stderr, do not invoke providers, do not consume provider turns, and
-do not consume the one-read limit. `/model` with no argument shows the current
-selection and configured usable model references. Successful `/model`
-selections are persisted as non-secret native defaults under local pipy state.
+do not consume the one-read limit. `/clear` clears retained no-tool
+conversation context and any pending proposal draft without resetting
+provider/model selection, auth state, read budgets, verification availability,
+or provider turn indexes. `/model` with no argument shows the current selection
+and configured usable model references. Successful `/model` selections are
+persisted as non-secret native defaults under local pipy state.
 The explicit
 `/read <workspace-relative-path>` command may run once per REPL session without
 an approval prompt; a successful bounded excerpt prints only to the interactive

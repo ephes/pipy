@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-47 no-tool REPL conversation-context review and smoke completed
+Status: slice-48 local clear REPL command review and smoke completed
 
 <style>
 .mermaid,
@@ -761,12 +761,14 @@ construction is late-bound: immediately before each provider-visible turn, the
 REPL resolves the current provider/model selection to a concrete
 `ProviderPort`, and the `NativeRunInput` metadata for that turn reflects that
 selection. `/help` prints only static supported command shapes on stderr
-without invoking the provider or tools. `/login [openai-codex]` reuses
+without invoking the provider or tools. `/clear` clears retained no-tool
+conversation context and any pending proposal draft through a local command
+path. `/login [openai-codex]` reuses
 `OpenAICodexAuthManager.login_interactive()` with REPL stdin and stderr,
 `/logout [openai-codex]` removes pipy-owned OpenAI Codex credentials through
 the same auth-manager boundary, and `/model [<provider>/<model>|<model>]`
 prints or changes the current provider/model selection. These local
-auth/model commands do not invoke providers, do not consume provider turns, do
+commands do not invoke providers, do not consume provider turns, do
 not consume explicit-read budgets, and do not archive raw command text,
 authorization URLs, prompts, provider responses, tokens, or auth material.
 Successful `/model` selections are persisted as non-secret native defaults
@@ -800,14 +802,14 @@ stdout, stderr, secrets, or credentials.
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
 `/read` excerpt text print to stdout, while prompts, help, auth/model status,
-malformed-command usage diagnostics, unsupported slash-command diagnostics,
-finalization, errors, interrupt handling, apply status, verification status,
-command-skip messages, and the turn-limit notice stay on stderr. `/model` with
-no arguments prints the current selection and conservative configured-model
-information to stderr only. `/ask-file` and `/propose-file` never print their
-raw excerpts directly; `/apply-proposal` does not print raw replacement text or
-diffs, and `/verify just-check` does not print command stdout or stderr. This
-is separate from one-shot
+clear status, malformed-command usage diagnostics, unsupported slash-command
+diagnostics, finalization, errors, interrupt handling, apply status,
+verification status, command-skip messages, and the turn-limit notice stay on
+stderr. `/model` with no arguments prints the current selection and
+conservative configured-model information to stderr only. `/ask-file` and
+`/propose-file` never print their raw excerpts directly; `/apply-proposal`
+does not print raw replacement text or diffs, and `/verify just-check` does
+not print command stdout or stderr. This is separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
@@ -841,7 +843,8 @@ final text, translated into prior user/assistant messages for providers that
 support message-shaped requests. This history is bounded by the REPL provider
 turn limit and a 4 KiB provider-visible byte budget, drops oldest exchanges
 before provider visibility, and clears on provider/model changes, login,
-logout, provider failure, or ambiguous provider-carryover paths. Successful
+logout, successful `/clear`, provider failure, or ambiguous provider-carryover
+paths. Successful
 `/read` excerpts are printed only to the interactive stdout stream; they are
 not provider-forwarded, archived, included in Markdown, included in
 catalog/search surfaces, or included in one-shot `--native-output json`.
@@ -1154,8 +1157,9 @@ failed/skipped read also fails or skips, later read/context commands fail
 closed before another read.
 
 Malformed supported slash commands, unsupported slash commands, `/help`,
-`/login`, `/logout`, `/model`, `/apply-proposal`, and `/verify just-check` stay
-outside both budgets because they do not reach the explicit-file-excerpt tool.
+`/clear`, `/login`, `/logout`, `/model`, `/apply-proposal`, and
+`/verify just-check` stay outside both budgets because they do not reach the
+explicit-file-excerpt tool.
 Attempts that do reach the read tool may emit only the existing metadata-only
 tool lifecycle and observation events with safe status and reason labels.
 
@@ -1183,7 +1187,8 @@ or proposal parsing.
 
 Focused CLI coverage now pins malformed supported commands, unsupported slash
 commands, local `/help`, `/model`, `/apply-proposal`, and `/verify just-check`
-diagnostic paths as outside explicit-read budgets. Fake-provider smoke covered
+diagnostic paths as outside explicit-read budgets. Later `/clear` coverage pins
+the same outside-budget behavior for the local clear command. Fake-provider smoke covered
 failed-read recovery with finalized archive verification. The smoke and tests
 kept `pipy-session verify`, metadata-only archive payloads, stdout/stderr
 separation, and the existing one-successful-read product boundary intact. No
@@ -1221,8 +1226,8 @@ Retained no-tool history is cleared when provider/model selection changes, on
 login, on logout, after provider failure, or on any path where carrying context
 across providers would be ambiguous. Only successful ordinary non-command
 provider turns are appended to this history. Local commands, malformed
-supported slash commands, unsupported slash commands, `/help`, `/login`,
-`/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
+supported slash commands, unsupported slash commands, `/help`, `/clear`,
+`/login`, `/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
 `/apply-proposal`, and `/verify just-check` stay outside retained no-tool
 history.
 
@@ -1267,17 +1272,47 @@ model routing, stdout/stderr behavior, archive schema, read budgets, writes,
 verification, shell execution, provider-side tools, streaming, retries,
 fallback, TUI/RPC behavior, or the general model/tool-loop boundary.
 
-The selected next native-shell boundary is a local `/clear` command. It should
-clear retained no-tool conversation context through a local REPL command path
-without invoking providers, tools, reads, writes, auth, verification, shell
-commands, or provider-visible context handoff. It should also discard any
-pending same-session proposal draft so a stale proposal cannot be applied after
-the user clears the local conversation state. It must not reset provider/model
-selection, auth state, read budgets, verification state, or provider turn
-indexes. The command must keep archives metadata-only and must not persist raw
-command text, prompts, provider output, excerpts, proposal text, patch text,
-diffs, file contents, command stdout, command stderr, auth material, secrets,
+### Native Local Clear REPL Command
+
+The native shell exposes a local `/clear` command. It clears retained no-tool
+conversation context through a REPL-only path without invoking providers,
+tools, reads, writes, auth, verification, shell commands, or provider-visible
+context handoff. It also discards any pending same-session proposal draft so a
+stale proposal cannot be applied after the user clears local conversation
+state.
+
+`/clear` is listed by `/help` and in static usage diagnostics. Malformed
+`/clear <text>` remains local, prints the static usage diagnostic, and does
+not clear retained no-tool history. Successful `/clear` does not reset
+provider/model selection, auth state, read budgets, verification availability,
+or provider turn indexes.
+
+The command keeps archives metadata-only and must not persist raw command
+text, prompts, provider output, excerpts, proposal text, patch text, diffs,
+file contents, command stdout, command stderr, auth material, secrets,
 credentials, API keys, tokens, private keys, or sensitive personal data.
+
+### Native Local Clear Review And Smoke
+
+The local `/clear` boundary completed a two-round independent review cycle.
+The first review reported no critical or warning findings and two
+suggestion-level coverage items. Both were accepted and fixed: one test now
+pins `/verify just-check` availability after `/apply-proposal` followed by
+`/clear`, and successful `/clear` coverage now asserts the command emits no
+tool events. The second review reported no findings and recommended stopping
+the review cycle.
+
+Focused native session, native CLI, and documentation assertion tests passed.
+`just check` passed, and a fake-provider REPL smoke covering an ordinary turn,
+`/clear`, a later ordinary turn, finalized archive verification, and
+`pipy-session verify` passed. The closeout did not change provider auth,
+model routing, stdout/stderr behavior, archive schema, read budgets, writes,
+verification behavior, shell execution, provider-side tools, streaming,
+retries, fallback, TUI/RPC behavior, or the general model/tool-loop boundary.
+
+The next native work is a decision slice to choose one small native-shell
+boundary after `/clear` using summary-safe archive reflection and the current
+deferred-work constraints before changing runtime behavior.
 
 ### Native Structured Stdout JSON Mode
 
@@ -2627,15 +2662,18 @@ commands, explicit file context, proposal drafts, patch apply data,
 verification output, provider metadata, and tool observations are excluded from
 that history, and archive payloads record only safe counters and booleans for
 context use.
-The shell exposes local `/help`, `/login`, `/logout`, and `/model` commands,
-one display-only `/read` command, provider-visible `/ask-file <path> --
-<question>` and `/propose-file <path> -- <change-request>` commands, the
+The shell exposes local `/help`, `/clear`, `/login`, `/logout`, and `/model`
+commands, one display-only `/read` command, provider-visible `/ask-file <path>
+-- <question>` and `/propose-file <path> -- <change-request>` commands, the
 same-session one-file `/apply-proposal <path>` command, and one post-apply
-`/verify just-check` command. The read commands share one bounded
+`/verify just-check` command. `/clear` clears retained no-tool context and a
+pending proposal draft without resetting provider/model selection, auth state,
+read budgets, verification availability, or provider turn indexes. The read
+commands share one bounded
 explicit-file-excerpt request per REPL session; `/ask-file` and `/propose-file`
 accept a whitespace-delimited `--` separator and forward the bounded excerpt
 only in memory to one provider turn labeled `ask_file_repl` or
-`propose_file_repl`. Help, auth/model commands, malformed supported slash
+`propose_file_repl`. Help, clear, auth/model commands, malformed supported slash
 commands, and unsupported slash commands print static or safe status diagnostics
 on stderr without provider/tool execution, read-limit consumption, tool events,
 or raw command archiving. It still does not expose provider metadata, arbitrary

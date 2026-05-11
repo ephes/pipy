@@ -513,6 +513,70 @@ def test_native_no_tool_repl_clears_history_on_provider_failure(tmp_path):
     assert completed_payload["no_tool_context_retained_exchange_count"] == 0
 
 
+def test_native_no_tool_repl_clear_command_clears_only_retained_history(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(final_text="SECOND_REPL_OUTPUT"),
+            provider_result(final_text="THIRD_REPL_OUTPUT"),
+        ]
+    )
+    sink = RecordingSink()
+    error_stream = StringIO()
+
+    NativeNoToolReplSession(provider=provider, max_turns=5).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO(
+            "first prompt\n/clear\nsecond prompt\n/clear malformed\nthird prompt\n/exit\n"
+        ),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert provider.captured_requests is not None
+    assert [request.user_prompt for request in provider.captured_requests] == [
+        "first prompt",
+        "second prompt",
+        "third prompt",
+    ]
+    assert provider.captured_requests[0].no_tool_repl_context is not None
+    assert provider.captured_requests[0].no_tool_repl_context.exchanges == ()
+    assert provider.captured_requests[1].no_tool_repl_context is not None
+    assert provider.captured_requests[1].no_tool_repl_context.exchanges == ()
+    third_context = provider.captured_requests[2].no_tool_repl_context
+    assert third_context is not None
+    assert [(exchange.user_prompt, exchange.provider_final_text) for exchange in third_context.exchanges] == [
+        ("second prompt", "SECOND_REPL_OUTPUT")
+    ]
+    assert "local conversation context cleared" in error_stream.getvalue()
+    assert "malformed /clear command" in error_stream.getvalue()
+    provider_started_payloads = [
+        payload for event_type, _, payload in sink.events if event_type == "native.provider.started"
+    ]
+    assert [payload["no_tool_context_exchange_count"] for payload in provider_started_payloads] == [
+        0,
+        0,
+        1,
+    ]
+    completed_payload = [
+        payload for event_type, _, payload in sink.events if event_type == "native.session.completed"
+    ][0]
+    assert completed_payload["no_tool_context_retained_at_end"] is True
+    assert completed_payload["no_tool_context_retained_exchange_count"] == 2
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "/clear" not in serialized
+    assert "first prompt" not in serialized
+    assert "SECOND_REPL_OUTPUT" not in serialized
+
+
 def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     captured_requests: list[ProviderRequest] = []
 

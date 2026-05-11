@@ -195,6 +195,7 @@ PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL = "propose_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
+CLEAR_REPL_COMMAND = "/clear"
 LOGIN_REPL_COMMAND = "/login"
 LOGOUT_REPL_COMMAND = "/logout"
 MODEL_REPL_COMMAND = "/model"
@@ -205,6 +206,7 @@ APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
 VERIFY_REPL_COMMAND = "/verify"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
+    CLEAR_REPL_COMMAND: "/clear",
     LOGIN_REPL_COMMAND: "/login [openai-codex]",
     LOGOUT_REPL_COMMAND: "/logout [openai-codex]",
     MODEL_REPL_COMMAND: "/model [<provider>/<model>|<model>]",
@@ -733,6 +735,14 @@ class NativeNoToolReplSession:
                     _print_repl_command_help(error_stream)
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, HELP_REPL_COMMAND)
+                continue
+            if _is_repl_command_invocation(command, CLEAR_REPL_COMMAND):
+                pending_apply_draft = None
+                if command == CLEAR_REPL_COMMAND:
+                    no_tool_context = no_tool_context.clear()
+                    print("pipy: local conversation context cleared.", file=error_stream)
+                else:
+                    _print_repl_command_usage_diagnostic(error_stream, CLEAR_REPL_COMMAND)
                 continue
             if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
                 pending_apply_draft = None
