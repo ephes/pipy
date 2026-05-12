@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-48 local clear REPL command review and smoke completed
+Status: slice-49 local status REPL command direction selected
 
 <style>
 .mermaid,
@@ -1310,9 +1310,64 @@ model routing, stdout/stderr behavior, archive schema, read budgets, writes,
 verification behavior, shell execution, provider-side tools, streaming,
 retries, fallback, TUI/RPC behavior, or the general model/tool-loop boundary.
 
-The next native work is a decision slice to choose one small native-shell
-boundary after `/clear` using summary-safe archive reflection and the current
-deferred-work constraints before changing runtime behavior.
+The next native work selected by the follow-up decision slice is a local
+`/status` command that reports only safe shell-state labels and counters.
+
+### Native Local Status Command Direction
+
+The selected native-shell boundary after the local `/clear` review and smoke is
+a local `/status` command. This is a decision outcome only; the runtime still
+does not expose `/status` until the next implementation slice.
+
+The selection rationale uses summary-safe archive evidence only:
+
+- the `/clear` implementation review cycle had no critical or warning
+  findings, accepted and fixed two coverage suggestions, then received a clean
+  second review
+- a later closeout audit also found no new issues and recommended no further
+  review unless scope or risk changes
+- recent workflow evaluations continue to favor small native-shell slices,
+  focused tests, metadata-only archives, and stopping review cycles after clean
+  second reviews
+- after `/clear`, the shell has enough local in-memory state that users need a
+  safe way to inspect state before choosing a next command, without adding
+  execution powers
+
+The intended command shape is:
+
+```text
+/status
+```
+
+`/status` should be a local REPL command listed by `/help` and by static
+supported-command usage diagnostics. It should print only safe state labels and
+counters to stderr. Allowed status fields are provider/model selection labels,
+provider turn count and limit, retained no-tool history counts and byte counts,
+explicit-read budget booleans or labels, pending proposal availability,
+and verification availability.
+
+The command must not invoke providers, tools, reads, writes, patch apply,
+verification commands, shell commands, network access, provider-visible context
+handoff, provider-side tools, or another provider turn. It must not consume
+provider turns, consume explicit-read budgets, mutate retained conversation
+context, clear pending proposals, change provider/model selection, change auth
+state, or change verification availability. It must not emit new archive events
+or store raw command text.
+
+Archives, Markdown, catalog/search/inspect surfaces, and structured output
+remain metadata-only. `/status` must not store or print raw prompts, provider
+final text, model output, provider responses, provider-native payloads,
+excerpts, file paths selected by the model, proposal text, patch text, diffs,
+file contents, command stdout, command stderr, shell commands, auth material,
+authorization URLs, secrets, credentials, API keys, tokens, private keys, or
+sensitive personal data.
+
+This boundary does not add arbitrary shell execution, non-allowlisted
+verification commands, multi-file context, a second successful read/context
+handoff, persistent transcript storage, conversation export, structured
+conversation stdout, TUI/RPC behavior, streaming, retries, fallback, provider
+routing changes, model default changes, OAuth changes, provider-side tools, or
+a general model/tool loop.
 
 ### Native Structured Stdout JSON Mode
 

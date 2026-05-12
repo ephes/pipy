@@ -741,22 +741,40 @@ cycles stopping after a clean second review unless scope or risk changes.
   check`, and a fake-provider `/clear` REPL smoke with `pipy-session verify`
   passed. No runtime behavior beyond the implemented local clear command was
   broadened.
+- Native next-boundary decision after `/clear` review and smoke: summary-safe
+  archive reflection found the `/clear` implementation review cycle clean
+  after the two accepted coverage fixes, with a clean second review and a
+  later closeout audit both recommending no further review unless scope or
+  risk changes. Adjacent workflow evaluations continued to favor small native
+  shell boundaries, metadata-only archive behavior, focused tests, and
+  stopping after clean second reviews. The selected next boundary is a local
+  `/status` REPL command that reports only safe shell-state labels and counters
+  on stderr without invoking providers, tools, reads, writes, verification, or
+  archive-visible raw command content. This decision slice changed no runtime
+  behavior.
 
 ## Next Slice
 
-### Native next-boundary decision after `/clear` review and smoke
+### Native local `/status` REPL command
 
-Goal: choose and document the next small native-shell boundary after the clean
-`/clear` review/smoke closeout, using summary-safe archive reflection and the
-current product constraints before changing runtime behavior.
+Goal: add a local status command that lets a user inspect the current bounded
+native shell state without crossing into provider calls, tool execution,
+additional file context, shell execution, transcript export, or archive-visible
+raw content.
 
 Completion focus:
 
-- inspect recent summary-safe session-learning signals for native-shell
-  direction, review outcomes, and deferred boundaries
-- select one small, reviewable next slice and update this backlog plus
-  `docs/harness-spec.md` with the chosen boundary and non-goals
-- keep runtime behavior unchanged in this decision slice
+- accept `/status` in `pipy repl --agent pipy-native` and list it in `/help`
+  plus static supported-command usage diagnostics
+- print only safe status labels and counters to stderr, such as provider/model
+  selection, provider turn count/limit, retained no-tool history counts and
+  byte counts, explicit-read budget booleans or labels, pending proposal
+  availability, and verification availability
+- keep `/status` entirely local: no provider calls, tool execution, reads,
+  writes, verification command execution, budget consumption, provider turn
+  consumption, state mutation, or raw command archiving
+- add focused CLI/native-session tests plus docs assertions and a fake-provider
+  REPL smoke if useful
 - do not broaden into arbitrary shell execution, provider-side tools,
   multi-file context, non-allowlisted verification commands, persistent
   transcript storage, TUI/RPC behavior, or a general model/tool loop
@@ -770,10 +788,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a next-boundary decision after the implemented and
-reviewed local `/clear` command. The decision should use summary-safe archive
+The immediate path is now a local `/status` command after the implemented and
+reviewed `/clear` command. The decision slice used summary-safe archive
 reflection, the current shell surface, and the deferred boundaries below to
-pick exactly one small native-shell slice before any runtime behavior changes.
+select exactly one small native-shell slice before any runtime behavior
+changes.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -817,7 +836,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native next-boundary decision after `/clear` review and smoke.
+1. Native local `/status` REPL command.
 
 Foundation gates toward an interactive shell:
 
@@ -839,11 +858,18 @@ Foundation gates toward an interactive shell:
   read-budget consumption, raw command archiving, provider/model selection
   changes, auth changes, or broader model/tool-loop behavior. The gate is
   reviewed and smoked.
-- Next-boundary decision gate after local clear: selected next. It should use
-  summary-safe session reflection and the current shell constraints to choose
-  one small native-shell boundary without changing runtime behavior or crossing
-  deferred tool-loop, shell-execution, multi-file-context, TUI/RPC, or
-  persistent-transcript boundaries.
+- Next-boundary decision gate after local clear: available now. Summary-safe
+  session reflection and the current shell constraints selected a local
+  `/status` command as the next native-shell boundary without changing runtime
+  behavior or crossing deferred tool-loop, shell-execution,
+  multi-file-context, TUI/RPC, or persistent-transcript boundaries.
+- Local status command gate: selected next. It should report only safe
+  shell-state labels and counters on stderr, including provider/model
+  selection, provider turn count/limit, retained no-tool history counts and
+  byte counts, explicit-read budget booleans or labels, pending proposal
+  availability, and verification availability. It must not invoke providers,
+  tools, reads, writes, verification, shell commands, or archive raw command
+  text.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

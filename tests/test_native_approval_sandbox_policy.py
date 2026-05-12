@@ -499,12 +499,18 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "post-clear verification availability coverage" in compact_done
     assert "second review found no findings" in compact_done
     assert "fake-provider `/clear` REPL smoke" in compact_done
-    assert "### Native next-boundary decision after `/clear` review and smoke" in next_slice
-    assert "choose and document the next small native-shell boundary" in compact_next_slice
-    assert "summary-safe archive reflection" in compact_next_slice
-    assert "keep runtime behavior unchanged in this decision slice" in compact_next_slice
+    assert "Native next-boundary decision after `/clear` review and smoke" in compact_done
+    assert "summary-safe archive reflection found the `/clear` implementation review cycle clean" in (
+        compact_done
+    )
+    assert "The selected next boundary is a local `/status` REPL command" in compact_done
+    assert "This decision slice changed no runtime behavior" in compact_done
+    assert "### Native local `/status` REPL command" in next_slice
+    assert "inspect the current bounded native shell state" in compact_next_slice
+    assert "print only safe status labels and counters to stderr" in compact_next_slice
+    assert "keep `/status` entirely local" in compact_next_slice
     assert "Pi-like interactive shell" in compact_near_term
-    assert "next-boundary decision after the implemented and reviewed local `/clear` command" in (
+    assert "local `/status` command after the implemented and reviewed `/clear` command" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -544,7 +550,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Local conversation clear gate: available now" in compact_near_term
     assert "available now through `/clear`" in compact_near_term
     assert "reviewed and smoked" in compact_near_term
-    assert "Next-boundary decision gate after local clear: selected next" in compact_near_term
+    assert "Next-boundary decision gate after local clear: available now" in compact_near_term
+    assert "selected a local `/status` command as the next native-shell boundary" in (
+        compact_near_term
+    )
+    assert "Local status command gate: selected next" in compact_near_term
+    assert "retained no-tool history counts and byte counts" in compact_near_term
+    assert "explicit-read budget booleans or labels" in compact_near_term
+    assert "pending proposal availability, and verification availability" in (
+        compact_near_term
+    )
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
@@ -922,7 +937,7 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
     assert "second review reported no findings" in compact_clear_review
     assert "`just check` passed" in compact_clear_review
     assert "fake-provider REPL smoke" in compact_clear_review
-    assert "decision slice to choose one small native-shell boundary after `/clear`" in (
+    assert "next native work selected by the follow-up decision slice is a local `/status` command" in (
         compact_clear_review
     )
     assert "metadata-only" in compact_boundary
@@ -992,6 +1007,86 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
         "sensitive personal data",
     ):
         assert forbidden_archive in compact_boundary
+
+
+def test_selected_local_status_repl_boundary_is_documented():
+    spec = read_repo_file("docs/harness-spec.md")
+    status_section = markdown_section(spec, "Native Local Status Command Direction")
+    compact_status = collapse_whitespace(status_section)
+
+    assert "selected native-shell boundary after the local `/clear` review and smoke" in (
+        compact_status
+    )
+    assert "runtime still does not expose `/status` until the next implementation slice" in (
+        compact_status
+    )
+    assert "summary-safe archive evidence only" in compact_status
+    assert "clean second review" in compact_status
+    assert "later closeout audit also found no new issues" in compact_status
+    assert "/status" in compact_status
+    assert "listed by `/help`" in compact_status
+    assert "static supported-command usage diagnostics" in compact_status
+    assert "safe state labels and counters to stderr" in compact_status
+    assert "other similarly safe booleans" not in compact_status
+
+    for allowed_status in (
+        "provider/model selection labels",
+        "provider turn count and limit",
+        "retained no-tool history counts and byte counts",
+        "explicit-read budget booleans or labels",
+        "pending proposal availability",
+        "verification availability",
+    ):
+        assert allowed_status in compact_status
+
+    for forbidden_effect in (
+        "invoke providers",
+        "tools",
+        "reads",
+        "writes",
+        "patch apply",
+        "verification commands",
+        "shell commands",
+        "network access",
+        "provider-visible context handoff",
+        "provider-side tools",
+        "another provider turn",
+        "consume provider turns",
+        "consume explicit-read budgets",
+        "mutate retained conversation context",
+        "clear pending proposals",
+        "change provider/model selection",
+        "change auth state",
+        "change verification availability",
+        "emit new archive events",
+        "store raw command text",
+    ):
+        assert forbidden_effect in compact_status
+
+    for forbidden_content in (
+        "raw prompts",
+        "provider final text",
+        "model output",
+        "provider responses",
+        "provider-native payloads",
+        "excerpts",
+        "proposal text",
+        "patch text",
+        "diffs",
+        "file contents",
+        "command stdout",
+        "command stderr",
+        "shell commands",
+        "auth material",
+        "authorization URLs",
+        "secrets",
+        "credentials",
+        "API keys",
+        "tokens",
+        "private keys",
+        "sensitive personal data",
+    ):
+        assert forbidden_content in compact_status
 
 
 def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():
