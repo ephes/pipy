@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-49 local status REPL command direction selected
+Status: slice-50 local status REPL command implemented
 
 <style>
 .mermaid,
@@ -763,13 +763,17 @@ REPL resolves the current provider/model selection to a concrete
 selection. `/help` prints only static supported command shapes on stderr
 without invoking the provider or tools. `/clear` clears retained no-tool
 conversation context and any pending proposal draft through a local command
-path. `/login [openai-codex]` reuses
+path. `/status` prints only safe local shell-state labels and counters to
+stderr, including provider/model selection, provider-turn count, retained
+no-tool history counters, read-budget flags, pending proposal availability,
+and verification availability. `/login [openai-codex]` reuses
 `OpenAICodexAuthManager.login_interactive()` with REPL stdin and stderr,
 `/logout [openai-codex]` removes pipy-owned OpenAI Codex credentials through
 the same auth-manager boundary, and `/model [<provider>/<model>|<model>]`
 prints or changes the current provider/model selection. These local
 commands do not invoke providers, do not consume provider turns, do
-not consume explicit-read budgets, and do not archive raw command text,
+not consume explicit-read budgets, do not mutate state unless their command
+contract explicitly says so, and do not archive raw command text,
 authorization URLs, prompts, provider responses, tokens, or auth material.
 Successful `/model` selections are persisted as non-secret native defaults
 under local pipy state with only provider and model identifiers.
@@ -802,8 +806,9 @@ stdout, stderr, secrets, or credentials.
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
 `/read` excerpt text print to stdout, while prompts, help, auth/model status,
-clear status, malformed-command usage diagnostics, unsupported slash-command
-diagnostics, finalization, errors, interrupt handling, apply status,
+clear status, local status, malformed-command usage diagnostics,
+unsupported slash-command diagnostics, finalization, errors, interrupt
+handling, apply status,
 verification status, command-skip messages, and the turn-limit notice stay on
 stderr. `/model` with no arguments prints the current selection and
 conservative configured-model information to stderr only. `/ask-file` and
@@ -1227,9 +1232,9 @@ login, on logout, after provider failure, or on any path where carrying context
 across providers would be ambiguous. Only successful ordinary non-command
 provider turns are appended to this history. Local commands, malformed
 supported slash commands, unsupported slash commands, `/help`, `/clear`,
-`/login`, `/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
-`/apply-proposal`, and `/verify just-check` stay outside retained no-tool
-history.
+`/status`, `/login`, `/logout`, `/model`, `/read`, `/ask-file`,
+`/propose-file`, `/apply-proposal`, and `/verify just-check` stay outside
+retained no-tool history.
 
 This boundary must not retain or replay file excerpts, `/ask-file` questions,
 `/propose-file` change requests, visible proposal drafts, raw proposal text,
@@ -1310,16 +1315,14 @@ model routing, stdout/stderr behavior, archive schema, read budgets, writes,
 verification behavior, shell execution, provider-side tools, streaming,
 retries, fallback, TUI/RPC behavior, or the general model/tool-loop boundary.
 
-The next native work selected by the follow-up decision slice is a local
-`/status` command that reports only safe shell-state labels and counters.
+The next native work selected by the follow-up decision slice was a local
+`/status` command that reports only safe shell-state labels and counters. That
+implementation is now present.
 
-### Native Local Status Command Direction
+### Native Local Status REPL Command
 
-The selected native-shell boundary after the local `/clear` review and smoke is
-a local `/status` command. This is a decision outcome only; the runtime still
-does not expose `/status` until the next implementation slice.
-
-The selection rationale uses summary-safe archive evidence only:
+The native shell exposes a local `/status` command. The selection rationale used
+summary-safe archive evidence only:
 
 - the `/clear` implementation review cycle had no critical or warning
   findings, accepted and fixed two coverage suggestions, then received a clean
@@ -1339,20 +1342,19 @@ The intended command shape is:
 /status
 ```
 
-`/status` should be a local REPL command listed by `/help` and by static
-supported-command usage diagnostics. It should print only safe state labels and
-counters to stderr. Allowed status fields are provider/model selection labels,
-provider turn count and limit, retained no-tool history counts and byte counts,
-explicit-read budget booleans or labels, pending proposal availability,
-and verification availability.
+`/status` is listed by `/help` and by static supported-command usage
+diagnostics. It prints only safe state labels and counters to stderr. Current
+status fields are provider/model selection labels, provider turn count and
+limit, retained no-tool history counts and byte counts, explicit-read budget
+booleans, pending proposal availability, and verification availability.
 
-The command must not invoke providers, tools, reads, writes, patch apply,
+The command does not invoke providers, tools, reads, writes, patch apply,
 verification commands, shell commands, network access, provider-visible context
-handoff, provider-side tools, or another provider turn. It must not consume
+handoff, provider-side tools, or another provider turn. It does not consume
 provider turns, consume explicit-read budgets, mutate retained conversation
 context, clear pending proposals, change provider/model selection, change auth
-state, or change verification availability. It must not emit new archive events
-or store raw command text.
+state, or change verification availability. It emits no archive events and
+stores no raw command text.
 
 Archives, Markdown, catalog/search/inspect surfaces, and structured output
 remain metadata-only. `/status` must not store or print raw prompts, provider

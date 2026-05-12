@@ -472,6 +472,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert "pipy native REPL commands:" in captured.err
     assert "  /help" in captured.err
     assert "  /clear" in captured.err
+    assert "  /status" in captured.err
     assert "  /login [openai-codex]" in captured.err
     assert "  /logout [openai-codex]" in captured.err
     assert "  /model [<provider>/<model>|<model>]" in captured.err
@@ -496,6 +497,74 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
         encoding="utf-8"
     )
     assert "/help" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archive_text(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("status command should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(sys, "stdin", StringIO("/status\n/status extra\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-status",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == ""
+    assert "pipy native REPL status:" in captured.err
+    assert "  provider: fake" in captured.err
+    assert "  model: fake-native-bootstrap" in captured.err
+    assert "  provider_turns: 0/8" in captured.err
+    assert "  no_tool_history: retained=false exchanges=0/8 bytes=0/4096" in captured.err
+    assert "  read_budget: can_attempt=true successful_used=false" in captured.err
+    assert "  pending_proposal_available: false" in captured.err
+    assert "  verification_available: false" in captured.err
+    assert "malformed /status command. Supported command usage:" in captured.err
+    assert "  /status" in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 0
+    assert completed_payload["read_command_used"] is False
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/status" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -3353,6 +3422,8 @@ def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
         "stdin",
         StringIO(
             "/propose-file docs/target.txt -- Change it\n"
+            "/status\n"
+            "/status malformed\n"
             "/verify just-check\n"
             "/apply-proposal docs/target.txt\n/exit\n"
         ),
@@ -3377,6 +3448,9 @@ def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
     assert verification_calls == 0
     assert target.read_text(encoding="utf-8") == new_text
     assert "verify command skipped: no_successful_apply_proposal" in captured.err
+    assert "  pending_proposal_available: true" in captured.err
+    assert "  verification_available: false" in captured.err
+    assert "malformed /status command. Supported command usage:" in captured.err
     assert "apply-proposal command succeeded: patch_applied" in captured.err
     events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
     event_types = [event["type"] for event in events]
@@ -3440,6 +3514,7 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
         StringIO(
             "/propose-file docs/target.txt -- Change it\n"
             "/apply-proposal docs/target.txt\n"
+            "/status\n"
             "/verify just-check\n/exit\n"
         ),
     )
@@ -3473,6 +3548,8 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
     assert request.sandbox_policy.network_access_allowed is False
     assert gate.approval_decision == NativeVerificationApprovalDecision.ALLOWED
     assert "verify command succeeded: verification_succeeded" in captured.err
+    assert "  pending_proposal_available: false" in captured.err
+    assert "  verification_available: true" in captured.err
     assert target.read_text(encoding="utf-8") == new_text
 
     finalized = next((root / "pipy").glob("*/*/*.jsonl"))

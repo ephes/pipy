@@ -196,6 +196,7 @@ NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 CLEAR_REPL_COMMAND = "/clear"
+STATUS_REPL_COMMAND = "/status"
 LOGIN_REPL_COMMAND = "/login"
 LOGOUT_REPL_COMMAND = "/logout"
 MODEL_REPL_COMMAND = "/model"
@@ -207,6 +208,7 @@ VERIFY_REPL_COMMAND = "/verify"
 _REPL_COMMAND_USAGE = {
     HELP_REPL_COMMAND: "/help",
     CLEAR_REPL_COMMAND: "/clear",
+    STATUS_REPL_COMMAND: "/status",
     LOGIN_REPL_COMMAND: "/login [openai-codex]",
     LOGOUT_REPL_COMMAND: "/logout [openai-codex]",
     MODEL_REPL_COMMAND: "/model [<provider>/<model>|<model>]",
@@ -743,6 +745,20 @@ class NativeNoToolReplSession:
                     print("pipy: local conversation context cleared.", file=error_stream)
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, CLEAR_REPL_COMMAND)
+                continue
+            if _is_repl_command_invocation(command, STATUS_REPL_COMMAND):
+                if command == STATUS_REPL_COMMAND:
+                    _print_repl_status(
+                        error_stream,
+                        provider_state,
+                        conversation_state=conversation_state,
+                        read_budgets=read_budgets,
+                        no_tool_context=no_tool_context,
+                        pending_apply_draft=pending_apply_draft,
+                        verify_after_apply_available=verify_after_apply_available,
+                    )
+                else:
+                    _print_repl_command_usage_diagnostic(error_stream, STATUS_REPL_COMMAND)
                 continue
             if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
                 pending_apply_draft = None
@@ -1362,6 +1378,53 @@ def _print_repl_model_status(
     if not available:
         print("  none", file=error_stream)
     print("pipy: /login supports openai-codex OAuth.", file=error_stream)
+
+
+def _print_repl_status(
+    error_stream: TextIO,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    *,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> None:
+    current = provider_state.current_selection()
+    print("pipy native REPL status:", file=error_stream)
+    print(f"  provider: {current.provider_name}", file=error_stream)
+    print(f"  model: {current.model_id}", file=error_stream)
+    print(
+        f"  provider_turns: {conversation_state.provider_turn_count}/{conversation_state.max_turns}",
+        file=error_stream,
+    )
+    print(
+        "  no_tool_history: "
+        f"retained={_status_bool(no_tool_context.used)} "
+        f"exchanges={len(no_tool_context.exchanges)}/{no_tool_context.max_exchanges} "
+        f"bytes={no_tool_context.byte_count}/{no_tool_context.max_bytes}",
+        file=error_stream,
+    )
+    print(
+        "  read_budget: "
+        f"can_attempt={_status_bool(read_budgets.can_attempt)} "
+        f"successful_used={_status_bool(read_budgets.successful_excerpt_used)} "
+        f"failed_attempt_used={_status_bool(read_budgets.failed_or_skipped_attempt_used)} "
+        f"recovery_used={_status_bool(read_budgets.recovery_attempt_after_failure_used)}",
+        file=error_stream,
+    )
+    print(
+        f"  pending_proposal_available: {_status_bool(pending_apply_draft is not None)}",
+        file=error_stream,
+    )
+    print(
+        f"  verification_available: {_status_bool(verify_after_apply_available)}",
+        file=error_stream,
+    )
+
+
+def _status_bool(value: bool) -> str:
+    return "true" if value else "false"
 
 
 def _print_repl_command_usage_diagnostic(

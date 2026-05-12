@@ -200,9 +200,14 @@ status to stderr, do not invoke providers, do not consume provider turns, and
 do not consume the one-read limit. `/clear` clears retained no-tool
 conversation context and any pending proposal draft without resetting
 provider/model selection, auth state, read budgets, verification availability,
-or provider turn indexes. `/model` with no argument shows the current selection
-and configured usable model references. Successful `/model` selections are
-persisted as non-secret native defaults under local pipy state.
+or provider turn indexes. `/status` prints only safe local shell-state labels
+and counters to stderr, including provider/model selection, provider-turn
+count, retained no-tool history counters, read-budget flags, pending proposal
+availability, and verification availability; it does not call providers, tools,
+reads, writes, verification, or mutate REPL state. `/model` with no argument
+shows the current selection and configured usable model references. Successful
+`/model` selections are persisted as non-secret native defaults under local
+pipy state.
 The explicit
 `/read <workspace-relative-path>` command may run once per REPL session without
 an approval prompt; a successful bounded excerpt prints only to the interactive

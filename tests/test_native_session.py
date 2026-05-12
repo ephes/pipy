@@ -577,6 +577,67 @@ def test_native_no_tool_repl_clear_command_clears_only_retained_history(tmp_path
     assert "SECOND_REPL_OUTPUT" not in serialized
 
 
+def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path):
+    provider = SequentialCapturingProvider(
+        results=[
+            provider_result(final_text="FIRST_REPL_OUTPUT"),
+            provider_result(final_text="SECOND_REPL_OUTPUT"),
+        ]
+    )
+    sink = RecordingSink()
+    output_stream = StringIO()
+    error_stream = StringIO()
+
+    NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("first prompt\n/status\n/status malformed\nsecond prompt\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert output_stream.getvalue() == "FIRST_REPL_OUTPUT\nSECOND_REPL_OUTPUT\n"
+    assert provider.captured_requests is not None
+    assert [request.user_prompt for request in provider.captured_requests] == [
+        "first prompt",
+        "second prompt",
+    ]
+    second_context = provider.captured_requests[1].no_tool_repl_context
+    assert second_context is not None
+    assert [(exchange.user_prompt, exchange.provider_final_text) for exchange in second_context.exchanges] == [
+        ("first prompt", "FIRST_REPL_OUTPUT")
+    ]
+    stderr = error_stream.getvalue()
+    assert "pipy native REPL status:" in stderr
+    assert "  provider: capturing-fake" in stderr
+    assert "  model: capturing-model" in stderr
+    assert "  provider_turns: 1/4" in stderr
+    assert "  no_tool_history: retained=true exchanges=1/4 bytes=" in stderr
+    assert "  read_budget: can_attempt=true successful_used=false" in stderr
+    assert "  pending_proposal_available: false" in stderr
+    assert "  verification_available: false" in stderr
+    assert "malformed /status command" in stderr
+    event_types = [event_type for event_type, _, _ in sink.events]
+    assert event_types.count("native.provider.started") == 2
+    assert not [event_type for event_type in event_types if event_type.startswith("native.tool.")]
+    completed_payload = [
+        payload for event_type, _, payload in sink.events if event_type == "native.session.completed"
+    ][0]
+    assert completed_payload["turn_count"] == 2
+    assert completed_payload["read_command_used"] is False
+    assert completed_payload["no_tool_context_retained_exchange_count"] == 2
+    serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
+    assert "/status" not in serialized
+    assert "FIRST_REPL_OUTPUT" not in serialized
+
+
 def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     captured_requests: list[ProviderRequest] = []
 

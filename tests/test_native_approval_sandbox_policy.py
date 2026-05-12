@@ -505,12 +505,18 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "The selected next boundary is a local `/status` REPL command" in compact_done
     assert "This decision slice changed no runtime behavior" in compact_done
-    assert "### Native local `/status` REPL command" in next_slice
-    assert "inspect the current bounded native shell state" in compact_next_slice
-    assert "print only safe status labels and counters to stderr" in compact_next_slice
-    assert "keep `/status` entirely local" in compact_next_slice
+    assert "Native local `/status` REPL command" in compact_done
+    assert "now accepts `/status` as a local command" in compact_done
+    assert "pending proposal availability, and verification availability" in compact_done
+    assert "archive raw command text" in compact_done
+    assert "### Native next-boundary decision after `/status`" in next_slice
+    assert "decide the next small native shell boundary" in compact_next_slice
+    assert "This is a planning slice" in compact_next_slice
+    assert "do not implement another native shell feature inside the decision slice" in (
+        compact_next_slice
+    )
     assert "Pi-like interactive shell" in compact_near_term
-    assert "local `/status` command after the implemented and reviewed `/clear` command" in (
+    assert "next-boundary decision after the implemented local `/status` command" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -554,9 +560,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "selected a local `/status` command as the next native-shell boundary" in (
         compact_near_term
     )
-    assert "Local status command gate: selected next" in compact_near_term
+    assert "Local status command gate: available now through `/status`" in compact_near_term
     assert "retained no-tool history counts and byte counts" in compact_near_term
-    assert "explicit-read budget booleans or labels" in compact_near_term
+    assert "explicit-read budget booleans" in compact_near_term
     assert "pending proposal availability, and verification availability" in (
         compact_near_term
     )
@@ -937,9 +943,10 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
     assert "second review reported no findings" in compact_clear_review
     assert "`just check` passed" in compact_clear_review
     assert "fake-provider REPL smoke" in compact_clear_review
-    assert "next native work selected by the follow-up decision slice is a local `/status` command" in (
+    assert "next native work selected by the follow-up decision slice was a local `/status` command" in (
         compact_clear_review
     )
+    assert "implementation is now present" in compact_clear_review
     assert "metadata-only" in compact_boundary
     assert "Provider lifecycle events" in compact_boundary
     assert "history exchanges were forwarded" in compact_boundary
@@ -1011,15 +1018,10 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
 
 def test_selected_local_status_repl_boundary_is_documented():
     spec = read_repo_file("docs/harness-spec.md")
-    status_section = markdown_section(spec, "Native Local Status Command Direction")
+    status_section = markdown_section(spec, "Native Local Status REPL Command")
     compact_status = collapse_whitespace(status_section)
 
-    assert "selected native-shell boundary after the local `/clear` review and smoke" in (
-        compact_status
-    )
-    assert "runtime still does not expose `/status` until the next implementation slice" in (
-        compact_status
-    )
+    assert "native shell exposes a local `/status` command" in compact_status
     assert "summary-safe archive evidence only" in compact_status
     assert "clean second review" in compact_status
     assert "later closeout audit also found no new issues" in compact_status
@@ -1033,7 +1035,7 @@ def test_selected_local_status_repl_boundary_is_documented():
         "provider/model selection labels",
         "provider turn count and limit",
         "retained no-tool history counts and byte counts",
-        "explicit-read budget booleans or labels",
+        "explicit-read budget booleans",
         "pending proposal availability",
         "verification availability",
     ):
@@ -1058,8 +1060,8 @@ def test_selected_local_status_repl_boundary_is_documented():
         "change provider/model selection",
         "change auth state",
         "change verification availability",
-        "emit new archive events",
-        "store raw command text",
+        "emits no archive events",
+        "stores no raw command text",
     ):
         assert forbidden_effect in compact_status
 

@@ -16,8 +16,9 @@ explicit workspace-relative file excerpt, ask a provider about that excerpt,
 request a proposal-only change for that excerpt through `/propose-file`, and
 apply one same-session reviewed proposal through `/apply-proposal`, then run
 one post-apply allowlisted verification command through `/verify just-check`.
-It can also clear retained no-tool conversation context locally with `/clear`.
-The public shell still cannot execute arbitrary shell commands, request
+It can also clear retained no-tool conversation context locally with `/clear`
+and inspect local shell state with `/status`. The public shell still cannot
+execute arbitrary shell commands, request
 provider-side tools, read multiple files per session, run non-allowlisted
 verification commands, or run a general model/tool loop.
 
@@ -50,9 +51,10 @@ Use this page as a planning index:
   The read-failure recovery boundary from that trial is now implemented,
   reviewed, and smoked; bounded no-tool REPL conversation context is now
   implemented, reviewed, and smoked; a local clear command for interactive
-  conversation state is now implemented, reviewed, and smoked. The next
-  milestone is an explicit next-boundary decision before adding another native
-  shell feature.
+  conversation state is now implemented, reviewed, and smoked; a local status
+  command for safe shell-state inspection is now implemented. The next
+  milestone is an explicit next-boundary decision after `/status` verification
+  before adding another native shell feature.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -752,32 +754,40 @@ cycles stopping after a clean second review unless scope or risk changes.
   on stderr without invoking providers, tools, reads, writes, verification, or
   archive-visible raw command content. This decision slice changed no runtime
   behavior.
+- Native local `/status` REPL command: the interactive native shell now accepts
+  `/status` as a local command that prints only safe shell-state labels and
+  counters to stderr: provider/model selection, provider turn count and limit,
+  retained no-tool history counts and bytes, explicit-read budget booleans,
+  pending proposal availability, and verification availability. `/status`
+  appears in `/help` and static usage diagnostics; malformed `/status <text>`
+  stays local. The command does not invoke providers, tools, reads, writes,
+  patch apply, verification, shell commands, provider-visible context, or
+  provider-side tools; it does not consume budgets or provider turns, mutate
+  retained history, clear pending proposals, change provider/model selection,
+  change auth state, change verification availability, emit archive events, or
+  archive raw command text.
 
 ## Next Slice
 
-### Native local `/status` REPL command
+### Native next-boundary decision after `/status`
 
-Goal: add a local status command that lets a user inspect the current bounded
-native shell state without crossing into provider calls, tool execution,
-additional file context, shell execution, transcript export, or archive-visible
-raw content.
+Goal: decide the next small native shell boundary after focused `/status`
+verification and, if needed, independent review. This is a planning slice, not
+a runtime feature slice.
 
 Completion focus:
 
-- accept `/status` in `pipy repl --agent pipy-native` and list it in `/help`
-  plus static supported-command usage diagnostics
-- print only safe status labels and counters to stderr, such as provider/model
-  selection, provider turn count/limit, retained no-tool history counts and
-  byte counts, explicit-read budget booleans or labels, pending proposal
-  availability, and verification availability
-- keep `/status` entirely local: no provider calls, tool execution, reads,
-  writes, verification command execution, budget consumption, provider turn
-  consumption, state mutation, or raw command archiving
-- add focused CLI/native-session tests plus docs assertions and a fake-provider
-  REPL smoke if useful
-- do not broaden into arbitrary shell execution, provider-side tools,
-  multi-file context, non-allowlisted verification commands, persistent
-  transcript storage, TUI/RPC behavior, or a general model/tool loop
+- run the focused `/status` tests and `just check`; perform a fake-provider
+  REPL smoke with archive verification if useful
+- inspect summary-safe session reflections and any review outcome data for
+  lessons from the `/status` slice
+- choose exactly one next reviewable boundary and update this backlog/spec
+  before implementation
+- do not implement another native shell feature inside the decision slice
+- keep deferred boundaries closed: arbitrary shell execution, provider-side
+  tools, multi-file context, non-allowlisted verification commands,
+  persistent transcript storage, TUI/RPC behavior, and a general model/tool
+  loop
 
 ## Near Term
 
@@ -788,18 +798,17 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a local `/status` command after the implemented and
-reviewed `/clear` command. The decision slice used summary-safe archive
+The immediate path is now a next-boundary decision after the implemented local
+`/status` command. The prior decision slice used summary-safe archive
 reflection, the current shell surface, and the deferred boundaries below to
-select exactly one small native-shell slice before any runtime behavior
-changes.
+select exactly one small native-shell slice before runtime behavior changed.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through bare `pipy` or `pipy repl --agent pipy-native`; it
-now has local `/help`, `/clear`, `/login`, `/logout`, and `/model` commands,
-one display-only `/read <workspace-relative-path>` command, and one
+now has local `/help`, `/clear`, `/status`, `/login`, `/logout`, and `/model`
+commands, one display-only `/read <workspace-relative-path>` command, and one
 provider-visible `/ask-file <workspace-relative-path> -- <question>` command
 with a whitespace-delimited `--` separator sharing the same successful-read
 budget.
@@ -836,7 +845,7 @@ first local integration.
 
 Small reviewable slices, in intended order:
 
-1. Native local `/status` REPL command.
+1. Native next-boundary decision after `/status`.
 
 Foundation gates toward an interactive shell:
 
@@ -863,13 +872,12 @@ Foundation gates toward an interactive shell:
   `/status` command as the next native-shell boundary without changing runtime
   behavior or crossing deferred tool-loop, shell-execution,
   multi-file-context, TUI/RPC, or persistent-transcript boundaries.
-- Local status command gate: selected next. It should report only safe
-  shell-state labels and counters on stderr, including provider/model
+- Local status command gate: available now through `/status`. It reports only
+  safe shell-state labels and counters on stderr, including provider/model
   selection, provider turn count/limit, retained no-tool history counts and
-  byte counts, explicit-read budget booleans or labels, pending proposal
-  availability, and verification availability. It must not invoke providers,
-  tools, reads, writes, verification, shell commands, or archive raw command
-  text.
+  byte counts, explicit-read budget booleans, pending proposal availability,
+  and verification availability. It does not invoke providers, tools, reads,
+  writes, verification, shell commands, or archive raw command text.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
