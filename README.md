@@ -96,8 +96,11 @@ Finalized immutable records should be moved to:
 
 See `docs/session-storage.md` for the full lifecycle.
 
-Near-term implementation planning lives in `docs/backlog.md`. Design rationale
-and product boundaries live in `docs/harness-spec.md`.
+Start with `docs/index.md` for the documentation reading path. The current
+codebase map and diagrams live in `docs/architecture.md`; Pi parity and
+architecture differences live in `docs/pi-parity.md`; near-term implementation
+planning lives in `docs/backlog.md`; design rationale and product boundaries
+live in `docs/harness-spec.md`.
 
 ## Pipy Run Harness
 

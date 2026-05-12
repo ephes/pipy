@@ -1,6 +1,8 @@
 # Coding-Agent Harness Spec
 
-Status: slice-51 Pi-like REPL startup chrome selected
+Status: current native shell supports startup chrome, bounded read/context,
+proposal, same-session apply, and post-apply `just-check` verification; the
+next UI slice is a Pi-like visual/resource-label pass.
 
 <style>
 .mermaid,

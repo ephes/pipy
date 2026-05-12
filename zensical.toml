@@ -2,6 +2,8 @@
 site_name = "pipy"
 nav = [
   {"Home" = "index.md"},
+  {"Architecture" = "architecture.md"},
+  {"Pi Parity" = "pi-parity.md"},
   {"Backlog" = "backlog.md"},
   {"Harness Spec" = "harness-spec.md"},
   {"Session Storage" = "session-storage.md"},
