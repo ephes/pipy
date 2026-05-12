@@ -306,219 +306,240 @@ def test_openrouter_provider_baseline_is_documented():
 
 def test_backlog_records_done_completion_and_provider_priority_order():
     backlog = read_repo_file("docs/backlog.md")
-    done = backlog[: backlog.index("## Next Slice")]
+    spec = read_repo_file("docs/harness-spec.md")
+    pre_next_slice = backlog[: backlog.index("## Next Slice")]
+    pi_parity_roadmap = backlog[
+        backlog.index("## Pi Parity Roadmap") : backlog.index("## Done")
+    ]
     next_slice = backlog[backlog.index("## Next Slice") : backlog.index("## Near Term")]
     near_term = backlog[backlog.index("## Near Term") : backlog.index("## Deferred")]
     deferred = backlog[backlog.index("## Deferred") :]
-    compact_done = collapse_whitespace(done)
+    compact_pre_next_slice = collapse_whitespace(pre_next_slice)
+    compact_pi_parity_roadmap = collapse_whitespace(pi_parity_roadmap)
     compact_next_slice = collapse_whitespace(next_slice)
     compact_near_term = collapse_whitespace(near_term)
     compact_deferred = collapse_whitespace(deferred)
 
-    assert "Native approval and sandbox enforcement baseline" in done
-    assert "Native inert read-only tool request value objects" in done
-    assert "Native explicit file excerpt read-only tool implementation" in done
-    assert "OpenAI subscription-backed native auth decision" in compact_done
-    assert "`blocked-for-now` on 2026-05-07" in compact_done
-    assert "unsupported credential scraping" in compact_done
-    assert "CLI/product wrapping are rejected" in compact_done
-    assert "Native OpenRouter Chat Completions provider" in compact_done
-    assert "`--native-provider openrouter --native-model <provider/model>`" in compact_done
-    assert "`OPENROUTER_API_KEY`" in compact_done
-    assert "Native bounded post-tool provider turn against synthetic sanitized observations" in compact_done
-    assert "Native bounded read-only tool observation into follow-up provider turn" in compact_done
-    assert "Native patch proposal boundary before writes" in compact_done
-    assert "Native supervised patch apply boundary" in compact_done
-    assert "NativePatchApplyRequest" in compact_done
-    assert "native.patch.apply.recorded" in compact_done
-    assert "Native allowlisted verification-command boundary" in compact_done
-    assert "NativeVerificationRequest" in compact_done
-    assert "native.verification.recorded" in compact_done
-    assert "First supervised self-bootstrap trial implementation" in compact_done
-    assert "test-only trial" in compact_done
-    assert "First supervised self-bootstrap review" in compact_done
-    assert "Product-direction checkpoint after first native smoke test" in compact_done
-    assert "Pi-like native shell" in compact_done
-    assert "Native conversation state and bounded provider-turn loop foundation" in compact_done
-    assert "pipy_harness.native.conversation" in compact_done
-    assert "metadata-only per-turn payloads" in compact_done
-    assert "Native one-shot run rebased on conversation state" in compact_done
-    assert "provider turn indexes and labels" in compact_done
-    assert "per-run in-memory native conversation identity/state" in compact_done
-    assert "Native minimal no-tool REPL" in compact_done
-    assert "`pipy repl --agent pipy-native`" in compact_done
-    assert "`no_tool_repl`" in compact_done
-    assert "Native visible approval and sandbox prompt foundation" in compact_done
-    assert "stream-based approval resolver" in compact_done
-    assert "attempted capability escalation" in compact_done
-    assert "Native interactive read-only REPL command behind the prompt gate" in compact_done
-    assert "`/read <workspace-relative-path>`" in compact_done
-    assert "records only metadata-only tool lifecycle events" in compact_done
-    assert "Native explicit provider-visible `/ask-file` REPL boundary" in compact_done
-    assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_done
-    assert "labeled `ask_file_repl`" in compact_done
-    assert "Native `/ask-file` smoke and separator hardening" in compact_done
-    assert "whitespace-delimited `--` separator" in compact_done
-    assert "OpenRouter smoke was skipped" in compact_done
-    assert "Native REPL command help and usage diagnostics" in compact_done
-    assert "local `/help` command" in compact_done
-    assert "unsupported slash commands" in compact_done
-    assert "Native REPL command help and usage diagnostics review" in compact_done
-    assert "second review reported no findings" in compact_done
-    assert "All four were accepted and fixed" in compact_done
-    assert "Native REPL next-boundary decision" in compact_done
-    assert "selected a proposal-only" in compact_done
-    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_done
-    assert "No runtime behavior" in compact_done
-    assert "Native proposal-only `/propose-file` REPL boundary" in compact_done
+    assert "Native approval and sandbox enforcement baseline" in pre_next_slice
+    assert "Native inert read-only tool request value objects" in pre_next_slice
+    assert "Native explicit file excerpt read-only tool implementation" in pre_next_slice
+    assert "OpenAI subscription-backed native auth decision" in compact_pre_next_slice
+    assert "`blocked-for-now` on 2026-05-07" in compact_pre_next_slice
+    assert "unsupported credential scraping" in compact_pre_next_slice
+    assert "CLI/product wrapping are rejected" in compact_pre_next_slice
+    assert "Native OpenRouter Chat Completions provider" in compact_pre_next_slice
+    assert "`--native-provider openrouter --native-model <provider/model>`" in compact_pre_next_slice
+    assert "`OPENROUTER_API_KEY`" in compact_pre_next_slice
+    assert "Native bounded post-tool provider turn against synthetic sanitized observations" in compact_pre_next_slice
+    assert "Native bounded read-only tool observation into follow-up provider turn" in compact_pre_next_slice
+    assert "Native patch proposal boundary before writes" in compact_pre_next_slice
+    assert "Native supervised patch apply boundary" in compact_pre_next_slice
+    assert "NativePatchApplyRequest" in compact_pre_next_slice
+    assert "native.patch.apply.recorded" in compact_pre_next_slice
+    assert "Native allowlisted verification-command boundary" in compact_pre_next_slice
+    assert "NativeVerificationRequest" in compact_pre_next_slice
+    assert "native.verification.recorded" in compact_pre_next_slice
+    assert "First supervised self-bootstrap trial implementation" in compact_pre_next_slice
+    assert "test-only trial" in compact_pre_next_slice
+    assert "First supervised self-bootstrap review" in compact_pre_next_slice
+    assert "Product-direction checkpoint after first native smoke test" in compact_pre_next_slice
+    assert "Pi-like native shell" in compact_pre_next_slice
+    assert "Native conversation state and bounded provider-turn loop foundation" in compact_pre_next_slice
+    assert "pipy_harness.native.conversation" in compact_pre_next_slice
+    assert "metadata-only per-turn payloads" in compact_pre_next_slice
+    assert "Native one-shot run rebased on conversation state" in compact_pre_next_slice
+    assert "provider turn indexes and labels" in compact_pre_next_slice
+    assert "per-run in-memory native conversation identity/state" in compact_pre_next_slice
+    assert "Native minimal no-tool REPL" in compact_pre_next_slice
+    assert "`pipy repl --agent pipy-native`" in compact_pre_next_slice
+    assert "`no_tool_repl`" in compact_pre_next_slice
+    assert "Native visible approval and sandbox prompt foundation" in compact_pre_next_slice
+    assert "stream-based approval resolver" in compact_pre_next_slice
+    assert "attempted capability escalation" in compact_pre_next_slice
+    assert "Native interactive read-only REPL command behind the prompt gate" in compact_pre_next_slice
+    assert "`/read <workspace-relative-path>`" in compact_pre_next_slice
+    assert "records only metadata-only tool lifecycle events" in compact_pre_next_slice
+    assert "Native explicit provider-visible `/ask-file` REPL boundary" in compact_pre_next_slice
+    assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_pre_next_slice
+    assert "labeled `ask_file_repl`" in compact_pre_next_slice
+    assert "Native `/ask-file` smoke and separator hardening" in compact_pre_next_slice
+    assert "whitespace-delimited `--` separator" in compact_pre_next_slice
+    assert "OpenRouter smoke was skipped" in compact_pre_next_slice
+    assert "Native REPL command help and usage diagnostics" in compact_pre_next_slice
+    assert "local `/help` command" in compact_pre_next_slice
+    assert "unsupported slash commands" in compact_pre_next_slice
+    assert "Native REPL command help and usage diagnostics review" in compact_pre_next_slice
+    assert "second review reported no findings" in compact_pre_next_slice
+    assert "All four were accepted and fixed" in compact_pre_next_slice
+    assert "Native REPL next-boundary decision" in compact_pre_next_slice
+    assert "selected a proposal-only" in compact_pre_next_slice
+    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in compact_pre_next_slice
+    assert "No runtime behavior" in compact_pre_next_slice
+    assert "Native proposal-only `/propose-file` REPL boundary" in compact_pre_next_slice
     assert "now accepts `/propose-file <workspace-relative-path> -- <change-request>`" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "labeled `propose_file_repl`" in compact_done
-    assert "Native proposal-only `/propose-file` review and smoke" in compact_done
-    assert "fake-provider terminal smoke" in compact_done
-    assert "No implementation hardening was required" in compact_done
-    assert "Native REPL next-boundary decision after proposal-only review" in compact_done
-    assert "selected a human-applied proposal trial" in compact_done
-    assert "public REPL stays proposal-only" in compact_done
-    assert "OpenAI Codex OAuth provider correction from Pi reference" in compact_done
-    assert "distinct `openai-codex` provider path" in compact_done
-    assert "packages/ai/src/utils/oauth/openai-codex.ts" in compact_done
-    assert "packages/ai/src/providers/openai-codex-responses.ts" in compact_done
-    assert "https://chatgpt.com/backend-api/codex/responses" in compact_done
-    assert "Pi-like no-approval shell direction correction" in compact_done
-    assert "No permission popups" in compact_done
-    assert "packages/coding-agent/src/core/tools/read.ts" in compact_done
-    assert "Native REPL approval prompt removal" in compact_done
-    assert "`not-required` approval policy data" in compact_done
-    assert "no longer wired into the normal product REPL path" in compact_done
-    assert "Native `openai-codex` OAuth provider from Pi reference" in compact_done
-    assert "`--native-provider openai-codex --native-model <model>`" in compact_done
-    assert "`pipy auth openai-codex login`" in compact_done
+    assert "labeled `propose_file_repl`" in compact_pre_next_slice
+    assert "Native proposal-only `/propose-file` review and smoke" in compact_pre_next_slice
+    assert "fake-provider terminal smoke" in compact_pre_next_slice
+    assert "No implementation hardening was required" in compact_pre_next_slice
+    assert "Native REPL next-boundary decision after proposal-only review" in compact_pre_next_slice
+    assert "selected a human-applied proposal trial" in compact_pre_next_slice
+    assert "public REPL stays proposal-only" in compact_pre_next_slice
+    assert "OpenAI Codex OAuth provider correction from Pi reference" in compact_pre_next_slice
+    assert "distinct `openai-codex` provider path" in compact_pre_next_slice
+    assert "packages/ai/src/utils/oauth/openai-codex.ts" in compact_pre_next_slice
+    assert "packages/ai/src/providers/openai-codex-responses.ts" in compact_pre_next_slice
+    assert "https://chatgpt.com/backend-api/codex/responses" in compact_pre_next_slice
+    assert "Pi-like no-approval shell direction correction" in compact_pre_next_slice
+    assert "No permission popups" in compact_pre_next_slice
+    assert "packages/coding-agent/src/core/tools/read.ts" in compact_pre_next_slice
+    assert "Native REPL approval prompt removal" in compact_pre_next_slice
+    assert "`not-required` approval policy data" in compact_pre_next_slice
+    assert "no longer wired into the normal product REPL path" in compact_pre_next_slice
+    assert "Native `openai-codex` OAuth provider from Pi reference" in compact_pre_next_slice
+    assert "`--native-provider openai-codex --native-model <model>`" in compact_pre_next_slice
+    assert "`pipy auth openai-codex login`" in compact_pre_next_slice
     assert "`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "Native OpenAI Codex provider SSE transport correction" in compact_done
-    assert "SSE Responses request with `stream: true`" in compact_done
-    assert "`https://chatgpt.com/backend-api/codex/responses`" in compact_done
-    assert "Native REPL auth/model commands and late-bound provider selection" in compact_done
-    assert "`pipy` now starts the native REPL" in compact_done
-    assert "`/login [openai-codex]`, `/logout [openai-codex]`" in compact_done
-    assert "model selection is resolved before each provider-visible turn" in compact_done
+    assert "Native OpenAI Codex provider SSE transport correction" in compact_pre_next_slice
+    assert "SSE Responses request with `stream: true`" in compact_pre_next_slice
+    assert "`https://chatgpt.com/backend-api/codex/responses`" in compact_pre_next_slice
+    assert "Native REPL auth/model commands and late-bound provider selection" in compact_pre_next_slice
+    assert "`pipy` now starts the native REPL" in compact_pre_next_slice
+    assert "`/login [openai-codex]`, `/logout [openai-codex]`" in compact_pre_next_slice
+    assert "model selection is resolved before each provider-visible turn" in compact_pre_next_slice
     assert "Native human-applied `/propose-file` trial through shell auth/model commands" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "`/model openai-codex/gpt-5.2`" in compact_done
-    assert "secret_looking_content" in compact_done
+    assert "`/model openai-codex/gpt-5.2`" in compact_pre_next_slice
+    assert "secret_looking_content" in compact_pre_next_slice
     assert "useful enough to justify a narrow write-capable boundary design slice" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "Native one-file `/apply-proposal` REPL command" in compact_done
-    assert "/apply-proposal <workspace-relative-path>" in compact_done
-    assert "same-session `/propose-file`" in compact_done
-    assert "NativePatchApplyRequest" in compact_done
-    assert "native.patch.apply.recorded" in compact_done
-    assert "Native REPL `/verify just-check` command" in compact_done
-    assert "NativeVerificationRequest" in compact_done
-    assert "native.verification.recorded" in compact_done
-    assert "Native REPL `/verify just-check` review and smoke" in compact_done
+    assert "Native one-file `/apply-proposal` REPL command" in compact_pre_next_slice
+    assert "/apply-proposal <workspace-relative-path>" in compact_pre_next_slice
+    assert "same-session `/propose-file`" in compact_pre_next_slice
+    assert "NativePatchApplyRequest" in compact_pre_next_slice
+    assert "native.patch.apply.recorded" in compact_pre_next_slice
+    assert "Native REPL `/verify just-check` command" in compact_pre_next_slice
+    assert "NativeVerificationRequest" in compact_pre_next_slice
+    assert "native.verification.recorded" in compact_pre_next_slice
+    assert "Native REPL `/verify just-check` review and smoke" in compact_pre_next_slice
     assert "Fake-provider terminal smoke runs exercised propose/apply/verify success" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "`pipy-session verify`, `list`, `search`, and `inspect` remained compatible" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "Native first pipy-applied, pipy-verified tiny change" in compact_done
-    assert "2026-05-11" in compact_done
-    assert "`openai-codex/gpt-5.2`" in compact_done
-    assert "`/propose-file pyproject.toml -- <change-request>`" in compact_done
-    assert "`/apply-proposal pyproject.toml`" in compact_done
-    assert "`/verify just-check`" in compact_done
-    assert "`native-self-bootstrap-trial`" in compact_done
-    assert "no runtime dependencies are declared" in compact_done
+    assert "Native first pipy-applied, pipy-verified tiny change" in compact_pre_next_slice
+    assert "2026-05-11" in compact_pre_next_slice
+    assert "`openai-codex/gpt-5.2`" in compact_pre_next_slice
+    assert "`/propose-file pyproject.toml -- <change-request>`" in compact_pre_next_slice
+    assert "`/apply-proposal pyproject.toml`" in compact_pre_next_slice
+    assert "`/verify just-check`" in compact_pre_next_slice
+    assert "`native-self-bootstrap-trial`" in compact_pre_next_slice
+    assert "no runtime dependencies are declared" in compact_pre_next_slice
     assert "Native next-boundary decision after the first self-bootstrap trial" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "summary-safe inspection of the finalized `native-self-bootstrap-trial`" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "The selected next boundary is therefore a failed-read recovery slice" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "Native bounded read-failure recovery for explicit REPL file commands" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "one failed or skipped read attempt can happen before that successful excerpt" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "Archive payloads remain metadata-only and add only safe budget booleans" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "Native bounded read-failure recovery review and smoke" in compact_done
+    assert "Native bounded read-failure recovery review and smoke" in compact_pre_next_slice
     assert "split-budget implementation aligned with the selected contract" in (
-        compact_done
+        compact_pre_next_slice
     )
     assert "local `/help`, `/model`, `/apply-proposal`, and `/verify just-check`" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "fake-provider REPL smoke exercised failed-read recovery" in compact_done
+    assert "fake-provider REPL smoke exercised failed-read recovery" in compact_pre_next_slice
     assert "Native no-tool REPL conversation-context decision after read-failure recovery review" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "bounded in-memory context for ordinary no-tool REPL turns" in compact_done
-    assert "under explicit turn and byte limits" in compact_done
+    assert "bounded in-memory context for ordinary no-tool REPL turns" in compact_pre_next_slice
+    assert "under explicit turn and byte limits" in compact_pre_next_slice
     assert "file excerpts, proposal drafts, patch text, verification output" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "The decision slice changed no runtime behavior" in compact_done
-    assert "Native bounded no-tool REPL conversation context" in compact_done
-    assert "`NativeNoToolReplConversationContext`" in compact_done
-    assert "4 KiB provider-visible byte budget" in compact_done
-    assert "clears on login, logout, provider/model changes" in compact_done
-    assert "raw prompts, provider final text, excerpts" in compact_done
+    assert "The decision slice changed no runtime behavior" in compact_pre_next_slice
+    assert "Native bounded no-tool REPL conversation context" in compact_pre_next_slice
+    assert "`NativeNoToolReplConversationContext`" in compact_pre_next_slice
+    assert "4 KiB provider-visible byte budget" in compact_pre_next_slice
+    assert "clears on login, logout, provider/model changes" in compact_pre_next_slice
+    assert "raw prompts, provider final text, excerpts" in compact_pre_next_slice
     assert "Native bounded no-tool REPL conversation context review and smoke" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "two-round independent review cycle" in compact_done
-    assert "second round reported zero findings" in compact_done
-    assert "implementer-side closeout audit" in compact_done
-    assert "fake-provider REPL smoke with two ordinary turns" in compact_done
+    assert "two-round independent review cycle" in compact_pre_next_slice
+    assert "second round reported zero findings" in compact_pre_next_slice
+    assert "implementer-side closeout audit" in compact_pre_next_slice
+    assert "fake-provider REPL smoke with two ordinary turns" in compact_pre_next_slice
     assert "The next selected native-shell boundary is a local `/clear` command" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "Native local `/clear` REPL command" in compact_done
-    assert "now accepts `/clear` as a local command" in compact_done
+    assert "Native local `/clear` REPL command" in compact_pre_next_slice
+    assert "now accepts `/clear` as a local command" in compact_pre_next_slice
     assert "malformed `/clear <text>` stays local and does not clear history" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "does not reset provider/model selection, auth state, read budgets" in compact_done
-    assert "Native local `/clear` review and smoke" in compact_done
-    assert "two-round independent review cycle" in compact_done
-    assert "two suggestion-level test coverage items" in compact_done
-    assert "both were accepted and fixed" in compact_done
-    assert "post-clear verification availability coverage" in compact_done
-    assert "second review found no findings" in compact_done
-    assert "fake-provider `/clear` REPL smoke" in compact_done
-    assert "Native next-boundary decision after `/clear` review and smoke" in compact_done
+    assert "does not reset provider/model selection, auth state, read budgets" in compact_pre_next_slice
+    assert "Native local `/clear` review and smoke" in compact_pre_next_slice
+    assert "two-round independent review cycle" in compact_pre_next_slice
+    assert "two suggestion-level test coverage items" in compact_pre_next_slice
+    assert "both were accepted and fixed" in compact_pre_next_slice
+    assert "post-clear verification availability coverage" in compact_pre_next_slice
+    assert "second review found no findings" in compact_pre_next_slice
+    assert "fake-provider `/clear` REPL smoke" in compact_pre_next_slice
+    assert "Native next-boundary decision after `/clear` review and smoke" in compact_pre_next_slice
     assert "summary-safe archive reflection found the `/clear` implementation review cycle clean" in (
-        compact_done
+        compact_pre_next_slice
     )
-    assert "The selected next boundary is a local `/status` REPL command" in compact_done
-    assert "This decision slice changed no runtime behavior" in compact_done
-    assert "Native local `/status` REPL command" in compact_done
-    assert "now accepts `/status` as a local command" in compact_done
-    assert "pending proposal availability, and verification availability" in compact_done
-    assert "archive raw command text" in compact_done
-    assert "### Native next-boundary decision after `/status`" in next_slice
-    assert "decide the next small native shell boundary" in compact_next_slice
-    assert "This is a planning slice" in compact_next_slice
-    assert "do not implement another native shell feature inside the decision slice" in (
+    assert "The selected next boundary is a local `/status` REPL command" in compact_pre_next_slice
+    assert "This decision slice changed no runtime behavior" in compact_pre_next_slice
+    assert "Native local `/status` REPL command" in compact_pre_next_slice
+    assert "now accepts `/status` as a local command" in compact_pre_next_slice
+    assert "pending proposal availability, and verification availability" in compact_pre_next_slice
+    assert "archive raw command text" in compact_pre_next_slice
+    assert "Native next-boundary decision after `/status`" in compact_pre_next_slice
+    assert "selected next boundary is Pi-like REPL startup chrome" in compact_pre_next_slice
+    assert "This is a user-facing shell ergonomics slice" in compact_pre_next_slice
+    assert "## Pi Parity Roadmap" in pi_parity_roadmap
+    assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
+    assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
+        compact_pi_parity_roadmap
+    )
+    assert "### Native Pi-like REPL startup chrome" in next_slice
+    assert "make bare `pipy` and `pipy repl --agent pipy-native` open with a compact" in (
         compact_next_slice
     )
+    assert "show safe loaded-context/resource labels" in compact_next_slice
+    assert "keep this as plain terminal output" in compact_next_slice
+    assert "do not introduce a full-screen TUI" in compact_next_slice
+    assert "raw prompt/model-output display" in compact_next_slice
+    assert "stdout remains reserved for provider final text" in compact_next_slice
+    assert "Native Pi-Like REPL Startup Chrome" in spec
+    assert "Pi Parity Direction" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "next-boundary decision after the implemented local `/status` command" in (
+    assert "immediate path is now Pi-like REPL startup chrome" in (
         compact_near_term
     )
+    assert "Native Pi-like REPL startup chrome." in compact_near_term
+    assert "broader slopfork direction is Pi parity" in compact_near_term
+    assert "whether to adopt Textual, prompt-toolkit, curses" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
     assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
         compact_near_term
@@ -566,6 +587,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "pending proposal availability, and verification availability" in (
         compact_near_term
     )
+    assert "Pi-like startup chrome decision gate: available now" in compact_near_term
+    assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
     assert "Self-bootstrap readiness gates remain historical context" in compact_near_term
@@ -575,7 +598,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_deferred
     )
     assert "additional OAuth providers" in compact_deferred
-    assert "Interactive TUI" in compact_deferred
+    assert "Interactive TUI, including the decision between Textual" in compact_deferred
+    assert "Textual or another TUI framework" in compact_deferred
     assert "RPC mode" in compact_deferred
     assert "### Run the first supervised self-bootstrap trial" not in next_slice
     assert "### Review the first supervised self-bootstrap trial" not in next_slice

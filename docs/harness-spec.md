@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Status: slice-50 local status REPL command implemented
+Status: slice-51 Pi-like REPL startup chrome selected
 
 <style>
 .mermaid,
@@ -1370,6 +1370,78 @@ handoff, persistent transcript storage, conversation export, structured
 conversation stdout, TUI/RPC behavior, streaming, retries, fallback, provider
 routing changes, model default changes, OAuth changes, provider-side tools, or
 a general model/tool loop.
+
+### Pi Parity Direction
+
+Pipy is intentionally a Python slopfork of Pi, but parity is a product
+capability target rather than a mandate to clone Pi's TypeScript internals.
+Pi's current interactive experience is built on its own `@mariozechner/pi-tui`
+package with startup header, message stream, editor, footer, overlays,
+autocomplete, slash commands, resource loading, tools, sessions, and extension
+surfaces. Pipy should converge on the same useful workflows through pipy-owned
+provider, session, archive, tool, and UI boundaries.
+
+The parity path should stay incremental:
+
+- first make the existing line-oriented shell feel like a native product with
+  startup chrome and safe status/context labels
+- then decide the Python terminal UI layer needed for Pi-style editor/footer
+  behavior, evaluating Textual, prompt-toolkit, curses, and a small custom
+  renderer as explicit options
+- then add richer input, slash-command discovery, file references,
+  autocomplete, controlled tools, session workflow, extensions, and RPC as
+  separate named slices
+
+See `docs/backlog.md` for the more granular current Pi parity ladder and the
+active next implementation slice.
+
+The current startup-chrome slice must not choose Textual or any other TUI
+framework. Adding such a dependency changes the runtime shape and should wait
+for a dedicated TUI decision with tests for resize behavior, stdout/stderr
+contracts, archive privacy, and fallback behavior in non-interactive terminals.
+
+### Native Pi-Like REPL Startup Chrome
+
+The next native-shell boundary selected after `/status` is a Pi-like startup
+chrome pass for bare `pipy` and `pipy repl --agent pipy-native`. The goal is to
+make the first screen feel like a native shell, closer to Pi's compact startup
+view, without adding execution powers or switching to a full-screen interface.
+
+The implementation should stay plain terminal output on stderr before the first
+input prompt. It may render:
+
+- a compact `pipy v<version>` header
+- a terse controls line for existing interrupt, exit, slash-command, and help
+  affordances
+- one short product sentence explaining that pipy can use its native shell
+  commands and provider turns
+- safe loaded-context/resource labels, such as instruction-file labels and
+  command groups, without reading or printing file contents
+- a compact provider/model/workspace/budget/status line derived from the same
+  safe state data used by `/status` where practical
+
+The startup chrome is presentation only. It must not invoke providers, tools,
+reads, writes, verification commands, shell commands, network access,
+provider-visible context handoff, provider-side tools, or another provider
+turn. It must not consume provider turns, consume explicit-read budgets, mutate
+retained conversation context, clear pending proposals, change provider/model
+selection, change auth state, or change verification availability.
+
+This slice should avoid a full-screen TUI, alternate screen buffer, persistent
+footer process, keybinding framework, RPC mode, long-running daemon, streaming
+protocol, provider registry changes, broad context loader, multi-file context,
+raw transcript display, or general model/tool loop behavior. If a later TUI is
+needed, it should be a separate named product-maturity slice.
+
+Archives, Markdown, catalog/search/inspect surfaces, and structured output
+remain metadata-only. The startup chrome must not store or print raw prompts,
+provider final text, model output, provider responses, provider-native
+payloads, excerpts, proposal text, patch text, diffs, file contents, command
+stdout, command stderr, shell commands, auth material, authorization URLs,
+secrets, credentials, API keys, tokens, private keys, or sensitive personal
+data. Safe display labels should be static, workspace-relative, or basename
+level where possible; do not expose absolute paths unless they are already an
+explicit user-facing shell status decision.
 
 ### Native Structured Stdout JSON Mode
 

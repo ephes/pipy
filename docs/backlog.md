@@ -53,13 +53,49 @@ Use this page as a planning index:
   implemented, reviewed, and smoked; a local clear command for interactive
   conversation state is now implemented, reviewed, and smoked; a local status
   command for safe shell-state inspection is now implemented. The next
-  milestone is an explicit next-boundary decision after `/status` verification
-  before adding another native shell feature.
+  milestone is Pi-like REPL startup chrome so running `pipy` feels like a
+  native shell instead of a plain line-oriented prompt, without adding new
+  execution powers.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
 updates, summary-safe workflow capture, and independent review, with review
 cycles stopping after a clean second review unless scope or risk changes.
+
+## Pi Parity Roadmap
+
+Pipy is a Python slopfork of Pi, so the long-term product target is Pi-class
+native coding-agent capability, not only a thin capture wrapper. Parity means
+matching the useful product surfaces and workflows in pipy's architecture; it
+does not require copying Pi's TypeScript implementation, custom `pi-tui`
+library, exact command names, or all capabilities in one slice.
+
+Use this as the broad parity ladder while keeping the current small-slice
+discipline:
+
+- Shell chrome and orientation: startup header, safe loaded-resource labels,
+  compact command affordances, and status/footer-style state presentation.
+  Current target: Pi-like REPL startup chrome.
+- Interactive input ergonomics: richer editor behavior, multiline input,
+  slash-command discovery, file references, autocomplete, and resilient terminal
+  resize behavior. This likely requires a later TUI-framework decision.
+- Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
+  prompts, skills, extensions, and model/provider defaults, with metadata-only
+  archive behavior.
+- Tool parity: read, edit/write, bash/shell, verification, and follow-up tool
+  observations behind pipy-owned boundaries, explicit scopes, and privacy
+  invariants.
+- Session workflow parity: durable sessions, resume/search/inspect surfaces,
+  compaction/summarization, branch/fork-style exploration, and review-cycle
+  learning.
+- Extension/RPC parity: extension APIs, custom commands/UI, headless protocol,
+  and richer integration points after the core shell/tool/session model is
+  stable.
+
+Textual, prompt-toolkit, curses, or a small custom terminal layer are candidate
+Python UI directions for the later interactive input/TUI step. Do not select
+one inside the startup-chrome slice; first prove the Pi-like shell frame with
+plain terminal output and the existing REPL.
 
 ## Done
 
@@ -766,28 +802,43 @@ cycles stopping after a clean second review unless scope or risk changes.
   retained history, clear pending proposals, change provider/model selection,
   change auth state, change verification availability, emit archive events, or
   archive raw command text.
+- Native next-boundary decision after `/status`: summary-safe archive
+  reflection and `/status` review outcomes showed the local state-inspection
+  boundary is clean, with recent native REPL records exercising the shell and
+  repeated workflow evaluations favoring small UI/runtime slices. The selected
+  next boundary is Pi-like REPL startup chrome: a plain terminal startup/header
+  and safe shell-state presentation pass inspired by Pi's initial screen,
+  sharing static help/status data where practical. This is a user-facing shell
+  ergonomics slice, not a TUI/RPC slice, not provider-side tool use, not
+  arbitrary shell execution, not multi-file context, not persistent transcript
+  storage, and not a general model/tool loop.
 
 ## Next Slice
 
-### Native next-boundary decision after `/status`
+### Native Pi-like REPL startup chrome
 
-Goal: decide the next small native shell boundary after focused `/status`
-verification and, if needed, independent review. This is a planning slice, not
-a runtime feature slice.
+Goal: make bare `pipy` and `pipy repl --agent pipy-native` open with a compact
+Pi-like native shell frame while preserving the current command, privacy, and
+archive boundaries.
 
 Completion focus:
 
-- run the focused `/status` tests and `just check`; perform a fake-provider
-  REPL smoke with archive verification if useful
-- inspect summary-safe session reflections and any review outcome data for
-  lessons from the `/status` slice
-- choose exactly one next reviewable boundary and update this backlog/spec
-  before implementation
-- do not implement another native shell feature inside the decision slice
+- add a startup header on stderr with `pipy` version, compact interrupt/exit
+  and slash-command affordances, and one short product sentence
+- keep all startup chrome on stderr before the first input prompt; stdout
+  remains reserved for provider final text and explicit command output
+- show safe loaded-context/resource labels such as discovered instruction file
+  labels and supported local command groups without reading or printing file
+  contents
+- reuse the same safe state data as `/status` where practical so provider/model,
+  workspace, and budget indicators do not drift across shell surfaces
+- keep this as plain terminal output; do not introduce a full-screen TUI,
+  alternate screen buffer, keybinding framework, RPC mode, or long-running
+  daemon
 - keep deferred boundaries closed: arbitrary shell execution, provider-side
   tools, multi-file context, non-allowlisted verification commands,
-  persistent transcript storage, TUI/RPC behavior, and a general model/tool
-  loop
+  persistent transcript storage, raw prompt/model-output display, TUI/RPC
+  behavior, and a general model/tool loop
 
 ## Near Term
 
@@ -798,10 +849,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a next-boundary decision after the implemented local
-`/status` command. The prior decision slice used summary-safe archive
-reflection, the current shell surface, and the deferred boundaries below to
-select exactly one small native-shell slice before runtime behavior changed.
+The immediate path is now Pi-like REPL startup chrome after the implemented and
+reviewed local `/status` command. The decision slice used summary-safe archive
+reflection, the current shell surface, the screenshot-driven product direction,
+and the deferred boundaries below to select exactly one small native-shell
+slice before runtime behavior changes again.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -843,9 +895,16 @@ interesting but deferred until benchmark work in a separate repo clarifies
 whether Ollama, llama.cpp, MLX, LM Studio, or another runtime should be the
 first local integration.
 
+The broader slopfork direction is Pi parity through pipy-owned Python
+boundaries. Startup chrome is the first visible parity step; the next larger UI
+question is whether to adopt Textual, prompt-toolkit, curses, or a small custom
+terminal layer for Pi-style editor/footer/overlay behavior. That framework
+choice is deliberately deferred until the plain startup shell frame is useful
+and tested.
+
 Small reviewable slices, in intended order:
 
-1. Native next-boundary decision after `/status`.
+1. Native Pi-like REPL startup chrome.
 
 Foundation gates toward an interactive shell:
 
@@ -878,6 +937,11 @@ Foundation gates toward an interactive shell:
   byte counts, explicit-read budget booleans, pending proposal availability,
   and verification availability. It does not invoke providers, tools, reads,
   writes, verification, shell commands, or archive raw command text.
+- Pi-like startup chrome decision gate: available now. The next implementation
+  slice should make the shell startup/header/status presentation feel closer to
+  Pi while staying line-oriented and privacy-safe; it must not add a full TUI,
+  new keybinding runtime, new provider/tool capability, broad context loading,
+  raw transcript display, or archive content beyond existing metadata.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
@@ -979,7 +1043,9 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
   explicit per-round versus cumulative scope, review round number, and optional
   cycle identity so `reflect` can avoid double-counting iterative reviews.
-- Interactive TUI.
+- Interactive TUI, including the decision between Textual, prompt-toolkit,
+  curses, or a small custom terminal layer for Pi-style editor/footer/overlay
+  behavior.
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.
@@ -995,10 +1061,9 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Building broad approvals, sandboxing, retries, streaming, additional OAuth
   providers, provider registry, raw transcript import, multiple native tool
   requests, post-tool provider turns, general write tools beyond supervised
-  patch apply,
-  non-allowlisted verification commands, TUI, RPC, compaction, branching, or
-  orchestration in the upcoming slices; real execution work must wait for its
-  named slice.
+  patch apply, non-allowlisted verification commands, Textual or another TUI
+  framework, RPC, compaction, branching, or orchestration in the upcoming
+  slices; real execution work must wait for its named slice.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.
