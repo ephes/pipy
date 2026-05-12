@@ -6,8 +6,9 @@ import re
 import hashlib
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from importlib import metadata
 from math import isfinite
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
@@ -308,6 +309,26 @@ class _ReplReadBudgets:
         if self.failed_or_skipped_attempt_used:
             return replace(self, recovery_attempt_after_failure_used=True)
         return replace(self, failed_or_skipped_attempt_used=True)
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplDisplayState:
+    provider_name: str
+    model_id: str
+    workspace_label: str
+    provider_turn_count: int
+    max_turns: int
+    no_tool_context_retained: bool
+    no_tool_context_exchange_count: int
+    no_tool_context_max_exchanges: int
+    no_tool_context_byte_count: int
+    no_tool_context_max_bytes: int
+    read_can_attempt: bool
+    read_successful_used: bool
+    read_failed_attempt_used: bool
+    read_recovery_used: bool
+    pending_proposal_available: bool
+    verification_available: bool
 
 
 @dataclass(slots=True)
@@ -710,6 +731,16 @@ class NativeNoToolReplSession:
         no_tool_context = NativeNoToolReplConversationContext.empty(max_exchanges=self.max_turns)
         pending_apply_draft: _PendingReplPatchApplyDraft | None = None
         verify_after_apply_available = False
+        _print_repl_startup_chrome(
+            error_stream,
+            provider_state,
+            run_input=current_run_input,
+            conversation_state=conversation_state,
+            read_budgets=read_budgets,
+            no_tool_context=no_tool_context,
+            pending_apply_draft=pending_apply_draft,
+            verify_after_apply_available=verify_after_apply_available,
+        )
 
         while conversation_state.turn_count < self.max_turns:
             try:
@@ -751,6 +782,7 @@ class NativeNoToolReplSession:
                     _print_repl_status(
                         error_stream,
                         provider_state,
+                        run_input=current_run_input,
                         conversation_state=conversation_state,
                         read_budgets=read_budgets,
                         no_tool_context=no_tool_context,
@@ -1380,47 +1412,145 @@ def _print_repl_model_status(
     print("pipy: /login supports openai-codex OAuth.", file=error_stream)
 
 
-def _print_repl_status(
+def _print_repl_startup_chrome(
     error_stream: TextIO,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState,
     *,
+    run_input: NativeRunInput,
     conversation_state: NativeConversationState,
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
 ) -> None:
-    current = provider_state.current_selection()
-    print("pipy native REPL status:", file=error_stream)
-    print(f"  provider: {current.provider_name}", file=error_stream)
-    print(f"  model: {current.model_id}", file=error_stream)
+    state = _repl_display_state(
+        provider_state,
+        run_input=run_input,
+        conversation_state=conversation_state,
+        read_budgets=read_budgets,
+        no_tool_context=no_tool_context,
+        pending_apply_draft=pending_apply_draft,
+        verify_after_apply_available=verify_after_apply_available,
+    )
+    print(f"pipy v{_pipy_version_label()} | native shell", file=error_stream)
+    print("controls: Ctrl-C interrupt | /exit or /quit exit | /help commands", file=error_stream)
     print(
-        f"  provider_turns: {conversation_state.provider_turn_count}/{conversation_state.max_turns}",
+        "pipy runs local slash commands and bounded provider turns through pipy-owned boundaries.",
+        file=error_stream,
+    )
+    print(
+        "resources: instructions=AGENTS.md labels-only | commands="
+        "auth,model,context,proposal,verify,status",
+        file=error_stream,
+    )
+    print(
+        "status: "
+        f"provider={state.provider_name} "
+        f"model={state.model_id} "
+        f"workspace={state.workspace_label} "
+        f"turns={state.provider_turn_count}/{state.max_turns} "
+        f"context={_status_bool(state.no_tool_context_retained)}:"
+        f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges} "
+        f"read={_status_bool(state.read_can_attempt)} "
+        f"proposal={_status_bool(state.pending_proposal_available)} "
+        f"verify={_status_bool(state.verification_available)}",
+        file=error_stream,
+    )
+
+
+def _print_repl_status(
+    error_stream: TextIO,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    *,
+    run_input: NativeRunInput,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> None:
+    state = _repl_display_state(
+        provider_state,
+        run_input=run_input,
+        conversation_state=conversation_state,
+        read_budgets=read_budgets,
+        no_tool_context=no_tool_context,
+        pending_apply_draft=pending_apply_draft,
+        verify_after_apply_available=verify_after_apply_available,
+    )
+    print("pipy native REPL status:", file=error_stream)
+    print(f"  provider: {state.provider_name}", file=error_stream)
+    print(f"  model: {state.model_id}", file=error_stream)
+    print(f"  workspace: {state.workspace_label}", file=error_stream)
+    print(
+        f"  provider_turns: {state.provider_turn_count}/{state.max_turns}",
         file=error_stream,
     )
     print(
         "  no_tool_history: "
-        f"retained={_status_bool(no_tool_context.used)} "
-        f"exchanges={len(no_tool_context.exchanges)}/{no_tool_context.max_exchanges} "
-        f"bytes={no_tool_context.byte_count}/{no_tool_context.max_bytes}",
+        f"retained={_status_bool(state.no_tool_context_retained)} "
+        f"exchanges={state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges} "
+        f"bytes={state.no_tool_context_byte_count}/{state.no_tool_context_max_bytes}",
         file=error_stream,
     )
     print(
         "  read_budget: "
-        f"can_attempt={_status_bool(read_budgets.can_attempt)} "
-        f"successful_used={_status_bool(read_budgets.successful_excerpt_used)} "
-        f"failed_attempt_used={_status_bool(read_budgets.failed_or_skipped_attempt_used)} "
-        f"recovery_used={_status_bool(read_budgets.recovery_attempt_after_failure_used)}",
+        f"can_attempt={_status_bool(state.read_can_attempt)} "
+        f"successful_used={_status_bool(state.read_successful_used)} "
+        f"failed_attempt_used={_status_bool(state.read_failed_attempt_used)} "
+        f"recovery_used={_status_bool(state.read_recovery_used)}",
         file=error_stream,
     )
     print(
-        f"  pending_proposal_available: {_status_bool(pending_apply_draft is not None)}",
+        f"  pending_proposal_available: {_status_bool(state.pending_proposal_available)}",
         file=error_stream,
     )
     print(
-        f"  verification_available: {_status_bool(verify_after_apply_available)}",
+        f"  verification_available: {_status_bool(state.verification_available)}",
         file=error_stream,
     )
+
+
+def _repl_display_state(
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    *,
+    run_input: NativeRunInput,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> _ReplDisplayState:
+    current = provider_state.current_selection()
+    return _ReplDisplayState(
+        provider_name=current.provider_name,
+        model_id=current.model_id,
+        workspace_label=_workspace_label(run_input.cwd),
+        provider_turn_count=conversation_state.provider_turn_count,
+        max_turns=conversation_state.max_turns,
+        no_tool_context_retained=no_tool_context.used,
+        no_tool_context_exchange_count=len(no_tool_context.exchanges),
+        no_tool_context_max_exchanges=no_tool_context.max_exchanges,
+        no_tool_context_byte_count=no_tool_context.byte_count,
+        no_tool_context_max_bytes=no_tool_context.max_bytes,
+        read_can_attempt=read_budgets.can_attempt,
+        read_successful_used=read_budgets.successful_excerpt_used,
+        read_failed_attempt_used=read_budgets.failed_or_skipped_attempt_used,
+        read_recovery_used=read_budgets.recovery_attempt_after_failure_used,
+        pending_proposal_available=pending_apply_draft is not None,
+        verification_available=verify_after_apply_available,
+    )
+
+
+def _workspace_label(cwd: Path) -> str:
+    return sanitize_text(cwd.name) or "."
+
+
+def _pipy_version_label() -> str:
+    try:
+        return metadata.version("pipy")
+    except metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _status_bool(value: bool) -> str:

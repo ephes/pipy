@@ -517,27 +517,42 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native next-boundary decision after `/status`" in compact_pre_next_slice
     assert "selected next boundary is Pi-like REPL startup chrome" in compact_pre_next_slice
     assert "This is a user-facing shell ergonomics slice" in compact_pre_next_slice
+    assert "Native Pi-like REPL startup chrome" in compact_pre_next_slice
+    assert "bare `pipy` and `pipy repl --agent pipy-native` now print compact" in (
+        compact_pre_next_slice
+    )
+    assert "derived from the same safe display state used by `/status`" in (
+        compact_pre_next_slice
+    )
+    assert "Native next-boundary decision after startup chrome" in compact_pre_next_slice
+    assert "selected next boundary is a Pi-like visual/resource-label pass" in (
+        compact_pre_next_slice
+    )
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "### Native Pi-like REPL startup chrome" in next_slice
-    assert "make bare `pipy` and `pipy repl --agent pipy-native` open with a compact" in (
+    assert "### Pi-like startup visual/resource-label pass" in next_slice
+    assert "make the existing bare `pipy` and `pipy repl --agent pipy-native` startup chrome" in (
         compact_next_slice
     )
-    assert "show safe loaded-context/resource labels" in compact_next_slice
-    assert "keep this as plain terminal output" in compact_next_slice
-    assert "do not introduce a full-screen TUI" in compact_next_slice
+    assert "add ANSI color/dim styling only when appropriate for the terminal" in (
+        compact_next_slice
+    )
+    assert "metadata-only resource labels for context, skills, prompts, and extensions" in (
+        compact_next_slice
+    )
+    assert "no full-screen TUI" in compact_next_slice
     assert "raw prompt/model-output display" in compact_next_slice
     assert "stdout remains reserved for provider final text" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now Pi-like REPL startup chrome" in (
+    assert "immediate path is now a Pi-like startup visual/resource-label pass" in (
         compact_near_term
     )
-    assert "Native Pi-like REPL startup chrome." in compact_near_term
+    assert "Pi-like startup visual/resource-label pass." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "whether to adopt Textual, prompt-toolkit, curses" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -587,7 +602,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "pending proposal availability, and verification availability" in (
         compact_near_term
     )
-    assert "Pi-like startup chrome decision gate: available now" in compact_near_term
+    assert "Pi-like startup chrome gate: available now" in compact_near_term
+    assert "Pi-like visual/resource-label decision gate: available now" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

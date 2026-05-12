@@ -615,9 +615,15 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
         ("first prompt", "FIRST_REPL_OUTPUT")
     ]
     stderr = error_stream.getvalue()
+    assert "pipy v" in stderr
+    assert "controls: Ctrl-C interrupt | /exit or /quit exit | /help commands" in stderr
+    assert "status: provider=capturing-fake model=capturing-model" in stderr
+    assert stderr.count("pipy v") == 1
+    assert stderr.index("pipy v") < stderr.index("pipy-native>")
     assert "pipy native REPL status:" in stderr
     assert "  provider: capturing-fake" in stderr
     assert "  model: capturing-model" in stderr
+    assert f"  workspace: {tmp_path.name}" in stderr
     assert "  provider_turns: 1/4" in stderr
     assert "  no_tool_history: retained=true exchanges=1/4 bytes=" in stderr
     assert "  read_budget: can_attempt=true successful_used=false" in stderr

@@ -320,6 +320,13 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     assert exit_code == 0
     assert captured.out == ""
     assert provider_calls == 0
+    assert "pipy v" in captured.err
+    assert "native shell" in captured.err
+    assert "controls: Ctrl-C interrupt | /exit or /quit exit | /help commands" in captured.err
+    assert "resources: instructions=AGENTS.md labels-only" in captured.err
+    assert "status: provider=fake model=fake-native-bootstrap" in captured.err
+    assert captured.err.count("pipy v") == 1
+    assert captured.err.index("pipy v") < captured.err.index("pipy-native>")
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     assert "native.provider.started" not in [event["type"] for event in events]
@@ -540,9 +547,13 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == ""
+    assert "pipy v" in captured.err
+    assert "status: provider=fake model=fake-native-bootstrap" in captured.err
+    assert captured.err.count("pipy v") == 1
     assert "pipy native REPL status:" in captured.err
     assert "  provider: fake" in captured.err
     assert "  model: fake-native-bootstrap" in captured.err
+    assert f"  workspace: {tmp_path.name}" in captured.err
     assert "  provider_turns: 0/8" in captured.err
     assert "  no_tool_history: retained=false exchanges=0/8 bytes=0/4096" in captured.err
     assert "  read_budget: can_attempt=true successful_used=false" in captured.err
@@ -565,6 +576,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
         encoding="utf-8"
     )
     assert "/status" not in combined
+    assert "controls: Ctrl-C interrupt" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -1168,6 +1180,13 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
     assert exit_code == 0
     assert provider_calls == 0
     assert captured.out == ""
+    assert "pipy v" in captured.err
+    assert "controls: Ctrl-C interrupt | /exit or /quit exit | /help commands" in captured.err
+    assert "pipy runs local slash commands and bounded provider turns" in captured.err
+    assert "resources: instructions=AGENTS.md labels-only" in captured.err
+    assert "status: provider=fake model=fake-native-bootstrap" in captured.err
+    assert captured.err.count("pipy v") == 1
+    assert captured.err.index("pipy v") < captured.err.index("pipy-native>")
     assert "pipy native REPL commands:" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
