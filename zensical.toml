@@ -1,0 +1,8 @@
+[project]
+site_name = "pipy"
+nav = [
+  {"Home" = "index.md"},
+  {"Backlog" = "backlog.md"},
+  {"Harness Spec" = "harness-spec.md"},
+  {"Session Storage" = "session-storage.md"},
+]

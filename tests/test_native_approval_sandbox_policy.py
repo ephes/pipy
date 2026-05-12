@@ -528,6 +528,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "selected next boundary is a Pi-like visual/resource-label pass" in (
         compact_pre_next_slice
     )
+    assert "Local Zensical documentation preview/build" in compact_pre_next_slice
+    assert "`just docs-serve` starts the local preview server" in compact_pre_next_slice
+    assert "`just docs-build` builds the static site" in compact_pre_next_slice
+    assert "Zensical is a dev/tooling dependency only" in compact_pre_next_slice
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
@@ -617,6 +621,11 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Interactive TUI, including the decision between Textual" in compact_deferred
     assert "Textual or another TUI framework" in compact_deferred
     assert "RPC mode" in compact_deferred
+    assert "Docs server such as Zensical" not in compact_deferred
+    assert "Recommendation: yes, for local preview/build only." in spec
+    assert "minimal Zensical setup with `zensical.toml`, `docs/index.md`" in (
+        collapse_whitespace(spec)
+    )
     assert "### Run the first supervised self-bootstrap trial" not in next_slice
     assert "### Review the first supervised self-bootstrap trial" not in next_slice
     assert "### Approval And Sandbox Enforcement Baseline" not in next_slice

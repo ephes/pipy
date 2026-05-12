@@ -25,6 +25,14 @@ check: lint typecheck test
 loc:
     uv run --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .
 
+# Serve the local documentation site. Example: just docs-serve localhost:8001
+docs-serve dev_addr="localhost:8000":
+    uv run zensical serve --dev-addr "{{dev_addr}}"
+
+# Build the local documentation site.
+docs-build:
+    uv run zensical build
+
 # Prepare the local session directories.
 sessions-init:
     mkdir -p "${PIPY_SESSION_DIR:-$HOME/.local/state/pipy/sessions}/.in-progress/pipy"

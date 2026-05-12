@@ -36,6 +36,27 @@ During the `slopscope` pre-release phase, `just loc` runs a sibling checkout
 with `uv run --with-editable`. Set `SLOPSCOPE_PATH` when that checkout lives
 somewhere else.
 
+## Documentation Site
+
+The Markdown docs can be previewed locally with Zensical:
+
+```sh
+just docs-serve
+```
+
+This starts the local preview server, normally at `http://localhost:8000`.
+Use an explicit address when that port is already occupied:
+
+```sh
+just docs-serve localhost:8001
+```
+
+Build the static site into `site/` with:
+
+```sh
+just docs-build
+```
+
 ## Session Sync Setup
 
 Copy the direnv example and approve it:

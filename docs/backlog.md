@@ -837,6 +837,15 @@ plain terminal output and the existing REPL.
   exist. This next slice must remain presentation-oriented and must not read
   file contents, load broad context, add a TUI framework, execute shell
   commands, expose provider-side tools, or change archive privacy.
+- Local Zensical documentation preview/build: the repository now has a minimal
+  local documentation site for the existing Markdown docs. `zensical.toml`
+  configures a short explicit nav for `docs/index.md`, this backlog, the
+  harness spec, and the session-storage policy; `just docs-serve` starts the
+  local preview server and `just docs-build` builds the static site into
+  ignored `site/` output. Zensical is a dev/tooling dependency only. This
+  docs-tooling slice does not publish docs, add CI/deploy workflows, add a web
+  UI, change native runtime behavior, change session archive layout, or weaken
+  the metadata-only privacy rules.
 
 ## Next Slice
 
@@ -1083,7 +1092,6 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.
-- Docs server such as Zensical.
 
 ## Explicitly Not Now
 

@@ -42,8 +42,8 @@ harness should call it instead of creating a parallel transcript format.
   indexing, long-running daemons, or a web UI yet.
 - Do not change the finalized session archive layout documented in
   `docs/session-storage.md`.
-- Do not add a docs server unless the docs set grows enough to need navigation,
-  search, preview, or publishing.
+- Do not publish documentation, add docs CI/deploy workflows, or turn the local
+  docs preview into a product web UI.
 
 ## Design Principles
 
@@ -212,11 +212,14 @@ Relevant external patterns:
   <https://huggingface.co/docs/smolagents/reference/agents>,
   <https://microsoft.github.io/autogen/stable/reference/python/autogen_agentchat.teams.html>,
   <https://docs.crewai.com/en/concepts/crews>.
-- Zensical can turn Markdown into a documentation site, serve previews, and use
-  Mermaid through Markdown extensions, but this project does not need a docs
-  server for one spec file.
+- Zensical can turn Markdown into a documentation site, serve previews, build a
+  static site, and use explicit navigation from `zensical.toml`. It is now a
+  good fit for local preview/build because the docs set includes the README,
+  backlog, harness spec, and session-storage policy. Publishing, CI/deploy
+  workflows, and a product web UI remain out of scope.
   Sources: <https://zensical.org/docs/create-your-site/>,
-  <https://zensical.org/docs/setup/extensions/>.
+  <https://zensical.org/docs/setup/navigation/>,
+  <https://zensical.org/docs/setup/basics/>.
 
 ## Core Concepts
 
@@ -2854,7 +2857,6 @@ For the current task-slice backlog and next-step ordering, see
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.
-- Docs server such as Zensical.
 
 ## Open Questions
 
@@ -2910,12 +2912,15 @@ The native runtime bootstrap establishes:
 
 ### 5. Should a docs server be introduced now?
 
-Recommendation: no.
+Recommendation: yes, for local preview/build only.
 
-Reasoning: the near-term review artifact is one Markdown spec plus the existing
-session-storage document. Mermaid diagrams in Markdown are enough. Revisit
-Zensical or a similar docs server when navigation, search, publishing, or live
-preview becomes a real bottleneck.
+Reasoning: the earlier "no" decision was appropriate when the docs were a
+small review artifact. The docs set now includes a user-facing README, a
+backlog, this harness spec, and the session-storage policy, so navigation and
+live preview are useful during local work. The implemented scope is a minimal
+Zensical setup with `zensical.toml`, `docs/index.md`, `just docs-serve`, and
+`just docs-build`. Publishing, CI/deploy workflows, analytics, comments,
+versioning, custom JavaScript, and a pipy web UI remain out of scope.
 
 ## Recommendation
 

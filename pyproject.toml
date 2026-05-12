@@ -16,6 +16,7 @@ dev = [
     "mypy>=1.18",
     "pytest>=8.0",
     "ruff>=0.14",
+    "zensical>=0.0.41,<0.1",
 ]
 
 [build-system]
