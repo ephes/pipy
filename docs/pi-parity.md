@@ -27,7 +27,7 @@ Status labels are intentionally coarse:
 | Direct provider access | Implemented foundation | `ProviderPort` supports fake, OpenAI API-key Responses, OpenAI Codex subscription, and OpenRouter providers. |
 | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not read Pi credentials. |
 | `/login`, `/logout`, `/model` | Implemented narrow shell commands | Commands are local, late-bind provider selection, and do not create provider turns or archive auth material. |
-| Startup orientation | Implemented first pass | The shell prints compact startup chrome with controls, resource labels, and safe status labels. The next UI slice is a Pi-like visual/resource-label pass. |
+| Startup orientation | Implemented styled pass | The shell prints sectioned startup chrome with TTY-only ANSI styling, plain captured-stream fallback, safe resource-source labels, and compact workspace/model/turn status labels. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
 | Read tool | Partial | `/read <path>` supports one explicit, bounded, UTF-8 workspace-relative excerpt per REPL session. No broad model-selected read tool exists yet. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn. |

@@ -1,8 +1,8 @@
 # Coding-Agent Harness Spec
 
-Status: current native shell supports startup chrome, bounded read/context,
-proposal, same-session apply, and post-apply `just-check` verification; the
-next UI slice is a Pi-like visual/resource-label pass.
+Status: current native shell supports styled startup chrome, bounded
+read/context, proposal, same-session apply, and post-apply `just-check`
+verification; the next UI slice is an input-ergonomics decision pass.
 
 <style>
 .mermaid,
@@ -1407,23 +1407,27 @@ contracts, archive privacy, and fallback behavior in non-interactive terminals.
 
 ### Native Pi-Like REPL Startup Chrome
 
-The next native-shell boundary selected after `/status` is a Pi-like startup
-chrome pass for bare `pipy` and `pipy repl --agent pipy-native`. The goal is to
-make the first screen feel like a native shell, closer to Pi's compact startup
-view, without adding execution powers or switching to a full-screen interface.
+The native shell startup chrome for bare `pipy` and
+`pipy repl --agent pipy-native` is a Pi-like line-oriented frame on stderr
+before the first input prompt. The goal is to make the first screen feel like a
+native shell, closer to Pi's compact startup view, without adding execution
+powers or switching to a full-screen interface.
 
-The implementation should stay plain terminal output on stderr before the first
-input prompt. It may render:
+The implementation stays plain terminal output for captured and non-TTY streams
+and may add ANSI title, section, and dim styling only for suitable TTY streams.
+It renders:
 
 - a compact `pipy v<version>` header
-- a terse controls line for existing interrupt, exit, slash-command, and help
+- grouped controls for existing interrupt, exit, slash-command, and help
   affordances
 - one short product sentence explaining that pipy can use its native shell
   commands and provider turns
 - safe loaded-context/resource labels, such as instruction-file labels and
-  command groups, without reading or printing file contents
-- a compact provider/model/workspace/budget/status line derived from the same
+  context, skills, prompts, extensions, and command-source labels, without
+  reading or printing file contents
+- grouped provider/model/workspace/budget/status labels derived from the same
   safe state data used by `/status` where practical
+- a compact footer-style workspace/model/turn label
 
 The startup chrome is presentation only. It must not invoke providers, tools,
 reads, writes, verification commands, shell commands, network access,

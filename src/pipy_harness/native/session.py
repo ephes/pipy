@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import re
 import hashlib
+import os
+import re
+import shutil
+import textwrap
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from importlib import metadata
 from math import isfinite
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Mapping, TextIO
+from typing import Callable, Iterable, Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
@@ -225,6 +228,13 @@ _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 _REPL_APPLY_PROPOSAL_FENCE = "pipy-apply-proposal-v1"
 _REPL_APPLY_PROPOSAL_REPLACEMENT_START = "--- replacement_text ---"
 _REPL_APPLY_PROPOSAL_REPLACEMENT_END = "--- end_replacement_text ---"
+_STARTUP_CHROME_WIDTH_FALLBACK = 88
+_STARTUP_CHROME_RESOURCE_SOURCES = {
+    "context": ("AGENTS.md", "CLAUDE.md", ".claude"),
+    "skills": (".claude/skills", ".codex/skills", ".agents/skills"),
+    "prompts": (".claude/commands", "prompts", ".agents/prompts"),
+    "extensions": (".claude/extensions", ".agents/plugins", ".codex/plugins"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +339,25 @@ class _ReplDisplayState:
     read_recovery_used: bool
     pending_proposal_available: bool
     verification_available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _StartupChromeStyle:
+    enabled: bool
+
+    def title(self, text: str) -> str:
+        return self._wrap(text, "1;36")
+
+    def section(self, text: str) -> str:
+        return self._wrap(text, "1")
+
+    def dim(self, text: str) -> str:
+        return self._wrap(text, "2")
+
+    def _wrap(self, text: str, code: str) -> str:
+        if not self.enabled:
+            return text
+        return f"\x1b[{code}m{text}\x1b[0m"
 
 
 @dataclass(slots=True)
@@ -1432,30 +1461,160 @@ def _print_repl_startup_chrome(
         pending_apply_draft=pending_apply_draft,
         verify_after_apply_available=verify_after_apply_available,
     )
-    print(f"pipy v{_pipy_version_label()} | native shell", file=error_stream)
-    print("controls: Ctrl-C interrupt | /exit or /quit exit | /help commands", file=error_stream)
-    print(
-        "pipy runs local slash commands and bounded provider turns through pipy-owned boundaries.",
-        file=error_stream,
+    style = _startup_chrome_style(error_stream)
+    width = _startup_chrome_width(error_stream)
+    resource_labels = _startup_resource_labels(run_input.cwd)
+    model_reference = f"{state.provider_name}/{state.model_id}"
+
+    print(style.title(f"pipy v{_pipy_version_label()}  native shell"), file=error_stream)
+    _print_wrapped_repl_line(
+        error_stream,
+        "  ",
+        "Local slash commands and bounded provider turns stay behind pipy-owned boundaries.",
+        width=width,
+        style=style.dim,
+    )
+    print(file=error_stream)
+    _print_startup_section(
+        error_stream,
+        "Controls",
+        [
+            ("interrupt", "Ctrl-C"),
+            ("exit", "/exit or /quit"),
+            ("commands", "/help"),
+        ],
+        width=width,
+        style=style,
+    )
+    _print_startup_section(
+        error_stream,
+        "Resources",
+        [
+            ("context", resource_labels["context"]),
+            ("skills", resource_labels["skills"]),
+            ("prompts", resource_labels["prompts"]),
+            ("extensions", resource_labels["extensions"]),
+            ("commands", "auth, model, context, proposal, verify, status"),
+        ],
+        width=width,
+        style=style,
+    )
+    _print_startup_section(
+        error_stream,
+        "Status",
+        [
+            ("workspace", state.workspace_label),
+            ("model", model_reference),
+            ("turns", f"{state.provider_turn_count}/{state.max_turns}"),
+            (
+                "history",
+                f"{_startup_availability_label(state.no_tool_context_retained)} "
+                f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges}",
+            ),
+            ("read", _startup_ready_label(state.read_can_attempt)),
+            ("proposal", _startup_ready_label(state.pending_proposal_available)),
+            ("verify", _startup_ready_label(state.verification_available)),
+        ],
+        width=width,
+        style=style,
     )
     print(
-        "resources: instructions=AGENTS.md labels-only | commands="
-        "auth,model,context,proposal,verify,status",
+        style.dim(
+            f"{state.workspace_label} | {model_reference} | turns "
+            f"{state.provider_turn_count}/{state.max_turns}"
+        ),
         file=error_stream,
     )
-    print(
-        "status: "
-        f"provider={state.provider_name} "
-        f"model={state.model_id} "
-        f"workspace={state.workspace_label} "
-        f"turns={state.provider_turn_count}/{state.max_turns} "
-        f"context={_status_bool(state.no_tool_context_retained)}:"
-        f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges} "
-        f"read={_status_bool(state.read_can_attempt)} "
-        f"proposal={_status_bool(state.pending_proposal_available)} "
-        f"verify={_status_bool(state.verification_available)}",
-        file=error_stream,
+
+
+def _startup_chrome_style(error_stream: TextIO) -> _StartupChromeStyle:
+    is_tty = bool(getattr(error_stream, "isatty", lambda: False)())
+    term = os.environ.get("TERM", "")
+    enabled = is_tty and "NO_COLOR" not in os.environ and term.lower() != "dumb"
+    return _StartupChromeStyle(enabled=enabled)
+
+
+def _startup_chrome_width(error_stream: TextIO) -> int:
+    if bool(getattr(error_stream, "isatty", lambda: False)()):
+        return max(60, shutil.get_terminal_size((_STARTUP_CHROME_WIDTH_FALLBACK, 24)).columns)
+    return _STARTUP_CHROME_WIDTH_FALLBACK
+
+
+def _print_startup_section(
+    error_stream: TextIO,
+    heading: str,
+    rows: Iterable[tuple[str, str]],
+    *,
+    width: int,
+    style: _StartupChromeStyle,
+) -> None:
+    print(style.section(heading), file=error_stream)
+    for label, value in rows:
+        _print_wrapped_repl_line(
+            error_stream,
+            f"  {label:<10} ",
+            value,
+            width=width,
+            style=_identity_text,
+        )
+    print(file=error_stream)
+
+
+def _identity_text(text: str) -> str:
+    return text
+
+
+def _print_wrapped_repl_line(
+    error_stream: TextIO,
+    prefix: str,
+    text: str,
+    *,
+    width: int,
+    style: Callable[[str], str],
+) -> None:
+    wrapper = textwrap.TextWrapper(
+        width=max(20, width),
+        initial_indent=prefix,
+        subsequent_indent=" " * len(prefix),
+        break_long_words=False,
+        break_on_hyphens=False,
     )
+    lines = wrapper.wrap(text) or [prefix.rstrip()]
+    for line in lines:
+        print(style(line), file=error_stream)
+
+
+def _startup_resource_labels(cwd: Path) -> dict[str, str]:
+    return {
+        category: _startup_resource_label(cwd, candidates)
+        for category, candidates in _STARTUP_CHROME_RESOURCE_SOURCES.items()
+    }
+
+
+def _startup_resource_label(cwd: Path, candidates: Iterable[str]) -> str:
+    labels = [
+        f"{candidate} labels-only"
+        for candidate in candidates
+        if _startup_resource_source_exists(cwd, candidate)
+    ]
+    if not labels:
+        return "not loaded"
+    return ", ".join(labels)
+
+
+def _startup_resource_source_exists(cwd: Path, candidate: str) -> bool:
+    try:
+        return (cwd / candidate).exists()
+    except OSError:
+        return False
+
+
+def _startup_availability_label(value: bool) -> str:
+    return "on" if value else "off"
+
+
+def _startup_ready_label(value: bool) -> str:
+    return "ready" if value else "unavailable"
 
 
 def _print_repl_status(

@@ -528,6 +528,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "selected next boundary is a Pi-like visual/resource-label pass" in (
         compact_pre_next_slice
     )
+    assert "Native Pi-like startup visual/resource-label pass" in compact_pre_next_slice
+    assert "ANSI title/section/dim styling only for suitable TTY streams" in compact_pre_next_slice
+    assert "existence-level workspace-relative resource source labels" in compact_pre_next_slice
     assert "Local Zensical documentation preview/build" in compact_pre_next_slice
     assert "`just docs-serve` starts the local preview server" in compact_pre_next_slice
     assert "`just docs-build` builds the static site" in compact_pre_next_slice
@@ -537,26 +540,25 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "### Pi-like startup visual/resource-label pass" in next_slice
-    assert "make the existing bare `pipy` and `pipy repl --agent pipy-native` startup chrome" in (
+    assert "### Interactive input ergonomics decision pass" in next_slice
+    assert "choose the next small, reviewable line-oriented shell ergonomics boundary" in (
         compact_next_slice
     )
-    assert "add ANSI color/dim styling only when appropriate for the terminal" in (
+    assert "select one bounded ergonomics slice" in (
         compact_next_slice
     )
-    assert "metadata-only resource labels for context, skills, prompts, and extensions" in (
+    assert "preserve stdout/stderr contracts and metadata-only archive behavior" in (
         compact_next_slice
     )
     assert "no full-screen TUI" in compact_next_slice
     assert "raw prompt/model-output display" in compact_next_slice
-    assert "stdout remains reserved for provider final text" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now a Pi-like startup visual/resource-label pass" in (
+    assert "immediate path is now an input-ergonomics decision pass" in (
         compact_near_term
     )
-    assert "Pi-like startup visual/resource-label pass." in compact_near_term
+    assert "Interactive input ergonomics decision pass." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "whether to adopt Textual, prompt-toolkit, curses" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -608,6 +610,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Pi-like startup chrome gate: available now" in compact_near_term
     assert "Pi-like visual/resource-label decision gate: available now" in compact_near_term
+    assert "Pi-like startup visual/resource-label gate: available now" in compact_near_term
+    assert "Input-ergonomics decision gate: next" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

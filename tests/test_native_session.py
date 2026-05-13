@@ -616,8 +616,15 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     ]
     stderr = error_stream.getvalue()
     assert "pipy v" in stderr
-    assert "controls: Ctrl-C interrupt | /exit or /quit exit | /help commands" in stderr
-    assert "status: provider=capturing-fake model=capturing-model" in stderr
+    assert "Controls" in stderr
+    assert "  interrupt  Ctrl-C" in stderr
+    assert "  exit       /exit or /quit" in stderr
+    assert "Resources" in stderr
+    assert "  context    not loaded" in stderr
+    assert "Status" in stderr
+    assert "  model      capturing-fake/capturing-model" in stderr
+    assert f"{tmp_path.name} | capturing-fake/capturing-model | turns 0/4" in stderr
+    assert "\x1b[" not in stderr
     assert stderr.count("pipy v") == 1
     assert stderr.index("pipy v") < stderr.index("pipy-native>")
     assert "pipy native REPL status:" in stderr
@@ -642,6 +649,93 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "/status" not in serialized
     assert "FIRST_REPL_OUTPUT" not in serialized
+
+
+def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
+    tmp_path,
+    monkeypatch,
+):
+    class TtyStringIO(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    (tmp_path / "AGENTS.md").write_text("SECRET instruction contents\n", encoding="utf-8")
+    (tmp_path / ".claude" / "commands").mkdir(parents=True)
+    (tmp_path / ".agents" / "plugins").mkdir(parents=True)
+    provider = SequentialCapturingProvider(results=[])
+    sink = RecordingSink()
+    error_stream = TtyStringIO()
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO(""),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    stderr = error_stream.getvalue()
+    assert "\x1b[" in stderr
+    assert "  context    AGENTS.md labels-only, .claude labels-only" in stderr
+    assert "  prompts    .claude/commands labels-only" in stderr
+    assert "  extensions .agents/plugins labels-only" in stderr
+    assert "SECRET" not in stderr
+
+
+@pytest.mark.parametrize(
+    ("term", "no_color"),
+    [
+        ("xterm-256color", "1"),
+        ("dumb", None),
+        ("DUMB", None),
+    ],
+)
+def test_native_repl_startup_chrome_disables_tty_style_when_requested(
+    tmp_path,
+    monkeypatch,
+    term,
+    no_color,
+):
+    class TtyStringIO(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    provider = SequentialCapturingProvider(results=[])
+    sink = RecordingSink()
+    error_stream = TtyStringIO()
+    monkeypatch.setenv("TERM", term)
+    if no_color is None:
+        monkeypatch.delenv("NO_COLOR", raising=False)
+    else:
+        monkeypatch.setenv("NO_COLOR", no_color)
+
+    NativeNoToolReplSession(provider=provider, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO(""),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    stderr = error_stream.getvalue()
+    assert "pipy v" in stderr
+    assert "\x1b[" not in stderr
 
 
 def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):

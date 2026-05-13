@@ -18,10 +18,11 @@ apply one same-session reviewed proposal through `/apply-proposal`, then run
 one post-apply allowlisted verification command through `/verify just-check`.
 It can also clear retained no-tool conversation context locally with `/clear`
 and inspect local shell state with `/status`; bare `pipy` and
-`pipy repl --agent pipy-native` now print compact startup chrome before the
-first prompt. The public shell still cannot execute arbitrary shell commands,
-request provider-side tools, read multiple files per session, run
-non-allowlisted verification commands, or run a general model/tool loop.
+`pipy repl --agent pipy-native` now print styled, sectioned startup chrome with
+safe metadata-only resource labels before the first prompt. The public shell
+still cannot execute arbitrary shell commands, request provider-side tools, read
+multiple files per session, run non-allowlisted verification commands, or run a
+general model/tool loop.
 
 Use this page as a planning index:
 
@@ -53,10 +54,10 @@ Use this page as a planning index:
   reviewed, and smoked; bounded no-tool REPL conversation context is now
   implemented, reviewed, and smoked; a local clear command for interactive
   conversation state is now implemented, reviewed, and smoked; a local status
-  command for safe shell-state inspection and a compact startup chrome pass are
-  now implemented. The next milestone is a Pi-like visual/resource-label pass
-  so the first screen starts to resemble Pi while remaining metadata-only and
-  line-oriented.
+  command for safe shell-state inspection, a compact startup chrome pass, and a
+  styled Pi-like visual/resource-label pass are now implemented. The next
+  milestone is choosing the smallest input-ergonomics boundary that improves
+  the line-oriented shell without committing to a full TUI framework.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -76,7 +77,7 @@ discipline:
 
 - Shell chrome and orientation: startup header, safe loaded-resource labels,
   compact command affordances, and status/footer-style state presentation.
-  Current target: Pi-like startup visual/resource-label pass.
+  Current state: styled Pi-like startup/resource labels are implemented.
 - Interactive input ergonomics: richer editor behavior, multiline input,
   slash-command discovery, file references, autocomplete, and resilient terminal
   resize behavior. This likely requires a later TUI-framework decision.
@@ -837,6 +838,17 @@ plain terminal output and the existing REPL.
   exist. This next slice must remain presentation-oriented and must not read
   file contents, load broad context, add a TUI framework, execute shell
   commands, expose provider-side tools, or change archive privacy.
+- Native Pi-like startup visual/resource-label pass: bare `pipy` and
+  `pipy repl --agent pipy-native` now render the startup frame as sectioned
+  stderr chrome before the first prompt, with ANSI title/section/dim styling
+  only for suitable TTY streams and a plain fallback for captured or non-TTY
+  streams. The frame wraps long text, groups controls, safe resources, and
+  status data, shows a compact footer-style workspace/model/turn label, and
+  discovers only existence-level workspace-relative resource source labels for
+  context, skills, prompts, and extensions. It does not read file contents,
+  list resource contents, invoke providers or tools, execute shell commands,
+  consume provider turns or read budgets, mutate retained history, change
+  provider/model/auth state, or add archive content.
 - Local Zensical documentation preview/build: the repository now has a minimal
   local documentation site for the existing Markdown docs. `zensical.toml`
   configures a short explicit nav for `docs/index.md`, this backlog, the
@@ -849,26 +861,19 @@ plain terminal output and the existing REPL.
 
 ## Next Slice
 
-### Pi-like startup visual/resource-label pass
+### Interactive input ergonomics decision pass
 
-Goal: make the existing bare `pipy` and
-`pipy repl --agent pipy-native` startup chrome visually closer to Pi while
-preserving the current line-oriented REPL, command, privacy, and archive
-boundaries.
+Goal: choose the next small, reviewable line-oriented shell ergonomics boundary
+after startup chrome, without selecting or adding a full TUI framework.
 
 Completion focus:
 
-- add ANSI color/dim styling only when appropriate for the terminal, with a
-  plain fallback for captured/non-TTY streams
-- replace long implementation-shaped lines with sectioned, wrapped Pi-like
-  labels for controls, context/resources, and status/footer data
-- show folder/workspace and provider/model labels in a compact footer-style
-  presentation using safe labels only
-- add metadata-only resource labels for context, skills, prompts, and
-  extensions where safe label sources already exist or can be discovered
-  without reading file contents
-- keep startup chrome on stderr before the first input prompt; stdout remains
-  reserved for provider final text and explicit command output
+- inspect the existing REPL input/help/status behavior and Pi parity notes
+- select one bounded ergonomics slice, such as grouped slash-command discovery,
+  minimal command reference presentation, or a narrow multiline-input decision
+- keep the selected boundary line-oriented unless a separate later TUI decision
+  explicitly changes that direction
+- preserve stdout/stderr contracts and metadata-only archive behavior
 - keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
   keybinding framework, RPC mode, broad context loading, file-content reads,
   arbitrary shell execution, provider-side tools, non-allowlisted verification,
@@ -884,11 +889,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a Pi-like startup visual/resource-label pass after
-the implemented local `/status` command and compact startup chrome. The next
-slice should improve the first screen's visual hierarchy and safe resource
-labels without adding execution powers, broad context loading, or a TUI
-framework.
+The immediate path is now an input-ergonomics decision pass after the styled
+Pi-like startup visual/resource-label pass. The next slice should choose the
+smallest line-oriented shell improvement, such as command discovery or
+multiline input planning, without adding execution powers, broad context
+loading, or a TUI framework.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -931,17 +936,16 @@ whether Ollama, llama.cpp, MLX, LM Studio, or another runtime should be the
 first local integration.
 
 The broader slopfork direction is Pi parity through pipy-owned Python
-boundaries. Startup chrome is the first visible parity step, but the first
-implementation is intentionally closer to a compact safe status frame than
-Pi's full visual screen. The next small UI step is a styled
-visual/resource-label pass. The larger question of whether to adopt Textual,
-prompt-toolkit, curses, or a small custom terminal layer for Pi-style
-editor/footer/overlay behavior remains deliberately deferred until the plain
-startup shell frame is useful and tested.
+boundaries. Startup chrome is the first visible parity step: it now has a
+styled, sectioned, resource-label frame while still staying line-oriented and
+metadata-only. The larger question of whether to adopt Textual, prompt-toolkit,
+curses, or a small custom terminal layer for Pi-style editor/footer/overlay
+behavior remains deliberately deferred until a narrow input-ergonomics boundary
+is selected.
 
 Small reviewable slices, in intended order:
 
-1. Pi-like startup visual/resource-label pass.
+1. Interactive input ergonomics decision pass.
 
 Foundation gates toward an interactive shell:
 
@@ -978,13 +982,19 @@ Foundation gates toward an interactive shell:
   `pipy repl --agent pipy-native` print compact startup chrome on stderr before
   the first prompt, with version, controls, static resource labels, and safe
   status labels shared with `/status`.
-- Pi-like visual/resource-label decision gate: available now. The next
-  implementation slice should make the startup presentation feel closer to Pi
-  through styling, section hierarchy, wrapping, footer-style labels, and
-  metadata-only resource labels while staying line-oriented and privacy-safe;
-  it must not add a full TUI, new keybinding runtime, new provider/tool
-  capability, broad context loading, raw transcript display, or archive content
-  beyond existing metadata.
+- Pi-like visual/resource-label decision gate: available now. This selected the
+  implemented startup presentation improvement: styling, section hierarchy,
+  wrapping, footer-style labels, and metadata-only resource labels while
+  staying line-oriented and privacy-safe, without adding a full TUI, new
+  keybinding runtime, new provider/tool capability, broad context loading, raw
+  transcript display, or archive content beyond existing metadata.
+- Pi-like startup visual/resource-label gate: available now. Startup chrome is
+  sectioned and wrapped, uses TTY-only ANSI styling with captured-stream
+  fallback, shows compact footer-style workspace/model/turn labels, and
+  displays only safe existence-level resource source labels.
+- Input-ergonomics decision gate: next. Select one small line-oriented shell
+  ergonomics boundary before introducing multiline editing, command discovery,
+  autocomplete, file references, or a TUI framework.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
