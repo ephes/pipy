@@ -2,7 +2,7 @@
 
 Status: current native shell supports styled startup chrome, bounded
 read/context, proposal, same-session apply, and post-apply `just-check`
-verification; the next UI slice is an input-ergonomics decision pass.
+verification; the next UI slice is grouped slash-command discovery.
 
 <style>
 .mermaid,
@@ -1390,12 +1390,13 @@ The parity path should stay incremental:
 
 - first make the existing line-oriented shell feel like a native product with
   startup chrome and safe status/context labels
+- then improve the existing line-oriented input surface with grouped
+  slash-command discovery before changing the terminal runtime
 - then decide the Python terminal UI layer needed for Pi-style editor/footer
   behavior, evaluating Textual, prompt-toolkit, curses, and a small custom
   renderer as explicit options
-- then add richer input, slash-command discovery, file references,
-  autocomplete, controlled tools, session workflow, extensions, and RPC as
-  separate named slices
+- then add richer input, file references, autocomplete, controlled tools,
+  session workflow, extensions, and RPC as separate named slices
 
 See `docs/backlog.md` for the more granular current Pi parity ladder and the
 active next implementation slice.

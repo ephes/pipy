@@ -54,10 +54,11 @@ Use this page as a planning index:
   reviewed, and smoked; bounded no-tool REPL conversation context is now
   implemented, reviewed, and smoked; a local clear command for interactive
   conversation state is now implemented, reviewed, and smoked; a local status
-  command for safe shell-state inspection, a compact startup chrome pass, and a
-  styled Pi-like visual/resource-label pass are now implemented. The next
-  milestone is choosing the smallest input-ergonomics boundary that improves
-  the line-oriented shell without committing to a full TUI framework.
+  command for safe shell-state inspection, a compact startup chrome pass, a
+  styled Pi-like visual/resource-label pass, and the follow-up
+  input-ergonomics decision are now implemented. The next milestone is grouped
+  slash-command discovery in `/help` without committing to a full TUI
+  framework.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -858,22 +859,43 @@ plain terminal output and the existing REPL.
   docs-tooling slice does not publish docs, add CI/deploy workflows, add a web
   UI, change native runtime behavior, change session archive layout, or weaken
   the metadata-only privacy rules.
+- Native input-ergonomics decision after startup chrome: inspection of the
+  existing line-oriented REPL showed a useful asymmetry: startup chrome and
+  `/status` are grouped by concern, while `/help` and malformed-command
+  diagnostics still print one flat command list. Summary-safe session
+  reflection and Pi parity notes support keeping the next step small and
+  line-oriented. The selected next implementation slice is grouped
+  slash-command discovery: make `/help` and static supported-command
+  diagnostics present the existing commands in stable concern-based groups,
+  with concise command shapes and no new execution capability. This decision
+  explicitly defers multiline input, autocomplete, file references, terminal
+  resize behavior, a keybinding framework, and any full TUI framework.
 
 ## Next Slice
 
-### Interactive input ergonomics decision pass
+### Grouped slash-command discovery
 
-Goal: choose the next small, reviewable line-oriented shell ergonomics boundary
-after startup chrome, without selecting or adding a full TUI framework.
+Goal: make the existing line-oriented native shell easier to discover by
+grouping supported slash-command help by concern, without adding a full TUI
+framework or changing command behavior.
 
 Completion focus:
 
-- inspect the existing REPL input/help/status behavior and Pi parity notes
-- select one bounded ergonomics slice, such as grouped slash-command discovery,
-  minimal command reference presentation, or a narrow multiline-input decision
+- update `/help` to print stable concern-based groups for the existing command
+  set, such as controls, local state, provider/model, file context, proposal,
+  verification, and exit
+- update static malformed-command and unsupported-slash diagnostics to reuse
+  the same grouped command reference instead of a flat list
+- keep output line-oriented and stderr-only, with captured-stream friendly
+  plain text and no dependency on terminal cursor control
+- preserve the existing command parser, command names, command semantics,
+  stdout/stderr contracts, read budgets, provider-turn behavior, and
+  metadata-only archive behavior
+- add focused CLI coverage that `/help`, malformed supported commands, and
+  unsupported slash commands do not invoke providers/tools, do not consume read
+  budgets, and do not archive raw command text
 - keep the selected boundary line-oriented unless a separate later TUI decision
   explicitly changes that direction
-- preserve stdout/stderr contracts and metadata-only archive behavior
 - keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
   keybinding framework, RPC mode, broad context loading, file-content reads,
   arbitrary shell execution, provider-side tools, non-allowlisted verification,
@@ -889,11 +911,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now an input-ergonomics decision pass after the styled
-Pi-like startup visual/resource-label pass. The next slice should choose the
-smallest line-oriented shell improvement, such as command discovery or
-multiline input planning, without adding execution powers, broad context
-loading, or a TUI framework.
+The immediate path is now grouped slash-command discovery after the styled
+Pi-like startup visual/resource-label pass and input-ergonomics decision. The
+next slice should improve command discovery in the existing line-oriented help
+surface without adding execution powers, broad context loading, multiline
+editing, autocomplete, or a TUI framework.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -940,12 +962,12 @@ boundaries. Startup chrome is the first visible parity step: it now has a
 styled, sectioned, resource-label frame while still staying line-oriented and
 metadata-only. The larger question of whether to adopt Textual, prompt-toolkit,
 curses, or a small custom terminal layer for Pi-style editor/footer/overlay
-behavior remains deliberately deferred until a narrow input-ergonomics boundary
-is selected.
+behavior remains deliberately deferred until grouped slash-command discovery is
+implemented and the next ergonomics gate is chosen.
 
 Small reviewable slices, in intended order:
 
-1. Interactive input ergonomics decision pass.
+1. Grouped slash-command discovery.
 
 Foundation gates toward an interactive shell:
 
@@ -992,9 +1014,15 @@ Foundation gates toward an interactive shell:
   sectioned and wrapped, uses TTY-only ANSI styling with captured-stream
   fallback, shows compact footer-style workspace/model/turn labels, and
   displays only safe existence-level resource source labels.
-- Input-ergonomics decision gate: next. Select one small line-oriented shell
-  ergonomics boundary before introducing multiline editing, command discovery,
-  autocomplete, file references, or a TUI framework.
+- Input-ergonomics decision gate: available now. The selected next
+  line-oriented boundary is grouped slash-command discovery in `/help` and
+  static supported-command diagnostics; multiline editing, autocomplete, file
+  references, terminal resize behavior, a keybinding framework, and a TUI
+  framework remain deferred.
+- Grouped slash-command discovery gate: next. Organize existing command help
+  into stable concern-based groups without adding commands, changing parser
+  behavior, invoking providers/tools, consuming budgets, archiving raw command
+  text, or changing stdout/stderr contracts.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
