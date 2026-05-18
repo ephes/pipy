@@ -209,21 +209,42 @@ ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
 VERIFY_REPL_COMMAND = "/verify"
-_REPL_COMMAND_USAGE = {
-    HELP_REPL_COMMAND: "/help",
-    CLEAR_REPL_COMMAND: "/clear",
-    STATUS_REPL_COMMAND: "/status",
-    LOGIN_REPL_COMMAND: "/login [openai-codex]",
-    LOGOUT_REPL_COMMAND: "/logout [openai-codex]",
-    MODEL_REPL_COMMAND: "/model [<provider>/<model>|<model>]",
-    READ_ONLY_REPL_COMMAND: "/read <workspace-relative-path>",
-    ASK_FILE_REPL_COMMAND: "/ask-file <workspace-relative-path> -- <question>",
-    PROPOSE_FILE_REPL_COMMAND: "/propose-file <workspace-relative-path> -- <change-request>",
-    APPLY_PROPOSAL_REPL_COMMAND: "/apply-proposal <workspace-relative-path>",
-    VERIFY_REPL_COMMAND: "/verify just-check",
-    "/exit": "/exit",
-    "/quit": "/quit",
-}
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplCommandGroup:
+    heading: str
+    usages: tuple[str, ...]
+
+
+_REPL_COMMAND_GROUPS = (
+    _ReplCommandGroup("Controls", ("/help",)),
+    _ReplCommandGroup("Local state", ("/clear", "/status")),
+    _ReplCommandGroup(
+        "Provider and model",
+        (
+            "/login [openai-codex]",
+            "/logout [openai-codex]",
+            "/model [<provider>/<model>|<model>]",
+        ),
+    ),
+    _ReplCommandGroup(
+        "File context",
+        (
+            "/read <workspace-relative-path>",
+            "/ask-file <workspace-relative-path> -- <question>",
+        ),
+    ),
+    _ReplCommandGroup(
+        "Proposal",
+        (
+            "/propose-file <workspace-relative-path> -- <change-request>",
+            "/apply-proposal <workspace-relative-path>",
+        ),
+    ),
+    _ReplCommandGroup("Verification", ("/verify just-check",)),
+    _ReplCommandGroup("Exit", ("/exit", "/quit")),
+)
 _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 _REPL_APPLY_PROPOSAL_FENCE = "pipy-apply-proposal-v1"
 _REPL_APPLY_PROPOSAL_REPLACEMENT_START = "--- replacement_text ---"
@@ -1420,10 +1441,16 @@ def _matching_repl_command(command: str, command_names: Iterable[str]) -> str | 
     )
 
 
+def _print_repl_command_reference(error_stream: TextIO) -> None:
+    for group in _REPL_COMMAND_GROUPS:
+        print(f"{group.heading}:", file=error_stream)
+        for usage in group.usages:
+            print(f"  {usage}", file=error_stream)
+
+
 def _print_repl_command_help(error_stream: TextIO) -> None:
     print("pipy native REPL commands:", file=error_stream)
-    for usage in _REPL_COMMAND_USAGE.values():
-        print(f"  {usage}", file=error_stream)
+    _print_repl_command_reference(error_stream)
 
 
 def _print_repl_model_status(
@@ -1727,8 +1754,7 @@ def _print_repl_command_usage_diagnostic(
             f"pipy: malformed {command_name} command. Supported command usage:",
             file=error_stream,
         )
-    for usage in _REPL_COMMAND_USAGE.values():
-        print(f"  {usage}", file=error_stream)
+    _print_repl_command_reference(error_stream)
 
 
 def _read_repl_file_excerpt(

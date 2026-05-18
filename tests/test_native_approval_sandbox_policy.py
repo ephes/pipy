@@ -535,19 +535,24 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "`just docs-serve` starts the local preview server" in compact_pre_next_slice
     assert "`just docs-build` builds the static site" in compact_pre_next_slice
     assert "Zensical is a dev/tooling dependency only" in compact_pre_next_slice
+    assert "Native grouped slash-command discovery" in compact_pre_next_slice
+    assert "one stable grouped command reference on stderr" in compact_pre_next_slice
+    assert "controls, local state, provider/model, file context, proposal" in (
+        compact_pre_next_slice
+    )
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "### Interactive input ergonomics decision pass" in next_slice
-    assert "choose the next small, reviewable line-oriented shell ergonomics boundary" in (
+    assert "### Post-help input ergonomics decision" in next_slice
+    assert "choose the next small interactive-shell ergonomics boundary" in (
         compact_next_slice
     )
-    assert "select one bounded ergonomics slice" in (
+    assert "decide whether the next slice should remain line-oriented" in (
         compact_next_slice
     )
-    assert "preserve stdout/stderr contracts and metadata-only archive behavior" in (
+    assert "preserve existing command names, parser behavior, stdout/stderr contracts" in (
         compact_next_slice
     )
     assert "no full-screen TUI" in compact_next_slice
@@ -555,10 +560,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now an input-ergonomics decision pass" in (
+    assert "immediate path is now the post-help input ergonomics decision" in (
         compact_near_term
     )
-    assert "Interactive input ergonomics decision pass." in compact_near_term
+    assert "Post-help input ergonomics decision." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "whether to adopt Textual, prompt-toolkit, curses" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -611,7 +616,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Pi-like startup chrome gate: available now" in compact_near_term
     assert "Pi-like visual/resource-label decision gate: available now" in compact_near_term
     assert "Pi-like startup visual/resource-label gate: available now" in compact_near_term
-    assert "Input-ergonomics decision gate: next" in compact_near_term
+    assert "Input-ergonomics decision gate: available now" in compact_near_term
+    assert "Grouped slash-command discovery gate: available now" in compact_near_term
+    assert "Post-help input ergonomics decision gate: next" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

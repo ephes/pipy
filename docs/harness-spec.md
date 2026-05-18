@@ -1,8 +1,9 @@
 # Coding-Agent Harness Spec
 
-Status: current native shell supports styled startup chrome, bounded
-read/context, proposal, same-session apply, and post-apply `just-check`
-verification; the next UI slice is grouped slash-command discovery.
+Status: current native shell supports styled startup chrome, grouped
+slash-command discovery, bounded read/context, proposal, same-session apply,
+and post-apply `just-check` verification; the next UI slice is a post-help
+input ergonomics decision.
 
 <style>
 .mermaid,
@@ -765,10 +766,12 @@ Each non-empty non-command input line becomes one provider turn. Provider
 construction is late-bound: immediately before each provider-visible turn, the
 REPL resolves the current provider/model selection to a concrete
 `ProviderPort`, and the `NativeRunInput` metadata for that turn reflects that
-selection. `/help` prints only static supported command shapes on stderr
-without invoking the provider or tools. `/clear` clears retained no-tool
-conversation context and any pending proposal draft through a local command
-path. `/status` prints only safe local shell-state labels and counters to
+selection. `/help` prints a grouped static command reference on stderr without
+invoking the provider or tools. Malformed supported slash commands and
+unsupported slash commands reuse the same grouped reference, while omitting raw
+command text. `/clear` clears retained no-tool conversation context and any
+pending proposal draft through a local command path. `/status` prints only safe
+local shell-state labels and counters to
 stderr, including provider/model selection, provider-turn count, retained
 no-tool history counters, read-budget flags, pending proposal availability,
 and verification availability. `/login [openai-codex]` reuses
@@ -1392,9 +1395,9 @@ The parity path should stay incremental:
   startup chrome and safe status/context labels
 - then improve the existing line-oriented input surface with grouped
   slash-command discovery before changing the terminal runtime
-- then decide the Python terminal UI layer needed for Pi-style editor/footer
-  behavior, evaluating Textual, prompt-toolkit, curses, and a small custom
-  renderer as explicit options
+- then choose the next post-help input ergonomics boundary, deciding whether to
+  stay line-oriented for another slice or start a named Python terminal UI
+  layer investigation for Pi-style editor/footer behavior
 - then add richer input, file references, autocomplete, controlled tools,
   session workflow, extensions, and RPC as separate named slices
 

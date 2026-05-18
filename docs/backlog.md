@@ -19,10 +19,11 @@ one post-apply allowlisted verification command through `/verify just-check`.
 It can also clear retained no-tool conversation context locally with `/clear`
 and inspect local shell state with `/status`; bare `pipy` and
 `pipy repl --agent pipy-native` now print styled, sectioned startup chrome with
-safe metadata-only resource labels before the first prompt. The public shell
-still cannot execute arbitrary shell commands, request provider-side tools, read
-multiple files per session, run non-allowlisted verification commands, or run a
-general model/tool loop.
+safe metadata-only resource labels before the first prompt, and `/help` plus
+static usage diagnostics now show grouped slash-command discovery. The public
+shell still cannot execute arbitrary shell commands, request provider-side
+tools, read multiple files per session, run non-allowlisted verification
+commands, or run a general model/tool loop.
 
 Use this page as a planning index:
 
@@ -55,10 +56,10 @@ Use this page as a planning index:
   implemented, reviewed, and smoked; a local clear command for interactive
   conversation state is now implemented, reviewed, and smoked; a local status
   command for safe shell-state inspection, a compact startup chrome pass, a
-  styled Pi-like visual/resource-label pass, and the follow-up
-  input-ergonomics decision are now implemented. The next milestone is grouped
-  slash-command discovery in `/help` without committing to a full TUI
-  framework.
+  styled Pi-like visual/resource-label pass, the follow-up input-ergonomics
+  decision, and grouped slash-command discovery are now implemented. The next
+  milestone is choosing the next input-ergonomics boundary without committing
+  to a full TUI framework.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -78,7 +79,8 @@ discipline:
 
 - Shell chrome and orientation: startup header, safe loaded-resource labels,
   compact command affordances, and status/footer-style state presentation.
-  Current state: styled Pi-like startup/resource labels are implemented.
+  Current state: styled Pi-like startup/resource labels and grouped
+  slash-command discovery are implemented.
 - Interactive input ergonomics: richer editor behavior, multiline input,
   slash-command discovery, file references, autocomplete, and resilient terminal
   resize behavior. This likely requires a later TUI-framework decision.
@@ -870,37 +872,40 @@ plain terminal output and the existing REPL.
   with concise command shapes and no new execution capability. This decision
   explicitly defers multiline input, autocomplete, file references, terminal
   resize behavior, a keybinding framework, and any full TUI framework.
+- Native grouped slash-command discovery: `/help`, malformed supported-command
+  diagnostics, and unsupported slash-command diagnostics now render one stable
+  grouped command reference on stderr. The groups cover controls, local state,
+  provider/model, file context, proposal, verification, and exit. The shared
+  renderer stays line-oriented and captured-stream friendly, invokes no
+  providers or tools by itself, consumes no provider turns or explicit-read
+  budgets, archives no raw command text, and leaves command names, parser
+  behavior, stdout/stderr contracts, provider visibility, read budgets,
+  proposal/apply/verification behavior, and metadata-only archive rules
+  unchanged.
 
 ## Next Slice
 
-### Grouped slash-command discovery
+### Post-help input ergonomics decision
 
-Goal: make the existing line-oriented native shell easier to discover by
-grouping supported slash-command help by concern, without adding a full TUI
-framework or changing command behavior.
+Goal: choose the next small interactive-shell ergonomics boundary now that the
+line-oriented startup chrome, `/status`, and grouped slash-command discovery
+surfaces are in place, without adding a full TUI framework or changing command
+behavior inside the decision slice.
 
 Completion focus:
 
-- update `/help` to print stable concern-based groups for the existing command
-  set, such as controls, local state, provider/model, file context, proposal,
-  verification, and exit
-- update static malformed-command and unsupported-slash diagnostics to reuse
-  the same grouped command reference instead of a flat list
-- keep output line-oriented and stderr-only, with captured-stream friendly
-  plain text and no dependency on terminal cursor control
-- preserve the existing command parser, command names, command semantics,
-  stdout/stderr contracts, read budgets, provider-turn behavior, and
-  metadata-only archive behavior
-- add focused CLI coverage that `/help`, malformed supported commands, and
-  unsupported slash commands do not invoke providers/tools, do not consume read
-  budgets, and do not archive raw command text
-- keep the selected boundary line-oriented unless a separate later TUI decision
-  explicitly changes that direction
+- inspect the current line-oriented REPL behavior, grouped help/status output,
+  and Pi parity notes to pick one next reviewable ergonomics boundary
+- decide whether the next slice should remain line-oriented or justify a
+  named TUI/input-runtime investigation before any implementation
+- preserve existing command names, parser behavior, stdout/stderr contracts,
+  provider-turn behavior, read budgets, proposal/apply/verification behavior,
+  and metadata-only archive behavior
 - keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
-  keybinding framework, RPC mode, broad context loading, file-content reads,
-  arbitrary shell execution, provider-side tools, non-allowlisted verification,
-  persistent transcript storage, raw prompt/model-output display, or general
-  model/tool loop
+  keybinding framework, RPC mode, broad context loading, automatic file-content
+  reads, arbitrary shell execution, provider-side tools, non-allowlisted
+  verification, persistent transcript storage, raw prompt/model-output
+  display, or general model/tool loop
 
 ## Near Term
 
@@ -911,11 +916,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now grouped slash-command discovery after the styled
-Pi-like startup visual/resource-label pass and input-ergonomics decision. The
-next slice should improve command discovery in the existing line-oriented help
-surface without adding execution powers, broad context loading, multiline
-editing, autocomplete, or a TUI framework.
+The immediate path is now the post-help input ergonomics decision after the
+styled Pi-like startup visual/resource-label pass and grouped slash-command
+discovery. The next slice should choose one reviewable input boundary without
+adding execution powers, broad context loading, multiline editing,
+autocomplete, or a TUI framework in the decision slice.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -958,16 +963,16 @@ whether Ollama, llama.cpp, MLX, LM Studio, or another runtime should be the
 first local integration.
 
 The broader slopfork direction is Pi parity through pipy-owned Python
-boundaries. Startup chrome is the first visible parity step: it now has a
-styled, sectioned, resource-label frame while still staying line-oriented and
-metadata-only. The larger question of whether to adopt Textual, prompt-toolkit,
-curses, or a small custom terminal layer for Pi-style editor/footer/overlay
-behavior remains deliberately deferred until grouped slash-command discovery is
-implemented and the next ergonomics gate is chosen.
+boundaries. Startup chrome and grouped command discovery are the first visible
+parity steps: they now provide a styled, sectioned, resource-label frame and a
+grouped command reference while still staying line-oriented and metadata-only.
+The larger question of whether to adopt Textual, prompt-toolkit, curses, or a
+small custom terminal layer for Pi-style editor/footer/overlay behavior remains
+deliberately deferred until the next ergonomics gate is chosen.
 
 Small reviewable slices, in intended order:
 
-1. Grouped slash-command discovery.
+1. Post-help input ergonomics decision.
 
 Foundation gates toward an interactive shell:
 
@@ -1019,10 +1024,15 @@ Foundation gates toward an interactive shell:
   static supported-command diagnostics; multiline editing, autocomplete, file
   references, terminal resize behavior, a keybinding framework, and a TUI
   framework remain deferred.
-- Grouped slash-command discovery gate: next. Organize existing command help
-  into stable concern-based groups without adding commands, changing parser
-  behavior, invoking providers/tools, consuming budgets, archiving raw command
-  text, or changing stdout/stderr contracts.
+- Grouped slash-command discovery gate: available now. Existing command help
+  and usage diagnostics are organized into stable concern-based groups without
+  adding commands, changing parser behavior, invoking providers/tools,
+  consuming budgets, archiving raw command text, or changing stdout/stderr
+  contracts.
+- Post-help input ergonomics decision gate: next. Choose the next small
+  interactive-shell input boundary now that startup chrome, `/status`, and
+  grouped help are available, without implementing a TUI or expanding tool
+  capability in the decision slice.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

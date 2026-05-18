@@ -482,17 +482,24 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     assert provider_calls == 0
     assert captured.out == ""
     assert "pipy native REPL commands:" in captured.err
+    assert "Controls:" in captured.err
     assert "  /help" in captured.err
+    assert "Local state:" in captured.err
     assert "  /clear" in captured.err
     assert "  /status" in captured.err
+    assert "Provider and model:" in captured.err
     assert "  /login [openai-codex]" in captured.err
     assert "  /logout [openai-codex]" in captured.err
     assert "  /model [<provider>/<model>|<model>]" in captured.err
+    assert "File context:" in captured.err
     assert "  /read <workspace-relative-path>" in captured.err
     assert "  /ask-file <workspace-relative-path> -- <question>" in captured.err
+    assert "Proposal:" in captured.err
     assert "  /propose-file <workspace-relative-path> -- <change-request>" in captured.err
     assert "  /apply-proposal <workspace-relative-path>" in captured.err
+    assert "Verification:" in captured.err
     assert "  /verify just-check" in captured.err
+    assert "Exit:" in captured.err
     assert "  /exit" in captured.err
     assert "  /quit" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -1254,6 +1261,88 @@ def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
     )
     assert "/help" not in combined
     assert "private/noise" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_discovery_diagnostics_do_not_consume_read_limit(
+    tmp_path,
+    capfd,
+    monkeypatch,
+):
+    root = tmp_path / "sessions"
+    source = tmp_path / "docs" / "after-discovery.txt"
+    source.parent.mkdir()
+    source.write_text("READ_AFTER_DISCOVERY_COMMANDS\n", encoding="utf-8")
+    provider_calls = 0
+
+    class CliFakeReplProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            nonlocal provider_calls
+            provider_calls += 1
+            raise AssertionError("discovery commands and later read should not call provider")
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeReplProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/help\n"
+            "/help private/noise\n"
+            "/unknown private/raw/path\n"
+            "/read docs/after-discovery.txt\n"
+            "/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-discovery-read-budget",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert provider_calls == 0
+    assert captured.out == "READ_AFTER_DISCOVERY_COMMANDS\n"
+    assert "pipy native REPL commands:" in captured.err
+    assert "malformed /help command. Supported command usage:" in captured.err
+    assert "unsupported REPL slash command. Supported command usage:" in captured.err
+    assert "Controls:" in captured.err
+    assert "Local state:" in captured.err
+    assert "File context:" in captured.err
+    assert "read_command_limit_reached" not in captured.err
+    assert "private/noise" not in captured.err
+    assert "private/raw/path" not in captured.err
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert "native.provider.started" not in event_types
+    assert event_types.count("native.tool.completed") == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "/help" not in combined
+    assert "/unknown" not in combined
+    assert "private/noise" not in combined
+    assert "private/raw/path" not in combined
+    assert "READ_AFTER_DISCOVERY_COMMANDS" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
