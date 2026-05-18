@@ -20,10 +20,11 @@ It can also clear retained no-tool conversation context locally with `/clear`
 and inspect local shell state with `/status`; bare `pipy` and
 `pipy repl --agent pipy-native` now print styled, sectioned startup chrome with
 safe metadata-only resource labels before the first prompt, and `/help` plus
-static usage diagnostics now show grouped slash-command discovery. The public
-shell still cannot execute arbitrary shell commands, request provider-side
-tools, read multiple files per session, run non-allowlisted verification
-commands, or run a general model/tool loop.
+static usage diagnostics now show grouped slash-command discovery. The next
+implementation slice is a line-oriented, state-aware prompt label before each
+input. The public shell still cannot execute arbitrary shell commands, request
+provider-side tools, read multiple files per session, run non-allowlisted
+verification commands, or run a general model/tool loop.
 
 Use this page as a planning index:
 
@@ -56,10 +57,11 @@ Use this page as a planning index:
   implemented, reviewed, and smoked; a local clear command for interactive
   conversation state is now implemented, reviewed, and smoked; a local status
   command for safe shell-state inspection, a compact startup chrome pass, a
-  styled Pi-like visual/resource-label pass, the follow-up input-ergonomics
-  decision, and grouped slash-command discovery are now implemented. The next
-  milestone is choosing the next input-ergonomics boundary without committing
-  to a full TUI framework.
+  styled Pi-like visual/resource-label pass, the grouped-help input-ergonomics
+  decision, grouped slash-command discovery, and the post-help prompt-label
+  decision are now implemented. The next milestone is a safe, line-oriented
+  prompt label that reflects current shell state without committing to a full
+  TUI framework.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -99,8 +101,8 @@ discipline:
 
 Textual, prompt-toolkit, curses, or a small custom terminal layer are candidate
 Python UI directions for the later interactive input/TUI step. Do not select
-one inside the startup-chrome slice; first prove the Pi-like shell frame with
-plain terminal output and the existing REPL.
+one inside the current prompt-label slice; first finish the line-oriented
+shell-frame pass with plain terminal output and the existing REPL.
 
 ## Done
 
@@ -882,22 +884,36 @@ plain terminal output and the existing REPL.
   behavior, stdout/stderr contracts, provider visibility, read budgets,
   proposal/apply/verification behavior, and metadata-only archive rules
   unchanged.
+- Native post-help input ergonomics decision: inspection of the implemented
+  line-oriented REPL, grouped help/status output, Pi parity notes, and
+  summary-safe session archive signals selected one more line-oriented
+  implementation boundary before any TUI/input-runtime investigation. The next
+  slice is a state-aware prompt label before each input, reusing the existing
+  safe display-state data for provider/model, turn, read, proposal, and
+  verification availability labels. This decision explicitly keeps multiline
+  input, autocomplete, file references, terminal resize behavior, a keybinding
+  framework, Textual/prompt-toolkit/curses selection, RPC, broader context
+  loading, and any new execution capability deferred.
 
 ## Next Slice
 
-### Post-help input ergonomics decision
+### Line-oriented state-aware prompt label
 
-Goal: choose the next small interactive-shell ergonomics boundary now that the
-line-oriented startup chrome, `/status`, and grouped slash-command discovery
-surfaces are in place, without adding a full TUI framework or changing command
-behavior inside the decision slice.
+Goal: make the native REPL prompt itself carry compact, safe shell-state
+labels before each input, while staying line-oriented and preserving existing
+command behavior.
 
 Completion focus:
 
-- inspect the current line-oriented REPL behavior, grouped help/status output,
-  and Pi parity notes to pick one next reviewable ergonomics boundary
-- decide whether the next slice should remain line-oriented or justify a
-  named TUI/input-runtime investigation before any implementation
+- replace the fixed `pipy-native>` prompt with a compact line-oriented prompt
+  derived from the same safe display state used by startup chrome and `/status`
+- include only safe labels such as provider/model reference, provider turn
+  count/limit, read availability, pending proposal availability, and
+  verification availability
+- update the prompt before each input so local state changes from `/model`,
+  ordinary provider turns, `/read`, `/ask-file`, `/propose-file`,
+  `/apply-proposal`, `/verify`, `/clear`, `/login`, and `/logout` are reflected
+  without requiring a full `/status`
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   provider-turn behavior, read budgets, proposal/apply/verification behavior,
   and metadata-only archive behavior
@@ -916,11 +932,12 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now the post-help input ergonomics decision after the
-styled Pi-like startup visual/resource-label pass and grouped slash-command
-discovery. The next slice should choose one reviewable input boundary without
-adding execution powers, broad context loading, multiline editing,
-autocomplete, or a TUI framework in the decision slice.
+The immediate path is now a line-oriented state-aware prompt label after the
+styled Pi-like startup visual/resource-label pass, grouped slash-command
+discovery, and post-help input ergonomics decision. The next slice should make
+the prompt reflect safe current shell state before each input without adding
+execution powers, broad context loading, multiline editing, autocomplete, or a
+TUI framework.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -966,13 +983,13 @@ The broader slopfork direction is Pi parity through pipy-owned Python
 boundaries. Startup chrome and grouped command discovery are the first visible
 parity steps: they now provide a styled, sectioned, resource-label frame and a
 grouped command reference while still staying line-oriented and metadata-only.
-The larger question of whether to adopt Textual, prompt-toolkit, curses, or a
-small custom terminal layer for Pi-style editor/footer/overlay behavior remains
-deliberately deferred until the next ergonomics gate is chosen.
+The next line-oriented prompt label is the final small shell-frame step before
+reconsidering whether Textual, prompt-toolkit, curses, or a small custom
+terminal layer is justified for Pi-style editor/footer/overlay behavior.
 
 Small reviewable slices, in intended order:
 
-1. Post-help input ergonomics decision.
+1. Line-oriented state-aware prompt label.
 
 Foundation gates toward an interactive shell:
 
@@ -1029,10 +1046,15 @@ Foundation gates toward an interactive shell:
   adding commands, changing parser behavior, invoking providers/tools,
   consuming budgets, archiving raw command text, or changing stdout/stderr
   contracts.
-- Post-help input ergonomics decision gate: next. Choose the next small
-  interactive-shell input boundary now that startup chrome, `/status`, and
-  grouped help are available, without implementing a TUI or expanding tool
-  capability in the decision slice.
+- Post-help input ergonomics decision gate: available now. The selected next
+  boundary is another line-oriented slice: a compact state-aware prompt label
+  before each input. A named Textual, prompt-toolkit, curses, or custom
+  terminal-layer investigation remains deferred until a later ergonomics gate.
+- Line-oriented state-aware prompt label gate: next. Reuse the existing safe
+  display-state labels from startup chrome and `/status` to render the prompt
+  with provider/model, turn, read, proposal, and verification availability
+  before each input, without changing command parsing, stdout/stderr contracts,
+  provider visibility, archive privacy, or execution capability.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

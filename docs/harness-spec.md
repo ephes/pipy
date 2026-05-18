@@ -2,8 +2,8 @@
 
 Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
-and post-apply `just-check` verification; the next UI slice is a post-help
-input ergonomics decision.
+and post-apply `just-check` verification; the next UI slice is a
+line-oriented state-aware prompt label.
 
 <style>
 .mermaid,
@@ -1395,16 +1395,17 @@ The parity path should stay incremental:
   startup chrome and safe status/context labels
 - then improve the existing line-oriented input surface with grouped
   slash-command discovery before changing the terminal runtime
-- then choose the next post-help input ergonomics boundary, deciding whether to
-  stay line-oriented for another slice or start a named Python terminal UI
-  layer investigation for Pi-style editor/footer behavior
+- then add one more line-oriented shell-frame slice with a safe state-aware
+  prompt label before each input
+- then decide whether a named Python terminal UI layer investigation is needed
+  for Pi-style editor/footer behavior
 - then add richer input, file references, autocomplete, controlled tools,
   session workflow, extensions, and RPC as separate named slices
 
 See `docs/backlog.md` for the more granular current Pi parity ladder and the
 active next implementation slice.
 
-The current startup-chrome slice must not choose Textual or any other TUI
+The current prompt-label slice must not choose Textual or any other TUI
 framework. Adding such a dependency changes the runtime shape and should wait
 for a dedicated TUI decision with tests for resize behavior, stdout/stderr
 contracts, archive privacy, and fallback behavior in non-interactive terminals.
@@ -1455,6 +1456,39 @@ secrets, credentials, API keys, tokens, private keys, or sensitive personal
 data. Safe display labels should be static, workspace-relative, or basename
 level where possible; do not expose absolute paths unless they are already an
 explicit user-facing shell status decision.
+
+### Native Post-Help Input Ergonomics Decision
+
+The next shell ergonomics boundary after grouped slash-command discovery stays
+line-oriented. The current REPL already has startup chrome, `/status`, and
+grouped command discovery, but the active input prompt is still the static
+`pipy-native>` label. That creates a gap between the safe shell-state data the
+user can inspect manually and the input location where they choose the next
+command.
+
+The selected next implementation slice is a state-aware prompt label before
+each input. It should reuse the same safe display-state data used by startup
+chrome and `/status`, including provider/model selection, provider turn
+count/limit, read availability, pending proposal availability, and
+verification availability. The prompt should update after local state changes
+such as model/auth changes, provider turns, read/context/proposal commands,
+apply/verification commands, and local clear/status/help paths as appropriate.
+
+This decision does not choose Textual, prompt-toolkit, curses, or a custom
+terminal layer yet. It also does not add multiline input, autocomplete, file
+references, terminal resize behavior, keybindings, a persistent footer,
+alternate screen buffer, RPC mode, broader context loading, arbitrary shell
+execution, provider-side tools, non-allowlisted verification, or a general
+model/tool loop.
+
+The prompt label is presentation only. It must remain on stderr with existing
+prompt output, must not invoke providers, tools, reads, writes, verification,
+shell commands, network access, provider-visible context handoff, or
+provider-side tools, and must not consume provider turns or explicit-read
+budgets. It must not archive raw command text or add prompts, model output,
+provider responses, excerpts, patch text, diffs, command output, auth material,
+secrets, credentials, tokens, private keys, or sensitive personal data to the
+metadata-first record.
 
 ### Native Structured Stdout JSON Mode
 

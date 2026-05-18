@@ -28,6 +28,7 @@ Status labels are intentionally coarse:
 | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not read Pi credentials. |
 | `/login`, `/logout`, `/model` | Implemented narrow shell commands | Commands are local, late-bind provider selection, and do not create provider turns or archive auth material. |
 | Startup orientation | Implemented styled pass | The shell prints sectioned startup chrome with TTY-only ANSI styling, plain captured-stream fallback, safe resource-source labels, and compact workspace/model/turn status labels. |
+| Active prompt state | Planned next slice | The next line-oriented boundary is a compact prompt label that reflects safe provider/model, turn, read, proposal, and verification state before each input. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
 | Read tool | Partial | `/read <path>` supports one explicit, bounded, UTF-8 workspace-relative excerpt per REPL session. No broad model-selected read tool exists yet. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn. |
@@ -44,8 +45,9 @@ Status labels are intentionally coarse:
 The main missing Pi-class surfaces are intentionally deferred until the current
 metadata and boundary invariants are stable:
 
-- Full interactive terminal UI with editor, footer, model/status controls,
-  overlays, selectors, resize handling, and richer startup presentation.
+- Full interactive terminal UI with editor, persistent footer,
+  model/status controls, overlays, selectors, resize handling, and richer
+  startup presentation beyond the planned line-oriented prompt label.
 - File references with `@`, path completion, multiline editing, pasted images,
   and keyboard shortcut handling.
 - Model-selected tool loop with read, write, edit, bash, and follow-up tool
@@ -121,7 +123,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | --- | --- | --- |
 | Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
-| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome and stderr diagnostics. |
+| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome and stderr diagnostics; a state-aware prompt label is the next planned shell-frame slice. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; no raw transcript import by default. |
 | Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries; no general model-selected tool loop yet. |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
