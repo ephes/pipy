@@ -20,11 +20,12 @@ It can also clear retained no-tool conversation context locally with `/clear`
 and inspect local shell state with `/status`; bare `pipy` and
 `pipy repl --agent pipy-native` now print styled, sectioned startup chrome with
 safe metadata-only resource labels before the first prompt, `/help` plus static
-usage diagnostics show grouped slash-command discovery, and each REPL input
-prompt now carries safe state labels for provider/model, turns, read, proposal,
-and verification availability. A terminal-layer direction checkpoint selected
-`prompt-toolkit` as the next narrow input-runtime investigation, while keeping
-the current plain line-oriented shell as the shipping fallback. The public shell
+usage diagnostics show grouped slash-command discovery, each REPL input prompt
+now carries safe state labels for provider/model, turns, read, proposal, and
+verification availability, and the REPL now reads input through a small adapter
+boundary with plain captured-stream fallback plus optional prompt-toolkit
+line-editor support when explicitly selected or auto-available on real TTY
+streams. The public shell
 still cannot execute arbitrary shell commands, request provider-side tools, read
 multiple files per session, run non-allowlisted verification commands, or run a
 general model/tool loop.
@@ -62,10 +63,11 @@ Use this page as a planning index:
   command for safe shell-state inspection, a compact startup chrome pass, a
   styled Pi-like visual/resource-label pass, the grouped-help input-ergonomics
   decision, grouped slash-command discovery, the post-help prompt-label
-  decision, the safe state-aware prompt label, and the terminal-layer direction
-  checkpoint are now implemented. The next milestone is a narrow
-  `prompt-toolkit` input-adapter feasibility slice before any full TUI,
-  alternate-screen app, or general keybinding runtime is selected.
+  decision, the safe state-aware prompt label, the terminal-layer direction
+  checkpoint, and the prompt-toolkit line-editor feasibility boundary are now
+  implemented. The next milestone is deciding the first useful richer
+  line-editor behavior while any full TUI, alternate-screen app, or general
+  keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -87,9 +89,11 @@ discipline:
   compact command affordances, and status/footer-style state presentation.
   Current state: styled Pi-like startup/resource labels, grouped
   slash-command discovery, and safe prompt-state labels are implemented.
-- Interactive input ergonomics: richer editor behavior, multiline input,
-  slash-command discovery, file references, autocomplete, and resilient terminal
-  resize behavior. This likely requires a later TUI-framework decision.
+- Interactive input ergonomics: the first input-adapter boundary now preserves
+  plain captured-stream fallback and can use optional prompt-toolkit line-editor
+  input on real TTY streams. Richer editor behavior, multiline input, file
+  references, autocomplete, and resilient terminal resize behavior remain
+  future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
   archive behavior.
@@ -929,28 +933,40 @@ fuller UI surface or lower-level terminal ownership.
   stdout/stderr contracts, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, archive event shapes, or
   metadata-only privacy rules.
+- Native prompt-toolkit line-editor feasibility boundary:
+  `NativeNoToolReplSession` now reads input through a small internal adapter
+  boundary. The default `auto` runtime keeps plain stdin/stderr behavior for
+  captured and non-TTY streams, can use optional prompt-toolkit line-editor
+  input only on the process stdin/stderr TTY streams when the package is
+  available, and exposes `--input-runtime plain|prompt-toolkit|auto` for
+  explicit smoke testing. The first prompt-toolkit path is input-only and
+  presentation-only: it does not add multiline input, history persistence,
+  autocomplete, file references, alternate-screen behavior, overlays, RPC,
+  provider-side tools, arbitrary shell execution, broader context loading, or
+  new provider-visible behavior. Focused tests cover plain input, auto
+  captured-stream fallback, explicit prompt-toolkit rejection on captured
+  streams, and a faked prompt-toolkit TTY line-editor path. Native REPL archive
+  events record only the safe `input_runtime` label and remain metadata-only.
 
 ## Next Slice
 
-### Prompt-toolkit line-editor feasibility boundary
+### Prompt-toolkit line-editor follow-up decision
 
-Goal: introduce the smallest testable input-adapter boundary for investigating
-`prompt-toolkit` while keeping the existing plain line-oriented REPL as the
-default fallback and preserving all current command and archive contracts.
+Goal: decide the first useful richer input behavior to build on the implemented
+REPL input-adapter boundary, or explicitly defer richer prompt-toolkit behavior
+if the optional line-editor path is not worth turning into a runtime
+dependency yet.
 
 Completion focus:
 
-- add or prepare a small internal REPL input abstraction so the current
-  `readline()` loop remains available as the conservative implementation
-- if adding `prompt-toolkit` in this slice, keep it scoped to line-editor input
-  only: no alternate screen buffer, full-screen app, overlays, RPC mode, or
-  provider-visible behavior
-- define non-TTY and captured-stream fallback behavior before any richer editor
-  path can be used by default
-- keep the first `prompt-toolkit` surface focused on input ergonomics and safe
-  state display; multiline input, path/file references, and autocomplete may be
-  stubbed or explicitly deferred unless the slice remains small and fully
-  testable
+- use the implemented `--input-runtime` boundary to compare plain versus
+  prompt-toolkit behavior on real TTY streams without changing command
+  semantics
+- decide whether prompt-toolkit should become a declared runtime dependency or
+  remain an optional opportunistic line-editor path
+- choose at most one next richer input behavior, such as multiline entry,
+  slash-command completion, file/path completion, or bottom-toolbar-style safe
+  status display, and keep that behavior separately reviewable
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   prompt labels, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, and metadata-only archive behavior
@@ -969,15 +985,16 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a prompt-toolkit line-editor feasibility boundary
-after the styled Pi-like startup visual/resource-label pass, grouped
-slash-command discovery, post-help input ergonomics decision, state-aware prompt
-label, and terminal-layer direction checkpoint. The checkpoint chose
-`prompt-toolkit` for a narrow input-adapter investigation, not Textual, curses,
-a custom terminal layer, or a full TUI. The next slice should prove whether a
-line-editor adapter can preserve the existing shell contracts before adding
-execution powers, broad context loading, multiline editing, autocomplete, or
-file references.
+The immediate path is now a prompt-toolkit line-editor follow-up decision after
+the styled Pi-like startup visual/resource-label pass, grouped slash-command
+discovery, post-help input ergonomics decision, state-aware prompt label,
+terminal-layer direction checkpoint, and prompt-toolkit feasibility boundary.
+The implemented boundary proves the current shell can preserve plain
+captured-stream behavior while isolating optional prompt-toolkit input behind a
+small adapter. The next slice should decide whether to turn that optional path
+into a declared dependency and which single richer input behavior is worth
+building first, before adding execution powers, broad context loading,
+multiline editing, autocomplete, file references, or a full TUI.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -1021,15 +1038,15 @@ first local integration.
 
 The broader slopfork direction is Pi parity through pipy-owned Python
 boundaries. Startup chrome, grouped command discovery, the state-aware prompt
-label, and the terminal-layer direction checkpoint are the first visible parity
-steps: they now provide a styled, sectioned, resource-label frame, a grouped
-command reference, compact current-state input labels, and a named
-`prompt-toolkit` input-runtime investigation while still keeping the shipping
-runtime line-oriented and metadata-only.
+label, the terminal-layer direction checkpoint, and the prompt-toolkit
+input-adapter boundary are the first visible parity steps: they now provide a
+styled, sectioned, resource-label frame, a grouped command reference, compact
+current-state input labels, and an optional prompt-toolkit line-editor path
+while still keeping the shipping runtime line-oriented and metadata-only.
 
 Small reviewable slices, in intended order:
 
-1. Prompt-toolkit line-editor feasibility boundary.
+1. Prompt-toolkit line-editor follow-up decision.
 
 Foundation gates toward an interactive shell:
 
@@ -1099,11 +1116,15 @@ Foundation gates toward an interactive shell:
   input-runtime investigation is a narrow `prompt-toolkit` line-editor adapter;
   Textual, curses, and a custom terminal layer remain deferred, and the current
   plain line-oriented runtime remains the required fallback.
-- Prompt-toolkit line-editor feasibility gate: next. Introduce or prepare a
-  small input-adapter boundary and prove fallback, stdout/stderr,
-  prompt-label, parser, provider-turn, budget, proposal/apply/verification, and
-  metadata-only archive contracts stay unchanged before using richer editor
-  behavior by default.
+- Prompt-toolkit line-editor feasibility gate: available now. The REPL input
+  path is behind a small adapter boundary; `auto` keeps plain captured-stream
+  fallback and can use optional prompt-toolkit only on real TTY streams, while
+  `--input-runtime plain|prompt-toolkit|auto` enables explicit smoke testing.
+- Prompt-toolkit line-editor follow-up decision gate: next. Decide whether the
+  optional prompt-toolkit path should become a declared runtime dependency and
+  choose at most one richer input behavior to implement next while preserving
+  stdout/stderr, prompt-label, parser, provider-turn, budget,
+  proposal/apply/verification, and metadata-only archive contracts.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

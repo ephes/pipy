@@ -12,6 +12,7 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NativeAgentSession,
     NativeNoToolReplSession,
@@ -102,6 +103,7 @@ class PipyNativeReplAdapter:
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
+        input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -110,6 +112,7 @@ class PipyNativeReplAdapter:
         self.input_stream = input_stream or sys.stdin
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
+        self.input_runtime = input_runtime
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -142,6 +145,7 @@ class PipyNativeReplAdapter:
         run_output = NativeNoToolReplSession(
             provider=self.provider,
             provider_state=self.provider_state,
+            input_runtime=self.input_runtime,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",

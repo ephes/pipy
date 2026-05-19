@@ -1,7 +1,7 @@
 # Pipy Architecture
 
 Status: describes the current codebase after the native shell, proposal,
-apply, verification, and startup chrome slices.
+apply, verification, startup chrome, and input-adapter slices.
 
 Pipy is split into two Python packages:
 
@@ -24,6 +24,7 @@ flowchart LR
   AgentPort --> NativeAdapter[PipyNativeAdapter or PipyNativeReplAdapter]
   AgentPort --> SubprocessAdapter[SubprocessAdapter]
   NativeAdapter --> NativeSession[NativeAgentSession or NativeNoToolReplSession]
+  NativeSession --> InputAdapter[REPL Input Adapter]
   NativeSession --> ProviderPort[ProviderPort]
   NativeSession --> ToolBoundaries[Tool Boundaries]
   ProviderPort --> Providers[Fake, OpenAI, OpenAI Codex, OpenRouter]
@@ -39,7 +40,7 @@ flowchart LR
   classDef store fill:#ecfdf5,stroke:#047857,color:#111111;
   classDef boundary fill:#f8fafc,stroke:#334155,color:#111111;
   class CLI,Runner,NativeSession core;
-  class AgentPort,ProviderPort,RecorderPort,ToolBoundaries boundary;
+  class AgentPort,InputAdapter,ProviderPort,RecorderPort,ToolBoundaries boundary;
   class NativeAdapter,SubprocessAdapter,Providers adapter;
   class SessionRecorder,Archive,Catalog,ReaderCommands store;
 ```
@@ -96,14 +97,17 @@ Markdown, catalog output, and structured native JSON output by default.
 ## Current Feature Surface
 
 The native shell is line-oriented and bounded. It is intentionally not a full
-Pi-style TUI yet. The selected next UI boundary is a narrow `prompt-toolkit`
-line-editor adapter investigation with the current plain line-oriented REPL
-kept as the fallback.
+Pi-style TUI yet. REPL input now goes through a small adapter: captured and
+non-TTY streams keep the plain stdin/stderr behavior, while real TTY sessions
+can use optional prompt-toolkit line-editor input when it is available or
+explicitly selected.
 
 Available now:
 
 - `pipy` and `pipy repl --agent pipy-native` start the native REPL in the
   current directory with compact startup chrome.
+- `pipy repl --input-runtime auto|plain|prompt-toolkit` selects the REPL input
+  boundary; `auto` preserves plain fallback for captured streams.
 - `pipy run --agent pipy-native --goal ...` runs one native provider turn.
 - `/help` prints static command usage.
 - `/status` prints safe local shell state to stderr.

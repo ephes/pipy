@@ -80,6 +80,7 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     StaticNativeReplProviderState,
 )
+from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO, native_repl_input_for
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
 from pipy_harness.native.verification import (
@@ -724,6 +725,7 @@ class NativeNoToolReplSession:
     provider: ProviderPort | None = None
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     max_turns: int = NativeConversationState.MAX_TURNS
+    input_runtime: str = REPL_INPUT_RUNTIME_AUTO
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -749,6 +751,11 @@ class NativeNoToolReplSession:
             run_input,
             self.max_turns,
         )
+        repl_input = native_repl_input_for(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            input_runtime=self.input_runtime,
+        )
         conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
         event_sink.emit(
             "native.session.started",
@@ -760,6 +767,7 @@ class NativeNoToolReplSession:
             payload={
                 **safe_context,
                 "status": HarnessStatus.RUNNING.value,
+                "input_runtime": repl_input.runtime_label,
             },
         )
 
@@ -794,17 +802,17 @@ class NativeNoToolReplSession:
 
         while conversation_state.turn_count < self.max_turns:
             try:
-                _print_repl_prompt(
-                    error_stream,
-                    provider_state,
-                    run_input=current_run_input,
-                    conversation_state=conversation_state,
-                    read_budgets=read_budgets,
-                    no_tool_context=no_tool_context,
-                    pending_apply_draft=pending_apply_draft,
-                    verify_after_apply_available=verify_after_apply_available,
+                line = repl_input.read_line(
+                    _repl_prompt_label_for(
+                        provider_state,
+                        run_input=current_run_input,
+                        conversation_state=conversation_state,
+                        read_budgets=read_budgets,
+                        no_tool_context=no_tool_context,
+                        pending_apply_draft=pending_apply_draft,
+                        verify_after_apply_available=verify_after_apply_available,
+                    )
                 )
-                line = input_stream.readline()
             except KeyboardInterrupt:
                 print(file=error_stream)
                 status = HarnessStatus.ABORTED
@@ -1224,6 +1232,7 @@ class NativeNoToolReplSession:
                 "apply_proposal_command_used": apply_proposal_command_used,
                 "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
+                "input_runtime": repl_input.runtime_label,
                 **no_tool_context.safe_retained_metadata(),
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
@@ -1563,8 +1572,7 @@ def _print_repl_startup_chrome(
     )
 
 
-def _print_repl_prompt(
-    error_stream: TextIO,
+def _repl_prompt_label_for(
     provider_state: NativeReplProviderState | StaticNativeReplProviderState,
     *,
     run_input: NativeRunInput,
@@ -1573,7 +1581,7 @@ def _print_repl_prompt(
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
-) -> None:
+) -> str:
     state = _repl_display_state(
         provider_state,
         run_input=run_input,
@@ -1583,7 +1591,7 @@ def _print_repl_prompt(
         pending_apply_draft=pending_apply_draft,
         verify_after_apply_available=verify_after_apply_available,
     )
-    print(f"{_repl_prompt_label(state)} ", end="", file=error_stream, flush=True)
+    return _repl_prompt_label(state)
 
 
 def _repl_prompt_label(state: _ReplDisplayState) -> str:

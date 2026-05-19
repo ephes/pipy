@@ -222,8 +222,12 @@ the first prompt, including the pipy version, controls, safe command/resource
 labels, and the same kind of safe provider/model, workspace, turn, context,
 read-budget, proposal, and verification indicators shown by `/status`. The
 prompt itself is now a compact state-aware label with provider/model, turn,
-read, proposal, and verification availability. Startup chrome and prompt
-labels are presentation only: they do not call
+read, proposal, and verification availability. REPL input goes through
+`--input-runtime auto|plain|prompt-toolkit`; `auto` keeps the existing plain
+stdin/stderr behavior for captured streams and can use optional prompt-toolkit
+line-editor input only on real TTY streams when the package is available.
+Startup chrome, prompt labels, and input-runtime selection are presentation
+only: they do not call
 providers, run tools, read files, mutate state, consume budgets, or write to
 stdout. Ordinary non-command input lines remain bounded no-tool provider turns.
 Local `/login [openai-codex]`, `/logout [openai-codex]`, and

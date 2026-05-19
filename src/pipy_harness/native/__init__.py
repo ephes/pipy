@@ -112,6 +112,11 @@ from pipy_harness.native.repl_state import (
     default_native_defaults_path,
     default_selection_for,
 )
+from pipy_harness.native.repl_input import (
+    SUPPORTED_REPL_INPUT_RUNTIMES,
+    ReplInputUnavailableError,
+    validate_native_repl_input_runtime,
+)
 from pipy_harness.native.session import NativeAgentSession, NativeNoToolReplSession
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
@@ -223,8 +228,10 @@ __all__ = [
     "ProviderPort",
     "ProviderRequest",
     "ProviderResult",
+    "ReplInputUnavailableError",
     "StaticNativeReplProviderState",
     "SUPPORTED_NATIVE_PROVIDERS",
+    "SUPPORTED_REPL_INPUT_RUNTIMES",
     "ToolPort",
     "create_authorization_flow",
     "default_native_defaults_path",
@@ -233,4 +240,5 @@ __all__ = [
     "normalize_provider_usage",
     "parse_authorization_input",
     "resolve_read_only_workspace_approval",
+    "validate_native_repl_input_runtime",
 ]

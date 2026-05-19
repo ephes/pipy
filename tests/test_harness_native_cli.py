@@ -274,6 +274,7 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
         event["payload"] for event in events if event["type"] == "native.session.completed"
     ][0]
     assert completed_payload["mode"] == "repl"
+    assert completed_payload["input_runtime"] == "plain"
     assert completed_payload["tools_enabled"] is True
     assert completed_payload["read_only_commands_enabled"] is True
     assert completed_payload["read_command_used"] is False
@@ -353,6 +354,37 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     assert completed_payload["turn_count"] == 0
     assert completed_payload["read_command_used"] is False
     assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_repl_explicit_prompt_toolkit_rejects_captured_stream_before_record(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-prompt-toolkit-captured",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--input-runtime",
+            "prompt-toolkit",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "pipy: prompt-toolkit input requires the process stdin and stderr TTY streams" in captured.err
+    assert not list(root.glob("**/*.jsonl"))
 
 
 def test_cli_native_repl_interrupt_finalizes_aborted_record(tmp_path, capfd, monkeypatch):

@@ -404,9 +404,10 @@ The top-level `pipy` CLI is the initial product harness surface. Its first
 implemented command is `pipy run`. It can run one arbitrary subprocess command
 or one minimal native pipy bootstrap turn, records conservative lifecycle
 metadata through the same recorder lifecycle, finalizes the record, and returns
-the adapter exit code. The first interactive native shell is `pipy repl
---agent pipy-native`; it uses the same recorder lifecycle for bounded provider
-turns plus explicit approved `/read` and `/ask-file` read-only commands.
+the adapter exit code. The interactive native shell is `pipy repl --agent
+pipy-native`; it uses the same recorder lifecycle for bounded provider turns
+plus explicit `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+`/verify just-check` command boundaries.
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
@@ -696,6 +697,8 @@ For the REPL, each successful provider turn follows the same split: provider
 final text prints to stdout, while the state-aware `pipy-native [...]>` prompt
 and all harness/session messages stay on stderr. The prompt label includes only
 safe provider/model, turn, read, proposal, and verification availability labels.
+The REPL input runtime may be archived only as a safe label such as `plain` or
+`prompt-toolkit`; prompt buffers and raw command text are still excluded.
 `/help` and static usage diagnostics for malformed or unsupported slash
 commands also stay on stderr without provider/tool execution. Successful
 `/read` excerpt text prints only to interactive stdout. Successful `/ask-file`

@@ -25,9 +25,12 @@ from pipy_harness.native import (
     OpenAIResponsesProvider,
     OpenRouterChatCompletionsProvider,
     ProviderPort,
+    ReplInputUnavailableError,
+    SUPPORTED_REPL_INPUT_RUNTIMES,
     default_native_defaults_path,
     default_openai_codex_auth_path,
     default_selection_for,
+    validate_native_repl_input_runtime,
 )
 from pipy_harness.runner import HarnessRunner
 
@@ -140,6 +143,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Session root. Defaults to PIPY_SESSION_DIR or ~/.local/state/pipy/sessions.",
     )
+    repl_parser.add_argument(
+        "--input-runtime",
+        choices=SUPPORTED_REPL_INPUT_RUNTIMES,
+        default="auto",
+        help=(
+            "Native REPL input runtime. auto uses prompt-toolkit only when it is "
+            "available on real TTY streams, otherwise plain stdin/stderr."
+        ),
+    )
 
     return parser
 
@@ -201,7 +213,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "repl":
             if args.agent != "pipy-native":
                 raise ValueError("pipy repl currently requires --agent pipy-native")
-            repl_adapter = _repl_adapter_for(args.native_provider, args.native_model)
+            validate_native_repl_input_runtime(
+                input_stream=sys.stdin,
+                error_stream=sys.stderr,
+                input_runtime=args.input_runtime,
+            )
+            repl_adapter = _repl_adapter_for(
+                args.native_provider,
+                args.native_model,
+                input_runtime=args.input_runtime,
+            )
             request = RunRequest(
                 agent=args.agent,
                 slug=args.slug,
@@ -228,6 +249,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return result.exit_code
     except ValueError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 2
+    except ReplInputUnavailableError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 2
     except OpenAICodexProviderError as exc:
@@ -343,6 +367,8 @@ def _adapter_for(
 def _repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
+    *,
+    input_runtime: str = "auto",
 ) -> PipyNativeReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -362,7 +388,7 @@ def _repl_adapter_for(
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
-    return PipyNativeReplAdapter(provider_state=provider_state)
+    return PipyNativeReplAdapter(provider_state=provider_state, input_runtime=input_runtime)
 
 
 def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:

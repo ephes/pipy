@@ -555,19 +555,25 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "current plain line-oriented runtime as the required fallback" in (
         compact_pre_next_slice
     )
+    assert "Native prompt-toolkit line-editor feasibility boundary" in compact_pre_next_slice
+    assert "`NativeNoToolReplSession` now reads input through a small internal adapter" in (
+        compact_pre_next_slice
+    )
+    assert "`--input-runtime plain|prompt-toolkit|auto`" in compact_pre_next_slice
+    assert "safe `input_runtime` label" in compact_pre_next_slice
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "selected direction is a narrow `prompt-toolkit` line-editor adapter" in (
+    assert "first input-adapter boundary now preserves plain captured-stream fallback" in (
         compact_pi_parity_roadmap
     )
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Prompt-toolkit line-editor feasibility boundary" in next_slice
-    assert "smallest testable input-adapter boundary" in compact_next_slice
-    assert "`prompt-toolkit` in this slice" in compact_next_slice
-    assert "current `readline()` loop remains available" in compact_next_slice
+    assert "### Prompt-toolkit line-editor follow-up decision" in next_slice
+    assert "decide the first useful richer input behavior" in compact_next_slice
+    assert "declared runtime dependency" in compact_next_slice
+    assert "multiline entry" in compact_next_slice
     assert "preserve existing command names, parser behavior, stdout/stderr contracts" in (
         compact_next_slice
     )
@@ -576,14 +582,15 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
+    assert "Native Prompt-Toolkit Line-Editor Feasibility Boundary" in spec
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now a prompt-toolkit line-editor feasibility boundary" in (
+    assert "immediate path is now a prompt-toolkit line-editor follow-up decision" in (
         compact_near_term
     )
-    assert "Prompt-toolkit line-editor feasibility boundary." in compact_near_term
+    assert "Prompt-toolkit line-editor follow-up decision." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
-    assert "terminal-layer direction checkpoint are the first visible parity steps" in (
+    assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term
     )
     assert "no permission popups for normal interactive use" in compact_near_term
@@ -641,7 +648,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Post-help input ergonomics decision gate: available now" in compact_near_term
     assert "Line-oriented state-aware prompt label gate: available now" in compact_near_term
     assert "Terminal-layer direction checkpoint gate: available now" in compact_near_term
-    assert "Prompt-toolkit line-editor feasibility gate: next" in compact_near_term
+    assert "Prompt-toolkit line-editor feasibility gate: available now" in compact_near_term
+    assert "Prompt-toolkit line-editor follow-up decision gate: next" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

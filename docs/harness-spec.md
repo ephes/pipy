@@ -2,10 +2,9 @@
 
 Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
-post-apply `just-check` verification, and a line-oriented state-aware prompt
-label. The terminal-layer direction checkpoint selected a narrow
-`prompt-toolkit` line-editor adapter investigation as the next UI boundary
-while keeping the current plain line-oriented runtime as the required fallback.
+post-apply `just-check` verification, a line-oriented state-aware prompt label,
+and a small REPL input-adapter boundary with plain captured-stream fallback plus
+optional prompt-toolkit line-editor input on real TTY streams.
 
 <style>
 .mermaid,
@@ -1411,10 +1410,11 @@ The terminal-layer checkpoint selected `prompt-toolkit` as the next narrow
 input-runtime investigation. That is not a commitment to a full-screen TUI or
 alternate-screen app: Textual, curses, and a custom terminal layer remain
 deferred until there is a named need for a fuller UI surface or lower-level
-terminal ownership. Any prompt-toolkit work must start behind a small input
-adapter, preserve non-TTY fallback behavior, and test stdout/stderr contracts,
-archive privacy, parser compatibility, prompt labels, and safe state display
-before richer editor behavior is enabled by default.
+terminal ownership. The first prompt-toolkit feasibility boundary now starts
+behind a small input adapter, preserves non-TTY and captured-stream fallback,
+and test-covers stdout/stderr contracts, archive privacy, parser compatibility,
+prompt labels, and safe state display before richer editor behavior is enabled
+by default.
 
 ### Native Pi-Like REPL Startup Chrome
 
@@ -1534,6 +1534,33 @@ metadata-only privacy rules. Any bottom-toolbar-style status, multiline entry,
 path/file references, or autocomplete behavior should land as separate
 reviewable boundaries unless the first adapter slice remains small and fully
 testable.
+
+### Native Prompt-Toolkit Line-Editor Feasibility Boundary
+
+The first input-runtime implementation introduces a small native REPL input
+adapter rather than changing the shell parser or provider loop. The plain
+adapter keeps the previous stderr prompt plus `readline()` behavior for
+captured streams, non-TTY streams, tests, and explicit `--input-runtime plain`.
+The `auto` runtime may use prompt-toolkit only when the optional
+`prompt_toolkit` package is importable and the process stdin and stderr are
+real TTY streams; otherwise it falls back to the plain adapter. Explicit
+`--input-runtime prompt-toolkit` fails closed when those requirements are not
+met, which makes smoke-test intent visible.
+
+The prompt-toolkit path is deliberately scoped to one-line input. It does not
+use an alternate screen buffer, full-screen app, overlays, selectors,
+persistent footer ownership, RPC protocol, broad resource loader,
+provider-side tools, arbitrary shell execution, automatic file-content reads,
+non-allowlisted verification, persistent transcript storage, raw
+prompt/model-output display, or a general model/tool loop. It also does not
+make prompt-toolkit a declared runtime dependency yet; that remains a follow-up
+decision after real TTY smoke testing.
+
+Native session events may record the safe `input_runtime` label. They still do
+not store raw command text, prompts, model output, provider responses, file
+contents, prompt-toolkit buffers, command output, stdout, stderr, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data.
 
 ### Native Structured Stdout JSON Mode
 
