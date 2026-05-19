@@ -693,14 +693,16 @@ Session finalization messages, diagnostics, and errors go to stderr. Failed
 native runs do not print provider final text to stdout.
 
 For the REPL, each successful provider turn follows the same split: provider
-final text prints to stdout, while the `pipy-native>` prompt and all
-harness/session messages stay on stderr. `/help` and static usage diagnostics
-for malformed or unsupported slash commands also stay on stderr without
-provider/tool execution. Successful `/read` excerpt text prints only to
-interactive stdout. Successful `/ask-file` and `/propose-file` excerpt text is
-forwarded only in memory to one provider turn; only that provider final text
-prints to stdout. The REPL does not add structured stdout, JSONL event
-streaming, transcript export, raw conversation storage, or raw excerpt storage.
+final text prints to stdout, while the state-aware `pipy-native [...]>` prompt
+and all harness/session messages stay on stderr. The prompt label includes only
+safe provider/model, turn, read, proposal, and verification availability labels.
+`/help` and static usage diagnostics for malformed or unsupported slash
+commands also stay on stderr without provider/tool execution. Successful
+`/read` excerpt text prints only to interactive stdout. Successful `/ask-file`
+and `/propose-file` excerpt text is forwarded only in memory to one provider
+turn; only that provider final text prints to stdout. The REPL does not add
+structured stdout, JSONL event streaming, transcript export, raw conversation
+storage, or raw excerpt storage.
 
 Structured native stdout is available only through explicit
 `--native-output json` on `--agent pipy-native`. Non-native runs reject

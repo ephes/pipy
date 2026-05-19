@@ -543,22 +543,23 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native post-help input ergonomics decision" in compact_pre_next_slice
     assert "selected one more line-oriented implementation boundary" in compact_pre_next_slice
     assert "state-aware prompt label before each input" in compact_pre_next_slice
+    assert "Native line-oriented state-aware prompt label" in compact_pre_next_slice
+    assert "replace the fixed prompt with a compact stderr prompt label" in (
+        compact_pre_next_slice
+    )
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "Do not select one inside the current prompt-label slice" in (
+    assert "prompt-label slice finished the line-oriented shell-frame pass" in (
         compact_pi_parity_roadmap
     )
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Line-oriented state-aware prompt label" in next_slice
-    assert "make the native REPL prompt itself carry compact" in compact_next_slice
-    assert "derived from the same safe display state used by startup chrome and `/status`" in (
-        compact_next_slice
-    )
-    assert "read availability, pending proposal availability" in compact_next_slice
-    assert "local state changes from `/model`, ordinary provider turns" in compact_next_slice
+    assert "### Terminal-layer direction checkpoint" in next_slice
+    assert "decide the next interactive input/runtime direction" in compact_next_slice
+    assert "compare Textual, prompt-toolkit, curses" in compact_next_slice
+    assert "without adding a runtime dependency in this slice" in compact_next_slice
     assert "preserve existing command names, parser behavior, stdout/stderr contracts" in (
         compact_next_slice
     )
@@ -567,12 +568,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now a line-oriented state-aware prompt label" in (
+    assert "immediate path is now a terminal-layer direction checkpoint" in (
         compact_near_term
     )
-    assert "Line-oriented state-aware prompt label." in compact_near_term
+    assert "Terminal-layer direction checkpoint." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
-    assert "reconsidering whether Textual, prompt-toolkit, curses" in compact_near_term
+    assert "reconsider whether Textual, prompt-toolkit, curses" in compact_near_term
     assert "no permission popups for normal interactive use" in compact_near_term
     assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
         compact_near_term
@@ -626,7 +627,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Input-ergonomics decision gate: available now" in compact_near_term
     assert "Grouped slash-command discovery gate: available now" in compact_near_term
     assert "Post-help input ergonomics decision gate: available now" in compact_near_term
-    assert "Line-oriented state-aware prompt label gate: next" in compact_near_term
+    assert "Line-oriented state-aware prompt label gate: available now" in compact_near_term
+    assert "Terminal-layer direction checkpoint gate: next" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

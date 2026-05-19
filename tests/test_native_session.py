@@ -626,7 +626,15 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     assert f"{tmp_path.name} | capturing-fake/capturing-model | turns 0/4" in stderr
     assert "\x1b[" not in stderr
     assert stderr.count("pipy v") == 1
-    assert stderr.index("pipy v") < stderr.index("pipy-native>")
+    assert stderr.index("pipy v") < stderr.index("pipy-native [")
+    assert (
+        "pipy-native [capturing-fake/capturing-model turns:0/4 "
+        "read:ready proposal:unavailable verify:unavailable]>"
+    ) in stderr
+    assert (
+        "pipy-native [capturing-fake/capturing-model turns:1/4 "
+        "read:ready proposal:unavailable verify:unavailable]>"
+    ) in stderr
     assert "pipy native REPL status:" in stderr
     assert "  provider: capturing-fake" in stderr
     assert "  model: capturing-model" in stderr
@@ -760,6 +768,8 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
         persist_defaults=False,
     )
 
+    error_stream = StringIO()
+
     NativeNoToolReplSession(provider_state=provider_state, max_turns=4).run(
         NativeRunInput(
             goal="Native no-tool REPL",
@@ -772,7 +782,7 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
         RecordingSink(),
         input_stream=StringIO("first prompt\n/model fake/after-model\nsecond prompt\n/exit\n"),
         output_stream=StringIO(),
-        error_stream=StringIO(),
+        error_stream=error_stream,
     )
 
     assert [(request.model_id, request.user_prompt) for request in captured_requests] == [
@@ -783,6 +793,15 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     assert captured_requests[0].no_tool_repl_context.exchanges == ()
     assert captured_requests[1].no_tool_repl_context is not None
     assert captured_requests[1].no_tool_repl_context.exchanges == ()
+    stderr = error_stream.getvalue()
+    assert (
+        "pipy-native [fake/before-model turns:0/4 "
+        "read:ready proposal:unavailable verify:unavailable]>"
+    ) in stderr
+    assert (
+        "pipy-native [fake/after-model turns:1/4 "
+        "read:ready proposal:unavailable verify:unavailable]>"
+    ) in stderr
 
 
 def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):

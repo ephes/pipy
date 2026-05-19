@@ -218,10 +218,12 @@ stored by default.
 `pipy` and `pipy repl` start the interactive native shell in the current
 directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
 remains accepted. The shell prints a compact startup chrome to stderr before
-the first `pipy-native>` prompt, including the pipy version, controls,
-safe command/resource labels, and the same kind of safe provider/model,
-workspace, turn, context, read-budget, proposal, and verification indicators
-shown by `/status`. Startup chrome is presentation only: it does not call
+the first prompt, including the pipy version, controls, safe command/resource
+labels, and the same kind of safe provider/model, workspace, turn, context,
+read-budget, proposal, and verification indicators shown by `/status`. The
+prompt itself is now a compact state-aware label with provider/model, turn,
+read, proposal, and verification availability. Startup chrome and prompt
+labels are presentation only: they do not call
 providers, run tools, read files, mutate state, consume budgets, or write to
 stdout. Ordinary non-command input lines remain bounded no-tool provider turns.
 Local `/login [openai-codex]`, `/logout [openai-codex]`, and

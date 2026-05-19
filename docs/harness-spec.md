@@ -2,8 +2,8 @@
 
 Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
-and post-apply `just-check` verification; the next UI slice is a
-line-oriented state-aware prompt label.
+post-apply `just-check` verification, and a line-oriented state-aware prompt
+label; the next UI planning slice is a terminal-layer direction checkpoint.
 
 <style>
 .mermaid,
@@ -1459,20 +1459,19 @@ explicit user-facing shell status decision.
 
 ### Native Post-Help Input Ergonomics Decision
 
-The next shell ergonomics boundary after grouped slash-command discovery stays
-line-oriented. The current REPL already has startup chrome, `/status`, and
-grouped command discovery, but the active input prompt is still the static
-`pipy-native>` label. That creates a gap between the safe shell-state data the
-user can inspect manually and the input location where they choose the next
-command.
+The shell ergonomics boundary after grouped slash-command discovery stayed
+line-oriented. The REPL already had startup chrome, `/status`, and grouped
+command discovery, but the active input prompt was still a static label. That
+created a gap between the safe shell-state data the user could inspect
+manually and the input location where they choose the next command.
 
-The selected next implementation slice is a state-aware prompt label before
-each input. It should reuse the same safe display-state data used by startup
-chrome and `/status`, including provider/model selection, provider turn
-count/limit, read availability, pending proposal availability, and
-verification availability. The prompt should update after local state changes
-such as model/auth changes, provider turns, read/context/proposal commands,
-apply/verification commands, and local clear/status/help paths as appropriate.
+The implemented state-aware prompt label renders before each input on stderr.
+It reuses the same safe display-state data used by startup chrome and
+`/status`, including provider/model selection, provider turn count/limit, read
+availability, pending proposal availability, and verification availability.
+The prompt updates after local state changes such as model/auth changes,
+provider turns, read/context/proposal commands, apply/verification commands,
+and local clear/status/help paths as appropriate.
 
 This decision does not choose Textual, prompt-toolkit, curses, or a custom
 terminal layer yet. It also does not add multiline input, autocomplete, file
@@ -1481,7 +1480,7 @@ alternate screen buffer, RPC mode, broader context loading, arbitrary shell
 execution, provider-side tools, non-allowlisted verification, or a general
 model/tool loop.
 
-The prompt label is presentation only. It must remain on stderr with existing
+The prompt label is presentation only. It remains on stderr with existing
 prompt output, must not invoke providers, tools, reads, writes, verification,
 shell commands, network access, provider-visible context handoff, or
 provider-side tools, and must not consume provider turns or explicit-read

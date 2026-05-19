@@ -794,7 +794,16 @@ class NativeNoToolReplSession:
 
         while conversation_state.turn_count < self.max_turns:
             try:
-                print("pipy-native> ", end="", file=error_stream, flush=True)
+                _print_repl_prompt(
+                    error_stream,
+                    provider_state,
+                    run_input=current_run_input,
+                    conversation_state=conversation_state,
+                    read_budgets=read_budgets,
+                    no_tool_context=no_tool_context,
+                    pending_apply_draft=pending_apply_draft,
+                    verify_after_apply_available=verify_after_apply_available,
+                )
                 line = input_stream.readline()
             except KeyboardInterrupt:
                 print(file=error_stream)
@@ -1491,7 +1500,7 @@ def _print_repl_startup_chrome(
     style = _startup_chrome_style(error_stream)
     width = _startup_chrome_width(error_stream)
     resource_labels = _startup_resource_labels(run_input.cwd)
-    model_reference = f"{state.provider_name}/{state.model_id}"
+    model_reference = _repl_model_reference_label(state)
 
     print(style.title(f"pipy v{_pipy_version_label()}  native shell"), file=error_stream)
     _print_wrapped_repl_line(
@@ -1538,9 +1547,9 @@ def _print_repl_startup_chrome(
                 f"{_startup_availability_label(state.no_tool_context_retained)} "
                 f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges}",
             ),
-            ("read", _startup_ready_label(state.read_can_attempt)),
-            ("proposal", _startup_ready_label(state.pending_proposal_available)),
-            ("verify", _startup_ready_label(state.verification_available)),
+            ("read", _ready_label(state.read_can_attempt)),
+            ("proposal", _ready_label(state.pending_proposal_available)),
+            ("verify", _ready_label(state.verification_available)),
         ],
         width=width,
         style=style,
@@ -1552,6 +1561,49 @@ def _print_repl_startup_chrome(
         ),
         file=error_stream,
     )
+
+
+def _print_repl_prompt(
+    error_stream: TextIO,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    *,
+    run_input: NativeRunInput,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> None:
+    state = _repl_display_state(
+        provider_state,
+        run_input=run_input,
+        conversation_state=conversation_state,
+        read_budgets=read_budgets,
+        no_tool_context=no_tool_context,
+        pending_apply_draft=pending_apply_draft,
+        verify_after_apply_available=verify_after_apply_available,
+    )
+    print(f"{_repl_prompt_label(state)} ", end="", file=error_stream, flush=True)
+
+
+def _repl_prompt_label(state: _ReplDisplayState) -> str:
+    model_reference = _repl_model_reference_label(state)
+    read_label = _ready_label(state.read_can_attempt)
+    proposal_label = _ready_label(state.pending_proposal_available)
+    verification_label = _ready_label(state.verification_available)
+    return (
+        f"pipy-native [{model_reference} "
+        f"turns:{state.provider_turn_count}/{state.max_turns} "
+        f"read:{read_label} proposal:{proposal_label} verify:{verification_label}]>"
+    )
+
+
+def _repl_model_reference_label(state: _ReplDisplayState) -> str:
+    return sanitize_text(f"{state.provider_name}/{state.model_id}")
+
+
+def _ready_label(value: bool) -> str:
+    return "ready" if value else "unavailable"
 
 
 def _startup_chrome_style(error_stream: TextIO) -> _StartupChromeStyle:
@@ -1640,10 +1692,6 @@ def _startup_availability_label(value: bool) -> str:
     return "on" if value else "off"
 
 
-def _startup_ready_label(value: bool) -> str:
-    return "ready" if value else "unavailable"
-
-
 def _print_repl_status(
     error_stream: TextIO,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState,
@@ -1665,8 +1713,8 @@ def _print_repl_status(
         verify_after_apply_available=verify_after_apply_available,
     )
     print("pipy native REPL status:", file=error_stream)
-    print(f"  provider: {state.provider_name}", file=error_stream)
-    print(f"  model: {state.model_id}", file=error_stream)
+    print(f"  provider: {sanitize_text(state.provider_name)}", file=error_stream)
+    print(f"  model: {sanitize_text(state.model_id)}", file=error_stream)
     print(f"  workspace: {state.workspace_label}", file=error_stream)
     print(
         f"  provider_turns: {state.provider_turn_count}/{state.max_turns}",
