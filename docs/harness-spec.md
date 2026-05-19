@@ -3,7 +3,9 @@
 Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
 post-apply `just-check` verification, and a line-oriented state-aware prompt
-label; the next UI planning slice is a terminal-layer direction checkpoint.
+label. The terminal-layer direction checkpoint selected a narrow
+`prompt-toolkit` line-editor adapter investigation as the next UI boundary
+while keeping the current plain line-oriented runtime as the required fallback.
 
 <style>
 .mermaid,
@@ -1405,10 +1407,14 @@ The parity path should stay incremental:
 See `docs/backlog.md` for the more granular current Pi parity ladder and the
 active next implementation slice.
 
-The current prompt-label slice must not choose Textual or any other TUI
-framework. Adding such a dependency changes the runtime shape and should wait
-for a dedicated TUI decision with tests for resize behavior, stdout/stderr
-contracts, archive privacy, and fallback behavior in non-interactive terminals.
+The terminal-layer checkpoint selected `prompt-toolkit` as the next narrow
+input-runtime investigation. That is not a commitment to a full-screen TUI or
+alternate-screen app: Textual, curses, and a custom terminal layer remain
+deferred until there is a named need for a fuller UI surface or lower-level
+terminal ownership. Any prompt-toolkit work must start behind a small input
+adapter, preserve non-TTY fallback behavior, and test stdout/stderr contracts,
+archive privacy, parser compatibility, prompt labels, and safe state display
+before richer editor behavior is enabled by default.
 
 ### Native Pi-Like REPL Startup Chrome
 
@@ -1488,6 +1494,46 @@ budgets. It must not archive raw command text or add prompts, model output,
 provider responses, excerpts, patch text, diffs, command output, auth material,
 secrets, credentials, tokens, private keys, or sensitive personal data to the
 metadata-first record.
+
+### Native Terminal-Layer Direction Checkpoint
+
+The terminal-layer checkpoint compared Textual, prompt-toolkit, curses, and a
+small custom terminal layer after the line-oriented shell had startup chrome,
+grouped slash-command discovery, `/status`, and a state-aware prompt label.
+The decision is to investigate `prompt-toolkit` next through a narrow input
+adapter while keeping the current plain line-oriented REPL as the required
+fallback.
+
+Textual is a strong candidate for a later application-like terminal UI, but it
+would move pipy toward a full TUI runtime, layout model, alternate-screen
+questions, overlay behavior, and event-loop ownership before the shell has a
+stable need for those surfaces. Curses is available through the standard
+library on Unix-like systems, but it is too low-level and terminal-owning for
+the next ergonomic step, especially for portable multiline editing,
+completion, status display, captured-stream fallback, and testability. A small
+custom terminal layer would preserve the current zero-runtime-dependency
+posture, but it would force pipy to recreate editing, history, completion,
+wrapping, resize, and keybinding behavior before those details are the product
+problem.
+
+Prompt-toolkit is the best next candidate because it can start as a scoped
+line-editor adapter rather than a full-screen app. The next slice should first
+introduce or prepare an internal REPL input boundary, keep the existing
+`readline()` loop as the conservative implementation, and prove fallback
+behavior for non-TTY and captured streams. If prompt-toolkit is added, the first
+surface should be input-only and presentation-only: no alternate screen buffer,
+full-screen app, overlays, selectors, RPC protocol, broad resource loader,
+provider-side tools, arbitrary shell execution, automatic file-content reads,
+non-allowlisted verification, persistent transcript storage, raw
+prompt/model-output display, or general model/tool loop.
+
+The prompt-toolkit investigation must preserve current command names, parser
+behavior, stdout/stderr contracts, prompt labels, provider-turn behavior, read
+budgets, proposal/apply/verification behavior, archive event shapes, and
+metadata-only privacy rules. Any bottom-toolbar-style status, multiline entry,
+path/file references, or autocomplete behavior should land as separate
+reviewable boundaries unless the first adapter slice remains small and fully
+testable.
 
 ### Native Structured Stdout JSON Mode
 

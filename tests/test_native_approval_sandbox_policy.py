@@ -547,19 +547,27 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "replace the fixed prompt with a compact stderr prompt label" in (
         compact_pre_next_slice
     )
+    assert "Native terminal-layer direction checkpoint" in compact_pre_next_slice
+    assert "selected a narrow `prompt-toolkit` line-editor adapter investigation" in (
+        compact_pre_next_slice
+    )
+    assert "Textual was judged too application-like" in compact_pre_next_slice
+    assert "current plain line-oriented runtime as the required fallback" in (
+        compact_pre_next_slice
+    )
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
-    assert "Textual, prompt-toolkit, curses, or a small custom terminal layer" in (
+    assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert "prompt-label slice finished the line-oriented shell-frame pass" in (
+    assert "selected direction is a narrow `prompt-toolkit` line-editor adapter" in (
         compact_pi_parity_roadmap
     )
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Terminal-layer direction checkpoint" in next_slice
-    assert "decide the next interactive input/runtime direction" in compact_next_slice
-    assert "compare Textual, prompt-toolkit, curses" in compact_next_slice
-    assert "without adding a runtime dependency in this slice" in compact_next_slice
+    assert "### Prompt-toolkit line-editor feasibility boundary" in next_slice
+    assert "smallest testable input-adapter boundary" in compact_next_slice
+    assert "`prompt-toolkit` in this slice" in compact_next_slice
+    assert "current `readline()` loop remains available" in compact_next_slice
     assert "preserve existing command names, parser behavior, stdout/stderr contracts" in (
         compact_next_slice
     )
@@ -567,13 +575,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "raw prompt/model-output display" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
+    assert "Native Terminal-Layer Direction Checkpoint" in spec
+    assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now a terminal-layer direction checkpoint" in (
+    assert "immediate path is now a prompt-toolkit line-editor feasibility boundary" in (
         compact_near_term
     )
-    assert "Terminal-layer direction checkpoint." in compact_near_term
+    assert "Prompt-toolkit line-editor feasibility boundary." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
-    assert "reconsider whether Textual, prompt-toolkit, curses" in compact_near_term
+    assert "terminal-layer direction checkpoint are the first visible parity steps" in (
+        compact_near_term
+    )
     assert "no permission popups for normal interactive use" in compact_near_term
     assert "OpenAI Codex subscription auth as the preferred near-term real-provider path" in (
         compact_near_term
@@ -628,7 +640,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Grouped slash-command discovery gate: available now" in compact_near_term
     assert "Post-help input ergonomics decision gate: available now" in compact_near_term
     assert "Line-oriented state-aware prompt label gate: available now" in compact_near_term
-    assert "Terminal-layer direction checkpoint gate: next" in compact_near_term
+    assert "Terminal-layer direction checkpoint gate: available now" in compact_near_term
+    assert "Prompt-toolkit line-editor feasibility gate: next" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
@@ -639,8 +652,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_deferred
     )
     assert "additional OAuth providers" in compact_deferred
-    assert "Interactive TUI, including the decision between Textual" in compact_deferred
-    assert "Textual or another TUI framework" in compact_deferred
+    assert "Full interactive TUI beyond the selected narrow `prompt-toolkit`" in (
+        compact_deferred
+    )
+    assert "Textual or another full-screen TUI framework" in compact_deferred
     assert "RPC mode" in compact_deferred
     assert "Docs server such as Zensical" not in compact_deferred
     assert "Recommendation: yes, for local preview/build only." in spec

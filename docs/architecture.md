@@ -96,7 +96,9 @@ Markdown, catalog output, and structured native JSON output by default.
 ## Current Feature Surface
 
 The native shell is line-oriented and bounded. It is intentionally not a full
-Pi-style TUI yet.
+Pi-style TUI yet. The selected next UI boundary is a narrow `prompt-toolkit`
+line-editor adapter investigation with the current plain line-oriented REPL
+kept as the fallback.
 
 Available now:
 
@@ -127,8 +129,9 @@ Available now:
 
 Deferred:
 
-- Full Pi-style TUI editor, footer, overlays, file references, and keyboard
-  shortcuts.
+- Full Pi-style TUI editor, footer, overlays, selectors, and general keyboard
+  runtime beyond the selected narrow `prompt-toolkit` input-adapter
+  investigation.
 - Model-selected general tool use.
 - Multiple file reads per REPL session.
 - Arbitrary shell execution.

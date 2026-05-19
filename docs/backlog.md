@@ -22,11 +22,12 @@ and inspect local shell state with `/status`; bare `pipy` and
 safe metadata-only resource labels before the first prompt, `/help` plus static
 usage diagnostics show grouped slash-command discovery, and each REPL input
 prompt now carries safe state labels for provider/model, turns, read, proposal,
-and verification availability. The next slice is a terminal-layer direction
-checkpoint before choosing whether to move beyond the plain line-oriented
-shell. The public shell still cannot execute arbitrary shell commands, request
-provider-side tools, read multiple files per session, run non-allowlisted
-verification commands, or run a general model/tool loop.
+and verification availability. A terminal-layer direction checkpoint selected
+`prompt-toolkit` as the next narrow input-runtime investigation, while keeping
+the current plain line-oriented shell as the shipping fallback. The public shell
+still cannot execute arbitrary shell commands, request provider-side tools, read
+multiple files per session, run non-allowlisted verification commands, or run a
+general model/tool loop.
 
 Use this page as a planning index:
 
@@ -61,9 +62,10 @@ Use this page as a planning index:
   command for safe shell-state inspection, a compact startup chrome pass, a
   styled Pi-like visual/resource-label pass, the grouped-help input-ergonomics
   decision, grouped slash-command discovery, the post-help prompt-label
-  decision, and the safe state-aware prompt label are now implemented. The next
-  milestone is a terminal-layer direction checkpoint before any full TUI,
-  footer/editor, or keybinding runtime is selected.
+  decision, the safe state-aware prompt label, and the terminal-layer direction
+  checkpoint are now implemented. The next milestone is a narrow
+  `prompt-toolkit` input-adapter feasibility slice before any full TUI,
+  alternate-screen app, or general keybinding runtime is selected.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -101,10 +103,13 @@ discipline:
   and richer integration points after the core shell/tool/session model is
   stable.
 
-Textual, prompt-toolkit, curses, or a small custom terminal layer are candidate
-Python UI directions for the later interactive input/TUI step. The prompt-label
-slice finished the line-oriented shell-frame pass; the current checkpoint is to
-decide whether to investigate one of these terminal-layer directions next.
+Textual, prompt-toolkit, curses, and a small custom terminal layer were compared
+at the terminal-layer checkpoint. The selected direction is a narrow
+`prompt-toolkit` line-editor adapter investigation because it is the best fit
+for multiline input, completions, and a bottom-toolbar-style status line while
+preserving the current stdout/stderr and metadata-only contracts. Textual,
+curses, and a custom terminal layer remain deferred until the product needs a
+fuller UI surface or lower-level terminal ownership.
 
 ## Done
 
@@ -908,28 +913,49 @@ decide whether to investigate one of these terminal-layer directions next.
   parser behavior, stdout contracts, provider visibility, read budgets,
   proposal/apply/verification behavior, archive event shapes, or
   metadata-only privacy rules.
+- Native terminal-layer direction checkpoint: inspection of the implemented
+  line-oriented shell, Pi parity needs, and current privacy/runtime contracts
+  selected a narrow `prompt-toolkit` line-editor adapter investigation as the
+  next implementation boundary. Textual was judged too application-like for
+  the next slice because it implies a fuller TUI runtime and alternate-screen
+  questions; curses stays too low-level and terminal-owning for portable
+  editor/completion behavior; a custom terminal layer preserves zero
+  dependencies but would recreate keybinding, completion, and resize machinery
+  prematurely. `prompt-toolkit` is the best next candidate because it can be
+  isolated behind an input adapter, keep the current plain line-oriented
+  runtime as the required fallback, and later support multiline input,
+  completion, and
+  bottom-toolbar-style status without changing command names, parser behavior,
+  stdout/stderr contracts, provider-turn behavior, read budgets,
+  proposal/apply/verification behavior, archive event shapes, or
+  metadata-only privacy rules.
 
 ## Next Slice
 
-### Terminal-layer direction checkpoint
+### Prompt-toolkit line-editor feasibility boundary
 
-Goal: decide the next interactive input/runtime direction now that the
-line-oriented shell frame has startup chrome, grouped help, `/status`, and a
-state-aware prompt label.
+Goal: introduce the smallest testable input-adapter boundary for investigating
+`prompt-toolkit` while keeping the existing plain line-oriented REPL as the
+default fallback and preserving all current command and archive contracts.
 
 Completion focus:
 
-- inspect the current line-oriented shell constraints and Pi parity needs for
-  editor/footer/overlay behavior
-- compare Textual, prompt-toolkit, curses, and a small custom terminal layer at
-  a decision level without adding a runtime dependency in this slice
-- name the next implementation boundary if richer input is justified, or
-  explicitly keep the line-oriented runtime for the next product slice
+- add or prepare a small internal REPL input abstraction so the current
+  `readline()` loop remains available as the conservative implementation
+- if adding `prompt-toolkit` in this slice, keep it scoped to line-editor input
+  only: no alternate screen buffer, full-screen app, overlays, RPC mode, or
+  provider-visible behavior
+- define non-TTY and captured-stream fallback behavior before any richer editor
+  path can be used by default
+- keep the first `prompt-toolkit` surface focused on input ergonomics and safe
+  state display; multiline input, path/file references, and autocomplete may be
+  stubbed or explicitly deferred unless the slice remains small and fully
+  testable
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   prompt labels, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, and metadata-only archive behavior
 - keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
-  new keybinding runtime, RPC mode, broad context loading, automatic
+  general keybinding runtime, RPC mode, broad context loading, automatic
   file-content reads, arbitrary shell execution, provider-side tools,
   non-allowlisted verification, persistent transcript storage, raw
   prompt/model-output display, or general model/tool loop
@@ -943,13 +969,15 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a terminal-layer direction checkpoint after the
-styled Pi-like startup visual/resource-label pass, grouped slash-command
-discovery, post-help input ergonomics decision, and state-aware prompt label.
-The next slice should decide whether richer Pi-style editor/footer/overlay
-behavior is justified yet, without adding execution powers, broad context
-loading, multiline editing, autocomplete, or a TUI framework inside the
-decision slice.
+The immediate path is now a prompt-toolkit line-editor feasibility boundary
+after the styled Pi-like startup visual/resource-label pass, grouped
+slash-command discovery, post-help input ergonomics decision, state-aware prompt
+label, and terminal-layer direction checkpoint. The checkpoint chose
+`prompt-toolkit` for a narrow input-adapter investigation, not Textual, curses,
+a custom terminal layer, or a full TUI. The next slice should prove whether a
+line-editor adapter can preserve the existing shell contracts before adding
+execution powers, broad context loading, multiline editing, autocomplete, or
+file references.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -992,17 +1020,16 @@ whether Ollama, llama.cpp, MLX, LM Studio, or another runtime should be the
 first local integration.
 
 The broader slopfork direction is Pi parity through pipy-owned Python
-boundaries. Startup chrome, grouped command discovery, and the state-aware
-prompt label are the first visible parity steps: they now provide a styled,
-sectioned, resource-label frame, a grouped command reference, and compact
-current-state input labels while still staying line-oriented and metadata-only.
-The next checkpoint should reconsider whether Textual, prompt-toolkit, curses,
-or a small custom terminal layer is justified for Pi-style editor/footer/overlay
-behavior.
+boundaries. Startup chrome, grouped command discovery, the state-aware prompt
+label, and the terminal-layer direction checkpoint are the first visible parity
+steps: they now provide a styled, sectioned, resource-label frame, a grouped
+command reference, compact current-state input labels, and a named
+`prompt-toolkit` input-runtime investigation while still keeping the shipping
+runtime line-oriented and metadata-only.
 
 Small reviewable slices, in intended order:
 
-1. Terminal-layer direction checkpoint.
+1. Prompt-toolkit line-editor feasibility boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -1068,9 +1095,15 @@ Foundation gates toward an interactive shell:
   render provider/model, turn, read, proposal, and verification availability
   before each input, without changing command parsing, stdout/stderr contracts,
   provider visibility, archive privacy, or execution capability.
-- Terminal-layer direction checkpoint gate: next. Decide whether to keep the
-  plain line-oriented runtime for the next slice or select a named Python
-  terminal-layer investigation for richer editor/footer/overlay behavior.
+- Terminal-layer direction checkpoint gate: available now. The selected next
+  input-runtime investigation is a narrow `prompt-toolkit` line-editor adapter;
+  Textual, curses, and a custom terminal layer remain deferred, and the current
+  plain line-oriented runtime remains the required fallback.
+- Prompt-toolkit line-editor feasibility gate: next. Introduce or prepare a
+  small input-adapter boundary and prove fallback, stdout/stderr,
+  prompt-label, parser, provider-turn, budget, proposal/apply/verification, and
+  metadata-only archive contracts stay unchanged before using richer editor
+  behavior by default.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
@@ -1172,9 +1205,10 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
   explicit per-round versus cumulative scope, review round number, and optional
   cycle identity so `reflect` can avoid double-counting iterative reviews.
-- Interactive TUI, including the decision between Textual, prompt-toolkit,
-  curses, or a small custom terminal layer for Pi-style editor/footer/overlay
-  behavior.
+- Full interactive TUI beyond the selected narrow `prompt-toolkit` input-adapter
+  investigation, including Textual, curses, a custom terminal layer,
+  alternate-screen behavior, overlays, selectors, and persistent footer
+  ownership.
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.
@@ -1189,9 +1223,9 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Building broad approvals, sandboxing, retries, streaming, additional OAuth
   providers, provider registry, raw transcript import, multiple native tool
   requests, post-tool provider turns, general write tools beyond supervised
-  patch apply, non-allowlisted verification commands, Textual or another TUI
-  framework, RPC, compaction, branching, or orchestration in the upcoming
-  slices; real execution work must wait for its named slice.
+  patch apply, non-allowlisted verification commands, Textual or another
+  full-screen TUI framework, RPC, compaction, branching, or orchestration in the
+  upcoming slices; real execution work must wait for its named slice.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.
