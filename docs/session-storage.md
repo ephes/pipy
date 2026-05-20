@@ -698,7 +698,9 @@ final text prints to stdout, while the state-aware `pipy-native [...]>` prompt
 and all harness/session messages stay on stderr. The prompt label includes only
 safe provider/model, turn, read, proposal, and verification availability labels.
 The REPL input runtime may be archived only as a safe label such as `plain` or
-`prompt-toolkit`; prompt buffers and raw command text are still excluded.
+`prompt-toolkit`; prompt buffers, completion buffers, and raw command text are
+still excluded. Prompt-toolkit slash-command and explicit file/path completion
+are presentation-only and do not add archive fields or store file contents.
 `/help` and static usage diagnostics for malformed or unsupported slash
 commands also stay on stderr without provider/tool execution. Successful
 `/read` excerpt text prints only to interactive stdout. Successful `/ask-file`

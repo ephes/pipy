@@ -755,6 +755,7 @@ class NativeNoToolReplSession:
             input_stream=input_stream,
             error_stream=error_stream,
             input_runtime=self.input_runtime,
+            workspace=run_input.cwd,
         )
         conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
         event_sink.emit(

@@ -227,8 +227,9 @@ read, proposal, and verification availability. REPL input goes through
 stdin/stderr behavior for captured streams and can use optional prompt-toolkit
 line-editor input only on real TTY streams when the package is available. The
 optional prompt-toolkit path also suggests existing slash command names while
-editing a leading `/` command; prompt-toolkit remains optional and is not a
-declared runtime dependency.
+editing a leading `/` command, plus workspace-relative path labels while
+editing explicit file-command path arguments; prompt-toolkit remains optional
+and is not a declared runtime dependency.
 Startup chrome, prompt labels, and input-runtime selection are presentation
 only: they do not call
 providers, run tools, read files, mutate state, consume budgets, or write to

@@ -3,16 +3,19 @@ from __future__ import annotations
 import sys
 import types
 from io import StringIO
+from pathlib import Path
 
 import pytest
 
 from pipy_harness.native.repl_input import (
+    DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS,
     DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
     REPL_INPUT_RUNTIME_AUTO,
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
     PlainNativeReplInput,
     PromptToolkitNativeReplInput,
+    PromptToolkitReplCompleter,
     PromptToolkitSlashCommandCompleter,
     ReplInputUnavailableError,
     native_repl_input_for,
@@ -23,6 +26,17 @@ from pipy_harness.native.session import _REPL_COMMAND_GROUPS
 class TtyStringIO(StringIO):
     def isatty(self) -> bool:
         return True
+
+
+class FakeCompletion:
+    def __init__(self, text: str, *, start_position: int) -> None:
+        self.text = text
+        self.start_position = start_position
+
+
+class FakeDocument:
+    def __init__(self, text_before_cursor: str) -> None:
+        self.text_before_cursor = text_before_cursor
 
 
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
@@ -55,7 +69,7 @@ def test_explicit_prompt_toolkit_repl_input_rejects_captured_streams() -> None:
 
 
 def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
-    monkeypatch,
+    monkeypatch, tmp_path
 ) -> None:
     tty_input = TtyStringIO()
     tty_error = TtyStringIO()
@@ -70,11 +84,6 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
         def prompt(self, prompt_label: str) -> str:
             created["prompt_label"] = prompt_label
             return "edited input"
-
-    class FakeCompletion:
-        def __init__(self, text: str, *, start_position: int) -> None:
-            self.text = text
-            self.start_position = start_position
 
     prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)
     input_defaults_module = types.SimpleNamespace(
@@ -92,15 +101,18 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     monkeypatch.setattr(sys, "stderr", tty_error)
 
     repl_input = native_repl_input_for(
-        input_stream=tty_input,
-        error_stream=tty_error,
-        input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
-    )
+            input_stream=tty_input,
+            error_stream=tty_error,
+            input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+            workspace=tmp_path,
+        )
 
     assert isinstance(repl_input, PromptToolkitNativeReplInput)
     assert repl_input.runtime_label == REPL_INPUT_RUNTIME_PROMPT_TOOLKIT
-    assert isinstance(created["completer"], PromptToolkitSlashCommandCompleter)
+    assert isinstance(created["completer"], PromptToolkitReplCompleter)
     assert created["completer"].command_names == DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    assert created["completer"].file_path_commands == DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS
+    assert created["completer"].workspace == tmp_path
     assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited input\n"
     assert created["input"] == ("input", tty_input)
     assert created["output"] == ("output", tty_error)
@@ -171,15 +183,6 @@ def test_explicit_prompt_toolkit_wraps_initialization_failure(monkeypatch) -> No
 
 
 def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands() -> None:
-    class FakeCompletion:
-        def __init__(self, text: str, *, start_position: int) -> None:
-            self.text = text
-            self.start_position = start_position
-
-    class FakeDocument:
-        def __init__(self, text_before_cursor: str) -> None:
-            self.text_before_cursor = text_before_cursor
-
     completer = PromptToolkitSlashCommandCompleter(FakeCompletion)
 
     model_matches = list(completer.get_completions(FakeDocument("/m"), None))
@@ -193,6 +196,128 @@ def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands()
 
     assert list(completer.get_completions(FakeDocument("ordinary /m"), None)) == []
     assert list(completer.get_completions(FakeDocument("/model "), None)) == []
+
+
+def test_prompt_toolkit_repl_completer_suggests_workspace_paths_for_file_commands(
+    tmp_path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
+    (docs / "harness-spec.md").write_text("safe\n", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / ".gitignore").write_text("ignored.txt\nignored-dir/\n", encoding="utf-8")
+    (tmp_path / "ignored.txt").write_text("safe\n", encoding="utf-8")
+    ignored_dir = tmp_path / "ignored-dir"
+    ignored_dir.mkdir()
+    (ignored_dir / "safe.txt").write_text("safe\n", encoding="utf-8")
+    (tmp_path / "bundle.min.js").write_text("generated\n", encoding="utf-8")
+    (tmp_path / "secret_token.py").write_text("sensitive\n", encoding="utf-8")
+
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    root_matches = list(completer.get_completions(FakeDocument("/read "), None))
+    assert [(match.text, match.start_position) for match in root_matches] == [
+        (".gitignore", 0),
+        ("docs/", 0),
+        ("src/", 0),
+    ]
+
+    docs_matches = list(completer.get_completions(FakeDocument("/read docs/h"), None))
+    assert [(match.text, match.start_position) for match in docs_matches] == [
+        ("docs/harness-spec.md", -6)
+    ]
+
+
+def test_prompt_toolkit_repl_completer_limits_path_completion_to_path_argument(
+    tmp_path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    apply_matches = list(
+        completer.get_completions(FakeDocument("/apply-proposal docs/b"), None)
+    )
+    assert [(match.text, match.start_position) for match in apply_matches] == [
+        ("docs/backlog.md", -6)
+    ]
+
+    assert (
+        list(
+            completer.get_completions(
+                FakeDocument("/ask-file docs/b -- what changed?"),
+                None,
+            )
+        )
+        == []
+    )
+    assert list(completer.get_completions(FakeDocument("read docs/b"), None)) == []
+    assert list(completer.get_completions(FakeDocument("/verify just"), None)) == []
+
+
+@pytest.mark.parametrize(
+    "text_before_cursor",
+    (
+        "/read /etc/passwd",
+        "/read ~/notes",
+        "/read ../",
+        "/read docs\\backlog.md",
+        "/read docs/*",
+    ),
+)
+def test_prompt_toolkit_repl_completer_rejects_unsafe_path_prefixes(
+    tmp_path: Path,
+    text_before_cursor: str,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    assert list(completer.get_completions(FakeDocument(text_before_cursor), None)) == []
+
+
+def test_prompt_toolkit_repl_completer_lists_trailing_slash_directory_contents(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
+    (docs / "session-storage.md").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    matches = list(completer.get_completions(FakeDocument("/read docs/"), None))
+
+    assert [(match.text, match.start_position) for match in matches] == [
+        ("docs/backlog.md", -5),
+        ("docs/session-storage.md", -5),
+    ]
+
+
+def test_prompt_toolkit_repl_completer_skips_symlinks_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("safe\n", encoding="utf-8")
+    (tmp_path / "outside-link.txt").symlink_to(outside)
+    (tmp_path / "visible.txt").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    matches = list(completer.get_completions(FakeDocument("/read "), None))
+
+    assert [(match.text, match.start_position) for match in matches] == [
+        ("visible.txt", 0)
+    ]
+
+
+def test_prompt_toolkit_repl_completer_skips_path_completion_without_workspace() -> None:
+    completer = PromptToolkitReplCompleter(FakeCompletion)
+
+    command_matches = list(completer.get_completions(FakeDocument("/m"), None))
+    assert [(match.text, match.start_position) for match in command_matches] == [
+        ("/model", -2)
+    ]
+    assert list(completer.get_completions(FakeDocument("/read docs/b"), None)) == []
 
 
 def test_prompt_toolkit_slash_command_completions_match_repl_help_commands() -> None:

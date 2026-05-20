@@ -217,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                 input_stream=sys.stdin,
                 error_stream=sys.stderr,
                 input_runtime=args.input_runtime,
+                workspace=args.cwd,
             )
             repl_adapter = _repl_adapter_for(
                 args.native_provider,

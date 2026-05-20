@@ -5,7 +5,8 @@ slash-command discovery, bounded read/context, proposal, same-session apply,
 post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
 optional prompt-toolkit line-editor input and leading slash-command completion
-on real TTY streams.
+plus workspace-relative path completion for explicit file commands on real TTY
+streams.
 
 <style>
 .mermaid,
@@ -1565,8 +1566,8 @@ data.
 
 ### Native Prompt-Toolkit Slash-Command Completion Boundary
 
-The first richer prompt-toolkit follow-up keeps prompt-toolkit optional and
-adds only leading slash-command name completion to the prompt-toolkit input
+The first richer prompt-toolkit follow-up kept prompt-toolkit optional and
+added only leading slash-command name completion to the prompt-toolkit input
 path. The current decision is that prompt-toolkit should remain an
 opportunistic line-editor enhancement rather than a declared runtime
 dependency: captured streams, non-TTY streams, and explicit
@@ -1596,6 +1597,43 @@ completion buffers, prompts, model output, provider responses, excerpts,
 patch text, diffs, file contents, command stdout, command stderr, auth
 material, secrets, credentials, tokens, private keys, or sensitive personal
 data.
+
+### Native Prompt-Toolkit File/Path Completion Boundary
+
+The next prompt-toolkit follow-up keeps prompt-toolkit optional and adds only
+workspace-relative path completion for existing explicit file commands:
+`/read`, `/ask-file`, `/propose-file`, and `/apply-proposal`. Captured streams,
+non-TTY streams, and explicit `--input-runtime plain` continue to use the plain
+stdin/stderr adapter.
+
+The completer is presentation-only. It may list workspace directory entries and
+suggest safe workspace-relative labels, including directory labels with a
+trailing slash, but it must not read file contents, invoke providers, execute
+tools, mutate workspace state, consume read budgets, create provider-visible
+context, archive raw command text, or store completion buffers. The existing
+command handlers remain authoritative for normalized target validation,
+ignored/generated-file rejection, read-budget enforcement, proposal path
+matching, patch apply behavior, verification behavior, and all stderr usage
+diagnostics.
+
+Path completion is active only while editing the path argument for the existing
+explicit file commands. It does not complete ordinary provider prompts,
+question/change-request text after the `/ask-file` or `/propose-file`
+separator, model names, provider names, verification command labels, shell
+commands, file references, provider/tool-selected data, or arbitrary resources.
+
+This boundary does not add multiline input, persistent history, bottom-toolbar
+behavior, a full-screen TUI, an alternate screen buffer, overlays, RPC, broad
+context loading, automatic file-content reads, arbitrary shell execution,
+provider-side tools, non-allowlisted verification, persistent transcript
+storage, raw prompt/model-output display, or a general model/tool loop.
+
+Archives, Markdown summaries, catalog/search/inspect surfaces, and structured
+output remain metadata-only. Session lifecycle events may continue to record
+only the safe `input_runtime` label; they must not add raw command text,
+completion buffers, prompts, model output, provider responses, excerpts, patch
+text, diffs, file contents, command stdout, command stderr, auth material,
+secrets, credentials, tokens, private keys, or sensitive personal data.
 
 ### Native Structured Stdout JSON Mode
 
