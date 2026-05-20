@@ -4,7 +4,8 @@ Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
 post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
-optional prompt-toolkit line-editor input on real TTY streams.
+optional prompt-toolkit line-editor input and leading slash-command completion
+on real TTY streams.
 
 <style>
 .mermaid,
@@ -1559,6 +1560,40 @@ decision after real TTY smoke testing.
 Native session events may record the safe `input_runtime` label. They still do
 not store raw command text, prompts, model output, provider responses, file
 contents, prompt-toolkit buffers, command output, stdout, stderr, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data.
+
+### Native Prompt-Toolkit Slash-Command Completion Boundary
+
+The first richer prompt-toolkit follow-up keeps prompt-toolkit optional and
+adds only leading slash-command name completion to the prompt-toolkit input
+path. The current decision is that prompt-toolkit should remain an
+opportunistic line-editor enhancement rather than a declared runtime
+dependency: captured streams, non-TTY streams, and explicit
+`--input-runtime plain` continue to use the plain stdin/stderr adapter.
+
+The completer suggests only existing local command names while editing the
+first slash-prefixed token, such as `/help`, `/clear`, `/status`, `/login`,
+`/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
+`/apply-proposal`, `/verify`, `/exit`, and `/quit`. It does not complete
+ordinary provider prompts, command arguments, paths, file references, model
+names, provider names, verification commands, or any provider/tool-selected
+data. The parser remains the source of truth for command validity, malformed
+commands still use the existing stderr usage diagnostics, and unsupported
+slash commands still stay local.
+
+This boundary is presentation-only. It must not invoke providers, tools,
+reads, writes, verification, shell commands, network access,
+provider-visible context handoff, provider-side tools, or another provider
+turn. It must not consume provider turns or explicit-read budgets, mutate
+retained conversation context, clear pending proposals, change provider/model
+selection, change auth state, or change verification availability.
+
+Archives, Markdown summaries, catalog/search/inspect surfaces, and structured
+output remain metadata-only. Session lifecycle events may continue to record
+only the safe `input_runtime` label; they must not add raw command text,
+completion buffers, prompts, model output, provider responses, excerpts,
+patch text, diffs, file contents, command stdout, command stderr, auth
 material, secrets, credentials, tokens, private keys, or sensitive personal
 data.
 

@@ -24,8 +24,8 @@ usage diagnostics show grouped slash-command discovery, each REPL input prompt
 now carries safe state labels for provider/model, turns, read, proposal, and
 verification availability, and the REPL now reads input through a small adapter
 boundary with plain captured-stream fallback plus optional prompt-toolkit
-line-editor support when explicitly selected or auto-available on real TTY
-streams. The public shell
+line-editor support, including leading slash-command name completion, when
+explicitly selected or auto-available on real TTY streams. The public shell
 still cannot execute arbitrary shell commands, request provider-side tools, read
 multiple files per session, run non-allowlisted verification commands, or run a
 general model/tool loop.
@@ -65,9 +65,10 @@ Use this page as a planning index:
   decision, grouped slash-command discovery, the post-help prompt-label
   decision, the safe state-aware prompt label, the terminal-layer direction
   checkpoint, and the prompt-toolkit line-editor feasibility boundary are now
-  implemented. The next milestone is deciding the first useful richer
-  line-editor behavior while any full TUI, alternate-screen app, or general
-  keybinding runtime remains deferred.
+  implemented; the first richer prompt-toolkit follow-up, leading slash-command
+  name completion, is now implemented. The next milestone is deciding whether
+  workspace-relative file/path completion is worth adding next while any full
+  TUI, alternate-screen app, or general keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -91,9 +92,9 @@ discipline:
   slash-command discovery, and safe prompt-state labels are implemented.
 - Interactive input ergonomics: the first input-adapter boundary now preserves
   plain captured-stream fallback and can use optional prompt-toolkit line-editor
-  input on real TTY streams. Richer editor behavior, multiline input, file
-  references, autocomplete, and resilient terminal resize behavior remain
-  future slices.
+  input on real TTY streams, with leading slash-command name completion in that
+  optional path. Richer editor behavior, multiline input, file references,
+  path completion, and resilient terminal resize behavior remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
   archive behavior.
@@ -947,26 +948,45 @@ fuller UI surface or lower-level terminal ownership.
   captured-stream fallback, explicit prompt-toolkit rejection on captured
   streams, and a faked prompt-toolkit TTY line-editor path. Native REPL archive
   events record only the safe `input_runtime` label and remain metadata-only.
+- Native prompt-toolkit slash-command completion boundary:
+  The prompt-toolkit REPL input path now attaches a small leading slash-command
+  completer that suggests existing command names such as `/help`, `/status`,
+  `/model`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify`, `/exit`, and `/quit` only while editing the first slash-prefixed
+  token. The plain input path, captured-stream fallback, command names, parser
+  behavior, stdout/stderr contracts, prompt labels, provider turns, read
+  budgets, proposal/apply/verification behavior, and archive event shapes are
+  unchanged. Prompt-toolkit remains an optional opportunistic line-editor path,
+  not a declared runtime dependency. The completion layer does not add
+  multiline input, file/path completion, file references, persistent history,
+  a bottom toolbar, a full-screen TUI, an alternate screen buffer, overlays,
+  RPC, broad context loading, automatic file-content reads, arbitrary shell
+  execution, provider-side tools, non-allowlisted verification, persistent
+  transcript storage, raw prompt/model-output display, or a general model/tool
+  loop. Focused tests cover the attached completer, command-prefix filtering,
+  and unchanged fallback behavior.
 
 ## Next Slice
 
-### Prompt-toolkit line-editor follow-up decision
+### Prompt-toolkit file/path completion decision
 
-Goal: decide the first useful richer input behavior to build on the implemented
-REPL input-adapter boundary, or explicitly defer richer prompt-toolkit behavior
-if the optional line-editor path is not worth turning into a runtime
-dependency yet.
+Goal: decide whether the next richer prompt-toolkit input behavior should be
+workspace-relative file/path completion for explicit file commands, or
+explicitly defer it until broader context/resource loading is closer.
 
 Completion focus:
 
-- use the implemented `--input-runtime` boundary to compare plain versus
-  prompt-toolkit behavior on real TTY streams without changing command
-  semantics
-- decide whether prompt-toolkit should become a declared runtime dependency or
-  remain an optional opportunistic line-editor path
-- choose at most one next richer input behavior, such as multiline entry,
-  slash-command completion, file/path completion, or bottom-toolbar-style safe
-  status display, and keep that behavior separately reviewable
+- use the implemented optional prompt-toolkit path and slash-command
+  completion boundary to compare whether path completion improves real TTY
+  `/read`, `/ask-file`, `/propose-file`, and `/apply-proposal` use without
+  changing command semantics
+- decide whether file/path completion should stay prompt-toolkit-only and
+  opportunistic, or remain deferred while prompt-toolkit itself stays an
+  optional dependency-free runtime path
+- if implemented, complete only workspace-relative path labels for existing
+  explicit file commands and keep ignored/generated-file rejection,
+  read-budget enforcement, and file-content access behind the existing command
+  handlers
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   prompt labels, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, and metadata-only archive behavior
@@ -985,16 +1005,16 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a prompt-toolkit line-editor follow-up decision after
+The immediate path is now a prompt-toolkit file/path completion decision after
 the styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
-terminal-layer direction checkpoint, and prompt-toolkit feasibility boundary.
-The implemented boundary proves the current shell can preserve plain
-captured-stream behavior while isolating optional prompt-toolkit input behind a
-small adapter. The next slice should decide whether to turn that optional path
-into a declared dependency and which single richer input behavior is worth
-building first, before adding execution powers, broad context loading,
-multiline editing, autocomplete, file references, or a full TUI.
+terminal-layer direction checkpoint, prompt-toolkit feasibility boundary, and
+leading slash-command completion boundary. The implemented boundary proves the
+current shell can preserve plain captured-stream behavior while isolating
+optional prompt-toolkit input behind a small adapter. The next slice should
+decide whether workspace-relative path completion is worth adding for explicit
+file commands before adding execution powers, broad context loading,
+multiline editing, file references, or a full TUI.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -1042,11 +1062,12 @@ label, the terminal-layer direction checkpoint, and the prompt-toolkit
 input-adapter boundary are the first visible parity steps: they now provide a
 styled, sectioned, resource-label frame, a grouped command reference, compact
 current-state input labels, and an optional prompt-toolkit line-editor path
-while still keeping the shipping runtime line-oriented and metadata-only.
+with leading slash-command name completion while still keeping the shipping
+runtime line-oriented and metadata-only.
 
 Small reviewable slices, in intended order:
 
-1. Prompt-toolkit line-editor follow-up decision.
+1. Prompt-toolkit file/path completion decision.
 
 Foundation gates toward an interactive shell:
 
@@ -1120,10 +1141,14 @@ Foundation gates toward an interactive shell:
   path is behind a small adapter boundary; `auto` keeps plain captured-stream
   fallback and can use optional prompt-toolkit only on real TTY streams, while
   `--input-runtime plain|prompt-toolkit|auto` enables explicit smoke testing.
-- Prompt-toolkit line-editor follow-up decision gate: next. Decide whether the
-  optional prompt-toolkit path should become a declared runtime dependency and
-  choose at most one richer input behavior to implement next while preserving
-  stdout/stderr, prompt-label, parser, provider-turn, budget,
+- Prompt-toolkit slash-command completion gate: available now. The optional
+  prompt-toolkit input path suggests existing slash command names while editing
+  a leading slash-prefixed first token. Prompt-toolkit remains optional rather
+  than a declared runtime dependency, and the plain input path plus captured
+  streams remain unchanged.
+- Prompt-toolkit file/path completion decision gate: next. Decide whether to
+  add workspace-relative path completion for explicit file commands while
+  preserving stdout/stderr, prompt-label, parser, provider-turn, budget,
   proposal/apply/verification, and metadata-only archive contracts.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.

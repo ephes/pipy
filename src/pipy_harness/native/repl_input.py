@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import sys
 from dataclasses import dataclass
-from typing import Any, Protocol, TextIO
+from typing import Any, Iterable, Protocol, TextIO
 
 REPL_INPUT_RUNTIME_AUTO = "auto"
 REPL_INPUT_RUNTIME_PLAIN = "plain"
@@ -14,6 +14,21 @@ SUPPORTED_REPL_INPUT_RUNTIMES = (
     REPL_INPUT_RUNTIME_AUTO,
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+)
+DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
+    "/help",
+    "/clear",
+    "/status",
+    "/login",
+    "/logout",
+    "/model",
+    "/read",
+    "/ask-file",
+    "/propose-file",
+    "/apply-proposal",
+    "/verify",
+    "/exit",
+    "/quit",
 )
 
 
@@ -44,6 +59,28 @@ class PlainNativeReplInput:
 
 
 @dataclass(slots=True)
+class PromptToolkitSlashCommandCompleter:
+    """Leading-slash command-name completion for prompt-toolkit input."""
+
+    completion_cls: Any
+    command_names: tuple[str, ...] = DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+
+    def get_completions(self, document: Any, complete_event: Any) -> Iterable[Any]:
+        text_before_cursor = str(getattr(document, "text_before_cursor", ""))
+        command_prefix = text_before_cursor.lstrip()
+        if not command_prefix.startswith("/"):
+            return
+        if any(char.isspace() for char in command_prefix):
+            return
+        for command_name in self.command_names:
+            if command_name.startswith(command_prefix):
+                yield self.completion_cls(
+                    command_name,
+                    start_position=-len(command_prefix),
+                )
+
+
+@dataclass(slots=True)
 class PromptToolkitNativeReplInput:
     """Prompt-toolkit backed line editor, scoped to one-line input."""
 
@@ -56,12 +93,13 @@ class PromptToolkitNativeReplInput:
             raise ReplInputUnavailableError(
                 "prompt-toolkit input requires the process stdin and stderr TTY streams"
             )
-        prompt_toolkit, input_defaults, output_defaults = _load_prompt_toolkit()
+        prompt_toolkit, input_defaults, output_defaults, completion = _load_prompt_toolkit()
 
         try:
             session = prompt_toolkit.PromptSession(
                 input=input_defaults.create_input(stdin=input_stream),
                 output=output_defaults.create_output(stdout=error_stream),
+                completer=PromptToolkitSlashCommandCompleter(completion.Completion),
             )
         except Exception as exc:
             raise ReplInputUnavailableError(
@@ -122,16 +160,17 @@ def validate_native_repl_input_runtime(
         )
 
 
-def _load_prompt_toolkit() -> tuple[Any, Any, Any]:
+def _load_prompt_toolkit() -> tuple[Any, Any, Any, Any]:
     try:
         prompt_toolkit = importlib.import_module("prompt_toolkit")
         input_defaults = importlib.import_module("prompt_toolkit.input.defaults")
         output_defaults = importlib.import_module("prompt_toolkit.output.defaults")
+        completion = importlib.import_module("prompt_toolkit.completion")
     except ImportError as exc:
         raise ReplInputUnavailableError(
             "prompt-toolkit input requires the optional prompt_toolkit package"
         ) from exc
-    return prompt_toolkit, input_defaults, output_defaults
+    return prompt_toolkit, input_defaults, output_defaults, completion
 
 
 def _prompt_toolkit_streams_supported(input_stream: TextIO, error_stream: TextIO) -> bool:

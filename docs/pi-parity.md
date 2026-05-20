@@ -29,7 +29,7 @@ Status labels are intentionally coarse:
 | `/login`, `/logout`, `/model` | Implemented narrow shell commands | Commands are local, late-bind provider selection, and do not create provider turns or archive auth material. |
 | Startup orientation | Implemented styled pass | The shell prints sectioned startup chrome with TTY-only ANSI styling, plain captured-stream fallback, safe resource-source labels, and compact workspace/model/turn status labels. |
 | Active prompt state | Implemented | The line-oriented prompt label reflects safe provider/model, turn, read, proposal, and verification state before each input. |
-| Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input on real TTY streams. Richer editor behavior remains deferred. |
+| Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion on real TTY streams. Richer editor behavior remains deferred. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
 | Read tool | Partial | `/read <path>` supports one explicit, bounded, UTF-8 workspace-relative excerpt per REPL session. No broad model-selected read tool exists yet. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn. |
@@ -48,7 +48,8 @@ metadata and boundary invariants are stable:
 
 - Full interactive terminal UI with editor, persistent footer,
   model/status controls, overlays, selectors, and resize handling beyond the
-  implemented narrow prompt-toolkit input-adapter feasibility boundary.
+  implemented narrow prompt-toolkit input-adapter and slash-command completion
+  boundaries.
 - File references with `@`, path completion, multiline editing, pasted images,
   and keyboard shortcut handling.
 - Model-selected tool loop with read, write, edit, bash, and follow-up tool
