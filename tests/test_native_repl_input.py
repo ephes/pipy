@@ -18,6 +18,7 @@ from pipy_harness.native.repl_input import (
     PromptToolkitReplCompleter,
     PromptToolkitSlashCommandCompleter,
     ReplInputUnavailableError,
+    _prompt_toolkit_multiline_key_bindings,
     native_repl_input_for,
 )
 from pipy_harness.native.session import _REPL_COMMAND_GROUPS
@@ -37,6 +38,18 @@ class FakeCompletion:
 class FakeDocument:
     def __init__(self, text_before_cursor: str) -> None:
         self.text_before_cursor = text_before_cursor
+
+
+class FakeKeyBindings:
+    def __init__(self) -> None:
+        self.bindings: list[tuple[tuple[str, ...], object]] = []
+
+    def add(self, *keys: str):
+        def decorator(func):
+            self.bindings.append((keys, func))
+            return func
+
+        return decorator
 
 
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
@@ -76,14 +89,26 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     created: dict[str, object] = {}
 
     class FakePromptSession:
-        def __init__(self, *, input, output, completer) -> None:
+        def __init__(
+            self,
+            *,
+            input,
+            output,
+            completer,
+            multiline,
+            prompt_continuation,
+            key_bindings,
+        ) -> None:
             created["input"] = input
             created["output"] = output
             created["completer"] = completer
+            created["multiline"] = multiline
+            created["prompt_continuation"] = prompt_continuation
+            created["key_bindings"] = key_bindings
 
         def prompt(self, prompt_label: str) -> str:
             created["prompt_label"] = prompt_label
-            return "edited input"
+            return "edited\ninput"
 
     prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)
     input_defaults_module = types.SimpleNamespace(
@@ -93,19 +118,21 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
         create_output=lambda *, stdout: ("output", stdout if stdout.isatty() else None)
     )
     completion_module = types.SimpleNamespace(Completion=FakeCompletion)
+    key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
     monkeypatch.setattr(sys, "stderr", tty_error)
 
     repl_input = native_repl_input_for(
-            input_stream=tty_input,
-            error_stream=tty_error,
-            input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
-            workspace=tmp_path,
-        )
+        input_stream=tty_input,
+        error_stream=tty_error,
+        input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+        workspace=tmp_path,
+    )
 
     assert isinstance(repl_input, PromptToolkitNativeReplInput)
     assert repl_input.runtime_label == REPL_INPUT_RUNTIME_PROMPT_TOOLKIT
@@ -113,7 +140,14 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     assert created["completer"].command_names == DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
     assert created["completer"].file_path_commands == DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS
     assert created["completer"].workspace == tmp_path
-    assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited input\n"
+    assert created["multiline"] is True
+    assert callable(created["prompt_continuation"])
+    assert isinstance(created["key_bindings"], FakeKeyBindings)
+    assert {keys for keys, _handler in created["key_bindings"].bindings} == {
+        ("enter",),
+        ("escape", "enter"),
+    }
+    assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited\ninput\n"
     assert created["input"] == ("input", tty_input)
     assert created["output"] == ("output", tty_error)
     assert created["prompt_label"] == "pipy-native [fake/model turns:0/8]> "
@@ -139,10 +173,12 @@ def test_auto_repl_input_falls_back_to_plain_when_prompt_toolkit_initialization_
         raise RuntimeError("terminal output unavailable")
 
     output_defaults_module = types.SimpleNamespace(create_output=fail_create_output)
+    key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
     monkeypatch.setattr(sys, "stderr", tty_error)
 
@@ -167,10 +203,12 @@ def test_explicit_prompt_toolkit_wraps_initialization_failure(monkeypatch) -> No
         create_output=lambda *, stdout: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     completion_module = types.SimpleNamespace(Completion=object)
+    key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
     monkeypatch.setattr(sys, "stderr", tty_error)
 
@@ -180,6 +218,31 @@ def test_explicit_prompt_toolkit_wraps_initialization_failure(monkeypatch) -> No
             error_stream=tty_error,
             input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
         )
+
+
+def test_prompt_toolkit_multiline_key_bindings_submit_and_insert_newline() -> None:
+    key_bindings = _prompt_toolkit_multiline_key_bindings(FakeKeyBindings)
+    handlers = {keys: handler for keys, handler in key_bindings.bindings}
+
+    class FakeBuffer:
+        def __init__(self) -> None:
+            self.handled = False
+            self.text = ""
+
+        def validate_and_handle(self) -> None:
+            self.handled = True
+
+        def insert_text(self, text: str) -> None:
+            self.text += text
+
+    buffer = FakeBuffer()
+    event = types.SimpleNamespace(current_buffer=buffer)
+
+    handlers[("enter",)](event)
+    handlers[("escape", "enter")](event)
+
+    assert buffer.handled is True
+    assert buffer.text == "\n"
 
 
 def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands() -> None:

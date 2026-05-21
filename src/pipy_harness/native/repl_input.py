@@ -115,7 +115,7 @@ PromptToolkitSlashCommandCompleter = PromptToolkitReplCompleter
 
 @dataclass(slots=True)
 class PromptToolkitNativeReplInput:
-    """Prompt-toolkit backed line editor, scoped to one-line input."""
+    """Prompt-toolkit backed multiline editor for real TTY input."""
 
     session: Any
     runtime_label: str = REPL_INPUT_RUNTIME_PROMPT_TOOLKIT
@@ -132,7 +132,13 @@ class PromptToolkitNativeReplInput:
             raise ReplInputUnavailableError(
                 "prompt-toolkit input requires the process stdin and stderr TTY streams"
             )
-        prompt_toolkit, input_defaults, output_defaults, completion = _load_prompt_toolkit()
+        (
+            prompt_toolkit,
+            input_defaults,
+            output_defaults,
+            completion,
+            key_binding,
+        ) = _load_prompt_toolkit()
 
         try:
             session = prompt_toolkit.PromptSession(
@@ -142,6 +148,9 @@ class PromptToolkitNativeReplInput:
                     completion.Completion,
                     workspace=workspace,
                 ),
+                multiline=True,
+                prompt_continuation=_prompt_toolkit_multiline_continuation,
+                key_bindings=_prompt_toolkit_multiline_key_bindings(key_binding.KeyBindings),
             )
         except Exception as exc:
             raise ReplInputUnavailableError(
@@ -207,17 +216,36 @@ def validate_native_repl_input_runtime(
         )
 
 
-def _load_prompt_toolkit() -> tuple[Any, Any, Any, Any]:
+def _load_prompt_toolkit() -> tuple[Any, Any, Any, Any, Any]:
     try:
         prompt_toolkit = importlib.import_module("prompt_toolkit")
         input_defaults = importlib.import_module("prompt_toolkit.input.defaults")
         output_defaults = importlib.import_module("prompt_toolkit.output.defaults")
         completion = importlib.import_module("prompt_toolkit.completion")
+        key_binding = importlib.import_module("prompt_toolkit.key_binding")
     except ImportError as exc:
         raise ReplInputUnavailableError(
             "prompt-toolkit input requires the optional prompt_toolkit package"
         ) from exc
-    return prompt_toolkit, input_defaults, output_defaults, completion
+    return prompt_toolkit, input_defaults, output_defaults, completion, key_binding
+
+
+def _prompt_toolkit_multiline_key_bindings(key_bindings_cls: Any) -> Any:
+    key_bindings = key_bindings_cls()
+
+    @key_bindings.add("enter")
+    def _submit_input(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
+    @key_bindings.add("escape", "enter")
+    def _insert_newline(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
+    return key_bindings
+
+
+def _prompt_toolkit_multiline_continuation(width: int, line_number: int, wrap_count: int) -> str:
+    return f"{' ' * max(0, width - 2)}| "
 
 
 def _prompt_toolkit_streams_supported(input_stream: TextIO, error_stream: TextIO) -> bool:

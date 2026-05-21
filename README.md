@@ -228,8 +228,9 @@ stdin/stderr behavior for captured streams and can use optional prompt-toolkit
 line-editor input only on real TTY streams when the package is available. The
 optional prompt-toolkit path also suggests existing slash command names while
 editing a leading `/` command, plus workspace-relative path labels while
-editing explicit file-command path arguments; prompt-toolkit remains optional
-and is not a declared runtime dependency.
+editing explicit file-command path arguments. It also supports multiline
+editing with Enter to submit and Esc+Enter to insert a newline; prompt-toolkit
+remains optional and is not a declared runtime dependency.
 Startup chrome, prompt labels, and input-runtime selection are presentation
 only: they do not call
 providers, run tools, read files, mutate state, consume budgets, or write to

@@ -101,7 +101,7 @@ Pi-style TUI yet. REPL input now goes through a small adapter: captured and
 non-TTY streams keep the plain stdin/stderr behavior, while real TTY sessions
 can use optional prompt-toolkit line-editor input when it is available or
 explicitly selected, including slash-command completion and workspace-relative
-path completion for explicit file commands.
+path completion for explicit file commands plus multiline editing.
 
 Available now:
 
@@ -110,8 +110,9 @@ Available now:
 - `pipy repl --input-runtime auto|plain|prompt-toolkit` selects the REPL input
   boundary; `auto` preserves plain fallback for captured streams.
 - In the optional prompt-toolkit path, leading slash command names and explicit
-  file-command path arguments can be completed without changing command parser
-  behavior or read/apply gates.
+  file-command path arguments can be completed, and Esc+Enter inserts
+  multiline input, without changing command parser behavior or read/apply
+  gates.
 - `pipy run --agent pipy-native --goal ...` runs one native provider turn.
 - `/help` prints static command usage.
 - `/status` prints safe local shell state to stderr.

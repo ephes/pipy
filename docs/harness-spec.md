@@ -5,8 +5,8 @@ slash-command discovery, bounded read/context, proposal, same-session apply,
 post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
 optional prompt-toolkit line-editor input and leading slash-command completion
-plus workspace-relative path completion for explicit file commands on real TTY
-streams.
+plus workspace-relative path completion for explicit file commands and
+multiline entry on real TTY streams.
 
 <style>
 .mermaid,
@@ -1549,14 +1549,14 @@ real TTY streams; otherwise it falls back to the plain adapter. Explicit
 `--input-runtime prompt-toolkit` fails closed when those requirements are not
 met, which makes smoke-test intent visible.
 
-The prompt-toolkit path is deliberately scoped to one-line input. It does not
-use an alternate screen buffer, full-screen app, overlays, selectors,
-persistent footer ownership, RPC protocol, broad resource loader,
-provider-side tools, arbitrary shell execution, automatic file-content reads,
-non-allowlisted verification, persistent transcript storage, raw
-prompt/model-output display, or a general model/tool loop. It also does not
-make prompt-toolkit a declared runtime dependency yet; that remains a follow-up
-decision after real TTY smoke testing.
+The first prompt-toolkit path was deliberately scoped to input editing without
+terminal-app ownership. It does not use an alternate screen buffer,
+full-screen app, overlays, selectors, persistent footer ownership, RPC
+protocol, broad resource loader, provider-side tools, arbitrary shell
+execution, automatic file-content reads, non-allowlisted verification,
+persistent transcript storage, raw prompt/model-output display, or a general
+model/tool loop. It also does not make prompt-toolkit a declared runtime
+dependency yet; that remains a follow-up decision after real TTY smoke testing.
 
 Native session events may record the safe `input_runtime` label. They still do
 not store raw command text, prompts, model output, provider responses, file
@@ -1634,6 +1634,35 @@ only the safe `input_runtime` label; they must not add raw command text,
 completion buffers, prompts, model output, provider responses, excerpts, patch
 text, diffs, file contents, command stdout, command stderr, auth material,
 secrets, credentials, tokens, private keys, or sensitive personal data.
+
+### Native Prompt-Toolkit Multiline Input Boundary
+
+The multiline follow-up keeps prompt-toolkit optional and adds multiline
+editing only to the real-TTY prompt-toolkit input adapter. Captured streams,
+non-TTY streams, and explicit `--input-runtime plain` continue to use the
+plain stdin/stderr `readline()` adapter.
+
+Submission semantics are local to the input adapter: Enter submits the current
+buffer, preserving fast one-line command entry, while Esc+Enter inserts a
+newline. The REPL command parser remains authoritative after submission, so
+ordinary provider prompts may include newlines but slash commands still use the
+same existing command names, separators, validation, usage diagnostics, read
+budgets, proposal/apply behavior, verification behavior, and provider-turn
+rules.
+
+This boundary does not add persistent history, bottom-toolbar behavior, a
+full-screen TUI, an alternate screen buffer, overlays, selectors, RPC, broad
+context loading, automatic file-content reads, arbitrary shell execution,
+provider-side tools, non-allowlisted verification, persistent transcript
+storage, raw prompt/model-output display, or a general model/tool loop.
+
+Archives, Markdown summaries, catalog/search/inspect surfaces, and structured
+output remain metadata-only. Session lifecycle events may continue to record
+only the safe `input_runtime` label; they must not add raw command text,
+prompt-toolkit buffers, prompts, model output, provider responses, excerpts,
+patch text, diffs, file contents, command stdout, command stderr, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data.
 
 ### Native Structured Stdout JSON Mode
 
