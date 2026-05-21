@@ -230,7 +230,9 @@ optional prompt-toolkit path also suggests existing slash command names while
 editing a leading `/` command, plus workspace-relative path labels while
 editing explicit file-command path arguments. It also supports multiline
 editing with Enter to submit and Esc+Enter to insert a newline; prompt-toolkit
-remains optional and is not a declared runtime dependency.
+remains optional and is not a declared runtime dependency. The prompt-toolkit
+adapter disables cursor-position probes to avoid PTY warning noise and accepts
+both common Enter encodings for submit/newline key handling.
 Startup chrome, prompt labels, and input-runtime selection are presentation
 only: they do not call
 providers, run tools, read files, mutate state, consume budgets, or write to

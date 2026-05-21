@@ -577,6 +577,9 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "defer bottom-toolbar behavior" in compact_pre_next_slice
     assert "real-TTY prompt-toolkit hardening pass" in compact_pre_next_slice
     assert "async completion protocol compatibility gap" in compact_pre_next_slice
+    assert "Native prompt-toolkit real-TTY input hardening" in compact_pre_next_slice
+    assert "disables prompt-toolkit cursor-position requests" in compact_pre_next_slice
+    assert "CR and LF terminal encodings" in compact_pre_next_slice
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
@@ -588,16 +591,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "leading slash-command name completion" in compact_pi_parity_roadmap
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Prompt-toolkit real-TTY input hardening" in next_slice
-    assert "harden the existing optional real-TTY prompt-toolkit input path" in (
+    assert "### Decide next prompt-toolkit input boundary" in next_slice
+    assert "choose the next small input-ergonomics boundary" in (
         compact_next_slice
     )
-    assert "ordinary no-tool turns, leading slash-command completion" in (
+    assert "file references, resilient resize behavior, persistent history" in (
         compact_next_slice
     )
-    assert "sync and async completion surfaces" in compact_next_slice
-    assert "multiline newline key sequence" in compact_next_slice
-    assert "cursor-position warning output" in compact_next_slice
+    assert "document the chosen boundary and the rejected alternatives" in compact_next_slice
     assert "preserve the bottom-toolbar deferral" in compact_next_slice
     assert "captured-stream and explicit plain input behavior unchanged" in (
         compact_next_slice
@@ -615,15 +616,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Prompt-Toolkit File/Path Completion Boundary" in spec
     assert "Native Prompt-Toolkit Multiline Input Boundary" in spec
     assert "Native Prompt-Toolkit Bottom-Toolbar Status Decision" in spec
+    assert "Native Prompt-Toolkit Real-TTY Input Hardening" in spec
     assert "bottom-toolbar decision defers footer behavior" in collapse_whitespace(spec)
+    assert "disables prompt-toolkit cursor-position requests" in spec
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now prompt-toolkit real-TTY input hardening" in (
+    assert "immediate path is now deciding the next prompt-toolkit input boundary" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Prompt-toolkit real-TTY input hardening." in compact_near_term
+    assert "Decide next prompt-toolkit input boundary." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term
@@ -690,9 +693,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Prompt-toolkit bottom-toolbar status decision gate: available now" in (
         compact_near_term
     )
-    assert "next concrete native-shell slice is prompt-toolkit real-TTY input hardening" in (
+    assert "Prompt-toolkit real-TTY input hardening gate: available now" in (
         compact_near_term
     )
+    assert "handles both CR and LF encodings" in compact_near_term
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term

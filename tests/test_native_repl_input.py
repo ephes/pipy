@@ -53,6 +53,11 @@ class FakeKeyBindings:
         return decorator
 
 
+class FakePromptToolkitOutput:
+    def __init__(self) -> None:
+        self.enable_cpr = True
+
+
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
     input_stream = StringIO("hello\n")
     error_stream = StringIO()
@@ -146,12 +151,63 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     assert isinstance(created["key_bindings"], FakeKeyBindings)
     assert {keys for keys, _handler in created["key_bindings"].bindings} == {
         ("enter",),
+        ("c-j",),
         ("escape", "enter"),
+        ("escape", "c-j"),
     }
     assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited\ninput\n"
     assert created["input"] == ("input", tty_input)
     assert created["output"] == ("output", tty_error)
     assert created["prompt_label"] == "pipy-native [fake/model turns:0/8]> "
+
+
+def test_prompt_toolkit_repl_input_disables_cursor_position_requests(
+    monkeypatch,
+) -> None:
+    tty_input = TtyStringIO()
+    tty_error = TtyStringIO()
+    fake_output = FakePromptToolkitOutput()
+    created: dict[str, object] = {}
+
+    class FakePromptSession:
+        def __init__(
+            self,
+            *,
+            input,
+            output,
+            completer,
+            multiline,
+            prompt_continuation,
+            key_bindings,
+        ) -> None:
+            created["output"] = output
+
+    prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)
+    input_defaults_module = types.SimpleNamespace(
+        create_input=lambda *, stdin: ("input", stdin)
+    )
+    output_defaults_module = types.SimpleNamespace(
+        create_output=lambda *, stdout: fake_output
+    )
+    completion_module = types.SimpleNamespace(Completion=FakeCompletion)
+    key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
+    monkeypatch.setattr(sys, "stdin", tty_input)
+    monkeypatch.setattr(sys, "stderr", tty_error)
+
+    repl_input = native_repl_input_for(
+        input_stream=tty_input,
+        error_stream=tty_error,
+        input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+    )
+
+    assert isinstance(repl_input, PromptToolkitNativeReplInput)
+    assert created["output"] is fake_output
+    assert fake_output.enable_cpr is False
 
 
 def test_auto_repl_input_falls_back_to_plain_when_prompt_toolkit_initialization_fails(
@@ -240,10 +296,12 @@ def test_prompt_toolkit_multiline_key_bindings_submit_and_insert_newline() -> No
     event = types.SimpleNamespace(current_buffer=buffer)
 
     handlers[("enter",)](event)
+    handlers[("c-j",)](event)
     handlers[("escape", "enter")](event)
+    handlers[("escape", "c-j")](event)
 
     assert buffer.handled is True
-    assert buffer.text == "\n"
+    assert buffer.text == "\n\n"
 
 
 def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands() -> None:

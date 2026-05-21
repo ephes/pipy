@@ -149,7 +149,7 @@ class PromptToolkitNativeReplInput:
         try:
             session = prompt_toolkit.PromptSession(
                 input=input_defaults.create_input(stdin=input_stream),
-                output=output_defaults.create_output(stdout=error_stream),
+                output=_prompt_toolkit_output(output_defaults, error_stream),
                 completer=PromptToolkitReplCompleter(
                     completion.Completion,
                     workspace=workspace,
@@ -236,6 +236,13 @@ def _load_prompt_toolkit() -> tuple[Any, Any, Any, Any, Any]:
     return prompt_toolkit, input_defaults, output_defaults, completion, key_binding
 
 
+def _prompt_toolkit_output(output_defaults: Any, error_stream: TextIO) -> Any:
+    output = output_defaults.create_output(stdout=error_stream)
+    if hasattr(output, "enable_cpr"):
+        output.enable_cpr = False
+    return output
+
+
 def _prompt_toolkit_multiline_key_bindings(key_bindings_cls: Any) -> Any:
     key_bindings = key_bindings_cls()
 
@@ -243,8 +250,16 @@ def _prompt_toolkit_multiline_key_bindings(key_bindings_cls: Any) -> Any:
     def _submit_input(event: Any) -> None:
         event.current_buffer.validate_and_handle()
 
+    @key_bindings.add("c-j")
+    def _submit_lf_encoded_input(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
     @key_bindings.add("escape", "enter")
     def _insert_newline(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
+    @key_bindings.add("escape", "c-j")
+    def _insert_lf_encoded_newline(event: Any) -> None:
         event.current_buffer.insert_text("\n")
 
     return key_bindings

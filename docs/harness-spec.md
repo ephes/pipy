@@ -7,8 +7,8 @@ and a small REPL input-adapter boundary with plain captured-stream fallback plus
 optional prompt-toolkit line-editor input and leading slash-command completion
 plus workspace-relative path completion for explicit file commands and
 multiline entry on real TTY streams. The bottom-toolbar status decision
-deferred footer behavior and selected real-TTY prompt-toolkit input hardening
-as the next concrete native-shell slice.
+deferred footer behavior, and the real-TTY prompt-toolkit input path is now
+hardened for cursor-position warning noise and CR/LF newline-key encodings.
 
 <style>
 .mermaid,
@@ -1689,11 +1689,11 @@ output while multiline key-sequence behavior still needs a targeted real-TTY
 hardening pass. The async completion protocol compatibility gap is fixed inside
 the existing input adapter.
 
-The next concrete native-shell slice is prompt-toolkit real-TTY input
-hardening, not a footer. That slice should keep prompt-toolkit optional,
-preserve plain captured-stream fallback, preserve explicit
-`--input-runtime plain`, and keep explicit `--input-runtime prompt-toolkit`
-fail-closed on captured or unsupported streams. Any fixes should stay inside
+The next native-shell slice after this decision was prompt-toolkit real-TTY
+input hardening, not a footer. That slice kept prompt-toolkit optional,
+preserved plain captured-stream fallback, preserved explicit
+`--input-runtime plain`, and kept explicit `--input-runtime prompt-toolkit`
+fail-closed on captured or unsupported streams. Future fixes should stay inside
 the input-adapter boundary unless a later decision explicitly reopens the
 terminal-layer tradeoff.
 
@@ -1703,6 +1703,30 @@ alternate screen buffer, overlays, selectors, RPC, broad context loading,
 automatic file-content reads, arbitrary shell execution, provider-side tools,
 non-allowlisted verification, persistent transcript storage, raw
 prompt/model-output display, and a general model/tool loop remain deferred.
+
+### Native Prompt-Toolkit Real-TTY Input Hardening
+
+The optional prompt-toolkit input adapter remains the only non-plain input path.
+It now disables prompt-toolkit cursor-position requests on the stderr output
+object so PTY-like terminals that do not answer CPR probes do not produce
+cursor-position warning noise. This is intentionally adapter-local: it does not
+add bottom-toolbar behavior, persistent footer ownership, a full-screen TUI, or
+any new archive content.
+
+The multiline key bindings also handle both CR and LF encodings. Enter and LF
+submit the current buffer, while Esc+Enter and Esc+LF insert one newline. This
+keeps the documented Enter-submit and Esc+Enter-newline behavior intact while
+covering terminals that encode the same physical keys differently.
+
+Prompt-toolkit remains optional and is not a declared runtime dependency.
+`auto` still uses it only on real process stdin/stderr TTY streams, captured
+streams still use plain `readline()`, `--input-runtime plain` remains explicit
+plain input, and `--input-runtime prompt-toolkit` continues to fail closed on
+captured or unsupported streams. The adapter still must not archive raw command
+text, prompts, completion buffers, provider output, excerpts, patch text,
+stdout, stderr, secrets, credentials, tokens, private keys, or sensitive
+personal data; native session events may record only the safe `input_runtime`
+label.
 
 ### Native Structured Stdout JSON Mode
 

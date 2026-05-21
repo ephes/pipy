@@ -30,9 +30,10 @@ prompt-toolkit path now also suggests workspace-relative file/path labels while
 editing the path argument for explicit file commands, and supports
 prompt-toolkit-only multiline entry with Enter submitting and Esc+Enter
 inserting a newline, and the prompt-toolkit completion adapter now supports the
-async completion protocol used by current prompt-toolkit releases. The
-bottom-toolbar status decision deferred footer behavior in favor of hardening
-the existing optional real-TTY input path first. The public shell still cannot
+async completion protocol used by current prompt-toolkit releases. The existing
+optional real-TTY prompt-toolkit input path is now hardened for cursor-position
+warning noise and LF-encoded Enter/Esc+Enter key sequences. The bottom-toolbar
+status decision remains deferred. The public shell still cannot
 execute arbitrary shell commands, request provider-side tools, read
 multiple files per session, run non-allowlisted verification commands, or run a
 general model/tool loop.
@@ -76,9 +77,10 @@ Use this page as a planning index:
   name completion, is now implemented; workspace-relative file/path completion
   for explicit file commands is now implemented; prompt-toolkit-only multiline
   entry is now implemented; the bottom-toolbar status decision is complete and
-  deferred footer behavior. The next milestone is hardening the optional
-  real-TTY prompt-toolkit input path while any full TUI, alternate-screen app,
-  or general keybinding runtime remains deferred.
+  deferred footer behavior; the optional real-TTY prompt-toolkit input
+  hardening pass is now implemented. The next milestone is deciding the next
+  narrow input-ergonomics boundary while any full TUI, alternate-screen app, or
+  general keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -104,9 +106,10 @@ discipline:
   plain captured-stream fallback and can use optional prompt-toolkit line-editor
   input on real TTY streams, with leading slash-command name completion and
   workspace-relative path completion for explicit file commands plus
-  prompt-toolkit-only multiline entry in that optional path. File references,
-  resilient terminal resize behavior, persistent history, and a fuller TUI
-  remain future slices.
+  prompt-toolkit-only multiline entry in that optional path. The real-TTY
+  prompt-toolkit path is hardened against cursor-position warning noise and
+  LF-encoded newline key sequences. File references, resilient terminal resize
+  behavior, persistent history, and a fuller TUI remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
   archive behavior.
@@ -1025,29 +1028,38 @@ fuller UI surface or lower-level terminal ownership.
   reads, arbitrary shell execution, provider-side tools, non-allowlisted
   verification, persistent transcript storage, raw prompt/model-output display,
   and a general model/tool loop remain deferred.
+- Native prompt-toolkit real-TTY input hardening:
+  The optional prompt-toolkit REPL input adapter now disables prompt-toolkit
+  cursor-position requests on its stderr output object, avoiding cursor-position
+  warning noise observed in test PTYs without adding footer behavior or
+  changing the plain input fallback. The multiline key bindings now handle both
+  CR and LF terminal encodings for Enter-submit and Esc+Enter newline
+  insertion. Focused tests pin explicit prompt-toolkit setup, CPR disabling,
+  CR/LF key-sequence handling, sync and async completion surfaces, file/path
+  completion, captured-stream fallback, and explicit prompt-toolkit fail-closed
+  behavior. A real-TTY smoke with the optional package installed covered local
+  state commands, ordinary no-tool turns, multiline entry, and
+  completion-capable startup without storing raw input buffers.
 
 ## Next Slice
 
-### Prompt-toolkit real-TTY input hardening
+### Decide next prompt-toolkit input boundary
 
-Goal: harden the existing optional real-TTY prompt-toolkit input path before
-adding any new footer/status display surface.
+Goal: choose the next small input-ergonomics boundary after the hardened
+optional prompt-toolkit path, without reopening the bottom-toolbar deferral or
+crossing into full TUI work.
 
 Completion focus:
 
-- repeat the real-TTY prompt-toolkit smoke with the optional package installed,
-  covering ordinary no-tool turns, leading slash-command completion,
-  workspace-relative file/path completion, multiline entry, and local state
-  commands such as `/status`, `/clear`, or `/model`
-- pin prompt-toolkit protocol compatibility in tests where practical,
-  including sync and async completion surfaces
-- verify whether the multiline newline key sequence needs additional
-  terminal-encoding support beyond the existing Enter-submit and Esc+Enter
-  behavior; if it does, keep the fix inside the input adapter
-- document whether prompt-toolkit cursor-position warning output is only a test
-  PTY artifact or requires a runtime fallback
-- preserve the bottom-toolbar deferral unless hardening evidence changes the
-  terminal-layer tradeoff in a separate decision
+- inspect the now-hardened prompt-toolkit path and summary-safe session lessons
+  before selecting a follow-up
+- compare the smallest plausible next input slices: file references, resilient
+  resize behavior, persistent history with explicit privacy constraints, or
+  another focused prompt-toolkit hardening pass
+- document the chosen boundary and the rejected alternatives in the backlog and
+  harness spec
+- preserve the bottom-toolbar deferral unless new evidence explicitly changes
+  the terminal-layer tradeoff
 - keep captured-stream and explicit plain input behavior unchanged, and keep
   explicit `--input-runtime prompt-toolkit` fail-closed on unsupported streams
 - preserve existing command names, parser behavior, stdout/stderr contracts,
@@ -1056,8 +1068,8 @@ Completion focus:
 - keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
   general keybinding runtime, RPC mode, broad context loading, automatic
   file-content reads, arbitrary shell execution, provider-side tools,
-  non-allowlisted verification, persistent transcript storage, raw
-  prompt/model-output display, or general model/tool loop
+  non-allowlisted verification, raw prompt/model-output display, raw history
+  storage, persistent transcript storage, or general model/tool loop
 
 ## Near Term
 
@@ -1068,17 +1080,18 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now prompt-toolkit real-TTY input hardening after the
+The immediate path is now deciding the next prompt-toolkit input boundary after the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
 leading slash-command completion, workspace-relative path completion, multiline
-input, and bottom-toolbar status decision. The implemented boundary proves the
-current shell can preserve plain captured-stream behavior while isolating
-optional prompt-toolkit input behind a small adapter. The bottom-toolbar
-decision deferred footer behavior because the prompt label already carries the
-safe input-time status labels and the real-TTY smoke found existing adapter
-hardening work worth doing before another terminal display surface.
+input, bottom-toolbar status decision, and real-TTY prompt-toolkit hardening.
+The implemented boundary proves the current shell can preserve plain
+captured-stream behavior while isolating optional prompt-toolkit input behind a
+small adapter. The bottom-toolbar decision deferred footer behavior because the
+prompt label already carries the safe input-time status labels, and the
+hardening pass resolved the adapter compatibility work found by real-TTY smoke
+testing before adding another terminal display surface.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -1128,13 +1141,14 @@ styled, sectioned, resource-label frame, a grouped command reference, compact
 current-state input labels, and an optional prompt-toolkit line-editor path
 with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands plus prompt-toolkit-only multiline input
-while still keeping the shipping runtime metadata-only and captured-stream
-compatible. The next visible parity step is stabilizing that optional real-TTY
-path before revisiting footer-style display.
+with hardened cursor-position and newline-key handling while still keeping the
+shipping runtime metadata-only and captured-stream compatible. The next visible
+parity step is choosing the next small input boundary before revisiting
+footer-style display.
 
 Small reviewable slices, in intended order:
 
-1. Prompt-toolkit real-TTY input hardening.
+1. Decide next prompt-toolkit input boundary.
 
 Foundation gates toward an interactive shell:
 
@@ -1224,8 +1238,15 @@ Foundation gates toward an interactive shell:
   streams remain one-line `readline()` input.
 - Prompt-toolkit bottom-toolbar status decision gate: available now. Footer
   behavior is deferred because startup chrome, `/status`, and the state-aware
-  prompt label already expose the same safe state labels; the next concrete
-  native-shell slice is prompt-toolkit real-TTY input hardening.
+  prompt label already expose the same safe state labels; the follow-up
+  real-TTY prompt-toolkit hardening pass is also available now.
+- Prompt-toolkit real-TTY input hardening gate: available now. The optional
+  prompt-toolkit adapter disables cursor-position requests to avoid warning
+  noise in PTY-like terminals and handles both CR and LF encodings for
+  Enter-submit and Esc+Enter newline insertion, while preserving optional
+  dependency posture, plain fallback, explicit prompt-toolkit fail-closed
+  behavior, command parsing, stdout/stderr contracts, and metadata-only
+  archives.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
