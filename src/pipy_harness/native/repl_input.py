@@ -6,7 +6,7 @@ import importlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Iterable, Protocol, TextIO
+from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated, _is_relative_to
@@ -108,6 +108,12 @@ class PromptToolkitReplCompleter:
                 candidate,
                 start_position=-len(path_prefix),
             )
+
+    async def get_completions_async(
+        self, document: Any, complete_event: Any
+    ) -> AsyncIterator[Any]:
+        for completion in self.get_completions(document, complete_event):
+            yield completion
 
 
 PromptToolkitSlashCommandCompleter = PromptToolkitReplCompleter

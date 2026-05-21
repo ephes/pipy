@@ -29,8 +29,11 @@ explicitly selected or auto-available on real TTY streams. The optional
 prompt-toolkit path now also suggests workspace-relative file/path labels while
 editing the path argument for explicit file commands, and supports
 prompt-toolkit-only multiline entry with Enter submitting and Esc+Enter
-inserting a newline. The public shell still cannot execute arbitrary shell
-commands, request provider-side tools, read
+inserting a newline, and the prompt-toolkit completion adapter now supports the
+async completion protocol used by current prompt-toolkit releases. The
+bottom-toolbar status decision deferred footer behavior in favor of hardening
+the existing optional real-TTY input path first. The public shell still cannot
+execute arbitrary shell commands, request provider-side tools, read
 multiple files per session, run non-allowlisted verification commands, or run a
 general model/tool loop.
 
@@ -72,9 +75,10 @@ Use this page as a planning index:
   implemented; the first richer prompt-toolkit follow-up, leading slash-command
   name completion, is now implemented; workspace-relative file/path completion
   for explicit file commands is now implemented; prompt-toolkit-only multiline
-  entry is now implemented. The next milestone is deciding whether a
-  bottom-toolbar-style status line is worth adding next while any full TUI,
-  alternate-screen app, or general keybinding runtime remains deferred.
+  entry is now implemented; the bottom-toolbar status decision is complete and
+  deferred footer behavior. The next milestone is hardening the optional
+  real-TTY prompt-toolkit input path while any full TUI, alternate-screen app,
+  or general keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -1003,27 +1007,49 @@ fuller UI surface or lower-level terminal ownership.
   verification, persistent transcript storage, raw prompt/model-output
   display, or a general model/tool loop. Archives still record only the safe
   `input_runtime` label and never raw input buffers.
+- Native prompt-toolkit bottom-toolbar status decision:
+  The decision is to defer bottom-toolbar behavior for now and make the next
+  concrete native-shell slice a real-TTY prompt-toolkit hardening pass. The
+  existing prompt label already shows the safe provider/model, turn,
+  read/proposal/verification availability labels at the input point, while
+  startup chrome and `/status` cover the fuller safe state view. Summary-safe
+  session checks favored small native input-adapter slices, and a real PTY
+  smoke found prompt-toolkit compatibility work to address before adding
+  another display surface. This slice fixed the current prompt-toolkit async
+  completion protocol compatibility gap inside the adapter without changing
+  command parsing, stdout/stderr contracts, provider turns, read budgets,
+  proposal/apply/verification behavior, archive event shapes, optional
+  dependency posture, or metadata-only privacy rules. Bottom-toolbar behavior,
+  persistent footer ownership, full-screen TUI, alternate screen buffer,
+  overlays, selectors, RPC, broad context loading, automatic file-content
+  reads, arbitrary shell execution, provider-side tools, non-allowlisted
+  verification, persistent transcript storage, raw prompt/model-output display,
+  and a general model/tool loop remain deferred.
 
 ## Next Slice
 
-### Prompt-toolkit bottom-toolbar status decision
+### Prompt-toolkit real-TTY input hardening
 
-Goal: decide whether the next richer prompt-toolkit input behavior should be a
-small bottom-toolbar-style status line showing the same safe state labels that
-startup chrome, `/status`, and the prompt label already expose, or explicitly
-defer footer behavior until broader terminal UI work is justified.
+Goal: harden the existing optional real-TTY prompt-toolkit input path before
+adding any new footer/status display surface.
 
 Completion focus:
 
-- use the implemented optional prompt-toolkit path, slash-command completion,
-  workspace-relative path completion, and multiline-entry boundary to compare
-  whether a status footer improves real TTY orientation enough to justify
-  transient prompt-toolkit display ownership
-- decide whether footer/status behavior should stay prompt-toolkit-only and
-  opportunistic, or remain deferred while prompt-toolkit itself stays optional
-  and dependency-free for the base install
-- if implemented, keep captured-stream and explicit plain input behavior
-  unchanged and keep footer content derived only from already-safe local state
+- repeat the real-TTY prompt-toolkit smoke with the optional package installed,
+  covering ordinary no-tool turns, leading slash-command completion,
+  workspace-relative file/path completion, multiline entry, and local state
+  commands such as `/status`, `/clear`, or `/model`
+- pin prompt-toolkit protocol compatibility in tests where practical,
+  including sync and async completion surfaces
+- verify whether the multiline newline key sequence needs additional
+  terminal-encoding support beyond the existing Enter-submit and Esc+Enter
+  behavior; if it does, keep the fix inside the input adapter
+- document whether prompt-toolkit cursor-position warning output is only a test
+  PTY artifact or requires a runtime fallback
+- preserve the bottom-toolbar deferral unless hardening evidence changes the
+  terminal-layer tradeoff in a separate decision
+- keep captured-stream and explicit plain input behavior unchanged, and keep
+  explicit `--input-runtime prompt-toolkit` fail-closed on unsupported streams
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   prompt labels, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, and metadata-only archive behavior
@@ -1042,17 +1068,17 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now a prompt-toolkit bottom-toolbar status decision after
-the styled Pi-like startup visual/resource-label pass, grouped slash-command
+The immediate path is now prompt-toolkit real-TTY input hardening after the
+styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
-terminal-layer direction checkpoint, prompt-toolkit feasibility boundary, and
-leading slash-command, workspace-relative path completion, and multiline input
-boundaries. The
-implemented boundary proves the current shell can preserve plain captured-stream
-behavior while isolating optional prompt-toolkit input behind a small adapter.
-The next slice should decide whether a bottom-toolbar-style status line is
-worth adding before execution powers, broad context loading, file references,
-or a full TUI.
+terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
+leading slash-command completion, workspace-relative path completion, multiline
+input, and bottom-toolbar status decision. The implemented boundary proves the
+current shell can preserve plain captured-stream behavior while isolating
+optional prompt-toolkit input behind a small adapter. The bottom-toolbar
+decision deferred footer behavior because the prompt label already carries the
+safe input-time status labels and the real-TTY smoke found existing adapter
+hardening work worth doing before another terminal display surface.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -1103,11 +1129,12 @@ current-state input labels, and an optional prompt-toolkit line-editor path
 with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands plus prompt-toolkit-only multiline input
 while still keeping the shipping runtime metadata-only and captured-stream
-compatible.
+compatible. The next visible parity step is stabilizing that optional real-TTY
+path before revisiting footer-style display.
 
 Small reviewable slices, in intended order:
 
-1. Prompt-toolkit bottom-toolbar status decision.
+1. Prompt-toolkit real-TTY input hardening.
 
 Foundation gates toward an interactive shell:
 
@@ -1195,9 +1222,10 @@ Foundation gates toward an interactive shell:
   prompt-toolkit input path enables multiline buffers on real TTY streams while
   keeping Enter as submit and Esc+Enter as newline insertion; plain captured
   streams remain one-line `readline()` input.
-- Prompt-toolkit bottom-toolbar status decision gate: next. Decide whether a
-  prompt-toolkit-only status footer belongs in the narrow input adapter before
-  broader terminal UI work.
+- Prompt-toolkit bottom-toolbar status decision gate: available now. Footer
+  behavior is deferred because startup chrome, `/status`, and the state-aware
+  prompt label already expose the same safe state labels; the next concrete
+  native-shell slice is prompt-toolkit real-TTY input hardening.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

@@ -6,7 +6,9 @@ post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
 optional prompt-toolkit line-editor input and leading slash-command completion
 plus workspace-relative path completion for explicit file commands and
-multiline entry on real TTY streams.
+multiline entry on real TTY streams. The bottom-toolbar status decision
+deferred footer behavior and selected real-TTY prompt-toolkit input hardening
+as the next concrete native-shell slice.
 
 <style>
 .mermaid,
@@ -1573,8 +1575,9 @@ opportunistic line-editor enhancement rather than a declared runtime
 dependency: captured streams, non-TTY streams, and explicit
 `--input-runtime plain` continue to use the plain stdin/stderr adapter.
 
-The completer suggests only existing local command names while editing the
-first slash-prefixed token, such as `/help`, `/clear`, `/status`, `/login`,
+The completer supports prompt-toolkit's sync and async completion protocols and
+suggests only existing local command names while editing the first
+slash-prefixed token, such as `/help`, `/clear`, `/status`, `/login`,
 `/logout`, `/model`, `/read`, `/ask-file`, `/propose-file`,
 `/apply-proposal`, `/verify`, `/exit`, and `/quit`. It does not complete
 ordinary provider prompts, command arguments, paths, file references, model
@@ -1663,6 +1666,43 @@ prompt-toolkit buffers, prompts, model output, provider responses, excerpts,
 patch text, diffs, file contents, command stdout, command stderr, auth
 material, secrets, credentials, tokens, private keys, or sensitive personal
 data.
+
+### Native Prompt-Toolkit Bottom-Toolbar Status Decision
+
+The bottom-toolbar decision defers footer behavior. The existing prompt label
+already shows the safe input-time labels that matter during command choice:
+provider/model, provider turns, read availability, pending proposal
+availability, and verification availability. Startup chrome and `/status`
+remain the fuller safe state surfaces, including workspace, retained no-tool
+history, read-budget details, pending proposal, and verification availability.
+
+The decision evidence came from summary-safe archive checks and a real PTY
+smoke of the optional prompt-toolkit path. Archive lessons favored small native
+input-adapter slices with focused tests and no archive contract changes. The
+PTY smoke confirmed ordinary no-tool turns, direct `/status` and `/clear`,
+visible slash-command completion, and visible workspace-relative path
+completion after running with the optional `prompt_toolkit` package installed.
+It also exposed adapter hardening work that is more important than adding a
+second display of the same safe labels: current prompt-toolkit releases call an
+async completion method, and the test PTY produced cursor-position warning
+output while multiline key-sequence behavior still needs a targeted real-TTY
+hardening pass. The async completion protocol compatibility gap is fixed inside
+the existing input adapter.
+
+The next concrete native-shell slice is prompt-toolkit real-TTY input
+hardening, not a footer. That slice should keep prompt-toolkit optional,
+preserve plain captured-stream fallback, preserve explicit
+`--input-runtime plain`, and keep explicit `--input-runtime prompt-toolkit`
+fail-closed on captured or unsupported streams. Any fixes should stay inside
+the input-adapter boundary unless a later decision explicitly reopens the
+terminal-layer tradeoff.
+
+This decision changes no provider/tool behavior and adds no new archive
+content. Bottom-toolbar behavior, persistent footer ownership, full-screen TUI,
+alternate screen buffer, overlays, selectors, RPC, broad context loading,
+automatic file-content reads, arbitrary shell execution, provider-side tools,
+non-allowlisted verification, persistent transcript storage, raw
+prompt/model-output display, and a general model/tool loop remain deferred.
 
 ### Native Structured Stdout JSON Mode
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from io import StringIO
@@ -259,6 +260,19 @@ def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands()
 
     assert list(completer.get_completions(FakeDocument("ordinary /m"), None)) == []
     assert list(completer.get_completions(FakeDocument("/model "), None)) == []
+
+
+def test_prompt_toolkit_repl_completer_supports_async_completion_protocol() -> None:
+    async def collect_matches() -> list[FakeCompletion]:
+        completer = PromptToolkitSlashCommandCompleter(FakeCompletion)
+        return [
+            match
+            async for match in completer.get_completions_async(FakeDocument("/st"), None)
+        ]
+
+    matches = asyncio.run(collect_matches())
+
+    assert [(match.text, match.start_position) for match in matches] == [("/status", -3)]
 
 
 def test_prompt_toolkit_repl_completer_suggests_workspace_paths_for_file_commands(
