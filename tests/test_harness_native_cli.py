@@ -232,15 +232,15 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
     assert captured.out == "REPL_OUTPUT_0\nREPL_OUTPUT_1\n"
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:0/8 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:2/8 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in captured.err
     assert "session finalized" in captured.err
     assert [
@@ -611,7 +611,10 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
     assert f"  workspace: {tmp_path.name}" in captured.err
     assert "  provider_turns: 0/8" in captured.err
     assert "  no_tool_history: retained=false exchanges=0/8 bytes=0/4096" in captured.err
-    assert "  read_budget: can_attempt=true successful_used=false" in captured.err
+    assert (
+        "  read_budget: can_attempt=true successful=0/2 remaining=2 "
+        "successful_used=false"
+    ) in captured.err
     assert "  pending_proposal_available: false" in captured.err
     assert "  verification_available: false" in captured.err
     assert "malformed /status command. Supported command usage:" in captured.err
@@ -2406,6 +2409,107 @@ def test_cli_native_repl_two_failed_read_attempts_exhaust_recovery_before_later_
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_repl_interleaved_success_failure_success_blocks_later_read(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_READ_BEFORE_INTERLEAVED_FAILURE\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_AFTER_INTERLEAVED_FAILURE\n", encoding="utf-8")
+    third.write_text("THIRD_READ_AFTER_INTERLEAVED_SUCCESS_SHOULD_NOT_PRINT\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeProposeFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="PROPOSE_AFTER_INTERLEAVED_FAILURE",
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/read docs/first.txt\n"
+            "/ask-file docs/missing.txt -- Use the missing file\n"
+            "/propose-file docs/second.txt -- Change it\n"
+            "/read docs/third.txt\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-interleaved-read-budgets",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == (
+        "FIRST_READ_BEFORE_INTERLEAVED_FAILURE\n"
+        "PROPOSE_AFTER_INTERLEAVED_FAILURE\n"
+    )
+    assert "ask-file command skipped: missing_file" in captured.err
+    assert "read command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 1
+    assert captured_requests[0].provider_turn_label == "propose_file_repl"
+    assert "SECOND_PROPOSE_AFTER_INTERLEAVED_FAILURE" in captured_requests[0].user_prompt
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 2
+    assert event_types.count("native.tool.skipped") == 1
+    assert event_types.count("native.provider.completed") == 1
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["read_command_used"] is True
+    assert completed_payload["successful_read_budget_used"] is True
+    assert completed_payload["successful_read_count"] == 2
+    assert completed_payload["successful_read_budget_limit"] == 2
+    assert completed_payload["successful_read_budget_remaining"] == 0
+    assert completed_payload["failed_read_attempt_budget_used"] is True
+    assert completed_payload["read_recovery_attempt_after_failure_used"] is False
+    assert completed_payload["ask_file_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is True
+    assert completed_payload["provider_visible_context_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_READ_BEFORE_INTERLEAVED_FAILURE" not in combined
+    assert "SECOND_PROPOSE_AFTER_INTERLEAVED_FAILURE" not in combined
+    assert "THIRD_READ_AFTER_INTERLEAVED_SUCCESS_SHOULD_NOT_PRINT" not in combined
+    assert "Use the missing file" not in combined
+    assert "Change it" not in combined
+    assert "PROPOSE_AFTER_INTERLEAVED_FAILURE" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budget(
     tmp_path,
     capfd,
@@ -2510,13 +2614,17 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_read_command_is_limited_to_two_successful_excerpts(
+    tmp_path, capfd, monkeypatch
+):
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_EXCERPT_TEXT\n", encoding="utf-8")
     second.write_text("SECOND_EXCERPT_TEXT\n", encoding="utf-8")
+    third.write_text("THIRD_EXCERPT_SHOULD_NOT_PRINT\n", encoding="utf-8")
     provider_calls = 0
 
     class CliFakeReplProvider:
@@ -2534,7 +2642,12 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\n/clear\n/read docs/second.txt\n/exit\n"),
+        StringIO(
+            "/read docs/first.txt\n"
+            "/clear\n"
+            "/read docs/second.txt\n"
+            "/read docs/third.txt\n/exit\n"
+        ),
     )
 
     exit_code = main(
@@ -2554,29 +2667,38 @@ def test_cli_native_repl_read_command_is_limited_to_one_request(tmp_path, capfd,
     captured = capfd.readouterr()
     assert exit_code == 0
     assert provider_calls == 0
-    assert captured.out == "FIRST_EXCERPT_TEXT\n"
+    assert captured.out == "FIRST_EXCERPT_TEXT\nSECOND_EXCERPT_TEXT\n"
     assert "local conversation context cleared" in captured.err
     assert "read_command_limit_reached" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     event_types = [event["type"] for event in events]
-    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.tool.completed") == 2
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["successful_read_count"] == 2
+    assert completed_payload["successful_read_budget_limit"] == 2
+    assert completed_payload["successful_read_budget_remaining"] == 0
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
     assert "/clear" not in combined
     assert "FIRST_EXCERPT_TEXT" not in combined
     assert "SECOND_EXCERPT_TEXT" not in combined
+    assert "THIRD_EXCERPT_SHOULD_NOT_PRINT" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_read_command_blocks_later_ask_file(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_two_read_commands_block_later_ask_file(tmp_path, capfd, monkeypatch):
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_READ_TEXT\n", encoding="utf-8")
-    second.write_text("SECOND_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
+    second.write_text("SECOND_READ_TEXT\n", encoding="utf-8")
+    third.write_text("THIRD_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
     provider_calls = 0
 
     class CliFakeReplProvider:
@@ -2594,7 +2716,11 @@ def test_cli_native_repl_read_command_blocks_later_ask_file(tmp_path, capfd, mon
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\n/ask-file docs/second.txt -- Use this\n/exit\n"),
+        StringIO(
+            "/read docs/first.txt\n"
+            "/read docs/second.txt\n"
+            "/ask-file docs/third.txt -- Use this\n/exit\n"
+        ),
     )
 
     exit_code = main(
@@ -2614,23 +2740,27 @@ def test_cli_native_repl_read_command_blocks_later_ask_file(tmp_path, capfd, mon
     captured = capfd.readouterr()
     assert exit_code == 0
     assert provider_calls == 0
-    assert captured.out == "FIRST_READ_TEXT\n"
+    assert captured.out == "FIRST_READ_TEXT\nSECOND_READ_TEXT\n"
     assert "ask-file command skipped: read_command_limit_reached" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
-    assert "SECOND_CONTEXT_SHOULD_NOT_READ" not in combined
+    assert "THIRD_CONTEXT_SHOULD_NOT_READ" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_native_repl_ask_file_and_read_exhaust_successful_read_budget(
+    tmp_path, capfd, monkeypatch
+) -> None:
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_CONTEXT_FOR_PROVIDER\n", encoding="utf-8")
-    second.write_text("SECOND_READ_SHOULD_NOT_PRINT\n", encoding="utf-8")
+    second.write_text("SECOND_READ_AFTER_ASK\n", encoding="utf-8")
+    third.write_text("THIRD_READ_SHOULD_NOT_PRINT\n", encoding="utf-8")
     captured_requests: list[ProviderRequest] = []
 
     class CliFakeAskFileProvider:
@@ -2655,7 +2785,11 @@ def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, mon
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/ask-file docs/first.txt -- Use this\n/read docs/second.txt\n/exit\n"),
+        StringIO(
+            "/ask-file docs/first.txt -- Use this\n"
+            "/read docs/second.txt\n"
+            "/read docs/third.txt\n/exit\n"
+        ),
     )
 
     exit_code = main(
@@ -2674,27 +2808,29 @@ def test_cli_native_repl_ask_file_command_blocks_later_read(tmp_path, capfd, mon
 
     captured = capfd.readouterr()
     assert exit_code == 0
-    assert captured.out == "ASK_FILE_FIRST_OUTPUT\n"
-    assert "SECOND_READ_SHOULD_NOT_PRINT" not in captured.out
+    assert captured.out == "ASK_FILE_FIRST_OUTPUT\nSECOND_READ_AFTER_ASK\n"
+    assert "THIRD_READ_SHOULD_NOT_PRINT" not in captured.out
     assert "read command skipped: read_command_limit_reached" in captured.err
     assert len(captured_requests) == 1
     assert "FIRST_CONTEXT_FOR_PROVIDER" in captured_requests[0].user_prompt
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     event_types = [event["type"] for event in events]
-    assert event_types.count("native.tool.completed") == 1
+    assert event_types.count("native.tool.completed") == 2
     assert event_types.count("native.provider.completed") == 1
     completed_payload = [
         event["payload"] for event in events if event["type"] == "native.session.completed"
     ][0]
     assert completed_payload["read_command_used"] is True
+    assert completed_payload["successful_read_count"] == 2
     assert completed_payload["ask_file_command_used"] is True
     assert completed_payload["provider_visible_context_used"] is True
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
     assert "FIRST_CONTEXT_FOR_PROVIDER" not in combined
-    assert "SECOND_READ_SHOULD_NOT_PRINT" not in combined
+    assert "SECOND_READ_AFTER_ASK" not in combined
+    assert "THIRD_READ_SHOULD_NOT_PRINT" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -2833,13 +2969,17 @@ def test_cli_native_repl_malformed_propose_file_after_read_limit_prints_usage(
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd, monkeypatch):
+def test_cli_native_repl_two_read_commands_block_later_propose_file(
+    tmp_path, capfd, monkeypatch
+):
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_READ_FOR_PROPOSE_BUDGET\n", encoding="utf-8")
-    second.write_text("SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
+    second.write_text("SECOND_READ_FOR_PROPOSE_BUDGET\n", encoding="utf-8")
+    third.write_text("THIRD_PROPOSE_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
     provider_calls = 0
 
     class CliFakeReplProvider:
@@ -2857,7 +2997,11 @@ def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd,
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/read docs/first.txt\n/propose-file docs/second.txt -- Change it\n/exit\n"),
+        StringIO(
+            "/read docs/first.txt\n"
+            "/read docs/second.txt\n"
+            "/propose-file docs/third.txt -- Change it\n/exit\n"
+        ),
     )
 
     exit_code = main(
@@ -2877,18 +3021,18 @@ def test_cli_native_repl_read_command_blocks_later_propose_file(tmp_path, capfd,
     captured = capfd.readouterr()
     assert exit_code == 0
     assert provider_calls == 0
-    assert captured.out == "FIRST_READ_FOR_PROPOSE_BUDGET\n"
+    assert captured.out == "FIRST_READ_FOR_PROPOSE_BUDGET\nSECOND_READ_FOR_PROPOSE_BUDGET\n"
     assert "propose-file command skipped: read_command_limit_reached" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
-    assert "SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ" not in combined
+    assert "THIRD_PROPOSE_CONTEXT_SHOULD_NOT_READ" not in combined
     assert "Change it" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
+def test_cli_native_repl_ask_file_and_propose_file_exhaust_successful_read_budget(
     tmp_path,
     capfd,
     monkeypatch,
@@ -2896,9 +3040,11 @@ def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_ASK_CONTEXT_FOR_BUDGET\n", encoding="utf-8")
-    second.write_text("SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_CONTEXT_FOR_BUDGET\n", encoding="utf-8")
+    third.write_text("THIRD_READ_SHOULD_NOT_PRINT_AFTER_ASK_AND_PROPOSE\n", encoding="utf-8")
     captured_requests: list[ProviderRequest] = []
 
     class CliFakeAskFileProvider:
@@ -2916,7 +3062,7 @@ def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
                 model_id=self.model_id,
                 started_at=now,
                 ended_at=now,
-                final_text="ASK_FILE_FOR_PROPOSE_BUDGET_OUTPUT",
+                final_text=f"PROVIDER_OUTPUT_{len(captured_requests)}",
             )
 
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeAskFileProvider)
@@ -2925,7 +3071,8 @@ def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
         "stdin",
         StringIO(
             "/ask-file docs/first.txt -- Use this\n"
-            "/propose-file docs/second.txt -- Change it\n/exit\n"
+            "/propose-file docs/second.txt -- Change it\n"
+            "/read docs/third.txt\n/exit\n"
         ),
     )
 
@@ -2945,20 +3092,22 @@ def test_cli_native_repl_ask_file_command_blocks_later_propose_file(
 
     captured = capfd.readouterr()
     assert exit_code == 0
-    assert captured.out == "ASK_FILE_FOR_PROPOSE_BUDGET_OUTPUT\n"
-    assert "propose-file command skipped: read_command_limit_reached" in captured.err
-    assert len(captured_requests) == 1
+    assert captured.out == "PROVIDER_OUTPUT_1\nPROVIDER_OUTPUT_2\n"
+    assert "read command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 2
     assert captured_requests[0].provider_turn_label == "ask_file_repl"
+    assert captured_requests[1].provider_turn_label == "propose_file_repl"
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
-    assert "SECOND_PROPOSE_CONTEXT_SHOULD_NOT_READ" not in combined
+    assert "SECOND_PROPOSE_CONTEXT_FOR_BUDGET" not in combined
+    assert "THIRD_READ_SHOULD_NOT_PRINT_AFTER_ASK_AND_PROPOSE" not in combined
     assert "Change it" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
+def test_cli_native_repl_propose_file_and_read_block_later_ask_file(
     tmp_path,
     capfd,
     monkeypatch,
@@ -2969,7 +3118,7 @@ def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
     third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_PROPOSE_CONTEXT\n", encoding="utf-8")
-    second.write_text("SECOND_READ_SHOULD_NOT_PRINT_AFTER_PROPOSE\n", encoding="utf-8")
+    second.write_text("SECOND_READ_AFTER_PROPOSE\n", encoding="utf-8")
     third.write_text("THIRD_ASK_SHOULD_NOT_REACH_PROVIDER_AFTER_PROPOSE\n", encoding="utf-8")
     captured_requests: list[ProviderRequest] = []
 
@@ -3018,8 +3167,7 @@ def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
 
     captured = capfd.readouterr()
     assert exit_code == 0
-    assert captured.out == "PROPOSE_FILE_FOR_BUDGET_OUTPUT\n"
-    assert "read command skipped: read_command_limit_reached" in captured.err
+    assert captured.out == "PROPOSE_FILE_FOR_BUDGET_OUTPUT\nSECOND_READ_AFTER_PROPOSE\n"
     assert "ask-file command skipped: read_command_limit_reached" in captured.err
     assert len(captured_requests) == 1
     assert captured_requests[0].provider_turn_label == "propose_file_repl"
@@ -3029,17 +3177,18 @@ def test_cli_native_repl_propose_file_command_blocks_later_read_and_ask_file(
         event["payload"] for event in events if event["type"] == "native.session.completed"
     ][0]
     assert completed_payload["read_command_used"] is True
+    assert completed_payload["successful_read_count"] == 2
     assert completed_payload["propose_file_command_used"] is True
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
     assert "FIRST_PROPOSE_CONTEXT" not in combined
-    assert "SECOND_READ_SHOULD_NOT_PRINT_AFTER_PROPOSE" not in combined
+    assert "SECOND_READ_AFTER_PROPOSE" not in combined
     assert "THIRD_ASK_SHOULD_NOT_REACH_PROVIDER_AFTER_PROPOSE" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
+def test_cli_native_repl_repeated_propose_file_is_limited_to_two_successful_excerpts(
     tmp_path,
     capfd,
     monkeypatch,
@@ -3047,9 +3196,11 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
     root = tmp_path / "sessions"
     first = tmp_path / "docs" / "first.txt"
     second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
     first.parent.mkdir()
     first.write_text("FIRST_PROPOSE_ONCE_CONTEXT\n", encoding="utf-8")
-    second.write_text("SECOND_PROPOSE_SHOULD_NOT_READ\n", encoding="utf-8")
+    second.write_text("SECOND_PROPOSE_CONTEXT\n", encoding="utf-8")
+    third.write_text("THIRD_PROPOSE_SHOULD_NOT_READ\n", encoding="utf-8")
     captured_requests: list[ProviderRequest] = []
 
     class CliFakeProposeFileProvider:
@@ -3067,7 +3218,7 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
                 model_id=self.model_id,
                 started_at=now,
                 ended_at=now,
-                final_text="PROPOSE_FILE_ONCE_OUTPUT",
+                final_text=f"PROPOSE_FILE_OUTPUT_{len(captured_requests)}",
             )
 
     monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposeFileProvider)
@@ -3076,7 +3227,8 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
         "stdin",
         StringIO(
             "/propose-file docs/first.txt -- First change\n"
-            "/propose-file docs/second.txt -- Second change\n/exit\n"
+            "/propose-file docs/second.txt -- Second change\n"
+            "/propose-file docs/third.txt -- Third change\n/exit\n"
         ),
     )
 
@@ -3096,19 +3248,21 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_one_request(
 
     captured = capfd.readouterr()
     assert exit_code == 0
-    assert captured.out == "PROPOSE_FILE_ONCE_OUTPUT\n"
+    assert captured.out == "PROPOSE_FILE_OUTPUT_1\nPROPOSE_FILE_OUTPUT_2\n"
     assert "propose-file command skipped: read_command_limit_reached" in captured.err
-    assert len(captured_requests) == 1
+    assert len(captured_requests) == 2
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     event_types = [event["type"] for event in events]
-    assert event_types.count("native.tool.completed") == 1
-    assert event_types.count("native.provider.completed") == 1
+    assert event_types.count("native.tool.completed") == 2
+    assert event_types.count("native.provider.completed") == 2
     combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
         encoding="utf-8"
     )
-    assert "SECOND_PROPOSE_SHOULD_NOT_READ" not in combined
+    assert "SECOND_PROPOSE_CONTEXT" not in combined
+    assert "THIRD_PROPOSE_SHOULD_NOT_READ" not in combined
     assert "Second change" not in combined
+    assert "Third change" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -3611,13 +3765,13 @@ def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
     assert "  verification_available: false" in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:unavailable proposal:ready verify:unavailable]>"
+        "read:1/2 proposal:ready verify:unavailable]>"
     ) in captured.err
     assert "malformed /status command. Supported command usage:" in captured.err
     assert "apply-proposal command succeeded: patch_applied" in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:unavailable proposal:unavailable verify:ready]>"
+        "read:1/2 proposal:unavailable verify:ready]>"
     ) in captured.err
     events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
     event_types = [event["type"] for event in events]
@@ -3719,11 +3873,11 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
     assert "  verification_available: true" in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:unavailable proposal:unavailable verify:ready]>"
+        "read:1/2 proposal:unavailable verify:ready]>"
     ) in captured.err
     assert (
         "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:unavailable proposal:unavailable verify:unavailable]>"
+        "read:1/2 proposal:unavailable verify:unavailable]>"
     ) in captured.err
     assert target.read_text(encoding="utf-8") == new_text
 

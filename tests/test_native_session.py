@@ -629,11 +629,11 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     assert stderr.index("pipy v") < stderr.index("pipy-native [")
     assert (
         "pipy-native [capturing-fake/capturing-model turns:0/4 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in stderr
     assert (
         "pipy-native [capturing-fake/capturing-model turns:1/4 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in stderr
     assert "pipy native REPL status:" in stderr
     assert "  provider: capturing-fake" in stderr
@@ -641,7 +641,7 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     assert f"  workspace: {tmp_path.name}" in stderr
     assert "  provider_turns: 1/4" in stderr
     assert "  no_tool_history: retained=true exchanges=1/4 bytes=" in stderr
-    assert "  read_budget: can_attempt=true successful_used=false" in stderr
+    assert "  read_budget: can_attempt=true successful=0/2 remaining=2 successful_used=false" in stderr
     assert "  pending_proposal_available: false" in stderr
     assert "  verification_available: false" in stderr
     assert "malformed /status command" in stderr
@@ -796,11 +796,11 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     stderr = error_stream.getvalue()
     assert (
         "pipy-native [fake/before-model turns:0/4 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in stderr
     assert (
         "pipy-native [fake/after-model turns:1/4 "
-        "read:ready proposal:unavailable verify:unavailable]>"
+        "read:2/2 proposal:unavailable verify:unavailable]>"
     ) in stderr
 
 

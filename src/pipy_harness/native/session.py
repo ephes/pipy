@@ -210,6 +210,7 @@ ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
 VERIFY_REPL_COMMAND = "/verify"
+_REPL_SUCCESSFUL_EXCERPT_LIMIT = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,13 +316,22 @@ class _ReplReadOutcome:
 
 @dataclass(frozen=True, slots=True)
 class _ReplReadBudgets:
-    successful_excerpt_used: bool = False
+    successful_excerpt_count: int = 0
+    successful_excerpt_limit: int = _REPL_SUCCESSFUL_EXCERPT_LIMIT
     failed_or_skipped_attempt_used: bool = False
     recovery_attempt_after_failure_used: bool = False
 
     @property
+    def successful_excerpt_used(self) -> bool:
+        return self.successful_excerpt_count > 0
+
+    @property
+    def successful_excerpt_remaining(self) -> int:
+        return max(0, self.successful_excerpt_limit - self.successful_excerpt_count)
+
+    @property
     def can_attempt(self) -> bool:
-        if self.successful_excerpt_used:
+        if self.successful_excerpt_remaining <= 0:
             return False
         return not (self.failed_or_skipped_attempt_used and self.recovery_attempt_after_failure_used)
 
@@ -337,7 +347,13 @@ class _ReplReadBudgets:
         if not outcome.command_consumed:
             return self
         if outcome.excerpt_succeeded:
-            return replace(self, successful_excerpt_used=True)
+            return replace(
+                self,
+                successful_excerpt_count=min(
+                    self.successful_excerpt_count + 1,
+                    self.successful_excerpt_limit,
+                ),
+            )
         if self.failed_or_skipped_attempt_used:
             return replace(self, recovery_attempt_after_failure_used=True)
         return replace(self, failed_or_skipped_attempt_used=True)
@@ -357,6 +373,9 @@ class _ReplDisplayState:
     no_tool_context_max_bytes: int
     read_can_attempt: bool
     read_successful_used: bool
+    read_successful_count: int
+    read_successful_limit: int
+    read_successful_remaining: int
     read_failed_attempt_used: bool
     read_recovery_used: bool
     pending_proposal_available: bool
@@ -1224,6 +1243,9 @@ class NativeNoToolReplSession:
                 "turn_count": conversation_state.provider_turn_count,
                 "read_command_used": read_budgets.any_command_consumed,
                 "successful_read_budget_used": read_budgets.successful_excerpt_used,
+                "successful_read_count": read_budgets.successful_excerpt_count,
+                "successful_read_budget_limit": read_budgets.successful_excerpt_limit,
+                "successful_read_budget_remaining": read_budgets.successful_excerpt_remaining,
                 "failed_read_attempt_budget_used": read_budgets.failed_or_skipped_attempt_used,
                 "read_recovery_attempt_after_failure_used": (
                     read_budgets.recovery_attempt_after_failure_used
@@ -1557,7 +1579,7 @@ def _print_repl_startup_chrome(
                 f"{_startup_availability_label(state.no_tool_context_retained)} "
                 f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges}",
             ),
-            ("read", _ready_label(state.read_can_attempt)),
+            ("read", _read_budget_label(state)),
             ("proposal", _ready_label(state.pending_proposal_available)),
             ("verify", _ready_label(state.verification_available)),
         ],
@@ -1597,7 +1619,7 @@ def _repl_prompt_label_for(
 
 def _repl_prompt_label(state: _ReplDisplayState) -> str:
     model_reference = _repl_model_reference_label(state)
-    read_label = _ready_label(state.read_can_attempt)
+    read_label = _read_budget_label(state)
     proposal_label = _ready_label(state.pending_proposal_available)
     verification_label = _ready_label(state.verification_available)
     return (
@@ -1613,6 +1635,12 @@ def _repl_model_reference_label(state: _ReplDisplayState) -> str:
 
 def _ready_label(value: bool) -> str:
     return "ready" if value else "unavailable"
+
+
+def _read_budget_label(state: _ReplDisplayState) -> str:
+    if not state.read_can_attempt:
+        return "unavailable"
+    return f"{state.read_successful_remaining}/{state.read_successful_limit}"
 
 
 def _startup_chrome_style(error_stream: TextIO) -> _StartupChromeStyle:
@@ -1739,6 +1767,8 @@ def _print_repl_status(
     print(
         "  read_budget: "
         f"can_attempt={_status_bool(state.read_can_attempt)} "
+        f"successful={state.read_successful_count}/{state.read_successful_limit} "
+        f"remaining={state.read_successful_remaining} "
         f"successful_used={_status_bool(state.read_successful_used)} "
         f"failed_attempt_used={_status_bool(state.read_failed_attempt_used)} "
         f"recovery_used={_status_bool(state.read_recovery_used)}",
@@ -1778,6 +1808,9 @@ def _repl_display_state(
         no_tool_context_max_bytes=no_tool_context.max_bytes,
         read_can_attempt=read_budgets.can_attempt,
         read_successful_used=read_budgets.successful_excerpt_used,
+        read_successful_count=read_budgets.successful_excerpt_count,
+        read_successful_limit=read_budgets.successful_excerpt_limit,
+        read_successful_remaining=read_budgets.successful_excerpt_remaining,
         read_failed_attempt_used=read_budgets.failed_or_skipped_attempt_used,
         read_recovery_used=read_budgets.recovery_attempt_after_failure_used,
         pending_proposal_available=pending_apply_draft is not None,

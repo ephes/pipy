@@ -6,8 +6,9 @@ post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
 optional prompt-toolkit line-editor input and leading slash-command completion,
 workspace-relative path completion for explicit file commands, completion-only
-`@file` references in ordinary prompts and supported command free-text, and
-multiline entry on real TTY streams. The bottom-toolbar status decision
+`@file` references in ordinary prompts and supported command free-text,
+multiline entry on real TTY streams, and a two-successful-excerpt budget for
+explicit REPL file-context commands. The bottom-toolbar status decision
 deferred footer behavior, and the real-TTY prompt-toolkit input path is now
 hardened for cursor-position warning noise and CR/LF newline-key encodings.
 Automatic file-content reads from completion remain deferred.
@@ -833,9 +834,9 @@ not print command stdout or stderr. This is separate from one-shot
 `--native-output json`; the REPL does not add structured stdout, a transcript
 stream, or conversation export.
 
-The `/read`, `/ask-file`, and `/propose-file` commands share one successful
-explicit file excerpt budget per REPL session plus one bounded failed or
-skipped read-attempt budget. Each accepted command builds one pipy-owned
+The `/read`, `/ask-file`, and `/propose-file` commands share two successful
+explicit file excerpts per REPL session plus one bounded failed or skipped
+read-attempt budget. Each accepted command builds one pipy-owned
 `NativeReadOnlyToolRequest` with request kind `explicit-file-excerpt`, a
 pipy-owned `NativeExplicitFileExcerptTarget`, and the existing read-only
 workspace sandbox policy. Explicit user-entered REPL read/context commands use
@@ -845,13 +846,13 @@ before invoking `NativeExplicitFileExcerptTool`. Malformed
 commands fail closed before any read, tool event, provider visibility, or
 budget consumption. A failed or skipped first read attempt, such as
 unsafe-target, ignored/generated, secret-looking, oversized, binary,
-unreadable, unsupported-encoding, or tool-skipped, leaves the one successful
-excerpt budget available for one later explicit file command. After one
-successful excerpt, later `/read`, `/ask-file`, and `/propose-file` attempts
-still fail closed before reading, before provider visibility, and before
-proposal parsing. If the recovery attempt after a failed/skipped read also
-fails, later read/context attempts fail closed before another read. Static
-help and usage diagnostics are not archived and do not consume either budget.
+unreadable, unsupported-encoding, or tool-skipped, leaves the successful
+excerpt budget available for later explicit file commands. After two
+successful excerpts, later `/read`, `/ask-file`, and `/propose-file` attempts
+fail closed before reading, before provider visibility, and before proposal
+parsing. If the recovery attempt after a failed/skipped read also fails, later
+read/context attempts fail closed before another read. Static help and usage
+diagnostics are not archived and do not consume either budget.
 See `Read-Failure Recovery Boundary Direction` for the implemented split.
 
 Provider metadata is intentionally omitted from REPL provider lifecycle payloads
@@ -968,7 +969,7 @@ files without a trailing newline.
 The `/propose-file` command is a public REPL command, not a public automation
 control and not a broad slash-command surface. Malformed `/propose-file`
 syntax and unsupported slash commands must use static stderr diagnostics
-without provider/tool execution, read-limit consumption, tool events, raw
+without provider/tool execution, explicit-read budget consumption, tool events, raw
 command archiving, or provider visibility. Denied, unavailable, unsupported,
 unsafe-target, skipped, failed, and repeated read-command cases must fail
 closed before any read, before proposal parsing, and before provider
@@ -1157,7 +1158,7 @@ based on summary-safe archive evidence only:
   one secret-looking target failed closed as intended, but the one-read session
   limit then blocked a second explicit target in the same REPL record
 
-The implemented boundary splits the previous single read command limit into
+The implemented boundary split the previous single read command limit into
 two in-memory REPL budgets:
 
 - one successful explicit file excerpt budget per REPL session, shared by
@@ -1183,12 +1184,12 @@ explicit-file-excerpt tool.
 Attempts that do reach the read tool may emit only the existing metadata-only
 tool lifecycle and observation events with safe status and reason labels.
 
-This boundary does not add multi-file context, a second successful read, broad
-search, provider-selected filesystem paths, provider-side tools, provider
-follow-up turns, arbitrary shell execution, non-allowlisted verification
-commands, automatic write selection, persistent context, TUI/RPC behavior,
-provider auth changes, token storage changes, provider routing changes, model
-default changes, or a general model/tool loop. Archives, Markdown,
+This boundary did not add broad context loading, provider-selected filesystem
+paths, provider-side tools, provider follow-up turns, arbitrary shell
+execution, non-allowlisted verification commands, automatic write selection,
+persistent context, TUI/RPC behavior, provider auth changes, token storage
+changes, provider routing changes, model default changes, or a general
+model/tool loop. Archives, Markdown,
 catalog/search/inspect surfaces, structured stdout, and default stdout/stderr
 contracts must continue to omit raw prompts, excerpts, model output, provider
 responses, proposal text, patch text, diffs, file contents, command stdout,
@@ -1774,30 +1775,35 @@ completion buffers, prompts, model output, provider responses, excerpts, patch
 text, diffs, file contents, command stdout, command stderr, auth material,
 secrets, credentials, tokens, private keys, or sensitive personal data.
 
-### Native Explicit Multi-File Context Budget Decision
+### Native Explicit Multi-File Context Budget
 
-The next native-shell boundary after completion-only `@file` references is a
-narrow explicit multi-file context budget. This is a user-owned read/context
-budget change, not automatic file-reference loading and not a model-selected
-tool loop.
+The native-shell boundary after completion-only `@file` references is a narrow
+explicit multi-file context budget. This is a user-owned read/context budget
+change, not automatic file-reference loading and not a model-selected tool
+loop.
 
-The selected first implementation should raise the successful explicit
-file-excerpt budget from one to two successful workspace-relative excerpts per
-REPL session across `/read`, `/ask-file`, and `/propose-file`. Each command
-still names exactly one path, validates that path through the existing bounded
-explicit-file-excerpt rules, and either prints the excerpt locally (`/read`) or
-forwards one excerpt in memory to one provider turn (`/ask-file` and
-`/propose-file`). The existing failed/skipped recovery budget remains separate
-and bounded.
+The implementation raises the successful explicit file-excerpt budget from one
+to two successful workspace-relative excerpts per REPL session across `/read`,
+`/ask-file`, and `/propose-file`. Each command still names exactly one path,
+validates that path through the existing bounded explicit-file-excerpt rules,
+and either prints the excerpt locally (`/read`) or forwards one excerpt in
+memory to one provider turn (`/ask-file` and `/propose-file`). The existing
+failed/skipped recovery budget remains separate and bounded.
 
-This boundary should update prompt labels, startup chrome, `/status`, session
-metadata, tests, and user-facing docs so users can see the remaining explicit
-context budget without exposing raw paths or content. It should preserve
-existing command names, command parsing, stdout/stderr contracts, ignored and
-generated path rejection, secret-looking target and content rejection,
-proposal/apply exact-path constraints, one-file patch apply, allowlisted
-`/verify just-check`, provider-turn labels, and metadata-only archive
-compatibility.
+Prompt labels and startup chrome show the remaining successful excerpt budget
+as `read:<remaining>/<limit>` while attempts are still available. They collapse
+to `read:unavailable` when either the successful excerpt budget or the
+failed/recovery attempt budget is exhausted; `/status` reports the safe count,
+limit, remaining, and failed/recovery flags that disambiguate those cases.
+Session completion metadata keeps the
+legacy boolean `successful_read_budget_used` and adds safe counters:
+`successful_read_count`, `successful_read_budget_limit`, and
+`successful_read_budget_remaining`. These labels and counters expose no raw
+paths or content. Command names, command parsing, stdout/stderr contracts,
+ignored and generated path rejection, secret-looking target and content
+rejection, proposal/apply exact-path constraints, one-file patch apply,
+allowlisted `/verify just-check`, provider-turn labels, and metadata-only
+archive compatibility remain unchanged.
 
 Rejected alternatives stay deferred. Completion-only `@file` labels must not
 trigger file reads or attach context. The runtime must not add broad context
@@ -3170,14 +3176,14 @@ same-session one-file `/apply-proposal <path>` command, and one post-apply
 `/verify just-check` command. `/clear` clears retained no-tool context and a
 pending proposal draft without resetting provider/model selection, auth state,
 read budgets, verification availability, or provider turn indexes. The read
-commands share one bounded
-explicit-file-excerpt request per REPL session; `/ask-file` and `/propose-file`
+commands share two successful bounded explicit-file-excerpt requests per REPL
+session; `/ask-file` and `/propose-file`
 accept a whitespace-delimited `--` separator and forward the bounded excerpt
 only in memory to one provider turn labeled `ask_file_repl` or
 `propose_file_repl`. Help, clear, auth/model commands, malformed supported slash
 commands, and unsupported slash commands print static or safe status diagnostics
-on stderr without provider/tool execution, read-limit consumption, tool events,
-or raw command archiving. It still does not expose provider metadata, arbitrary
+on stderr without provider/tool execution, explicit-read budget consumption,
+tool events, or raw command archiving. It still does not expose provider metadata, arbitrary
 shell execution, non-allowlisted verification commands, streaming, retries,
 fallback, TUI rendering, conversation export, or a general model/tool loop.
 

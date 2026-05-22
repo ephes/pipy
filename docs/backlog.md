@@ -11,8 +11,8 @@ reviewable change while keeping the source-of-truth design constraints in
 
 Pipy has crossed from capture-only infrastructure into a small native product
 runtime. The current native shell can authenticate to the `openai-codex`
-provider, switch models, make ordinary no-tool provider turns, read one
-explicit workspace-relative file excerpt, ask a provider about that excerpt,
+provider, switch models, make ordinary no-tool provider turns, read explicit
+workspace-relative file excerpts, ask a provider about one excerpt,
 request a proposal-only change for that excerpt through `/propose-file`, and
 apply one same-session reviewed proposal through `/apply-proposal`, then run
 one post-apply allowlisted verification command through `/verify just-check`.
@@ -33,11 +33,12 @@ and supports prompt-toolkit-only multiline entry with Enter submitting and
 Esc+Enter inserting a newline, and the prompt-toolkit completion adapter now
 supports the async completion protocol used by current prompt-toolkit releases.
 The existing optional real-TTY prompt-toolkit input path is now hardened for
-cursor-position warning noise and LF-encoded Enter/Esc+Enter key sequences. The
-bottom-toolbar status decision remains deferred. The public shell still cannot
-execute arbitrary shell commands, request provider-side tools, read
-multiple files per session, run non-allowlisted verification commands, or run a
-general model/tool loop.
+cursor-position warning noise and LF-encoded Enter/Esc+Enter key sequences,
+and explicit file-context commands now share a two-successful-excerpt REPL
+budget. The bottom-toolbar status decision remains deferred. The public shell
+still cannot execute arbitrary shell commands, request provider-side tools,
+read multiple files in one provider turn, run non-allowlisted verification
+commands, or run a general model/tool loop.
 
 Use this page as a planning index:
 
@@ -80,8 +81,9 @@ Use this page as a planning index:
   entry is now implemented; the bottom-toolbar status decision is complete and
   deferred footer behavior; the optional real-TTY prompt-toolkit input
   hardening pass is now implemented; and prompt-toolkit-only `@file` reference
-  completion is now implemented while any automatic file-content reads, full
-  TUI, alternate-screen app, or general keybinding runtime remains deferred.
+  completion is now implemented; and the narrow explicit multi-file context
+  budget is now implemented while any automatic file-content reads, full TUI,
+  alternate-screen app, or general keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -110,7 +112,8 @@ discipline:
   `@file` references in ordinary prompts and supported command free-text, and
   prompt-toolkit-only multiline entry in that optional path. The real-TTY
   prompt-toolkit path is hardened against cursor-position warning noise and
-  LF-encoded newline key sequences. Resilient terminal resize behavior,
+  LF-encoded newline key sequences. Explicit file-context commands now share a
+  two-successful-excerpt REPL budget. Resilient terminal resize behavior,
   persistent history, and a fuller TUI remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
@@ -583,8 +586,8 @@ fuller UI surface or lower-level terminal ownership.
   `/propose-file` turns use the current provider/model without restarting.
   `/model` with no args prints current selection and conservative configured
   provider/model information to stderr only. Local auth/model commands do not
-  invoke providers, consume provider turns, consume the one-read limit, execute
-  tools, or archive raw command text, prompts, authorization URLs, provider
+  invoke providers, consume provider turns, consume explicit-read budgets,
+  execute tools, or archive raw command text, prompts, authorization URLs, provider
   responses, tokens, auth material, excerpts, file contents, stdout, stderr,
   diffs, patches, secrets, credentials, private keys, or sensitive personal
   data. Successful model selections persist only non-secret provider/model
@@ -1086,33 +1089,43 @@ fuller UI surface or lower-level terminal ownership.
   provider-side tools, arbitrary shell execution, non-allowlisted verification,
   multi-file proposal/apply, raw history, persistent transcripts, and a general
   model/tool loop remain deferred.
+- Native narrow explicit multi-file context budget: `/read`, `/ask-file`, and
+  `/propose-file` now share a budget of two successful workspace-relative file
+  excerpts per REPL session. Each command still names one explicit path, and
+  `/ask-file` or `/propose-file` still forwards only one successful excerpt to
+  one provider turn. The existing failed/skipped recovery budget remains
+  bounded and separate. Prompt labels and startup chrome now show the safe
+  remaining/limit read budget, `/status` reports safe read counters and flags,
+  and session completion metadata keeps the legacy successful-read boolean
+  while adding count, limit, and remaining counters. Archives remain
+  metadata-only and omit raw paths, prompts, excerpts, completion buffers,
+  model output, provider responses, stdout, stderr, diffs, file contents,
+  command output, auth material, secrets, credentials, tokens, private keys,
+  and sensitive personal data.
 
 ## Next Slice
 
-### Implement a narrow explicit multi-file context budget
+### Review and smoke the explicit multi-file context budget
 
-Goal: make explicit file-context commands more useful by allowing a small fixed
-number of successful user-named file excerpts in one REPL session without
-opening a broad context loader or model-selected tool loop.
+Goal: validate the newly implemented two-successful-excerpt REPL budget with an
+independent review and focused smoke before choosing a broader context or tool
+boundary.
 
 Implementation focus:
 
-- raise the successful explicit file-excerpt budget from one to two successful
-  workspace-relative excerpts per REPL session across `/read`, `/ask-file`, and
-  `/propose-file`
+- review the budget implementation, prompt/startup/status labels, session
+  metadata counters, tests, and docs for stale one-read assumptions or privacy
+  regressions
+- smoke a captured-stream fake-provider REPL session that consumes two
+  successful excerpts across mixed `/read`, `/ask-file`, or `/propose-file`
+  commands and fails a third attempt closed before reading or provider
+  visibility
 - keep one file per command, one provider-visible excerpt per `/ask-file` or
-  `/propose-file` provider turn, and the existing bounded failed/skipped
-  recovery behavior
-- update prompt labels, `/status`, startup chrome, session metadata booleans or
-  counters, focused tests, and user-facing docs so the new budget is visible
-  without archiving raw paths, prompts, excerpts, completion buffers, model
-  output, provider responses, stdout, stderr, diffs, file contents, command
-  output, auth material, secrets, credentials, tokens, private keys, or
-  sensitive personal data
-- preserve command names, parser behavior, stdout/stderr contracts, explicit
-  path validation, ignored/generated and secret-looking rejection,
-  proposal/apply exact-path constraints, `/verify just-check`, and
-  metadata-only archive compatibility
+  `/propose-file` provider turn, and the bounded failed/skipped recovery
+  behavior
+- preserve command names, parser behavior, stdout/stderr contracts, exact-path
+  proposal/apply constraints, `/verify just-check`, and metadata-only archive
+  compatibility
 - keep deferred boundaries closed: no automatic `@file` file-content reads,
   model-selected paths, broad context loading, multiple files in one provider
   turn, multi-file proposal/apply, arbitrary shell execution, provider-side
@@ -1128,15 +1141,15 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now implementing the narrow explicit multi-file context
-budget after the
+The immediate path is now reviewing and smoking the narrow explicit multi-file
+context budget after the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
 leading slash-command completion, workspace-relative path completion,
 multiline input, bottom-toolbar status decision, real-TTY prompt-toolkit
-hardening, next-boundary decision, completion-only `@file` references, and the
-post-`@file` next-boundary decision. The
+hardening, next-boundary decision, completion-only `@file` references, the
+post-`@file` next-boundary decision, and the budget implementation. The
 implemented boundaries prove the current shell can preserve plain
 captured-stream behavior while isolating optional prompt-toolkit input behind a
 small adapter. The bottom-toolbar decision deferred footer behavior because the
@@ -1149,13 +1162,13 @@ but today they exercise a one-shot runner: `--goal` is the input, provider final
 text is stdout, finalization is stderr, and the process exits. The persistent
 shell is available through bare `pipy` or `pipy repl --agent pipy-native`; it
 now has local `/help`, `/clear`, `/status`, `/login`, `/logout`, and `/model`
-commands, one display-only `/read <workspace-relative-path>` command, and one
+commands, a display-only `/read <workspace-relative-path>` command, and one
 provider-visible `/ask-file <workspace-relative-path> -- <question>` command
-with a whitespace-delimited `--` separator sharing the same successful-read
-budget.
+with a whitespace-delimited `--` separator sharing the same
+two-successful-excerpt budget.
 Explicit read/context commands do not display approval popups. Auth/model
 commands and malformed or unsupported slash commands print stderr diagnostics
-without provider/tool execution, read-limit consumption, or raw command
+without provider/tool execution, explicit-read budget consumption, or raw command
 archiving. The REPL can now apply exactly one same-session reviewed proposal
 through `/apply-proposal <workspace-relative-path>` and then run one
 allowlisted post-apply verification command through `/verify just-check`, but
@@ -1194,12 +1207,13 @@ with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands, completion-only `@file` references, and
 prompt-toolkit-only multiline input with hardened cursor-position and
 newline-key handling while still keeping the shipping runtime metadata-only and
-captured-stream compatible. The next visible parity step is the selected
-explicit multi-file context budget, not another prompt-toolkit input feature.
+captured-stream compatible. The next visible parity step is review and smoke
+for the explicit multi-file context budget, not another prompt-toolkit input
+feature.
 
 Small reviewable slices, in intended order:
 
-1. Implement a narrow explicit multi-file context budget.
+1. Review and smoke the explicit multi-file context budget.
 
 Foundation gates toward an interactive shell:
 
@@ -1316,25 +1330,31 @@ Foundation gates toward an interactive shell:
   loading, model-selected paths, provider-side tools, multi-file proposal/apply,
   arbitrary shell execution, raw history, persistent transcripts, and a general
   model/tool loop still deferred.
+- Narrow explicit multi-file context budget gate: available now. `/read`,
+  `/ask-file`, and `/propose-file` share two successful user-named file
+  excerpts per REPL session, still one explicit file per command and at most
+  one provider-visible excerpt per provider turn, with safe prompt/startup
+  labels, `/status` counters, metadata-only session counters, and the existing
+  failed/skipped recovery budget preserved.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read
-  <workspace-relative-path>`, currently bounded to one explicit-file-excerpt
-  request per REPL session without approval popups.
+  <workspace-relative-path>`, currently bounded by the two-successful-excerpt
+  REPL budget without approval popups.
 - Provider-visible interactive context gate: available now through `/ask-file
   <workspace-relative-path> -- <question>` with a whitespace-delimited `--`
-  separator, bounded to one explicit-file-excerpt request shared with
+  separator, bounded by the shared explicit-file-excerpt budget with
   `/read`, one in-memory provider handoff, and metadata-only archive handling.
 - Command help and usage-diagnostic gate: available now through local `/help`
   and static stderr usage diagnostics for malformed or unsupported slash
-  commands. These paths do not invoke providers, execute tools, consume the
-  one-read limit, emit tool events, or archive raw command text, paths,
+  commands. These paths do not invoke providers, execute tools, consume
+  explicit-read budgets, emit tool events, or archive raw command text, paths,
   questions, or excerpt data.
 - Auth/model command gate: available now through local `/login`, `/logout`, and
   `/model` commands. These reuse the pipy-owned OpenAI Codex auth boundary,
   late-bind provider construction before each provider-visible turn, persist
   non-secret provider/model defaults, and keep auth/model status on stderr
-  without consuming provider turns or the one-read limit.
+  without consuming provider turns or explicit-read budgets.
 - Proposal-only interactive file gate: available now through `/propose-file
   <workspace-relative-path> -- <change-request>`. It reuses the existing
   explicit-file-excerpt path, sends one in-memory excerpt plus request to one

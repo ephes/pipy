@@ -124,8 +124,9 @@ Available now:
   local provider selection and pipy-owned OpenAI Codex OAuth state.
 - Ordinary non-command input makes bounded no-tool provider turns with small
   in-memory conversation context.
-- `/read <path>` reads one explicit UTF-8 workspace-relative file excerpt and
-  prints it to interactive stdout without archiving file contents.
+- `/read <path>` reads one explicit UTF-8 workspace-relative file excerpt
+  within the shared two-successful-excerpt REPL budget and prints it to
+  interactive stdout without archiving file contents.
 - `/ask-file <path> -- <question>` reads one bounded excerpt and forwards it
   only in memory to one provider turn.
 - `/propose-file <path> -- <change-request>` reads one bounded excerpt,
@@ -170,7 +171,7 @@ Deferred:
 | Tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol. |
 | Approval prompt helper | `src/pipy_harness/native/approval_prompt.py` | Test-covered visible approval/sandbox prompt resolver for read-only request shapes; not wired into normal explicit REPL read/context commands. |
 | Usage normalization | `src/pipy_harness/native/usage.py` | Normalizes provider token counters to the safe allowlisted metadata keys. |
-| Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation and metadata-only archive output. |
+| Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation, a shared two-successful-excerpt REPL budget, and metadata-only archive output. |
 | Patch apply boundary | `src/pipy_harness/native/patch_apply.py` | One approved, human-reviewed, bounded workspace mutation request. |
 | Verification boundary | `src/pipy_harness/native/verification.py` | One allowlisted post-apply `just-check` command mapping to `just check`. |
 | Session recorder | `src/pipy_session/recorder.py` | Active `.in-progress/pipy` JSONL records, finalized `pipy/YYYY/MM` records, immutable finalization, and Markdown summaries. |

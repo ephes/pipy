@@ -242,32 +242,33 @@ non-command input lines remain bounded no-tool provider turns.
 Local `/login [openai-codex]`, `/logout [openai-codex]`, and
 `/model [<provider>/<model>|<model>]` commands run inside the shell, print
 status to stderr, do not invoke providers, do not consume provider turns, and
-do not consume the one-read limit. `/clear` clears retained no-tool
+do not consume explicit-read budgets. `/clear` clears retained no-tool
 conversation context and any pending proposal draft without resetting
 provider/model selection, auth state, read budgets, verification availability,
 or provider turn indexes. `/status` prints only safe local shell-state labels
 and counters to stderr, including provider/model selection, provider-turn
-count, retained no-tool history counters, read-budget flags, pending proposal
+count, retained no-tool history counters, read-budget counters and flags, pending proposal
 availability, and verification availability; it does not call providers, tools,
 reads, writes, verification, or mutate REPL state. `/model` with no argument
 shows the current selection and configured usable model references. Successful
 `/model` selections are persisted as non-secret native defaults under local
 pipy state.
 The explicit
-`/read <workspace-relative-path>` command may run once per REPL session without
-an approval prompt; a successful bounded excerpt prints only to the interactive
-stdout stream and is not provider-forwarded or archived.
-The explicit `/ask-file <workspace-relative-path> -- <question>` command shares
-that one-read limit and bounded read path, then forwards the successful excerpt plus
-question only in memory to one provider turn labeled `ask_file_repl`; it prints
-only provider final text to stdout. Unsafe, skipped, failed, malformed, and
-repeated read-command cases fail closed before provider visibility. REPL
+`/read <workspace-relative-path>` command shares a two-successful-excerpt
+budget per REPL session across `/read`, `/ask-file`, and `/propose-file`
+without an approval prompt; a successful bounded excerpt prints only to the
+interactive stdout stream and is not provider-forwarded or archived.
+The explicit `/ask-file <workspace-relative-path> -- <question>` command uses
+the same bounded read path, then forwards one successful excerpt plus question
+only in memory to one provider turn labeled `ask_file_repl`; it prints only
+provider final text to stdout. Unsafe, skipped, failed, malformed, and
+over-budget read-command cases fail closed before provider visibility. REPL
 archives remain metadata-only and omit raw approval prompts,
 raw tool arguments, raw tool results, stdout, stderr, full file contents,
 prompts, model output, provider responses, auth material, secrets, credentials,
 tokens, private keys, and sensitive personal data.
 The explicit `/propose-file <workspace-relative-path> -- <change-request>`
-command shares the same one-read bounded read path, forwards one excerpt plus
+command shares the same bounded read path, forwards one excerpt plus
 change request only in memory to a provider turn labeled `propose_file_repl`,
 records only metadata-only proposal status when supported, and does not apply
 edits or run verification.

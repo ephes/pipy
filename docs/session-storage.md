@@ -489,18 +489,19 @@ clears retained no-tool conversation context and any pending proposal draft
 without invoking providers or tools, consuming read budgets, resetting
 provider/model selection, changing auth state, changing verification
 availability, or resetting provider turn indexes. `/exit` and `/quit`
-terminate cleanly. `/read <workspace-relative-path>` runs the
-bounded explicit-file-excerpt read without a visible approval prompt, prints a
-successful excerpt only to interactive stdout, and does not provider-forward
+terminate cleanly. `/read <workspace-relative-path>` runs the bounded
+explicit-file-excerpt read without a visible approval prompt, shares the
+two-successful-excerpt REPL budget with `/ask-file` and `/propose-file`, prints
+a successful excerpt only to interactive stdout, and does not provider-forward
 the excerpt. `/ask-file <workspace-relative-path> -- <question>` uses a
-whitespace-delimited `--` separator and shares the same successful-read budget
-and explicit-file-excerpt path, but forwards the successful excerpt plus
-question only in memory to one provider turn labeled `ask_file_repl`; it
+whitespace-delimited `--` separator and the same explicit-file-excerpt path,
+but forwards the successful excerpt plus question only in memory to one
+provider turn labeled `ask_file_repl`; it
 prints only provider final text to stdout. `/propose-file
 <workspace-relative-path> -- <change-request>` uses the same separator and
-shared successful-read budget, forwards the successful excerpt plus change
-request only in memory to one provider turn labeled `propose_file_repl`, parses
-at most one pipy-owned
+shared successful-read budget, forwards one successful excerpt plus change
+request only in memory to one provider turn labeled `propose_file_repl`,
+parses at most one pipy-owned
 structured patch proposal metadata object, records at most one metadata-only
 `native.patch.proposal.recorded` event, and prints only provider final text to
 stdout. `/apply-proposal <workspace-relative-path>` is available only after a
@@ -516,7 +517,7 @@ verification boundary, emits only `native.verification.recorded`, suppresses
 command stdout and stderr, and fails the REPL run when verification is skipped
 or fails. Malformed supported slash commands and unsupported slash commands
 print static usage diagnostics on stderr without provider/tool execution,
-read-limit consumption, tool events, or raw command archiving. REPL session
+explicit-read budget consumption, tool events, or raw command archiving. REPL session
 records use the same metadata-only lifecycle vocabulary and do not archive raw
 input lines, provider final text, provider metadata, provider-returned tool
 intent markers, raw approval prompts, raw tool arguments, raw tool results,

@@ -772,17 +772,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "leading slash-command name completion" in compact_pi_parity_roadmap
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Implement a narrow explicit multi-file context budget" in next_slice
-    assert "allowing a small fixed number of successful user-named file excerpts" in (
+    assert "### Review and smoke the explicit multi-file context budget" in next_slice
+    assert "validate the newly implemented two-successful-excerpt REPL budget" in (
         compact_next_slice
     )
-    assert "raise the successful explicit file-excerpt budget from one to two" in (
+    assert "stale one-read assumptions or privacy regressions" in (
+        compact_next_slice
+    )
+    assert "fails a third attempt closed before reading or provider visibility" in (
         compact_next_slice
     )
     assert "one provider-visible excerpt per `/ask-file` or `/propose-file`" in (
         compact_next_slice
     )
-    assert "update prompt labels, `/status`, startup chrome" in compact_next_slice
     assert (
         "preserve command names, parser behavior, stdout/stderr contracts"
         in compact_next_slice
@@ -799,11 +801,11 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Prompt-Toolkit Bottom-Toolbar Status Decision" in spec
     assert "Native Prompt-Toolkit Real-TTY Input Hardening" in spec
     assert "Native Prompt-Toolkit File Reference Completion Boundary" in spec
-    assert "Native Explicit Multi-File Context Budget Decision" in spec
+    assert "Native Explicit Multi-File Context Budget" in spec
     assert "bottom-toolbar decision defers footer behavior" in collapse_whitespace(spec)
     assert "disables prompt-toolkit cursor-position requests" in spec
     assert "completion-only `@file` references" in spec
-    assert "raise the successful explicit file-excerpt budget from one to two" in (
+    assert "raises the successful explicit file-excerpt budget from one to two" in (
         collapse_whitespace(spec)
     )
     assert "This is an input-editor feature, not a read/context feature" in (
@@ -811,12 +813,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now implementing the narrow explicit multi-file context" in (
+    assert "immediate path is now reviewing and smoking the narrow explicit multi-file context" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Implement a narrow explicit multi-file context budget." in compact_near_term
+    assert "Review and smoke the explicit multi-file context budget." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term
@@ -1220,11 +1222,11 @@ def test_selected_read_failure_recovery_boundary_is_documented():
         compact_boundary
     )
     assert "`Read-Failure Recovery Boundary Direction`" in compact_repl
-    assert "one successful explicit file excerpt budget per REPL session" in (
+    assert "two successful explicit file excerpts per REPL session" in (
         compact_repl
     )
     assert "one bounded failed or skipped read-attempt budget" in compact_repl
-    assert "leaves the one successful excerpt budget available" in (compact_repl)
+    assert "leaves the successful excerpt budget available" in (compact_repl)
 
     for failed_reason in (
         "unsafe target",
@@ -1238,9 +1240,7 @@ def test_selected_read_failure_recovery_boundary_is_documented():
         assert failed_reason in compact_boundary
 
     for deferred in (
-        "multi-file context",
-        "second successful read",
-        "broad search",
+        "broad context loading",
         "provider-selected filesystem paths",
         "provider-side tools",
         "provider follow-up turns",
