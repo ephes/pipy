@@ -4,13 +4,13 @@ Status: current native shell supports styled startup chrome, grouped
 slash-command discovery, bounded read/context, proposal, same-session apply,
 post-apply `just-check` verification, a line-oriented state-aware prompt label,
 and a small REPL input-adapter boundary with plain captured-stream fallback plus
-optional prompt-toolkit line-editor input and leading slash-command completion
-plus workspace-relative path completion for explicit file commands and
+optional prompt-toolkit line-editor input and leading slash-command completion,
+workspace-relative path completion for explicit file commands, completion-only
+`@file` references in ordinary prompts and supported command free-text, and
 multiline entry on real TTY streams. The bottom-toolbar status decision
 deferred footer behavior, and the real-TTY prompt-toolkit input path is now
 hardened for cursor-position warning noise and CR/LF newline-key encodings.
-The selected next prompt-toolkit boundary is completion-only `@file`
-references, without automatic file-content reads.
+Automatic file-content reads from completion remain deferred.
 
 <style>
 .mermaid,
@@ -1730,38 +1730,38 @@ stdout, stderr, secrets, credentials, tokens, private keys, or sensitive
 personal data; native session events may record only the safe `input_runtime`
 label.
 
-### Native Prompt-Toolkit Next Input Boundary Decision
+### Native Prompt-Toolkit File Reference Completion Boundary
 
-The next prompt-toolkit input boundary after real-TTY hardening is
-completion-only `@file` references. The goal is to make workspace file labels
-easier to type in ordinary provider prompts and free-text command arguments
-without changing the runtime context model. This is an input-editor feature,
-not a read/context feature.
+The prompt-toolkit input boundary after real-TTY hardening is completion-only
+`@file` references. The goal is to make workspace file labels easier to type in
+ordinary provider prompts and free-text command arguments without changing the
+runtime context model. This is an input-editor feature, not a read/context
+feature.
 
-The selected implementation should extend only the optional prompt-toolkit
-completer. When the user is editing an `@`-prefixed token, it may suggest safe
-workspace-relative file labels using the same conservative path filtering as
-the existing explicit file-command path completion where practical. Completing
-a reference inserts only text into the prompt-toolkit input buffer. It must not
-read file contents, attach file context, invoke providers, execute tools,
-consume read budgets, mutate workspace state, create provider-visible context,
-change command parsing, or alter proposal/apply/verification behavior.
+The implementation extends only the optional prompt-toolkit completer. When the
+user is editing an `@`-prefixed token, it suggests safe workspace-relative
+labels using the same conservative path filtering as the explicit file-command
+path completion. Completing a reference inserts only text into the
+prompt-toolkit input buffer. It does not read file contents, attach file
+context, invoke providers, execute tools, consume read budgets, mutate
+workspace state, create provider-visible context, change command parsing, or
+alter proposal/apply/verification behavior.
 
-The first `@file` reference slice should cover ordinary provider prompts and
+The first `@file` reference slice covers ordinary provider prompts and
 free-text command arguments such as the question after `/ask-file ... --` and
-the change request after `/propose-file ... --`. Existing leading
-slash-command completion and explicit file-command path completion remain
-unchanged and continue to be parser-adjacent conveniences only. Captured
-streams, non-TTY streams, and explicit `--input-runtime plain` continue to use
-plain stdin/stderr input, while explicit `--input-runtime prompt-toolkit`
-continues to fail closed on unsupported streams.
+the change request after `/propose-file ... --`. Existing leading slash-command
+completion and explicit file-command path completion remain unchanged and
+continue to be parser-adjacent conveniences only. Captured streams, non-TTY
+streams, and explicit `--input-runtime plain` continue to use plain
+stdin/stderr input, while explicit `--input-runtime prompt-toolkit` continues
+to fail closed on unsupported streams.
 
-Rejected alternatives stay deferred. Resilient terminal resize behavior is not
-the next slice because the current smoke results did not reveal a concrete
-resize bug after cursor-position and key-sequence hardening. Persistent history
-is not the next slice because raw history storage needs an explicit privacy
-contract and must not be introduced as a side effect of a line-editor feature.
-Another prompt-toolkit hardening pass is not the next slice because the known
+Rejected alternatives stay deferred. Resilient terminal resize behavior remains
+deferred because the current smoke results did not reveal a concrete resize bug
+after cursor-position and key-sequence hardening. Persistent history remains
+deferred because raw history storage needs an explicit privacy contract and
+must not be introduced as a side effect of a line-editor feature. Another
+prompt-toolkit hardening pass is not currently selected because the known
 adapter compatibility issues are already covered by focused tests and smoke.
 Bottom-toolbar behavior remains deferred because startup chrome, `/status`, and
 the state-aware prompt label already cover safe status display without adding

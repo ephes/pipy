@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.repl_input import (
+    DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS,
     DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS,
     DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
     REPL_INPUT_RUNTIME_AUTO,
@@ -61,7 +62,9 @@ class FakePromptToolkitOutput:
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
     input_stream = StringIO("hello\n")
     error_stream = StringIO()
-    repl_input = PlainNativeReplInput(input_stream=input_stream, error_stream=error_stream)
+    repl_input = PlainNativeReplInput(
+        input_stream=input_stream, error_stream=error_stream
+    )
 
     assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "hello\n"
     assert error_stream.getvalue() == "pipy-native [fake/model turns:0/8]> "
@@ -126,8 +129,12 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     completion_module = types.SimpleNamespace(Completion=FakeCompletion)
     key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.input.defaults", input_defaults_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.output.defaults", output_defaults_module
+    )
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
@@ -144,7 +151,14 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
     assert repl_input.runtime_label == REPL_INPUT_RUNTIME_PROMPT_TOOLKIT
     assert isinstance(created["completer"], PromptToolkitReplCompleter)
     assert created["completer"].command_names == DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
-    assert created["completer"].file_path_commands == DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS
+    assert (
+        created["completer"].file_path_commands
+        == DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS
+    )
+    assert (
+        created["completer"].file_reference_commands
+        == DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS
+    )
     assert created["completer"].workspace == tmp_path
     assert created["multiline"] is True
     assert callable(created["prompt_continuation"])
@@ -155,7 +169,9 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
         ("escape", "enter"),
         ("escape", "c-j"),
     }
-    assert repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited\ninput\n"
+    assert (
+        repl_input.read_line("pipy-native [fake/model turns:0/8]>") == "edited\ninput\n"
+    )
     assert created["input"] == ("input", tty_input)
     assert created["output"] == ("output", tty_error)
     assert created["prompt_label"] == "pipy-native [fake/model turns:0/8]> "
@@ -192,8 +208,12 @@ def test_prompt_toolkit_repl_input_disables_cursor_position_requests(
     completion_module = types.SimpleNamespace(Completion=FakeCompletion)
     key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.input.defaults", input_defaults_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.output.defaults", output_defaults_module
+    )
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
@@ -232,8 +252,12 @@ def test_auto_repl_input_falls_back_to_plain_when_prompt_toolkit_initialization_
     output_defaults_module = types.SimpleNamespace(create_output=fail_create_output)
     key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.input.defaults", input_defaults_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.output.defaults", output_defaults_module
+    )
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
@@ -262,8 +286,12 @@ def test_explicit_prompt_toolkit_wraps_initialization_failure(monkeypatch) -> No
     completion_module = types.SimpleNamespace(Completion=object)
     key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
     monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.input.defaults", input_defaults_module)
-    monkeypatch.setitem(sys.modules, "prompt_toolkit.output.defaults", output_defaults_module)
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.input.defaults", input_defaults_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.output.defaults", output_defaults_module
+    )
     monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
     monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
     monkeypatch.setattr(sys, "stdin", tty_input)
@@ -304,7 +332,9 @@ def test_prompt_toolkit_multiline_key_bindings_submit_and_insert_newline() -> No
     assert buffer.text == "\n\n"
 
 
-def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands() -> None:
+def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands() -> (
+    None
+):
     completer = PromptToolkitSlashCommandCompleter(FakeCompletion)
 
     model_matches = list(completer.get_completions(FakeDocument("/m"), None))
@@ -313,7 +343,9 @@ def test_prompt_toolkit_slash_command_completer_suggests_only_leading_commands()
     ]
 
     all_matches = list(completer.get_completions(FakeDocument("/"), None))
-    assert [match.text for match in all_matches] == list(DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS)
+    assert [match.text for match in all_matches] == list(
+        DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    )
     assert {match.start_position for match in all_matches} == {-1}
 
     assert list(completer.get_completions(FakeDocument("ordinary /m"), None)) == []
@@ -325,12 +357,16 @@ def test_prompt_toolkit_repl_completer_supports_async_completion_protocol() -> N
         completer = PromptToolkitSlashCommandCompleter(FakeCompletion)
         return [
             match
-            async for match in completer.get_completions_async(FakeDocument("/st"), None)
+            async for match in completer.get_completions_async(
+                FakeDocument("/st"), None
+            )
         ]
 
     matches = asyncio.run(collect_matches())
 
-    assert [(match.text, match.start_position) for match in matches] == [("/status", -3)]
+    assert [(match.text, match.start_position) for match in matches] == [
+        ("/status", -3)
+    ]
 
 
 def test_prompt_toolkit_repl_completer_suggests_workspace_paths_for_file_commands(
@@ -341,7 +377,9 @@ def test_prompt_toolkit_repl_completer_suggests_workspace_paths_for_file_command
     (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
     (docs / "harness-spec.md").write_text("safe\n", encoding="utf-8")
     (tmp_path / "src").mkdir()
-    (tmp_path / ".gitignore").write_text("ignored.txt\nignored-dir/\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(
+        "ignored.txt\nignored-dir/\n", encoding="utf-8"
+    )
     (tmp_path / "ignored.txt").write_text("safe\n", encoding="utf-8")
     ignored_dir = tmp_path / "ignored-dir"
     ignored_dir.mkdir()
@@ -389,6 +427,102 @@ def test_prompt_toolkit_repl_completer_limits_path_completion_to_path_argument(
     )
     assert list(completer.get_completions(FakeDocument("read docs/b"), None)) == []
     assert list(completer.get_completions(FakeDocument("/verify just"), None)) == []
+
+
+def test_prompt_toolkit_repl_completer_suggests_file_references_in_provider_prompts(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
+    (docs / "harness-spec.md").write_text("safe\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("safe\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    (tmp_path / "ignored.txt").write_text("safe\n", encoding="utf-8")
+    (tmp_path / "bundle.min.js").write_text("generated\n", encoding="utf-8")
+    (tmp_path / "secret_token.py").write_text("sensitive\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    root_matches = list(completer.get_completions(FakeDocument("compare @"), None))
+    assert [(match.text, match.start_position) for match in root_matches] == [
+        ("@.gitignore", -1),
+        ("@README.md", -1),
+        ("@docs/", -1),
+    ]
+
+    docs_matches = list(
+        completer.get_completions(FakeDocument("compare @docs/h"), None)
+    )
+    assert [(match.text, match.start_position) for match in docs_matches] == [
+        ("@docs/harness-spec.md", -7)
+    ]
+
+
+def test_prompt_toolkit_repl_completer_suggests_file_references_in_command_free_text(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    ask_matches = list(
+        completer.get_completions(
+            FakeDocument("/ask-file README.md -- compare @docs/b"), None
+        )
+    )
+    propose_matches = list(
+        completer.get_completions(
+            FakeDocument("/propose-file README.md -- update using @docs/b"),
+            None,
+        )
+    )
+
+    assert [(match.text, match.start_position) for match in ask_matches] == [
+        ("@docs/backlog.md", -7)
+    ]
+    assert [(match.text, match.start_position) for match in propose_matches] == [
+        ("@docs/backlog.md", -7)
+    ]
+
+
+def test_prompt_toolkit_repl_completer_restricts_file_references_to_safe_contexts(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    path_matches = list(completer.get_completions(FakeDocument("/read @docs/b"), None))
+    assert path_matches == []
+    assert (
+        list(completer.get_completions(FakeDocument("/ask-file @docs/b"), None)) == []
+    )
+    assert list(completer.get_completions(FakeDocument("/verify @docs/b"), None)) == []
+    assert list(completer.get_completions(FakeDocument("compare @docs/b "), None)) == []
+
+
+@pytest.mark.parametrize(
+    "text_before_cursor",
+    (
+        "compare @/etc/passwd",
+        "compare @~/notes",
+        "compare @../",
+        "compare @docs\\backlog.md",
+        "compare @docs/*",
+        "compare @secret_token.py",
+    ),
+)
+def test_prompt_toolkit_repl_completer_rejects_unsafe_file_reference_prefixes(
+    tmp_path: Path,
+    text_before_cursor: str,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
+    (tmp_path / "secret_token.py").write_text("sensitive\n", encoding="utf-8")
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
+
+    assert list(completer.get_completions(FakeDocument(text_before_cursor), None)) == []
 
 
 @pytest.mark.parametrize(
@@ -445,7 +579,9 @@ def test_prompt_toolkit_repl_completer_skips_symlinks_outside_workspace(
     ]
 
 
-def test_prompt_toolkit_repl_completer_skips_path_completion_without_workspace() -> None:
+def test_prompt_toolkit_repl_completer_skips_path_completion_without_workspace() -> (
+    None
+):
     completer = PromptToolkitReplCompleter(FakeCompletion)
 
     command_matches = list(completer.get_completions(FakeDocument("/m"), None))

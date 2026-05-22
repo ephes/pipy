@@ -27,13 +27,14 @@ boundary with plain captured-stream fallback plus optional prompt-toolkit
 line-editor support, including leading slash-command name completion, when
 explicitly selected or auto-available on real TTY streams. The optional
 prompt-toolkit path now also suggests workspace-relative file/path labels while
-editing the path argument for explicit file commands, and supports
-prompt-toolkit-only multiline entry with Enter submitting and Esc+Enter
-inserting a newline, and the prompt-toolkit completion adapter now supports the
-async completion protocol used by current prompt-toolkit releases. The existing
-optional real-TTY prompt-toolkit input path is now hardened for cursor-position
-warning noise and LF-encoded Enter/Esc+Enter key sequences. The bottom-toolbar
-status decision remains deferred. The public shell still cannot
+editing the path argument for explicit file commands, inserts completion-only
+`@file` reference labels in ordinary prompts and supported command free-text,
+and supports prompt-toolkit-only multiline entry with Enter submitting and
+Esc+Enter inserting a newline, and the prompt-toolkit completion adapter now
+supports the async completion protocol used by current prompt-toolkit releases.
+The existing optional real-TTY prompt-toolkit input path is now hardened for
+cursor-position warning noise and LF-encoded Enter/Esc+Enter key sequences. The
+bottom-toolbar status decision remains deferred. The public shell still cannot
 execute arbitrary shell commands, request provider-side tools, read
 multiple files per session, run non-allowlisted verification commands, or run a
 general model/tool loop.
@@ -78,10 +79,9 @@ Use this page as a planning index:
   for explicit file commands is now implemented; prompt-toolkit-only multiline
   entry is now implemented; the bottom-toolbar status decision is complete and
   deferred footer behavior; the optional real-TTY prompt-toolkit input
-  hardening pass is now implemented; and the next prompt-toolkit input boundary
-  is selected. The next milestone is implementing prompt-toolkit-only `@file`
-  reference completion while any automatic file-content reads, full TUI,
-  alternate-screen app, or general keybinding runtime remains deferred.
+  hardening pass is now implemented; and prompt-toolkit-only `@file` reference
+  completion is now implemented while any automatic file-content reads, full
+  TUI, alternate-screen app, or general keybinding runtime remains deferred.
 
 The stored session archive supports this direction: repeated workflow
 evaluations favor small native boundary slices, focused tests, documentation
@@ -106,11 +106,11 @@ discipline:
 - Interactive input ergonomics: the first input-adapter boundary now preserves
   plain captured-stream fallback and can use optional prompt-toolkit line-editor
   input on real TTY streams, with leading slash-command name completion and
-  workspace-relative path completion for explicit file commands plus
+  workspace-relative path completion for explicit file commands, completion-only
+  `@file` references in ordinary prompts and supported command free-text, and
   prompt-toolkit-only multiline entry in that optional path. The real-TTY
   prompt-toolkit path is hardened against cursor-position warning noise and
-  LF-encoded newline key sequences. Prompt-toolkit-only `@file` reference
-  completion is selected as the next slice; resilient terminal resize behavior,
+  LF-encoded newline key sequences. Resilient terminal resize behavior,
   persistent history, and a fuller TUI remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
@@ -1059,40 +1059,41 @@ fuller UI surface or lower-level terminal ownership.
   known compatibility issues are already addressed. Bottom-toolbar behavior
   remains deferred because prompt labels, startup chrome, and `/status` still
   cover safe status display without adding footer ownership.
+- Native prompt-toolkit `@file` reference completion boundary:
+  The optional prompt-toolkit REPL completer now suggests safe
+  workspace-relative `@file` labels while editing an `@`-prefixed token in
+  ordinary provider prompts and the free-text side of `/ask-file ... --` and
+  `/propose-file ... --`. The implementation reuses the existing conservative
+  workspace path filtering, including ignored/generated and sensitive-looking
+  path rejection, and preserves existing leading slash-command completion,
+  explicit file-command path completion, multiline input, plain captured-stream
+  fallback, and explicit prompt-toolkit fail-closed behavior. Accepting a
+  completion inserts only text into the prompt-toolkit buffer; it does not read
+  files, attach context, invoke providers or tools, consume read budgets,
+  change parsing, alter proposal/apply/verification behavior, or archive raw
+  prompts, file contents, text, or completion buffers.
 
 ## Next Slice
 
-### Implement prompt-toolkit `@file` reference completion
+### Decide the next native-shell boundary after `@file` completion
 
-Goal: add prompt-toolkit-only `@file` reference completion to the existing REPL
-input adapter, without automatic file-content reads or any new provider/tool
-capability.
+Goal: select the next small, reviewable native-shell slice now that the narrow
+prompt-toolkit input sequence has reached completion-only `@file` references.
 
-Completion focus:
+Decision focus:
 
-- suggest safe workspace-relative file labels when the user is editing an
-  `@`-prefixed token in ordinary provider prompts or free-text command
-  arguments such as `/ask-file ... -- <question>` and `/propose-file ... --
-  <change-request>`
-- keep existing slash-command and explicit file-command path completions
-  unchanged
-- make completion insert only a textual reference label; do not read the file,
-  attach file context, invoke providers/tools, consume read budgets, or change
-  parser behavior
-- reuse the existing safe workspace path filtering where practical, including
-  ignored/generated and sensitive-looking path rejection
-- preserve the bottom-toolbar deferral
-- keep captured-stream and explicit plain input behavior unchanged, and keep
-  explicit `--input-runtime prompt-toolkit` fail-closed on unsupported streams
+- inspect summary-safe archive lessons and the current shell/product gaps
+- choose one next boundary that advances Pi-like native-shell usefulness
+  without expanding into a general model/tool loop
 - preserve existing command names, parser behavior, stdout/stderr contracts,
   prompt labels, provider-turn behavior, read budgets,
   proposal/apply/verification behavior, and metadata-only archive behavior
-- keep deferred boundaries closed: no full-screen TUI, alternate screen buffer,
-  general keybinding runtime, RPC mode, broad context loading, automatic
-  file-content reads, arbitrary shell execution, provider-side tools,
-  non-allowlisted verification, raw prompt/model-output display, raw history
-  storage, persistent transcript storage, completion-buffer archiving, or
-  general model/tool loop
+- keep deferred boundaries closed unless the decision explicitly promotes one
+  with a narrow contract: no full-screen TUI, alternate screen buffer, broad
+  context loading, automatic file-content reads, arbitrary shell execution,
+  provider-side tools, non-allowlisted verification, raw prompt/model-output
+  display, raw history storage, persistent transcript storage,
+  completion-buffer archiving, or general model/tool loop
 
 ## Near Term
 
@@ -1103,19 +1104,19 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now implementing prompt-toolkit-only `@file` reference
-completion after the styled Pi-like startup visual/resource-label pass, grouped
-slash-command discovery, post-help input ergonomics decision, state-aware
-prompt label, terminal-layer direction checkpoint, prompt-toolkit feasibility
-boundary, leading slash-command completion, workspace-relative path
-completion, multiline input, bottom-toolbar status decision, real-TTY
-prompt-toolkit hardening, and next-boundary decision. The implemented
-boundaries prove the current shell can preserve plain captured-stream behavior
-while isolating optional prompt-toolkit input behind a small adapter. The
-bottom-toolbar decision deferred footer behavior because the prompt label
-already carries the safe input-time status labels, and the hardening pass
-resolved the adapter compatibility work found by real-TTY smoke testing before
-adding another terminal display surface.
+The immediate path is now choosing the next native-shell boundary after the
+styled Pi-like startup visual/resource-label pass, grouped slash-command
+discovery, post-help input ergonomics decision, state-aware prompt label,
+terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
+leading slash-command completion, workspace-relative path completion,
+multiline input, bottom-toolbar status decision, real-TTY prompt-toolkit
+hardening, next-boundary decision, and completion-only `@file` references. The
+implemented boundaries prove the current shell can preserve plain
+captured-stream behavior while isolating optional prompt-toolkit input behind a
+small adapter. The bottom-toolbar decision deferred footer behavior because the
+prompt label already carries the safe input-time status labels, and the
+hardening pass resolved the adapter compatibility work found by real-TTY smoke
+testing before adding another terminal display surface.
 
 Manual `pipy run --agent pipy-native` smoke tests are useful product checks,
 but today they exercise a one-shot runner: `--goal` is the input, provider final
@@ -1164,15 +1165,16 @@ input-adapter boundary are the first visible parity steps: they now provide a
 styled, sectioned, resource-label frame, a grouped command reference, compact
 current-state input labels, and an optional prompt-toolkit line-editor path
 with leading slash-command name completion and workspace-relative file/path
-completion for explicit file commands plus prompt-toolkit-only multiline input
-with hardened cursor-position and newline-key handling while still keeping the
-shipping runtime metadata-only and captured-stream compatible. The next visible
-parity step is completion-only `@file` references before revisiting
-footer-style display.
+completion for explicit file commands, completion-only `@file` references, and
+prompt-toolkit-only multiline input with hardened cursor-position and
+newline-key handling while still keeping the shipping runtime metadata-only and
+captured-stream compatible. The next visible parity step should be selected
+explicitly from the remaining shell/product gaps rather than inferred from the
+completed prompt-toolkit input sequence.
 
 Small reviewable slices, in intended order:
 
-1. Implement prompt-toolkit `@file` reference completion.
+1. Decide the next native-shell boundary after `@file` completion.
 
 Foundation gates toward an interactive shell:
 
@@ -1276,6 +1278,12 @@ Foundation gates toward an interactive shell:
   `@file` reference completion as the next input slice, while keeping
   bottom-toolbar behavior, resilient resize work, persistent history, automatic
   file-content reads, and broader TUI behavior deferred.
+- Prompt-toolkit `@file` reference completion gate: available now. The optional
+  prompt-toolkit completer suggests safe workspace-relative `@file` labels in
+  ordinary provider prompts and supported command free-text while preserving
+  completion-only behavior, plain fallback, explicit prompt-toolkit
+  fail-closed behavior, command parsing, read budgets, provider/tool behavior,
+  and metadata-only archives.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

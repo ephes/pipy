@@ -41,6 +41,9 @@ DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS = (
     "/apply-proposal",
 )
 _FILE_CONTEXT_COMMANDS_WITH_SEPARATOR = frozenset({"/ask-file", "/propose-file"})
+DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS = tuple(
+    sorted(_FILE_CONTEXT_COMMANDS_WITH_SEPARATOR)
+)
 
 
 class ReplInputUnavailableError(RuntimeError):
@@ -71,21 +74,33 @@ class PlainNativeReplInput:
 
 @dataclass(slots=True)
 class PromptToolkitReplCompleter:
-    """Prompt-toolkit completions for slash commands and explicit file paths."""
+    """Prompt-toolkit completions for slash commands and workspace path labels."""
 
     completion_cls: Any
     command_names: tuple[str, ...] = DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
     workspace: Path | None = None
     file_path_commands: tuple[str, ...] = DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS
+    file_reference_commands: tuple[str, ...] = (
+        DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS
+    )
 
     def get_completions(self, document: Any, complete_event: Any) -> Iterable[Any]:
         text_before_cursor = str(getattr(document, "text_before_cursor", ""))
         command_prefix = text_before_cursor.lstrip()
         if not command_prefix.startswith("/"):
+            yield from self._file_reference_completions(text_before_cursor)
             return
         if any(char.isspace() for char in command_prefix):
-            yield from self._path_completions(text_before_cursor)
+            path_request = _path_completion_request(
+                text_before_cursor,
+                file_path_commands=self.file_path_commands,
+            )
+            if path_request is not None:
+                yield from self._path_completions(path_request)
+                return
+            yield from self._file_reference_completions(text_before_cursor)
             return
+
         for command_name in self.command_names:
             if command_name.startswith(command_prefix):
                 yield self.completion_cls(
@@ -93,20 +108,28 @@ class PromptToolkitReplCompleter:
                     start_position=-len(command_prefix),
                 )
 
-    def _path_completions(self, text_before_cursor: str) -> Iterable[Any]:
+    def _path_completions(self, path_prefix: str) -> Iterable[Any]:
         if self.workspace is None:
             return
-        path_request = _path_completion_request(
-            text_before_cursor,
-            file_path_commands=self.file_path_commands,
-        )
-        if path_request is None:
-            return
-        path_prefix = path_request
         for candidate in _workspace_path_completion_labels(self.workspace, path_prefix):
             yield self.completion_cls(
                 candidate,
                 start_position=-len(path_prefix),
+            )
+
+    def _file_reference_completions(self, text_before_cursor: str) -> Iterable[Any]:
+        if self.workspace is None:
+            return
+        path_prefix = _file_reference_completion_request(
+            text_before_cursor,
+            file_reference_commands=self.file_reference_commands,
+        )
+        if path_prefix is None:
+            return
+        for candidate in _workspace_path_completion_labels(self.workspace, path_prefix):
+            yield self.completion_cls(
+                f"@{candidate}",
+                start_position=-(len(path_prefix) + 1),
             )
 
     async def get_completions_async(
@@ -156,7 +179,9 @@ class PromptToolkitNativeReplInput:
                 ),
                 multiline=True,
                 prompt_continuation=_prompt_toolkit_multiline_continuation,
-                key_bindings=_prompt_toolkit_multiline_key_bindings(key_binding.KeyBindings),
+                key_bindings=_prompt_toolkit_multiline_key_bindings(
+                    key_binding.KeyBindings
+                ),
             )
         except Exception as exc:
             raise ReplInputUnavailableError(
@@ -183,7 +208,9 @@ def native_repl_input_for(
     if input_runtime not in SUPPORTED_REPL_INPUT_RUNTIMES:
         raise ValueError(f"unsupported native REPL input runtime: {input_runtime}")
     if input_runtime == REPL_INPUT_RUNTIME_PLAIN:
-        return PlainNativeReplInput(input_stream=input_stream, error_stream=error_stream)
+        return PlainNativeReplInput(
+            input_stream=input_stream, error_stream=error_stream
+        )
     if input_runtime == REPL_INPUT_RUNTIME_PROMPT_TOOLKIT:
         return PromptToolkitNativeReplInput.create(
             input_stream=input_stream,
@@ -265,11 +292,15 @@ def _prompt_toolkit_multiline_key_bindings(key_bindings_cls: Any) -> Any:
     return key_bindings
 
 
-def _prompt_toolkit_multiline_continuation(width: int, line_number: int, wrap_count: int) -> str:
+def _prompt_toolkit_multiline_continuation(
+    width: int, line_number: int, wrap_count: int
+) -> str:
     return f"{' ' * max(0, width - 2)}| "
 
 
-def _prompt_toolkit_streams_supported(input_stream: TextIO, error_stream: TextIO) -> bool:
+def _prompt_toolkit_streams_supported(
+    input_stream: TextIO, error_stream: TextIO
+) -> bool:
     return (
         input_stream is sys.stdin
         and error_stream is sys.stderr
@@ -290,8 +321,9 @@ def _path_completion_request(
         if not command_line.startswith(f"{command_name} "):
             continue
         argument_text = command_line[len(command_name) :].lstrip()
-        if command_name in _FILE_CONTEXT_COMMANDS_WITH_SEPARATOR and _has_file_context_separator(
-            argument_text
+        if (
+            command_name in _FILE_CONTEXT_COMMANDS_WITH_SEPARATOR
+            and _has_file_context_separator(argument_text)
         ):
             return None
         return argument_text
@@ -304,7 +336,52 @@ def _has_file_context_separator(argument_text: str) -> bool:
     return " --" in argument_text or "-- " in argument_text
 
 
-def _workspace_path_completion_labels(workspace: Path, path_prefix: str) -> tuple[str, ...]:
+def _file_reference_completion_request(
+    text_before_cursor: str,
+    *,
+    file_reference_commands: tuple[str, ...],
+) -> str | None:
+    command_line = text_before_cursor.lstrip()
+    if command_line.startswith("/") and not _command_allows_file_reference_completion(
+        command_line,
+        file_reference_commands=file_reference_commands,
+    ):
+        return None
+
+    token = _current_completion_token(text_before_cursor)
+    if not token.startswith("@"):
+        return None
+    return token[1:]
+
+
+def _command_allows_file_reference_completion(
+    command_line: str,
+    *,
+    file_reference_commands: tuple[str, ...],
+) -> bool:
+    for command_name in file_reference_commands:
+        if command_line == command_name:
+            return False
+        if not command_line.startswith(f"{command_name} "):
+            continue
+        argument_text = command_line[len(command_name) :].lstrip()
+        return _has_file_context_separator(argument_text)
+    return False
+
+
+def _current_completion_token(text_before_cursor: str) -> str:
+    stripped_right = text_before_cursor.rstrip()
+    if stripped_right != text_before_cursor:
+        return ""
+    parts = text_before_cursor.rsplit(maxsplit=1)
+    if not parts:
+        return ""
+    return parts[-1]
+
+
+def _workspace_path_completion_labels(
+    workspace: Path, path_prefix: str
+) -> tuple[str, ...]:
     directory_prefix, name_prefix = _path_completion_parts(path_prefix)
     if not _safe_path_completion_prefix(directory_prefix, allow_empty=True):
         return ()
@@ -313,7 +390,11 @@ def _workspace_path_completion_labels(workspace: Path, path_prefix: str) -> tupl
 
     try:
         workspace_root = workspace.expanduser().resolve()
-        directory = (workspace_root / directory_prefix).resolve() if directory_prefix else workspace_root
+        directory = (
+            (workspace_root / directory_prefix).resolve()
+            if directory_prefix
+            else workspace_root
+        )
     except OSError:
         return ()
     if not _is_relative_to(directory, workspace_root):
@@ -359,11 +440,33 @@ def _path_completion_parts(path_prefix: str) -> tuple[str, str]:
 def _safe_path_completion_prefix(path_prefix: str, *, allow_empty: bool) -> bool:
     if path_prefix == "":
         return allow_empty
-    if path_prefix != path_prefix.strip() or "\\" in path_prefix or "\x00" in path_prefix:
+    if (
+        path_prefix != path_prefix.strip()
+        or "\\" in path_prefix
+        or "\x00" in path_prefix
+    ):
         return False
     if any(ord(char) < 32 for char in path_prefix):
         return False
-    if any(char in path_prefix for char in ("~", "$", "`", "*", "?", "[", "]", "{", "}", "|", ";", "&", "<", ">")):
+    if any(
+        char in path_prefix
+        for char in (
+            "~",
+            "$",
+            "`",
+            "*",
+            "?",
+            "[",
+            "]",
+            "{",
+            "}",
+            "|",
+            ";",
+            "&",
+            "<",
+            ">",
+        )
+    ):
         return False
     posix_path = PurePosixPath(path_prefix)
     windows_path = PureWindowsPath(path_prefix)
