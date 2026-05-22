@@ -580,6 +580,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native prompt-toolkit real-TTY input hardening" in compact_pre_next_slice
     assert "disables prompt-toolkit cursor-position requests" in compact_pre_next_slice
     assert "CR and LF terminal encodings" in compact_pre_next_slice
+    assert "Native prompt-toolkit next-boundary decision after real-TTY hardening" in (
+        compact_pre_next_slice
+    )
+    assert "selected prompt-toolkit-only `@file` reference completion" in (
+        compact_pre_next_slice
+    )
+    assert "completion-only" in compact_pre_next_slice
+    assert "Resilient resize behavior was rejected" in compact_pre_next_slice
+    assert "Persistent history was rejected" in compact_pre_next_slice
+    assert "Bottom-toolbar behavior remains deferred" in compact_pre_next_slice
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
@@ -591,14 +601,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "leading slash-command name completion" in compact_pi_parity_roadmap
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Decide next prompt-toolkit input boundary" in next_slice
-    assert "choose the next small input-ergonomics boundary" in (
+    assert "### Implement prompt-toolkit `@file` reference completion" in next_slice
+    assert "add prompt-toolkit-only `@file` reference completion" in (
         compact_next_slice
     )
-    assert "file references, resilient resize behavior, persistent history" in (
+    assert "`@`-prefixed token in ordinary provider prompts" in compact_next_slice
+    assert "keep existing slash-command and explicit file-command path completions" in (
         compact_next_slice
     )
-    assert "document the chosen boundary and the rejected alternatives" in compact_next_slice
+    assert "make completion insert only a textual reference label" in compact_next_slice
+    assert "do not read the file" in compact_next_slice
     assert "preserve the bottom-toolbar deferral" in compact_next_slice
     assert "captured-stream and explicit plain input behavior unchanged" in (
         compact_next_slice
@@ -617,16 +629,21 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Prompt-Toolkit Multiline Input Boundary" in spec
     assert "Native Prompt-Toolkit Bottom-Toolbar Status Decision" in spec
     assert "Native Prompt-Toolkit Real-TTY Input Hardening" in spec
+    assert "Native Prompt-Toolkit Next Input Boundary Decision" in spec
     assert "bottom-toolbar decision defers footer behavior" in collapse_whitespace(spec)
     assert "disables prompt-toolkit cursor-position requests" in spec
+    assert "completion-only `@file` references" in spec
+    assert "This is an input-editor feature, not a read/context feature" in (
+        collapse_whitespace(spec)
+    )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now deciding the next prompt-toolkit input boundary" in (
+    assert "immediate path is now implementing prompt-toolkit-only `@file` reference" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Decide next prompt-toolkit input boundary." in compact_near_term
+    assert "Implement prompt-toolkit `@file` reference completion." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term
@@ -697,6 +714,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_near_term
     )
     assert "handles both CR and LF encodings" in compact_near_term
+    assert "Prompt-toolkit next-boundary decision gate: available now" in (
+        compact_near_term
+    )
+    assert "selected prompt-toolkit-only `@file` reference completion" in (
+        compact_near_term
+    )
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
