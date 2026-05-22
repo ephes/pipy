@@ -1774,6 +1774,47 @@ completion buffers, prompts, model output, provider responses, excerpts, patch
 text, diffs, file contents, command stdout, command stderr, auth material,
 secrets, credentials, tokens, private keys, or sensitive personal data.
 
+### Native Explicit Multi-File Context Budget Decision
+
+The next native-shell boundary after completion-only `@file` references is a
+narrow explicit multi-file context budget. This is a user-owned read/context
+budget change, not automatic file-reference loading and not a model-selected
+tool loop.
+
+The selected first implementation should raise the successful explicit
+file-excerpt budget from one to two successful workspace-relative excerpts per
+REPL session across `/read`, `/ask-file`, and `/propose-file`. Each command
+still names exactly one path, validates that path through the existing bounded
+explicit-file-excerpt rules, and either prints the excerpt locally (`/read`) or
+forwards one excerpt in memory to one provider turn (`/ask-file` and
+`/propose-file`). The existing failed/skipped recovery budget remains separate
+and bounded.
+
+This boundary should update prompt labels, startup chrome, `/status`, session
+metadata, tests, and user-facing docs so users can see the remaining explicit
+context budget without exposing raw paths or content. It should preserve
+existing command names, command parsing, stdout/stderr contracts, ignored and
+generated path rejection, secret-looking target and content rejection,
+proposal/apply exact-path constraints, one-file patch apply, allowlisted
+`/verify just-check`, provider-turn labels, and metadata-only archive
+compatibility.
+
+Rejected alternatives stay deferred. Completion-only `@file` labels must not
+trigger file reads or attach context. The runtime must not add broad context
+loading, AGENTS/CLAUDE-style provider-visible instruction loading,
+model-selected paths, multiple files in one provider turn, provider-side tools,
+multi-file proposal/apply, arbitrary shell execution, non-allowlisted
+verification, raw prompt or model-output storage, raw history storage,
+persistent transcript storage, full-screen TUI behavior, or a general
+model/tool loop in this slice.
+
+Archives, Markdown summaries, catalog/search/inspect surfaces, and structured
+output remain metadata-only. They must not include raw command text, file
+paths, prompts, model output, provider responses, excerpts, patch text, diffs,
+file contents, completion buffers, command stdout, command stderr, auth
+material, secrets, credentials, tokens, private keys, or sensitive personal
+data.
+
 ### Native Structured Stdout JSON Mode
 
 Structured native stdout is an explicit opt-in contract. The default stays

@@ -228,15 +228,17 @@ stdin/stderr behavior for captured streams and can use optional prompt-toolkit
 line-editor input only on real TTY streams when the package is available. The
 optional prompt-toolkit path also suggests existing slash command names while
 editing a leading `/` command, plus workspace-relative path labels while
-editing explicit file-command path arguments. It also supports multiline
-editing with Enter to submit and Esc+Enter to insert a newline; prompt-toolkit
-remains optional and is not a declared runtime dependency. The prompt-toolkit
-adapter disables cursor-position probes to avoid PTY warning noise and accepts
-both common Enter encodings for submit/newline key handling.
+editing explicit file-command path arguments, and completion-only `@file`
+reference labels in ordinary prompts plus supported command free-text. It also
+supports multiline editing with Enter to submit and Esc+Enter to insert a
+newline; prompt-toolkit remains optional and is not a declared runtime
+dependency. The prompt-toolkit adapter disables cursor-position probes to avoid
+PTY warning noise and accepts both common Enter encodings for submit/newline key
+handling.
 Startup chrome, prompt labels, and input-runtime selection are presentation
-only: they do not call
-providers, run tools, read files, mutate state, consume budgets, or write to
-stdout. Ordinary non-command input lines remain bounded no-tool provider turns.
+only: they do not call providers, run tools, read files, attach `@file`
+context, mutate state, consume budgets, or write to stdout. Ordinary
+non-command input lines remain bounded no-tool provider turns.
 Local `/login [openai-codex]`, `/logout [openai-codex]`, and
 `/model [<provider>/<model>|<model>]` commands run inside the shell, print
 status to stderr, do not invoke providers, do not consume provider turns, and

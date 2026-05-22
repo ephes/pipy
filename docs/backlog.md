@@ -1072,28 +1072,52 @@ fuller UI surface or lower-level terminal ownership.
   files, attach context, invoke providers or tools, consume read budgets,
   change parsing, alter proposal/apply/verification behavior, or archive raw
   prompts, file contents, text, or completion buffers.
+- Native next-boundary decision after `@file` completion: summary-safe archive
+  reflection and the current Pi-like shell gaps selected a narrow explicit
+  multi-file context budget as the next implementation slice. The selected
+  boundary should raise the successful explicit file-excerpt budget from one to
+  two successful workspace-relative excerpts per REPL session across `/read`,
+  `/ask-file`, and `/propose-file`; any further budget increase requires a
+  separate slice. It should preserve explicit user-owned paths, one file per
+  command, one provider turn per provider-visible command, the same
+  failed/skipped recovery budget, proposal/apply exact-path constraints,
+  allowlisted verification, stdout/stderr contracts, and metadata-only archive
+  rules. Automatic `@file` reads, model-selected paths, broad context loading,
+  provider-side tools, arbitrary shell execution, non-allowlisted verification,
+  multi-file proposal/apply, raw history, persistent transcripts, and a general
+  model/tool loop remain deferred.
 
 ## Next Slice
 
-### Decide the next native-shell boundary after `@file` completion
+### Implement a narrow explicit multi-file context budget
 
-Goal: select the next small, reviewable native-shell slice now that the narrow
-prompt-toolkit input sequence has reached completion-only `@file` references.
+Goal: make explicit file-context commands more useful by allowing a small fixed
+number of successful user-named file excerpts in one REPL session without
+opening a broad context loader or model-selected tool loop.
 
-Decision focus:
+Implementation focus:
 
-- inspect summary-safe archive lessons and the current shell/product gaps
-- choose one next boundary that advances Pi-like native-shell usefulness
-  without expanding into a general model/tool loop
-- preserve existing command names, parser behavior, stdout/stderr contracts,
-  prompt labels, provider-turn behavior, read budgets,
-  proposal/apply/verification behavior, and metadata-only archive behavior
-- keep deferred boundaries closed unless the decision explicitly promotes one
-  with a narrow contract: no full-screen TUI, alternate screen buffer, broad
-  context loading, automatic file-content reads, arbitrary shell execution,
-  provider-side tools, non-allowlisted verification, raw prompt/model-output
-  display, raw history storage, persistent transcript storage,
-  completion-buffer archiving, or general model/tool loop
+- raise the successful explicit file-excerpt budget from one to two successful
+  workspace-relative excerpts per REPL session across `/read`, `/ask-file`, and
+  `/propose-file`
+- keep one file per command, one provider-visible excerpt per `/ask-file` or
+  `/propose-file` provider turn, and the existing bounded failed/skipped
+  recovery behavior
+- update prompt labels, `/status`, startup chrome, session metadata booleans or
+  counters, focused tests, and user-facing docs so the new budget is visible
+  without archiving raw paths, prompts, excerpts, completion buffers, model
+  output, provider responses, stdout, stderr, diffs, file contents, command
+  output, auth material, secrets, credentials, tokens, private keys, or
+  sensitive personal data
+- preserve command names, parser behavior, stdout/stderr contracts, explicit
+  path validation, ignored/generated and secret-looking rejection,
+  proposal/apply exact-path constraints, `/verify just-check`, and
+  metadata-only archive compatibility
+- keep deferred boundaries closed: no automatic `@file` file-content reads,
+  model-selected paths, broad context loading, multiple files in one provider
+  turn, multi-file proposal/apply, arbitrary shell execution, provider-side
+  tools, non-allowlisted verification, raw history storage, persistent
+  transcripts, full-screen TUI, or general model/tool loop
 
 ## Near Term
 
@@ -1104,13 +1128,15 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now choosing the next native-shell boundary after the
+The immediate path is now implementing the narrow explicit multi-file context
+budget after the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
 leading slash-command completion, workspace-relative path completion,
 multiline input, bottom-toolbar status decision, real-TTY prompt-toolkit
-hardening, next-boundary decision, and completion-only `@file` references. The
+hardening, next-boundary decision, completion-only `@file` references, and the
+post-`@file` next-boundary decision. The
 implemented boundaries prove the current shell can preserve plain
 captured-stream behavior while isolating optional prompt-toolkit input behind a
 small adapter. The bottom-toolbar decision deferred footer behavior because the
@@ -1168,13 +1194,12 @@ with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands, completion-only `@file` references, and
 prompt-toolkit-only multiline input with hardened cursor-position and
 newline-key handling while still keeping the shipping runtime metadata-only and
-captured-stream compatible. The next visible parity step should be selected
-explicitly from the remaining shell/product gaps rather than inferred from the
-completed prompt-toolkit input sequence.
+captured-stream compatible. The next visible parity step is the selected
+explicit multi-file context budget, not another prompt-toolkit input feature.
 
 Small reviewable slices, in intended order:
 
-1. Decide the next native-shell boundary after `@file` completion.
+1. Implement a narrow explicit multi-file context budget.
 
 Foundation gates toward an interactive shell:
 
@@ -1284,6 +1309,13 @@ Foundation gates toward an interactive shell:
   completion-only behavior, plain fallback, explicit prompt-toolkit
   fail-closed behavior, command parsing, read budgets, provider/tool behavior,
   and metadata-only archives.
+- Next-boundary decision gate after `@file` completion: available now. The
+  selected next implementation is a narrow explicit multi-file context budget:
+  two successful user-named file excerpts per REPL session across `/read`,
+  `/ask-file`, and `/propose-file`, with automatic `@file` reads, broad context
+  loading, model-selected paths, provider-side tools, multi-file proposal/apply,
+  arbitrary shell execution, raw history, persistent transcripts, and a general
+  model/tool loop still deferred.
 - Historical visible approval prompt gate: available as test-covered helper
   code, but removed from the normal product REPL path.
 - Narrow read-only shell command gate: available now through `/read

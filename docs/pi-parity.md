@@ -29,7 +29,7 @@ Status labels are intentionally coarse:
 | `/login`, `/logout`, `/model` | Implemented narrow shell commands | Commands are local, late-bind provider selection, and do not create provider turns or archive auth material. |
 | Startup orientation | Implemented styled pass | The shell prints sectioned startup chrome with TTY-only ANSI styling, plain captured-stream fallback, safe resource-source labels, and compact workspace/model/turn status labels. |
 | Active prompt state | Implemented | The line-oriented prompt label reflects safe provider/model, turn, read, proposal, and verification state before each input. |
-| Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion, explicit file/path completion, and multiline entry on real TTY streams. Richer editor behavior remains deferred. |
+| Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion, explicit file/path completion, completion-only `@file` reference labels, and multiline entry on real TTY streams. Richer editor behavior remains deferred. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
 | Read tool | Partial | `/read <path>` supports one explicit, bounded, UTF-8 workspace-relative excerpt per REPL session. No broad model-selected read tool exists yet. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn. |
@@ -50,8 +50,8 @@ metadata and boundary invariants are stable:
   model/status controls, overlays, selectors, and resize handling beyond the
   implemented narrow prompt-toolkit input-adapter, slash-command completion,
   explicit file/path completion, and multiline entry boundaries.
-- File references with `@`, pasted images, persistent history, and broader
-  keyboard shortcut handling.
+- Automatic file-content reads from `@file` references, pasted images,
+  persistent history, and broader keyboard shortcut handling.
 - Model-selected tool loop with read, write, edit, bash, and follow-up tool
   observations.
 - Multiple file/context reads per session and broader context/resource loading.
@@ -125,7 +125,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | --- | --- | --- |
 | Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
-| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion and multiline entry; richer editor behavior remains deferred. |
+| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; no raw transcript import by default. |
 | Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries; no general model-selected tool loop yet. |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |

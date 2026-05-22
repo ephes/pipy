@@ -750,6 +750,16 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "does not read files, attach context, invoke providers or tools" in (
         compact_pre_next_slice
     )
+    assert "Native next-boundary decision after `@file` completion" in (
+        compact_pre_next_slice
+    )
+    assert "selected a narrow explicit multi-file context budget" in (
+        compact_pre_next_slice
+    )
+    assert "two successful workspace-relative excerpts per REPL session" in (
+        compact_pre_next_slice
+    )
+    assert "Automatic `@file` reads, model-selected paths" in compact_pre_next_slice
     assert "## Pi Parity Roadmap" in pi_parity_roadmap
     assert "Pipy is a Python slopfork of Pi" in compact_pi_parity_roadmap
     assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
@@ -762,22 +772,23 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "leading slash-command name completion" in compact_pi_parity_roadmap
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Decide the next native-shell boundary after `@file` completion" in (
-        next_slice
-    )
-    assert "select the next small, reviewable native-shell slice" in (
+    assert "### Implement a narrow explicit multi-file context budget" in next_slice
+    assert "allowing a small fixed number of successful user-named file excerpts" in (
         compact_next_slice
     )
-    assert "inspect summary-safe archive lessons" in compact_next_slice
-    assert "choose one next boundary that advances Pi-like native-shell usefulness" in (
+    assert "raise the successful explicit file-excerpt budget from one to two" in (
         compact_next_slice
     )
+    assert "one provider-visible excerpt per `/ask-file` or `/propose-file`" in (
+        compact_next_slice
+    )
+    assert "update prompt labels, `/status`, startup chrome" in compact_next_slice
     assert (
-        "preserve existing command names, parser behavior, stdout/stderr contracts"
-        in (compact_next_slice)
+        "preserve command names, parser behavior, stdout/stderr contracts"
+        in compact_next_slice
     )
-    assert "no full-screen TUI" in compact_next_slice
-    assert "raw prompt/model-output display" in compact_next_slice
+    assert "no automatic `@file` file-content reads" in compact_next_slice
+    assert "full-screen TUI" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
@@ -788,22 +799,24 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Prompt-Toolkit Bottom-Toolbar Status Decision" in spec
     assert "Native Prompt-Toolkit Real-TTY Input Hardening" in spec
     assert "Native Prompt-Toolkit File Reference Completion Boundary" in spec
+    assert "Native Explicit Multi-File Context Budget Decision" in spec
     assert "bottom-toolbar decision defers footer behavior" in collapse_whitespace(spec)
     assert "disables prompt-toolkit cursor-position requests" in spec
     assert "completion-only `@file` references" in spec
+    assert "raise the successful explicit file-excerpt budget from one to two" in (
+        collapse_whitespace(spec)
+    )
     assert "This is an input-editor feature, not a read/context feature" in (
         collapse_whitespace(spec)
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now choosing the next native-shell boundary" in (
+    assert "immediate path is now implementing the narrow explicit multi-file context" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Decide the next native-shell boundary after `@file` completion." in (
-        compact_near_term
-    )
+    assert "Implement a narrow explicit multi-file context budget." in compact_near_term
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term
@@ -914,6 +927,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_near_term
     )
     assert "safe workspace-relative `@file` labels" in compact_near_term
+    assert "Next-boundary decision gate after `@file` completion: available now" in (
+        compact_near_term
+    )
+    assert "two successful user-named file excerpts per REPL session" in (
+        compact_near_term
+    )
     assert "line-oriented and privacy-safe" in compact_near_term
     assert "Read-failure recovery review gate: available now" in compact_near_term
     assert "removed from the normal product REPL path" in compact_near_term
