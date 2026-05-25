@@ -782,7 +782,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "create-only in this slice" in compact_next_slice
     assert "writes the resulting unified diff to stderr" in compact_next_slice
-    assert "thread a `stderr_sink`" in compact_next_slice
+    assert "`stderr_sink: Callable[[str], None]" in compact_next_slice
     assert "update `production_tool_registry()` to include `write`" in (
         compact_next_slice
     )
