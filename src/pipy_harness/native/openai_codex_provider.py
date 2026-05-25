@@ -778,19 +778,29 @@ def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
             item = event.get("item")
             if isinstance(item, Mapping) and item.get("type") == "function_call":
                 item_id = _safe_item_id(item.get("id"))
-                if item_id is not None and item_id not in function_call_items:
-                    function_call_items[item_id] = _StreamingFunctionCall(
-                        item_id=item_id,
-                        call_id=_safe_call_id(item.get("call_id")),
-                        name=_safe_function_name(item.get("name")),
-                        order_index=next_call_order,
-                    )
-                    next_call_order += 1
+                if item_id is not None:
+                    call = function_call_items.get(item_id)
+                    if call is None:
+                        call = _StreamingFunctionCall(
+                            item_id=item_id,
+                            call_id=_safe_call_id(item.get("call_id")),
+                            name=_safe_function_name(item.get("name")),
+                            order_index=next_call_order,
+                        )
+                        function_call_items[item_id] = call
+                        next_call_order += 1
+                    else:
+                        # A delta or done event may have already created a
+                        # placeholder for this item_id. Merge the metadata
+                        # from `added` into that placeholder so finalization
+                        # does not drop a partially-described call.
+                        if call.call_id is None:
+                            call.call_id = _safe_call_id(item.get("call_id"))
+                        if call.name is None:
+                            call.name = _safe_function_name(item.get("name"))
                     initial_arguments = item.get("arguments")
                     if isinstance(initial_arguments, str) and initial_arguments:
-                        function_call_items[item_id].argument_deltas.append(
-                            initial_arguments
-                        )
+                        call.argument_deltas.append(initial_arguments)
             continue
         if event_type == "response.function_call_arguments.delta":
             item_id = _safe_item_id(event.get("item_id"))

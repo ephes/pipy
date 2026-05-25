@@ -358,6 +358,131 @@ def test_openai_codex_assembles_multiple_function_calls_in_order(tmp_path: Path)
     ]
 
 
+def test_openai_codex_merges_added_metadata_into_delta_placeholder(
+    tmp_path: Path,
+):
+    """First-review fix-up: when a `response.function_call_arguments.delta`
+    arrives before `response.output_item.added` for the same `item_id`, the
+    assembler creates a placeholder with no `call_id` / `name`. The
+    later `added` event must merge that metadata into the placeholder so
+    finalization does not drop the call as nameless."""
+
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.function_call_arguments.delta",
+                        "item_id": "fc_late",
+                        "delta": '{"path":',
+                    },
+                    {
+                        "type": "response.function_call_arguments.delta",
+                        "item_id": "fc_late",
+                        "delta": ' "README.md"}',
+                    },
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_late",
+                            "call_id": "call_late",
+                            "name": "read",
+                        },
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {"status": "completed"},
+                    },
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="go",
+            provider_name="openai-codex",
+            model_id="gpt-test",
+            cwd=tmp_path,
+            messages=(UserMessage(content="go"),),
+            available_tools=(ReadTool().definition,),
+        )
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text is None
+    assert len(result.tool_calls) == 1
+    call = result.tool_calls[0]
+    assert call.provider_correlation_id == "call_late"
+    assert call.tool_name == "read"
+    assert call.arguments_json == '{"path": "README.md"}'
+
+
+def test_openai_codex_merges_added_metadata_into_done_placeholder(
+    tmp_path: Path,
+):
+    """First-review fix-up companion: same merge behavior must hold when
+    only a `response.function_call_arguments.done` event arrives before
+    `response.output_item.added` (no incremental deltas)."""
+
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "item_id": "fc_done_first",
+                        "arguments": '{"path": "x.py"}',
+                    },
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_done_first",
+                            "call_id": "call_done_first",
+                            "name": "read",
+                        },
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {"status": "completed"},
+                    },
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="go",
+            provider_name="openai-codex",
+            model_id="gpt-test",
+            cwd=tmp_path,
+            messages=(UserMessage(content="go"),),
+            available_tools=(ReadTool().definition,),
+        )
+    )
+
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].provider_correlation_id == "call_done_first"
+    assert result.tool_calls[0].arguments_json == '{"path": "x.py"}'
+
+
 def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
     client = FakeSseHTTPClient(
         SseResponse(

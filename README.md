@@ -369,14 +369,17 @@ observation fixture. It also includes a fixture-gated explicit-file-excerpt
 read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
-boundary for `just check`. The REPL exposes only the explicit `/read`
-and `/ask-file` commands, the proposal-only `/propose-file` command, the
-same-session one-file `/apply-proposal` command, and one post-apply
-`/verify just-check` command; normal
-OpenAI, OpenAI Codex, and OpenRouter CLI runs still do not expose general
-model-selected tool use, provider-side tools, arbitrary shell execution,
-non-allowlisted verification commands, retries, streaming, provider registry,
-or raw transcript import. Native OAuth belongs only to the distinct
+boundary for `just check`. The REPL exposes the
+explicit `/read` and `/ask-file` commands, the proposal-only
+`/propose-file` command, the same-session one-file `/apply-proposal`
+command, the post-apply `/verify just-check` command, and — in
+`--repl-mode tool-loop` (or `auto` against a provider that advertises
+`supports_tool_calls=True`) — the bounded model-driven loop with
+`read`, `ls`, `grep`, `find`, `write`, and `edit`. OpenAI, OpenAI
+Codex, and OpenRouter CLI runs still do not expose provider-side
+built-in tools (web search, file search, code interpreter, computer
+use), arbitrary shell execution, non-allowlisted verification commands,
+retries, streaming, provider registry, or raw transcript import. Native OAuth belongs only to the distinct
 `openai-codex` subscription provider, not to the existing `openai` API-key
 provider.
 

@@ -1752,6 +1752,33 @@ These hold throughout the track, not as later deferrals:
   were updated alongside the new copy. With this slice the OpenAI
   Responses + OpenAI Codex Tool-Call Parity Track is complete.
 
+- OpenAI Responses + OpenAI Codex Tool-Call Parity Track first-review
+  fix-ups: Codex's first independent review surfaced two warnings,
+  both addressed. (1) The Codex SSE assembler in
+  `OpenAICodexResponsesProvider._parse_sse_response` now merges
+  `response.output_item.added` metadata (`call_id`, `name`) into an
+  existing `_StreamingFunctionCall` placeholder when a
+  `response.function_call_arguments.delta` or
+  `response.function_call_arguments.done` event arrived first for
+  the same `item_id`. Previously the `added` handler's
+  `item_id not in function_call_items` guard skipped the merge and
+  the placeholder kept `name=None`;
+  `_finalize_streaming_function_calls` then dropped it, surfacing
+  `OpenAICodexResponseParseError("...output text or tool calls.")`
+  instead of the expected single tool call. Two regression tests in
+  `tests/test_native_openai_codex_tool_calls.py`
+  (`test_openai_codex_merges_added_metadata_into_delta_placeholder`
+  and `test_openai_codex_merges_added_metadata_into_done_placeholder`)
+  pin both orderings. (2) The `README.md` runtime-overview paragraph
+  no longer claims normal OpenAI, OpenAI Codex, and OpenRouter CLI
+  runs "do not expose general model-selected tool use" — it now
+  describes the bounded model-driven loop alongside the explicit
+  slash commands. The remaining items on that list (provider-side
+  built-in tools, arbitrary shell execution, non-allowlisted
+  verification, retries, streaming, provider registry, raw
+  transcript import) stay unchanged because they are still
+  accurate. `just check` stays green across 681 tests.
+
 ## Next Slice
 
 ### Choose the next pipy-native direction after the OpenAI Responses + OpenAI Codex Tool-Call Parity Track
