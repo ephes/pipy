@@ -126,6 +126,22 @@ from pipy_harness.native.tool_loop_session import (
     production_tool_registry,
 )
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
+from pipy_harness.native.workspace_context import (
+    DEFAULT_PER_FILE_BYTE_CAP,
+    DEFAULT_TOTAL_BYTE_CAP,
+    GLOBAL_PATH_LABEL_PREFIX,
+    INSTRUCTION_CANDIDATE_FILENAMES,
+    PER_FILE_TRUNCATION_MARKER_TEMPLATE,
+    PIPY_CONFIG_DIR_NAME,
+    PIPY_CONFIG_HOME_ENV,
+    TOTAL_BYTE_CAP_MARKER_PATH_LABEL,
+    TOTAL_BYTE_CAP_NOTICE,
+    WorkspaceInstructionDiscovery,
+    WorkspaceInstructionFile,
+    XDG_CONFIG_HOME_ENV,
+    discover_workspace_instructions,
+    resolve_global_instruction_root,
+)
 from pipy_harness.native.verification import (
     NativeVerificationApprovalDecision,
     NativeVerificationGateDecision,
@@ -251,4 +267,18 @@ __all__ = [
     "production_tool_registry",
     "resolve_read_only_workspace_approval",
     "validate_native_repl_input_runtime",
+    "DEFAULT_PER_FILE_BYTE_CAP",
+    "DEFAULT_TOTAL_BYTE_CAP",
+    "GLOBAL_PATH_LABEL_PREFIX",
+    "INSTRUCTION_CANDIDATE_FILENAMES",
+    "PER_FILE_TRUNCATION_MARKER_TEMPLATE",
+    "PIPY_CONFIG_DIR_NAME",
+    "PIPY_CONFIG_HOME_ENV",
+    "TOTAL_BYTE_CAP_MARKER_PATH_LABEL",
+    "TOTAL_BYTE_CAP_NOTICE",
+    "WorkspaceInstructionDiscovery",
+    "WorkspaceInstructionFile",
+    "XDG_CONFIG_HOME_ENV",
+    "discover_workspace_instructions",
+    "resolve_global_instruction_root",
 ]
