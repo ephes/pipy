@@ -384,6 +384,18 @@ Session records must not include secrets, API keys, credentials, private keys, t
 
 If raw tool output contains sensitive data, store a summary instead of the raw output.
 
+### Opt-In Tool-Loop Transcript Sidecar
+
+The native tool-loop REPL (`pipy repl --agent pipy-native --repl-mode tool-loop`) supports an explicit `--archive-transcript` flag that writes raw loop turns - user messages, assistant messages with provider tool calls, tool result messages, unified `write`/`edit` diffs, and session metadata - to one JSONL line each at `~/.local/state/pipy/transcripts/<id>.jsonl` (overridable via the `PIPY_TRANSCRIPT_DIR` env var). The sidecar is treated as sensitive content. Each line carries a stable `type` field, a UTC `recorded_at`, the `pipy-transcript-sidecar` discriminator, and a `payload` dict.
+
+The sidecar deliberately lives outside `PIPY_SESSION_DIR`:
+
+- The pipy metadata-first session archive is not written to and not read from when the flag is set.
+- `pipy-session list`, `search`, `inspect`, `verify`, `reflect`, and `sync` never see the sidecar because they walk only the session root.
+- The sidecar is opt-in. When `--archive-transcript` is not supplied (the default), no file is created and no raw loop content is persisted anywhere.
+
+Users who enable the sidecar are responsible for treating the transcript files as sensitive. Do not share them, do not commit them, and do not include them in archive sync flows.
+
 ## Partial Transcripts
 
 Some coding-agent environments do not expose a complete raw transcript to the running agent. In that case, store a partial reconstruction and mark it clearly:
