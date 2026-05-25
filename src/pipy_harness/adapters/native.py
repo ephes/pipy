@@ -14,6 +14,7 @@ from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
+    NATIVE_BOOTSTRAP_SYSTEM_PROMPT,
     NativeAgentSession,
     NativeNoToolReplSession,
     SYSTEM_PROMPT_ID,
@@ -26,6 +27,12 @@ from pipy_harness.native.tool_loop_session import (
 )
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.transcripts import TranscriptSink
+from pipy_harness.native.workspace_context import (
+    WorkspaceInstructionLoader,
+    compose_system_prompt,
+    empty_workspace_instruction_loader,
+    workspace_instruction_safe_metadata,
+)
 
 
 class PipyNativeAdapter:
@@ -33,9 +40,16 @@ class PipyNativeAdapter:
 
     name = "pipy-native"
 
-    def __init__(self, provider: ProviderPort, tool: ToolPort | None = None) -> None:
+    def __init__(
+        self,
+        provider: ProviderPort,
+        tool: ToolPort | None = None,
+        *,
+        instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
+    ) -> None:
         self.provider = provider
         self.tool = tool or FakeNoOpNativeTool()
+        self.instruction_loader = instruction_loader
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -66,7 +80,11 @@ class PipyNativeAdapter:
         event_sink: EventSink,
         capture_policy: CapturePolicy,
     ) -> AdapterResult:
-        run_output = NativeAgentSession(provider=self.provider, tool=self.tool).run(
+        run_output = NativeAgentSession(
+            provider=self.provider,
+            tool=self.tool,
+            instruction_loader=self.instruction_loader,
+        ).run(
             NativeRunInput(
                 goal=prepared.goal or "",
                 cwd=prepared.cwd,
@@ -110,6 +128,7 @@ class PipyNativeReplAdapter:
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
+        instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -119,6 +138,7 @@ class PipyNativeReplAdapter:
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
         self.input_runtime = input_runtime
+        self.instruction_loader = instruction_loader
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -152,6 +172,7 @@ class PipyNativeReplAdapter:
             provider=self.provider,
             provider_state=self.provider_state,
             input_runtime=self.input_runtime,
+            instruction_loader=self.instruction_loader,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
@@ -218,6 +239,7 @@ class PipyNativeToolReplAdapter:
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
         transcript_sink: TranscriptSink | None = None,
+        instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -233,6 +255,7 @@ class PipyNativeToolReplAdapter:
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
         self.transcript_sink = transcript_sink
+        self.instruction_loader = instruction_loader
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -270,6 +293,24 @@ class PipyNativeToolReplAdapter:
                 "supports_tool_calls=True; --repl-mode tool-loop requires a "
                 "tool-capable provider"
             )
+        discovery = self.instruction_loader(prepared.cwd)
+        composed_system_prompt = compose_system_prompt(
+            NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
+        )
+        instruction_metadata = workspace_instruction_safe_metadata(discovery)
+        event_sink.emit(
+            "native.workspace_context.loaded",
+            summary=(
+                "Native workspace context resolved: "
+                f"files={len(discovery.instructions)}, "
+                f"total_byte_cap_reached={discovery.total_byte_cap_reached}."
+            ),
+            payload={
+                "adapter": self.name,
+                "repl_mode": "tool-loop",
+                **instruction_metadata,
+            },
+        )
         session = NativeToolReplSession(
             provider=provider,
             tool_registry=self.tool_registry,
@@ -282,6 +323,7 @@ class PipyNativeToolReplAdapter:
                 input_stream=self.input_stream,
                 output_stream=self.output_stream,
                 error_stream=self.error_stream,
+                system_prompt=composed_system_prompt,
                 provider_name=prepared.native_provider or provider.name,
                 model_id=prepared.native_model or provider.model_id,
             )
@@ -305,6 +347,7 @@ class PipyNativeToolReplAdapter:
                 "budget_exhausted_count": run_output.budget_exhausted_count,
                 "error_type": run_output.error_type,
                 "error_message": run_output.error_message,
+                **instruction_metadata,
             },
         )
 

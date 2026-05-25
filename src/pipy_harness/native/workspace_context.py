@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -78,6 +79,20 @@ PER_FILE_TRUNCATION_MARKER_TEMPLATE: str = (
 PIPY_CONFIG_HOME_ENV: str = "PIPY_CONFIG_HOME"
 XDG_CONFIG_HOME_ENV: str = "XDG_CONFIG_HOME"
 PIPY_CONFIG_DIR_NAME: str = "pipy"
+
+WORKSPACE_INSTRUCTIONS_PROMPT_HEADER: str = (
+    "## Workspace Instructions\n"
+    "The files below were discovered as workspace context. They are listed\n"
+    "global-first, then ancestor directories from the root-most ancestor down\n"
+    "to the workspace itself last. Treat later files as overriding earlier\n"
+    "ones when guidance conflicts.\n"
+)
+WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE: str = (
+    "\n### {path_label} (sha256={sha256_short}, bytes={byte_length}{trunc_suffix})\n\n"
+)
+WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER: str = (
+    "\n## End Workspace Instructions\n"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,3 +322,90 @@ def _workspace_path_label(
         return f"{prefix}/{filename}"
     except ValueError:
         return f"{directory.as_posix()}/{filename}"
+
+
+# -- adapter-facing helpers ------------------------------------------------
+
+WorkspaceInstructionLoader = Callable[[Path], WorkspaceInstructionDiscovery]
+
+
+def default_workspace_instruction_loader(
+    workspace_root: Path,
+) -> WorkspaceInstructionDiscovery:
+    """Resolve workspace instructions using the current process environment.
+
+    Reads `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then
+    `~/.config/pipy` to find the global root. Production adapters pass this
+    loader; tests pass `empty_workspace_instruction_loader` (or a custom
+    loader scoped to `tmp_path`) for hermeticity.
+    """
+
+    return discover_workspace_instructions(workspace_root)
+
+
+def empty_workspace_instruction_loader(
+    workspace_root: Path,  # noqa: ARG001 - matches WorkspaceInstructionLoader signature
+) -> WorkspaceInstructionDiscovery:
+    """A deterministic no-op loader for tests that want an empty discovery."""
+
+    return WorkspaceInstructionDiscovery(instructions=(), total_byte_cap_reached=False)
+
+
+def compose_system_prompt(
+    base_prompt: str,
+    discovery: WorkspaceInstructionDiscovery,
+) -> str:
+    """Compose a system prompt from a base bootstrap and workspace instructions.
+
+    The base prompt is preserved verbatim. If `discovery.instructions` is
+    empty, the function returns the base unchanged. Otherwise the discovered
+    files are appended in their existing order with a deterministic
+    `## Workspace Instructions` section header and per-file headers carrying
+    the path label, short sha256, and byte length. The composed string is
+    safe to send as a `ProviderRequest.system_prompt`.
+    """
+
+    if not discovery.instructions:
+        return base_prompt
+
+    parts: list[str] = [base_prompt.rstrip(), "\n", WORKSPACE_INSTRUCTIONS_PROMPT_HEADER]
+    for entry in discovery.instructions:
+        trunc_suffix = "+truncated" if entry.truncated else ""
+        header = WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE.format(
+            path_label=entry.path_label,
+            sha256_short=entry.sha256[:12] if entry.sha256 else "",
+            byte_length=entry.byte_length,
+            trunc_suffix=trunc_suffix,
+        )
+        parts.append(header)
+        parts.append(entry.content.rstrip())
+        parts.append("\n")
+    parts.append(WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER)
+    return "".join(parts)
+
+
+def workspace_instruction_safe_metadata(
+    discovery: WorkspaceInstructionDiscovery,
+) -> dict[str, object]:
+    """Return the metadata-only summary for session safe context.
+
+    The returned dict carries only `path_label`, `sha256`, `byte_length`,
+    and `truncated` per discovered file plus a `total_byte_cap_reached`
+    flag. Instruction bodies never leak into this surface. Pinned by the
+    privacy tests in slice 3.
+    """
+
+    files: list[dict[str, object]] = []
+    for entry in discovery.instructions:
+        files.append(
+            {
+                "path_label": entry.path_label,
+                "sha256": entry.sha256,
+                "byte_length": entry.byte_length,
+                "truncated": entry.truncated,
+            }
+        )
+    return {
+        "workspace_instruction_files": files,
+        "workspace_instruction_total_byte_cap_reached": discovery.total_byte_cap_reached,
+    }

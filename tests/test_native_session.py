@@ -1218,6 +1218,8 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
         "diffs_stored": False,
         "file_contents_stored": False,
         "provider_responses_stored": False,
+        "workspace_instruction_files": [],
+        "workspace_instruction_total_byte_cap_reached": False,
     }
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SAFE_GOAL_METADATA" not in serialized
@@ -1482,6 +1484,8 @@ def test_native_session_records_patch_proposal_metadata_after_read_only_follow_u
         "file_contents_stored": False,
         "provider_responses_stored": False,
         "workspace_mutated": False,
+        "workspace_instruction_files": [],
+        "workspace_instruction_total_byte_cap_reached": False,
     }
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SHOULD_NOT_PERSIST" not in serialized

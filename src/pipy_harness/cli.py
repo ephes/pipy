@@ -37,6 +37,7 @@ from pipy_harness.native import (
     default_selection_for,
     validate_native_repl_input_runtime,
 )
+from pipy_harness.native.workspace_context import default_workspace_instruction_loader
 from pipy_harness.runner import HarnessRunner
 
 
@@ -403,19 +404,27 @@ def _adapter_for(
         if native_provider == "openai":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openai")
-            return PipyNativeAdapter(provider=OpenAIResponsesProvider(model_id=native_model))
+            return PipyNativeAdapter(
+                provider=OpenAIResponsesProvider(model_id=native_model),
+                instruction_loader=default_workspace_instruction_loader,
+            )
         if native_provider == "openai-codex":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openai-codex")
-            return PipyNativeAdapter(provider=OpenAICodexResponsesProvider(model_id=native_model))
+            return PipyNativeAdapter(
+                provider=OpenAICodexResponsesProvider(model_id=native_model),
+                instruction_loader=default_workspace_instruction_loader,
+            )
         if native_provider == "openrouter":
             if not native_model:
                 raise ValueError("--native-model is required for --native-provider openrouter")
             return PipyNativeAdapter(
-                provider=OpenRouterChatCompletionsProvider(model_id=native_model)
+                provider=OpenRouterChatCompletionsProvider(model_id=native_model),
+                instruction_loader=default_workspace_instruction_loader,
             )
         return PipyNativeAdapter(
-            provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap")
+            provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap"),
+            instruction_loader=default_workspace_instruction_loader,
         )
     if native_provider is not None or native_model is not None:
         raise ValueError("--native-provider and --native-model require --agent pipy-native")
@@ -446,7 +455,11 @@ def _repl_adapter_for(
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
-    return PipyNativeReplAdapter(provider_state=provider_state, input_runtime=input_runtime)
+    return PipyNativeReplAdapter(
+        provider_state=provider_state,
+        input_runtime=input_runtime,
+        instruction_loader=default_workspace_instruction_loader,
+    )
 
 
 def _resolve_repl_mode(
@@ -520,6 +533,7 @@ def _tool_repl_adapter_for(
         provider_state=provider_state,
         tool_budget=tool_budget,
         transcript_sink=transcript_sink,
+        instruction_loader=default_workspace_instruction_loader,
     )
 
 

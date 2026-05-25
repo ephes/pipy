@@ -83,6 +83,12 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO, native_repl_input_for
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
+from pipy_harness.native.workspace_context import (
+    WorkspaceInstructionLoader,
+    compose_system_prompt,
+    empty_workspace_instruction_loader,
+    workspace_instruction_safe_metadata,
+)
 from pipy_harness.native.verification import (
     NativeVerificationApprovalDecision,
     NativeVerificationGateDecision,
@@ -411,11 +417,21 @@ class NativeAgentSession:
     patch_apply_gate: NativePatchApplyGateDecision | None = None
     verification_request: NativeVerificationRequest | None = None
     verification_gate: NativeVerificationGateDecision | None = None
+    instruction_loader: WorkspaceInstructionLoader = field(
+        default=empty_workspace_instruction_loader
+    )
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = _utc_now()
         conversation_state = NativeConversationState.for_native_run(max_turns=2)
-        safe_context = _safe_context(run_input)
+        discovery = self.instruction_loader(run_input.cwd)
+        composed_system_prompt = compose_system_prompt(
+            NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
+        )
+        safe_context = {
+            **_safe_context(run_input),
+            **workspace_instruction_safe_metadata(discovery),
+        }
         event_sink.emit(
             "native.session.started",
             summary=(
@@ -440,6 +456,7 @@ class NativeAgentSession:
             user_prompt=run_input.goal,
             provider_turn=provider_turn,
             tool_observation=None,
+            system_prompt=composed_system_prompt,
         )
 
         tool_result: NativeToolResult | None = None
@@ -479,6 +496,7 @@ class NativeAgentSession:
                             user_prompt=_build_post_tool_user_prompt(observation, read_only_result),
                             provider_turn=follow_up_provider_turn,
                             tool_observation=observation,
+                            system_prompt=composed_system_prompt,
                         )
                         if follow_up_provider_result.status == HarnessStatus.SUCCEEDED:
                             parsed_proposal = _parse_patch_proposal(follow_up_provider_result)
@@ -526,6 +544,7 @@ class NativeAgentSession:
                                 user_prompt=_build_post_tool_user_prompt(parsed_observation.observation),
                                 provider_turn=follow_up_provider_turn,
                                 tool_observation=parsed_observation.observation,
+                                system_prompt=composed_system_prompt,
                             )
                         elif parsed_observation.skipped_observation is not None:
                             observation_failure_reason = parsed_observation.skipped_observation.reason_label
@@ -745,6 +764,9 @@ class NativeNoToolReplSession:
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     max_turns: int = NativeConversationState.MAX_TURNS
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
+    instruction_loader: WorkspaceInstructionLoader = field(
+        default=empty_workspace_instruction_loader
+    )
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -765,10 +787,16 @@ class NativeNoToolReplSession:
         provider_state = self.provider_state
         if provider_state is None:
             raise ValueError("NativeNoToolReplSession requires provider state")
+        discovery = self.instruction_loader(run_input.cwd)
+        composed_system_prompt = compose_system_prompt(
+            NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
+        )
+        instruction_metadata = workspace_instruction_safe_metadata(discovery)
         current_run_input, safe_context = _current_repl_turn_state(
             provider_state,
             run_input,
             self.max_turns,
+            extra_safe_metadata=instruction_metadata,
         )
         repl_input = native_repl_input_for(
             input_stream=input_stream,
@@ -916,6 +944,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 continue
             if _is_repl_command_invocation(command, MODEL_REPL_COMMAND):
@@ -932,6 +961,7 @@ class NativeNoToolReplSession:
                         provider_state,
                         run_input,
                         self.max_turns,
+                        extra_safe_metadata=instruction_metadata,
                     )
                 continue
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
@@ -953,6 +983,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 read_outcome = _handle_repl_read_command(
                     command,
@@ -981,6 +1012,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 read_outcome = _read_repl_file_excerpt(
                     raw_target,
@@ -1017,6 +1049,7 @@ class NativeNoToolReplSession:
                     provider_turn=provider_turn,
                     tool_observation=observation,
                     archive_provider_metadata=False,
+                    system_prompt=composed_system_prompt,
                 )
                 final_provider_result = provider_result
                 final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -1051,6 +1084,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 read_outcome = _read_repl_file_excerpt(
                     raw_target,
@@ -1088,6 +1122,7 @@ class NativeNoToolReplSession:
                     provider_turn=provider_turn,
                     tool_observation=observation,
                     archive_provider_metadata=False,
+                    system_prompt=composed_system_prompt,
                 )
                 final_provider_result = provider_result
                 final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -1126,6 +1161,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 apply_outcome = _handle_repl_apply_proposal_command(
                     raw_target,
@@ -1154,6 +1190,7 @@ class NativeNoToolReplSession:
                     provider_state,
                     run_input,
                     self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
                 )
                 verification_result = _handle_repl_verify_command(
                     current_run_input,
@@ -1194,6 +1231,7 @@ class NativeNoToolReplSession:
                 provider_state,
                 run_input,
                 self.max_turns,
+                extra_safe_metadata=instruction_metadata,
             )
             provider = provider_state.current_provider()
             provider_result, provider_usage = _call_provider_turn(
@@ -1206,6 +1244,7 @@ class NativeNoToolReplSession:
                 tool_observation=None,
                 archive_provider_metadata=False,
                 no_tool_repl_context=no_tool_context,
+                system_prompt=composed_system_prompt,
             )
             final_provider_result = provider_result
             final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -1232,6 +1271,7 @@ class NativeNoToolReplSession:
             provider_state,
             run_input,
             self.max_turns,
+            extra_safe_metadata=instruction_metadata,
         )
         event_sink.emit(
             "native.session.completed",
@@ -1449,9 +1489,14 @@ def _current_repl_turn_state(
     provider_state: NativeReplProviderState | StaticNativeReplProviderState,
     run_input: NativeRunInput,
     max_turns: int,
+    *,
+    extra_safe_metadata: Mapping[str, object] | None = None,
 ) -> tuple[NativeRunInput, dict[str, object]]:
     current = _run_input_with_selection(run_input, provider_state.current_selection())
-    return current, _repl_safe_context(current, max_turns)
+    safe_context = _repl_safe_context(current, max_turns)
+    if extra_safe_metadata:
+        safe_context = {**safe_context, **extra_safe_metadata}
+    return current, safe_context
 
 
 def _repl_safe_context(run_input: NativeRunInput, max_turns: int) -> dict[str, object]:
@@ -2091,11 +2136,14 @@ def _parse_repl_apply_proposal_block(
     return headers, "".join(replacement_parts) if saw_replacement else None, saw_replacement
 
 
+NATIVE_BOOTSTRAP_SYSTEM_PROMPT: str = (
+    "You are the native pipy runtime bootstrap. Complete exactly one minimal "
+    "provider turn and do not execute tools."
+)
+
+
 def _build_system_prompt() -> str:
-    return (
-        "You are the native pipy runtime bootstrap. Complete exactly one minimal "
-        "provider turn and do not execute tools."
-    )
+    return NATIVE_BOOTSTRAP_SYSTEM_PROMPT
 
 
 def _call_provider_turn(
@@ -2109,7 +2157,11 @@ def _call_provider_turn(
     tool_observation: NativeToolObservation | None,
     archive_provider_metadata: bool = True,
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None,
+    system_prompt: str | None = None,
 ) -> tuple[ProviderResult, dict[str, int | float]]:
+    effective_system_prompt = (
+        system_prompt if system_prompt is not None else _build_system_prompt()
+    )
     provider_turn_label = _required_provider_turn_label(provider_turn)
     provider_turn_context = {
         "provider_turn_index": provider_turn.turn_index,
@@ -2137,7 +2189,7 @@ def _call_provider_turn(
     try:
         provider_result = provider.complete(
             ProviderRequest(
-                system_prompt=_build_system_prompt(),
+                system_prompt=effective_system_prompt,
                 user_prompt=user_prompt,
                 provider_name=run_input.provider_name,
                 model_id=run_input.model_id,
