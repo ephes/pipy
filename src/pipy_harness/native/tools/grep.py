@@ -310,23 +310,27 @@ class GrepTool:
     @staticmethod
     def _walk(search_root: Path, workspace: Path) -> Iterable[str]:
         for dirpath, dirnames, filenames in os.walk(search_root):
-            dirnames[:] = [
-                name for name in dirnames
-                if not _is_ignored_or_generated(
-                    (Path(dirpath) / name)
-                    .resolve()
-                    .relative_to(workspace)
-                    .as_posix(),
-                    workspace,
-                )
-            ]
+            kept_dirs: list[str] = []
+            for name in dirnames:
+                try:
+                    resolved = (Path(dirpath) / name).resolve()
+                except OSError:
+                    continue
+                resolved_label = _resolved_relative_label(resolved, workspace)
+                if resolved_label is None:
+                    continue
+                if _is_ignored_or_generated(resolved_label, workspace):
+                    continue
+                kept_dirs.append(name)
+            dirnames[:] = kept_dirs
             for filename in filenames:
-                relative = (
-                    (Path(dirpath) / filename)
-                    .resolve()
-                    .relative_to(workspace)
-                    .as_posix()
-                )
+                try:
+                    resolved = (Path(dirpath) / filename).resolve()
+                except OSError:
+                    continue
+                relative = _resolved_relative_label(resolved, workspace)
+                if relative is None:
+                    continue
                 if _is_ignored_or_generated(relative, workspace):
                     continue
                 yield relative

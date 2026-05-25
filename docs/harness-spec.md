@@ -3217,14 +3217,17 @@ slices.
 
 ## Native Tool-Loop Parity Track
 
-The next visible Pi-parity step is a bounded model-selected tool loop behind
-`pipy repl --agent pipy-native --repl-mode tool-loop`. It is planned as twelve
-reviewed slices that ship alongside the existing no-tool REPL and the existing
-slash-command boundaries. The slice-level ordering and current state of the
-track live in `docs/backlog.md` (`Tool-Loop Parity Track`); the parity-map
-entry lives in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`). This
-section records the design-level goal, invariants, and deferred design
-choices.
+The bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop` is now implemented.
+It shipped as twelve reviewed slices plus an OpenRouter response-parser
+follow-up and a first-review fix-up, all alongside the existing no-tool
+REPL and the existing slash-command boundaries. OpenRouter is the first
+real provider with `supports_tool_calls=True`; OpenAI Responses and
+OpenAI Codex parsers remain a focused follow-up. The slice-level
+ordering and current state of the track live in `docs/backlog.md`
+(`Tool-Loop Parity Track`); the parity-map entry lives in
+`docs/pi-parity.md` (`Native Tool-Loop Parity Track`). This section
+records the design-level goal, invariants, and deferred design choices.
 
 ### Goal
 

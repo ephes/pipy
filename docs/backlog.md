@@ -138,13 +138,15 @@ fuller UI surface or lower-level terminal ownership.
 
 ## Tool-Loop Parity Track
 
-The next-boundary decision after the explicit multi-file context budget selects
-a bounded model-selected tool loop behind
-`pipy repl --agent pipy-native --repl-mode tool-loop` as the next visible
-Pi-parity step. It is planned as twelve reviewed slices that ship alongside
-the existing no-tool REPL and the existing slash-command boundaries. None of
-the slices land in one change; each is a named conventional commit with
-focused tests, `just check`, updated docs, and a stop for review.
+The bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop` is now implemented.
+It shipped as twelve reviewed slices plus an OpenRouter response-parser
+follow-up and a first-review fix-up commit, all alongside the existing
+no-tool REPL and the existing slash-command boundaries. Each slice
+landed as a named conventional commit with focused tests, `just check`,
+updated docs, and a stop for review. OpenRouter is the first real
+provider with `supports_tool_calls=True`; OpenAI Responses and OpenAI
+Codex parsers remain a focused follow-up.
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`Native Tool-Loop Parity Track`) and the parity-map

@@ -152,6 +152,36 @@ def test_grep_tool_rejects_invalid_timeout():
         GrepTool(timeout_seconds=120)
 
 
+def test_grep_stdlib_fallback_skips_outside_workspace_symlink(
+    tmp_path, monkeypatch
+):
+    """Regression for the second review: with `rg` unavailable, a workspace
+    symlink that resolves outside the workspace must not raise; the walker
+    skips it via `_resolved_relative_label`.
+    """
+
+    outside = tmp_path.parent / "outside_for_grep_fallback"
+    outside.mkdir(exist_ok=True)
+    (outside / "marker.txt").write_text("OUTSIDE_HIT\n", encoding="utf-8")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "inside.txt").write_text("INSIDE_HIT\n", encoding="utf-8")
+    (workspace / "outside_link").symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(
+        "pipy_harness.native.tools.grep.shutil.which", lambda _name: None
+    )
+    tool = GrepTool()
+    context = ToolContext(workspace_root=workspace)
+    request = _make_request({"pattern": "HIT"})
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is False
+    assert "inside.txt:1:INSIDE_HIT" in result.output_text
+    assert "OUTSIDE_HIT" not in result.output_text
+
+
 def test_production_tool_registry_includes_grep():
     from pipy_harness.native import production_tool_registry
 
