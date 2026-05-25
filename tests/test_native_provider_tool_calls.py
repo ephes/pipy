@@ -139,16 +139,17 @@ def test_provider_result_can_carry_tool_calls():
 
 
 def test_real_providers_advertise_tool_call_support_correctly():
-    """OpenRouter was first to flip `supports_tool_calls=True`; the OpenAI
-    Responses + OpenAI Codex Tool-Call Parity Track flips OpenAI Responses
-    next and OpenAI Codex Responses after that."""
+    """All three real adapters now drive the model-driven tool loop:
+    OpenRouter was first, OpenAI Responses and OpenAI Codex Responses
+    were both flipped through the OpenAI Responses + OpenAI Codex
+    Tool-Call Parity Track."""
 
     openai = OpenAIResponsesProvider(model_id="gpt-test")
     codex = OpenAICodexResponsesProvider(model_id="gpt-5-codex")
     openrouter = OpenRouterChatCompletionsProvider(model_id="vendor/model")
 
     assert openai.supports_tool_calls is True
-    assert codex.supports_tool_calls is False
+    assert codex.supports_tool_calls is True
     assert openrouter.supports_tool_calls is True
 
 

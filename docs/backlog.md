@@ -1695,35 +1695,61 @@ These hold throughout the track, not as later deferrals:
   was updated to assert `openai.supports_tool_calls is True`;
   `OpenAICodexResponsesProvider` keeps `False` until slice 3.
 
+- OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 3
+  (`OpenAICodexResponsesProvider` tool-call wiring):
+  `OpenAICodexResponsesProvider` now advertises
+  `supports_tool_calls=True` and drives the existing bounded tool
+  loop end-to-end against the Codex Responses streaming endpoint.
+  The body builder serializes the loop's `messages` envelope into
+  the Codex streaming `input` list (user/assistant text plus
+  `function_call` items), serializes `ToolResultMessage` as
+  `function_call_output` items, and declares tools via the flat
+  Responses-API tool shape from `available_tools`. The SSE
+  assembler accumulates function-call items across
+  `response.output_item.added`,
+  `response.function_call_arguments.delta`,
+  `response.function_call_arguments.done`, and
+  `response.output_item.done` events keyed by `item_id`, prefers
+  the explicit `done` arguments over accumulated deltas, surfaces
+  the calls in arrival order on `ProviderResult.tool_calls` keyed
+  by `call_id`, and allows missing final text whenever tool calls
+  are present. Legacy single-turn callers leave `messages` empty
+  and `available_tools` empty; the body builder then keeps the
+  previous behavior with no `tools` field and emits no
+  `tool_calls`. New tests in
+  `tests/test_native_openai_codex_tool_calls.py` pin
+  serialization, SSE-delta assembly,
+  `response.output_item.done`-only finalization, multi-call
+  ordering, tool-result envelope shape, and the legacy single-turn
+  path; `tests/test_tool_loop_end_to_end_openai_codex.py` closes
+  the full loop against a stubbed SSE transport. The
+  `test_real_providers_advertise_tool_call_support_correctly`
+  assertion now confirms all three real adapters
+  (`openai`, `openai-codex`, `openrouter`) advertise
+  `supports_tool_calls=True`.
+
 ## Next Slice
 
-### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 3
+### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 4
 
-Goal: bring the same tool-call wiring to
-`OpenAICodexResponsesProvider` over the Codex Responses streaming
-endpoint, so `pipy repl --agent pipy-native --native-provider
-openai-codex` drives the existing bounded tool loop end-to-end
-through a stubbed SSE transport. See the
-[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
-section above for the goal, invariants, and out-of-scope items.
+Goal: complete the track with a final cleanup sweep that removes
+any remaining phrasing implying OpenRouter is the only tool-capable
+real provider, or that the OpenAI Responses or OpenAI Codex parsers
+are still a follow-up. Update README, `docs/pi-parity.md`,
+`docs/backlog.md`, `docs/harness-spec.md`, and
+`docs/architecture.md` so the documentation reflects the now-shipped
+end-to-end loop closure across all three real providers.
 
 Implementation focus:
 
-- serialize messages and tools into the Codex Responses streaming
-  shape (Responses-API `input`/`tools`, the same flat function-tool
-  shape used by `openai`)
-- assemble function calls across the SSE event stream
-  (`response.output_item.added` / `response.function_call_arguments.delta`
-  / `response.output_item.done` or equivalents) and surface them
-  on `ProviderResult.tool_calls`
-- allow terminal `response.completed` without final text when
-  `tool_calls` are non-empty
-- flip `OpenAICodexResponsesProvider.supports_tool_calls=True`
-- ship the hermetic SSE-transport end-to-end test mirroring
-  `tests/test_tool_loop_end_to_end.py`
-- keep legacy single-turn `/ask-file`, `/propose-file`, and
-  `pipy run --agent pipy-native --goal ...` paths working
-  unchanged
+- remove or rewrite "OpenRouter is the (only|first) real provider
+  with tool-call support" / "OpenAI Responses and OpenAI Codex
+  parsers remain a focused follow-up" phrasing wherever it survives
+- update the `auto`-resolver narrative so it no longer marks
+  OpenRouter as the sole tool-capable real provider in the
+  forward-looking copy (historical ledger entries stay intact)
+- keep code and tests unchanged in this slice; the change is
+  documentation only
 
 The previous planning slice, "Choose the next pipy-native direction
 after the Tool-Loop Parity Track", selected this track as the next

@@ -23,7 +23,12 @@ from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.tools.messages import (
+    AssistantMessage,
+    ToolResultMessage,
+    UserMessage,
+)
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -343,14 +348,27 @@ class OpenAICodexAuthManager:
 
 @dataclass(frozen=True, slots=True)
 class OpenAICodexResponsesProvider:
-    """One-turn OpenAI Codex Responses provider behind ProviderPort."""
+    """OpenAI Codex Responses streaming provider behind ProviderPort.
+
+    Real adapter with `supports_tool_calls=True`. When
+    `ProviderRequest.messages` is non-empty the provider serializes them
+    into the Responses-API streaming `input` list (with `function_call`
+    and `function_call_output` items) and declares `tools` from
+    `available_tools`; the SSE assembler then accumulates function-call
+    items across `response.output_item.added`,
+    `response.function_call_arguments.delta`,
+    `response.function_call_arguments.done`, and
+    `response.output_item.done` events and surfaces them on
+    `ProviderResult.tool_calls`. Legacy single-turn callers leave
+    `messages` empty and keep the previous list `input` body builder.
+    """
 
     model_id: str
     auth_manager: OpenAICodexAuthManager = field(default_factory=OpenAICodexAuthManager)
     http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
     timeout_seconds: float = 60.0
-    supports_tool_calls: bool = False
+    supports_tool_calls: bool = True
 
     @property
     def name(self) -> str:
@@ -390,7 +408,7 @@ class OpenAICodexResponsesProvider:
                 ),
             )
 
-        body = {
+        body: dict[str, Any] = {
             "model": self.model_id,
             "instructions": request.system_prompt,
             "input": _responses_input_messages(request),
@@ -401,6 +419,11 @@ class OpenAICodexResponsesProvider:
             "tool_choice": "auto",
             "parallel_tool_calls": True,
         }
+        if request.available_tools:
+            body["tools"] = [
+                _serialize_tool_for_openai_codex(tool)
+                for tool in request.available_tools
+            ]
         headers = {
             "Authorization": f"Bearer {credentials.access_token}",
             "Accept": "text/event-stream",
@@ -446,10 +469,16 @@ class OpenAICodexResponsesProvider:
                 "provider_response_store_requested": False,
                 "response_status": result.response_status,
             },
+            tool_calls=result.tool_calls,
         )
 
 
 def _responses_input_messages(request: ProviderRequest) -> list[dict[str, object]]:
+    if request.messages:
+        items: list[dict[str, object]] = []
+        for envelope in request.messages:
+            items.extend(_envelope_to_input_items(envelope))
+        return items
     messages: list[dict[str, object]] = []
     if request.no_tool_repl_context is not None:
         for exchange in request.no_tool_repl_context.exchanges:
@@ -474,6 +503,75 @@ def _responses_input_messages(request: ProviderRequest) -> list[dict[str, object
     return messages
 
 
+def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
+    """Translate one LoopMessage into one or more Responses streaming items.
+
+    Mirrors the OpenAI Platform Responses serialization in
+    `openai_provider._envelope_to_input_items`: user/assistant text rides as
+    `{"role": ..., "content": [{"type": "input_text" | "output_text", ...}]}`
+    items, assistant tool intents ride as `function_call` items keyed by
+    `call_id`, and tool results ride as `function_call_output` items.
+    """
+
+    if isinstance(envelope, UserMessage):
+        return [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": envelope.content}],
+            }
+        ]
+    if isinstance(envelope, AssistantMessage):
+        items: list[dict[str, object]] = []
+        if envelope.content:
+            items.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": envelope.content}
+                    ],
+                }
+            )
+        for call in envelope.tool_calls:
+            items.append(
+                {
+                    "type": "function_call",
+                    "call_id": call.provider_correlation_id,
+                    "name": call.tool_name,
+                    "arguments": call.arguments_json,
+                }
+            )
+        return items
+    if isinstance(envelope, ToolResultMessage):
+        return [
+            {
+                "type": "function_call_output",
+                "call_id": envelope.provider_correlation_id
+                or envelope.tool_request_id,
+                "output": envelope.output_text,
+            }
+        ]
+    raise OpenAICodexResponseParseError(
+        f"unsupported message envelope: {type(envelope).__name__}"
+    )
+
+
+def _serialize_tool_for_openai_codex(tool: Any) -> dict[str, Any]:
+    """Translate a `ToolDefinition` into the Codex Responses tool shape.
+
+    Codex Responses streaming accepts the same flat Responses-API tool
+    shape used by the Platform Responses API: `type`/`name`/
+    `description`/`parameters` (no Chat-Completions-style `function:`
+    wrapper).
+    """
+
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": dict(tool.input_schema),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class AuthorizationFlow:
     verifier: str
@@ -489,9 +587,10 @@ class ParsedAuthorizationInput:
 
 @dataclass(frozen=True, slots=True)
 class ParsedOpenAICodexResponse:
-    final_text: str
+    final_text: str | None
     usage: dict[str, int | float]
     response_status: str
+    tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
 class OpenAICodexProviderError(Exception):
@@ -624,10 +723,29 @@ def _extract_account_id(access_token: str) -> str | None:
     return account_id if isinstance(account_id, str) and account_id else None
 
 
+@dataclass(slots=True)
+class _StreamingFunctionCall:
+    """Mutable accumulator for one streamed function-call output item."""
+
+    item_id: str
+    call_id: str | None = None
+    name: str | None = None
+    argument_deltas: list[str] = field(default_factory=list)
+    final_arguments: str | None = None
+    order_index: int = 0
+
+    def arguments_json(self) -> str:
+        if self.final_arguments is not None:
+            return self.final_arguments
+        return "".join(self.argument_deltas)
+
+
 def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
     terminal_response: Mapping[str, Any] | None = None
+    function_call_items: dict[str, _StreamingFunctionCall] = {}
+    next_call_order = 0
 
     for event in _iter_sse_events(body):
         event_type = event.get("type")
@@ -656,10 +774,75 @@ def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
             if isinstance(delta, str):
                 text_chunks.append(delta)
             continue
+        if event_type == "response.output_item.added":
+            item = event.get("item")
+            if isinstance(item, Mapping) and item.get("type") == "function_call":
+                item_id = _safe_item_id(item.get("id"))
+                if item_id is not None and item_id not in function_call_items:
+                    function_call_items[item_id] = _StreamingFunctionCall(
+                        item_id=item_id,
+                        call_id=_safe_call_id(item.get("call_id")),
+                        name=_safe_function_name(item.get("name")),
+                        order_index=next_call_order,
+                    )
+                    next_call_order += 1
+                    initial_arguments = item.get("arguments")
+                    if isinstance(initial_arguments, str) and initial_arguments:
+                        function_call_items[item_id].argument_deltas.append(
+                            initial_arguments
+                        )
+            continue
+        if event_type == "response.function_call_arguments.delta":
+            item_id = _safe_item_id(event.get("item_id"))
+            delta = event.get("delta")
+            if item_id is None or not isinstance(delta, str):
+                continue
+            call = function_call_items.get(item_id)
+            if call is None:
+                call = _StreamingFunctionCall(
+                    item_id=item_id, order_index=next_call_order
+                )
+                function_call_items[item_id] = call
+                next_call_order += 1
+            call.argument_deltas.append(delta)
+            continue
+        if event_type == "response.function_call_arguments.done":
+            item_id = _safe_item_id(event.get("item_id"))
+            if item_id is None:
+                continue
+            arguments = event.get("arguments")
+            call = function_call_items.get(item_id)
+            if call is None:
+                call = _StreamingFunctionCall(
+                    item_id=item_id, order_index=next_call_order
+                )
+                function_call_items[item_id] = call
+                next_call_order += 1
+            if isinstance(arguments, str):
+                call.final_arguments = arguments
+            continue
         if event_type == "response.output_item.done":
             item = event.get("item")
             if isinstance(item, Mapping):
-                fallback_text_chunks.extend(_extract_output_text_chunks(item))
+                if item.get("type") == "function_call":
+                    item_id = _safe_item_id(item.get("id"))
+                    if item_id is not None:
+                        call = function_call_items.get(item_id)
+                        if call is None:
+                            call = _StreamingFunctionCall(
+                                item_id=item_id, order_index=next_call_order
+                            )
+                            function_call_items[item_id] = call
+                            next_call_order += 1
+                        if call.call_id is None:
+                            call.call_id = _safe_call_id(item.get("call_id"))
+                        if call.name is None:
+                            call.name = _safe_function_name(item.get("name"))
+                        final_arguments = item.get("arguments")
+                        if isinstance(final_arguments, str):
+                            call.final_arguments = final_arguments
+                else:
+                    fallback_text_chunks.extend(_extract_output_text_chunks(item))
             continue
         if event_type in {"response.completed", "response.done", "response.incomplete"}:
             terminal_response = _event_response(event)
@@ -680,10 +863,12 @@ def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
             },
         )
 
-    final_text = "".join(text_chunks) if text_chunks else "".join(fallback_text_chunks)
-    if not final_text:
+    final_text_assembled = "".join(text_chunks) if text_chunks else "".join(fallback_text_chunks)
+    final_text: str | None = final_text_assembled if final_text_assembled else None
+    tool_calls = _finalize_streaming_function_calls(function_call_items)
+    if final_text is None and not tool_calls:
         raise OpenAICodexResponseParseError(
-            "OpenAI Codex response did not include final output text.",
+            "OpenAI Codex response did not include final output text or tool calls.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
@@ -694,7 +879,54 @@ def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
         final_text=final_text,
         usage=_extract_usage(terminal_response.get("usage")),
         response_status=response_status,
+        tool_calls=tool_calls,
     )
+
+
+def _finalize_streaming_function_calls(
+    items: Mapping[str, _StreamingFunctionCall],
+) -> tuple[ProviderToolCall, ...]:
+    calls: list[ProviderToolCall] = []
+    for call in sorted(items.values(), key=lambda entry: entry.order_index):
+        if not call.name:
+            continue
+        correlation = call.call_id or call.item_id
+        if not correlation:
+            continue
+        arguments_json = call.arguments_json()
+        try:
+            calls.append(
+                ProviderToolCall(
+                    provider_correlation_id=correlation[
+                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
+                    ],
+                    tool_name=call.name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
+                    arguments_json=arguments_json[
+                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
+                    ],
+                )
+            )
+        except ValueError:
+            continue
+    return tuple(calls)
+
+
+def _safe_item_id(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _safe_call_id(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _safe_function_name(value: Any) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
 
 
 def _iter_sse_events(body: str) -> list[Mapping[str, Any]]:

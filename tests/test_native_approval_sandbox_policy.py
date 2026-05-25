@@ -773,19 +773,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 3"
+        "### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 4"
         in next_slice
     )
     assert (
-        "bring the same tool-call wiring to `OpenAICodexResponsesProvider`"
+        "complete the track with a final cleanup sweep"
         in compact_next_slice
     )
     assert (
-        "assemble function calls across the SSE event stream"
+        "OpenAI Responses and OpenAI Codex parsers remain a focused follow-up"
         in compact_next_slice
     )
     assert (
-        "flip `OpenAICodexResponsesProvider.supports_tool_calls=True`"
+        "keep code and tests unchanged in this slice"
         in compact_next_slice
     )
     assert (
