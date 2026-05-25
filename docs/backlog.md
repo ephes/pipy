@@ -1366,46 +1366,66 @@ lands:
   no-tool REPL, slash command, or `/verify just-check` behavior changes in
   this slice.
 
+- Native grep tool (slice 7 of the Tool-Loop Parity Track):
+  `pipy_harness.native.tools.grep.GrepTool` searches for a literal
+  (non-regex) string across workspace files with bounded output. When
+  `rg` is on `PATH`, the tool invokes
+  `subprocess.run(["rg", "--no-heading", "--line-number", "--color=never",
+  "--with-filename", "--fixed-strings", "--", pattern, search_root],
+  shell=False, cwd=workspace_root, capture_output=True, text=True,
+  timeout=5s, check=False)`; when `rg` is unavailable, a stdlib `os.walk`
+  fallback iterates workspace files, skipping `.git`/`.gitignore`
+  matches, control-character content, and `looks_sensitive` content. Both
+  paths normalize output to deterministic
+  `"<relative-path>:<line-number>:<text>"` rows, cap rows at
+  `max_results` (default 100, capped at 1000), cap output at
+  `max_output_bytes` (default 32 KiB, capped at 256 KiB), and append the
+  stable `"... (truncated)"` marker on overflow; no matches yields
+  `"(no matches)"`. The tool reuses `_validate_workspace_relative_path`,
+  `_is_ignored_or_generated`, and `_is_relative_to` so `.git` and
+  ignored paths are refused identically; absolute paths and parent
+  traversal raise `ToolArgumentError`. `production_tool_registry()` now
+  returns `{"read": ..., "ls": ..., "grep": ...}`. Tests pin: definition
+  and schema; literal matches across multiple files; refusal of `.git`
+  paths; `ToolArgumentError` on absolute paths and parent traversal;
+  bounded result count with deterministic truncation marker; the
+  stdlib fallback path used when `rg` is missing from `PATH` (via a
+  `monkeypatch` of `shutil.which`); the `(no matches)` output; and
+  `max_results`/`timeout_seconds` validation bounds. No archive event,
+  public CLI shape, no-tool REPL, slash command, or `/verify just-check`
+  behavior changes in this slice.
+
 ## Next Slice
 
-### Add the grep tool (slice 7 of the Tool-Loop Parity Track)
+### Add the find tool (slice 8 of the Tool-Loop Parity Track)
 
-Goal: ship the third model-driven tool, `grep`, which searches for a
-fixed string across workspace files with bounded output. The tool
-invokes `rg` via `subprocess.run` with no `shell=True`, a fixed argv,
-`cwd=workspace_root`, a timeout, and bounded stdout; a stdlib fallback
-runs when `rg` is unavailable so the tool keeps the no-new-runtime-dep
-invariant.
+Goal: ship the fourth model-driven tool, `find`, which returns a
+bounded list of workspace-relative file paths matching one or more
+POSIX-style glob patterns.
 
 Implementation focus:
 
-- add a `pipy_harness.native.tools.grep.GrepTool` that accepts a
-  `pattern` (literal string, validated for non-empty), an optional
-  workspace-relative `path` defaulting to `.`, and an optional
-  `max_results` (default 100, capped at 1000)
-- reuse the same workspace-relative path validation; refuse `.git` and
-  ignored paths
-- when `rg` is on `PATH`: call
-  `subprocess.run(["rg", "--no-heading", "--line-number",
-  "--color=never", "--with-filename", "--max-count", "...", "--fixed-
-  strings", pattern, path_argument], cwd=workspace_root,
-  capture_output=True, text=True, timeout=5.0, check=False,
-  shell=False)`; cap output bytes
-- when `rg` is unavailable: walk the workspace using `os.walk` (skipping
-  `.git`/`.gitignore` per the existing rules), read each file's text with
-  the same secret-looking content check used by `ReadTool`, and emit
-  `"<relative-path>:<line>:<text>"` rows
-- ship focused tests pinning: definition and schema; literal-string
-  matching across multiple files; refusal of `.git` and ignored paths;
-  `ToolArgumentError` on unsafe path arguments; bounded result count;
-  stdlib fallback used when `rg` is removed from `PATH` (via a
-  `which`-style stub)
-- update `production_tool_registry()` to include `grep`
+- add a `pipy_harness.native.tools.find.FindTool` that accepts a
+  `pattern` (POSIX glob, e.g. `**/*.py`), an optional workspace-relative
+  `path` defaulting to `.`, and an optional `max_results` (default 200,
+  capped at 1000)
+- use `pathlib.Path.rglob` (or `glob.iglob`) under the workspace root;
+  reject patterns that contain `..` or start with `/`; refuse `.git`
+  and ignored matches by reusing `_is_ignored_or_generated`
+- emit one workspace-relative POSIX path per row; append the stable
+  `"... (truncated)"` marker on overflow; empty result yields
+  `"(no matches)"`
+- update `production_tool_registry()` to include `find`
+- ship focused tests pinning: definition and schema; successful glob
+  matching across one and multiple directories; refusal of `.git` and
+  ignored matches; `ToolArgumentError` on unsafe `path` arguments and on
+  patterns containing `..` or absolute prefixes; bounded result count;
+  the `(no matches)` output
 - keep metadata-first archive contracts, `.git` default-deny posture,
   `/verify just-check` scope, the existing no-tool REPL, and the existing
   slash commands unchanged
 
-The remaining five slices of the Tool-Loop Parity Track stay closed in
+The remaining four slices of the Tool-Loop Parity Track stay closed in
 this slice. The full slice list, invariants, and deferred items are in
 the `Tool-Loop Parity Track` section above.
 
@@ -1495,7 +1515,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the grep tool (slice 7 of the Tool-Loop Parity Track).
+1. Add the find tool (slice 8 of the Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 

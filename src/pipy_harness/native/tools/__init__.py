@@ -29,11 +29,13 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from pipy_harness.native.tools.grep import GrepTool
 from pipy_harness.native.tools.ls import LsTool
 from pipy_harness.native.tools.read import ReadTool
 
 __all__ = [
     "AssistantMessage",
+    "GrepTool",
     "LoopMessage",
     "LsTool",
     "ReadTool",
