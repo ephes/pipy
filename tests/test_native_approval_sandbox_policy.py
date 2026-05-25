@@ -773,21 +773,15 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Flip the default --repl-mode to tool-loop when supported "
-        "(slice 12 of the Tool-Loop Parity Track)" in next_slice
+        "### Choose the next pipy-native direction after the Tool-Loop "
+        "Parity Track" in next_slice
     )
     assert (
-        "change the `--repl-mode` default from `no-tool` to an `auto` "
-        "sentinel" in compact_next_slice
-    )
-    assert (
-        "explicit `--repl-mode no-tool` still routes to the no-tool REPL"
+        "inspect summary-safe archive signals with `pipy-session reflect"
         in compact_next_slice
     )
-    assert "update README and `docs/`" in compact_next_slice
-    assert "This is the final slice of the Tool-Loop Parity Track" in (
-        compact_next_slice
-    )
+    assert "Pi-parity ladder" in compact_next_slice
+    assert "The Tool-Loop Parity Track is complete" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
@@ -816,8 +810,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Flip the default --repl-mode to tool-loop when supported "
-        "(slice 12 of the Tool-Loop Parity Track)." in compact_near_term
+        "Choose the next pipy-native direction after the Tool-Loop "
+        "Parity Track." in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (

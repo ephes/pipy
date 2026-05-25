@@ -39,11 +39,11 @@ class _NullEventSink:
         return None
 
 
-def test_repl_mode_defaults_to_no_tool():
+def test_repl_mode_defaults_to_auto():
     parser = build_parser()
     args = parser.parse_args(["repl"])
 
-    assert args.repl_mode == "no-tool"
+    assert args.repl_mode == "auto"
     assert args.tool_budget == 10
 
 
@@ -171,3 +171,59 @@ def test_pipy_native_repl_adapter_no_tool_mode_unaffected_by_new_flag():
     """The existing no-tool REPL adapter does not gain a tool registry."""
 
     assert not hasattr(PipyNativeReplAdapter, "tool_registry")
+
+
+# --------------------- slice 12: --repl-mode auto resolver -----------------
+
+
+def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_real_providers():
+    from pipy_harness.cli import _resolve_repl_mode
+
+    # Real providers all carry supports_tool_calls=False at slice 12.
+    resolved = _resolve_repl_mode(
+        "auto", native_provider="openai", native_model="gpt-test"
+    )
+
+    assert resolved == "no-tool"
+
+
+def test_resolve_repl_mode_auto_routes_to_tool_loop_for_tool_capable_provider(
+    monkeypatch,
+):
+    from pipy_harness import cli
+
+    class _Stub:
+        supports_tool_calls = True
+
+    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
+
+    resolved = cli._resolve_repl_mode(
+        "auto", native_provider="fake", native_model="fake-native-bootstrap"
+    )
+
+    assert resolved == "tool-loop"
+
+
+def test_resolve_repl_mode_explicit_no_tool_overrides_auto(monkeypatch):
+    from pipy_harness import cli
+
+    class _Stub:
+        supports_tool_calls = True
+
+    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
+
+    resolved = cli._resolve_repl_mode(
+        "no-tool", native_provider="fake", native_model="fake-native-bootstrap"
+    )
+
+    assert resolved == "no-tool"
+
+
+def test_resolve_repl_mode_explicit_tool_loop_overrides_auto():
+    from pipy_harness.cli import _resolve_repl_mode
+
+    resolved = _resolve_repl_mode(
+        "tool-loop", native_provider="openai", native_model="gpt-test"
+    )
+
+    assert resolved == "tool-loop"

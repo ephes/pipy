@@ -159,14 +159,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repl_parser.add_argument(
         "--repl-mode",
-        choices=["no-tool", "tool-loop"],
-        default="no-tool",
+        choices=["auto", "no-tool", "tool-loop"],
+        default="auto",
         help=(
-            "Native REPL mode. no-tool keeps the existing line-oriented REPL "
+            "Native REPL mode. auto (the default) launches the bounded "
+            "model-driven tool loop when the selected provider advertises "
+            "supports_tool_calls=True and falls back to the existing "
+            "line-oriented REPL otherwise. no-tool forces the existing REPL "
             "with /read, /ask-file, /propose-file, /apply-proposal, and "
-            "/verify just-check. tool-loop launches the bounded model-driven "
-            "tool loop and requires a provider that advertises "
-            "supports_tool_calls=True."
+            "/verify just-check. tool-loop forces the bounded tool loop and "
+            "errors out when the provider is not tool-capable."
         ),
     )
     repl_parser.add_argument(
@@ -256,7 +258,12 @@ def main(argv: list[str] | None = None) -> int:
                 workspace=args.cwd,
             )
             repl_adapter: PipyNativeReplAdapter | PipyNativeToolReplAdapter
-            if args.repl_mode == "tool-loop":
+            resolved_repl_mode = _resolve_repl_mode(
+                args.repl_mode,
+                native_provider=args.native_provider,
+                native_model=args.native_model,
+            )
+            if resolved_repl_mode == "tool-loop":
                 if args.tool_budget < 1 or args.tool_budget > 25:
                     raise ValueError(
                         "--tool-budget must be in [1, 25]; got "
@@ -440,6 +447,37 @@ def _repl_adapter_for(
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
     return PipyNativeReplAdapter(provider_state=provider_state, input_runtime=input_runtime)
+
+
+def _resolve_repl_mode(
+    requested: str,
+    *,
+    native_provider: str | None,
+    native_model: str | None,
+) -> str:
+    """Resolve the effective REPL mode for slice 12 of the parity track.
+
+    `auto` (the default) routes to `tool-loop` when the selected provider
+    advertises `supports_tool_calls=True` and falls back to `no-tool`
+    otherwise. Explicit `no-tool` and `tool-loop` are returned unchanged.
+    """
+
+    if requested != "auto":
+        return requested
+    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
+        return "no-tool"
+    selection = default_selection_for(
+        native_provider=native_provider,
+        native_model=native_model,
+        defaults_store=None,
+    )
+    try:
+        provider = _native_provider_for_selection(selection)
+    except Exception:
+        return "no-tool"
+    if getattr(provider, "supports_tool_calls", False):
+        return "tool-loop"
+    return "no-tool"
 
 
 def _tool_repl_adapter_for(

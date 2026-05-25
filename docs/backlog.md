@@ -1482,38 +1482,52 @@ lands:
   `pipy_session.catalog.list_finalized_sessions` does not surface the
   sidecar because it lives outside the session root.
 
+- Native tool-loop default with archive-transcript guidance (slice 12
+  of the Tool-Loop Parity Track): the `--repl-mode` flag now defaults to
+  `auto` instead of `no-tool`. The `_resolve_repl_mode` resolver routes
+  `auto` to the tool-loop adapter when the selected native provider's
+  `supports_tool_calls` is `True`, and falls back to the existing
+  no-tool REPL otherwise. Explicit `--repl-mode no-tool` and
+  `--repl-mode tool-loop` continue to force their respective adapters,
+  so users can opt out either way. README now documents the new
+  default, the `--tool-budget` cap, and the opt-in `--archive-transcript`
+  sidecar. Tests pin: `auto` falls back to no-tool for the current
+  real providers (all carry `supports_tool_calls=False` at the time of
+  this slice); `auto` routes to tool-loop when the resolver sees a
+  tool-capable provider (stubbed); explicit `no-tool` overrides
+  `auto` even with a tool-capable provider; and explicit `tool-loop`
+  forces the tool loop regardless of capability. With this slice the
+  Tool-Loop Parity Track is complete; the next-slice planning starts a
+  new direction.
+
 ## Next Slice
 
-### Flip the default --repl-mode to tool-loop when supported (slice 12 of the Tool-Loop Parity Track)
+### Choose the next pipy-native direction after the Tool-Loop Parity Track
 
-Goal: complete the Tool-Loop Parity Track by making `--repl-mode
-tool-loop` the default when the selected provider advertises
-`supports_tool_calls=True`. The `--repl-mode no-tool` mode stays
-available, so users can still ask for the existing slash-command REPL
-explicitly. Documentation is updated to reflect the new default.
+Goal: pick the next reviewable boundary now that the Tool-Loop Parity
+Track has landed end-to-end. The implementation track for the next
+slice is intentionally not selected in this slice; the goal is to use
+summary-safe session reflection and the current parity gaps to choose
+the next small `pipy-native` boundary.
 
 Implementation focus:
 
-- change the `--repl-mode` default from `no-tool` to an `auto` sentinel
-  that resolves at runtime: when the selected provider's
-  `supports_tool_calls` is `True`, route to `PipyNativeToolReplAdapter`;
-  otherwise route to `PipyNativeReplAdapter`. Users can still pass
-  `--repl-mode no-tool` or `--repl-mode tool-loop` explicitly to force a
-  mode.
-- update README and `docs/` to describe the new default, including the
-  `--archive-transcript` opt-in
-- ship focused tests pinning: with `supports_tool_calls=False`,
-  `--repl-mode` default routes to the existing no-tool REPL; with a
-  tool-capable provider, default routes to the tool-loop adapter;
-  explicit `--repl-mode no-tool` still routes to the no-tool REPL even
-  when the provider advertises `supports_tool_calls=True`
+- inspect summary-safe archive signals with `pipy-session reflect --json`
+  and targeted `pipy-session search` queries before picking a direction
+- compare next-boundary candidates against the Pi-parity ladder: real
+  provider `supports_tool_calls=True` plus the matching tool-call
+  response parser (still deferred from slice 5), resilient input
+  behavior, persistent history, richer resource discovery, session
+  resume/search surfaces, or provider-access polish
+- document the selected next slice in this backlog and, when
+  architectural behavior changes, in `docs/harness-spec.md`
 - keep metadata-first archive contracts, `.git` default-deny posture,
-  `/verify just-check` scope, the existing no-tool REPL, and the
-  existing slash commands unchanged
+  `/verify just-check` scope, the no-tool REPL, the tool-loop REPL,
+  and the existing slash commands unchanged in this planning slice
 
-This is the final slice of the Tool-Loop Parity Track. After slice 12
-the track moves to `Done` and the next-slice planning starts a new
-direction.
+The Tool-Loop Parity Track is complete; subsequent slices may extend
+the track (for example, real-provider parsers) or branch into other
+parity work.
 
 ## Near Term
 
@@ -1601,8 +1615,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Flip the default --repl-mode to tool-loop when supported (slice 12 of
-   the Tool-Loop Parity Track).
+1. Choose the next pipy-native direction after the Tool-Loop Parity Track.
 
 Foundation gates toward an interactive shell:
 

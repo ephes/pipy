@@ -217,7 +217,20 @@ stored by default.
 
 `pipy` and `pipy repl` start the interactive native shell in the current
 directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
-remains accepted. The shell prints a compact startup chrome to stderr before
+remains accepted. The REPL's `--repl-mode` flag defaults to `auto`: when the
+selected provider advertises `supports_tool_calls=True`, the shell launches
+the bounded model-driven tool loop (with `read`, `ls`, `grep`, `find`,
+`write`, and `edit` from `pipy_harness.native.tools.production_tool_registry`)
+and `--tool-budget` (default 10, max 25) caps invocations per user turn;
+otherwise it falls back to the existing line-oriented REPL with the
+`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+`/verify just-check` commands. Pass `--repl-mode no-tool` to force the
+line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
+opt-in `--archive-transcript` flag writes raw loop turns to
+`~/.local/state/pipy/transcripts/<id>.jsonl` outside the metadata-first
+pipy session archive; the sidecar is sensitive content and excluded from
+`pipy-session list/search/inspect`. The shell prints a compact startup
+chrome to stderr before
 the first prompt, including the pipy version, controls, safe command/resource
 labels, and the same kind of safe provider/model, workspace, turn, context,
 read-budget, proposal, and verification indicators shown by `/status`. The
