@@ -1458,40 +1458,62 @@ lands:
   observations, the archive-untouched sentinel, the no-`pipy_session`
   import invariant, and registry contents.
 
+- Native opt-in transcript sidecar (slice 11 of the Tool-Loop Parity
+  Track): `pipy_harness.native.transcripts.TranscriptSink` writes raw
+  loop turns (user, assistant, tool_result, diff, session) to one JSONL
+  line each at `~/.local/state/pipy/transcripts/<id>.jsonl`; the path
+  can be overridden via the `PIPY_TRANSCRIPT_DIR` env var. The sink
+  opens lazily, so no file is created until the first `append`. Each
+  record carries a stable `type`, a UTC `recorded_at`, the
+  `SENSITIVE_MARKER` discriminator, and a `payload` dict. A new
+  `--archive-transcript` boolean CLI flag wires a sink into
+  `PipyNativeToolReplAdapter`; the default is off. The
+  `NativeToolReplSession` emits events into the sink when supplied,
+  including diffs that the `write` and `edit` tools stream through
+  `ToolContext.stderr_sink`. The pipy session archive
+  (`PIPY_SESSION_DIR`) is untouched. Tests pin: default path lives
+  under `.local/state/pipy/transcripts`; env override works; the sink
+  rejects unsupported event types and non-dict payloads; the file is
+  not created without an append; the `--archive-transcript` flag
+  defaults to `False` and round-trips through the CLI; the adapter
+  creates no sidecar when the flag is off; with the flag on, the
+  sidecar lists user/assistant/tool_result/session events; the
+  transcript path is not inside `PIPY_SESSION_DIR`; and
+  `pipy_session.catalog.list_finalized_sessions` does not surface the
+  sidecar because it lives outside the session root.
+
 ## Next Slice
 
-### Add the opt-in transcript sidecar (slice 11 of the Tool-Loop Parity Track)
+### Flip the default --repl-mode to tool-loop when supported (slice 12 of the Tool-Loop Parity Track)
 
-Goal: ship the opt-in `~/.local/state/pipy/transcripts/<id>.jsonl`
-sidecar enabled by `--archive-transcript`. The sidecar carries raw
-turns (user input, assistant output with tool calls, tool result
-messages, diffs) and is explicitly outside the metadata-first archive.
-The sidecar is excluded from `pipy-session list/search/inspect`.
+Goal: complete the Tool-Loop Parity Track by making `--repl-mode
+tool-loop` the default when the selected provider advertises
+`supports_tool_calls=True`. The `--repl-mode no-tool` mode stays
+available, so users can still ask for the existing slash-command REPL
+explicitly. Documentation is updated to reflect the new default.
 
 Implementation focus:
 
-- add a `pipy_harness.native.transcripts.TranscriptSink` that writes one
-  JSONL line per loop event (`user`, `assistant`, `tool_result`,
-  `diff`); the file path is
-  `~/.local/state/pipy/transcripts/<id>.jsonl` (override via
-  `PIPY_TRANSCRIPT_DIR`)
-- add an `--archive-transcript` boolean CLI flag to `pipy repl`; default
-  is off so existing behavior is unchanged
-- the `NativeToolReplSession` and `PipyNativeToolReplAdapter` accept
-  the optional sink and emit events into it when enabled; the
-  archive remains metadata-only
-- update `pipy-session list/search/inspect` to exclude the transcripts
-  directory; the catalog never reads it
-- mark transcripts as sensitive in user-facing docs (`docs/session-storage.md`)
-- ship focused privacy tests pinning: with `--archive-transcript`
-  unset, no sidecar file is created; when set, the sidecar contains
-  raw turns; the metadata archive is unchanged; `pipy-session list`
-  and `pipy-session search` do not surface transcript paths; the
-  sidecar lives outside the existing session root
+- change the `--repl-mode` default from `no-tool` to an `auto` sentinel
+  that resolves at runtime: when the selected provider's
+  `supports_tool_calls` is `True`, route to `PipyNativeToolReplAdapter`;
+  otherwise route to `PipyNativeReplAdapter`. Users can still pass
+  `--repl-mode no-tool` or `--repl-mode tool-loop` explicitly to force a
+  mode.
+- update README and `docs/` to describe the new default, including the
+  `--archive-transcript` opt-in
+- ship focused tests pinning: with `supports_tool_calls=False`,
+  `--repl-mode` default routes to the existing no-tool REPL; with a
+  tool-capable provider, default routes to the tool-loop adapter;
+  explicit `--repl-mode no-tool` still routes to the no-tool REPL even
+  when the provider advertises `supports_tool_calls=True`
+- keep metadata-first archive contracts, `.git` default-deny posture,
+  `/verify just-check` scope, the existing no-tool REPL, and the
+  existing slash commands unchanged
 
-The final slice 12 stays closed in this slice. The full slice list,
-invariants, and deferred items are in the `Tool-Loop Parity Track`
-section above.
+This is the final slice of the Tool-Loop Parity Track. After slice 12
+the track moves to `Done` and the next-slice planning starts a new
+direction.
 
 ## Near Term
 
@@ -1579,8 +1601,8 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the opt-in transcript sidecar (slice 11 of the Tool-Loop Parity
-   Track).
+1. Flip the default --repl-mode to tool-loop when supported (slice 12 of
+   the Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 

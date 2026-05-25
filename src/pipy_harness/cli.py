@@ -178,6 +178,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Default 10, capped at 25."
         ),
     )
+    repl_parser.add_argument(
+        "--archive-transcript",
+        action="store_true",
+        help=(
+            "Write raw loop turns to "
+            "~/.local/state/pipy/transcripts/<id>.jsonl as an opt-in sidecar. "
+            "The sidecar is sensitive content and is excluded from "
+            "pipy-session list/search/inspect. Off by default."
+        ),
+    )
 
     return parser
 
@@ -256,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.native_provider,
                     args.native_model,
                     tool_budget=args.tool_budget,
+                    archive_transcript=args.archive_transcript,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -436,6 +447,7 @@ def _tool_repl_adapter_for(
     native_model: str | None,
     *,
     tool_budget: int,
+    archive_transcript: bool = False,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -461,9 +473,15 @@ def _tool_repl_adapter_for(
         provider_state.selection = NativeModelSelection(
             "fake", DEFAULT_NATIVE_MODELS["fake"]
         )
+    transcript_sink = None
+    if archive_transcript:
+        from pipy_harness.native.transcripts import TranscriptSink
+
+        transcript_sink = TranscriptSink()
     return PipyNativeToolReplAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,
+        transcript_sink=transcript_sink,
     )
 
 

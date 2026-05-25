@@ -25,6 +25,7 @@ from pipy_harness.native.tool_loop_session import (
     production_tool_registry,
 )
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
+from pipy_harness.native.transcripts import TranscriptSink
 
 
 class PipyNativeAdapter:
@@ -216,6 +217,7 @@ class PipyNativeToolReplAdapter:
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
+        transcript_sink: TranscriptSink | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -230,6 +232,7 @@ class PipyNativeToolReplAdapter:
         self.input_stream = input_stream or sys.stdin
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
+        self.transcript_sink = transcript_sink
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -271,15 +274,20 @@ class PipyNativeToolReplAdapter:
             provider=provider,
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
+            transcript_sink=self.transcript_sink,
         )
-        run_output = session.run(
-            workspace_root=prepared.cwd,
-            input_stream=self.input_stream,
-            output_stream=self.output_stream,
-            error_stream=self.error_stream,
-            provider_name=prepared.native_provider or provider.name,
-            model_id=prepared.native_model or provider.model_id,
-        )
+        try:
+            run_output = session.run(
+                workspace_root=prepared.cwd,
+                input_stream=self.input_stream,
+                output_stream=self.output_stream,
+                error_stream=self.error_stream,
+                provider_name=prepared.native_provider or provider.name,
+                model_id=prepared.native_model or provider.model_id,
+            )
+        finally:
+            if self.transcript_sink is not None:
+                self.transcript_sink.close()
         return AdapterResult(
             status=run_output.status,
             exit_code=run_output.exit_code,

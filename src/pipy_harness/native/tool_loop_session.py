@@ -44,6 +44,7 @@ from pipy_harness.native.models import (
     ProviderToolCall,
 )
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
     AssistantMessage,
     LoopMessage,
@@ -117,12 +118,18 @@ class NativeToolReplSession:
     call from `input_stream` and stops when the stream returns an empty
     string (EOF) or the malformed-tool-call streak reaches
     `MAX_MALFORMED_STREAK`.
+
+    `transcript_sink` is an opt-in `TranscriptSink`; when supplied (via
+    `--archive-transcript`), the loop writes raw turns to the sidecar
+    JSONL outside the pipy session archive. The metadata archive remains
+    untouched.
     """
 
     provider: ProviderPort
     tool_registry: dict[str, ToolPort] = field(default_factory=production_tool_registry)
     tool_budget: int = 10
     workspace_root: Path | None = None
+    transcript_sink: TranscriptSink | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 10
     MAX_TOOL_BUDGET: ClassVar[int] = 25
@@ -165,10 +172,21 @@ class NativeToolReplSession:
 
         def _stderr_sink(text: str) -> None:
             error_stream.write(text)
+            if self.transcript_sink is not None:
+                self.transcript_sink.append("diff", {"text": text})
 
         context = ToolContext(workspace_root=cwd, stderr_sink=_stderr_sink)
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
+        if self.transcript_sink is not None:
+            self.transcript_sink.append(
+                "session",
+                {
+                    "provider_name": effective_provider_name,
+                    "model_id": effective_model_id,
+                    "tool_budget": self.tool_budget,
+                },
+            )
 
         started_at = datetime.now(UTC)
         messages: list[LoopMessage] = []
@@ -190,6 +208,8 @@ class NativeToolReplSession:
                 continue
             messages.append(UserMessage(content=user_input))
             user_turn_count += 1
+            if self.transcript_sink is not None:
+                self.transcript_sink.append("user", {"content": user_input})
 
             invocations_this_turn = 0
             inner_iteration_cap = self.tool_budget + 2
@@ -212,6 +232,21 @@ class NativeToolReplSession:
                         tool_calls=tool_calls,
                     )
                 )
+                if self.transcript_sink is not None:
+                    self.transcript_sink.append(
+                        "assistant",
+                        {
+                            "content": provider_result.final_text or "",
+                            "tool_calls": [
+                                {
+                                    "provider_correlation_id": call.provider_correlation_id,
+                                    "tool_name": call.tool_name,
+                                    "arguments_json": call.arguments_json,
+                                }
+                                for call in tool_calls
+                            ],
+                        },
+                    )
 
                 if not tool_calls:
                     if provider_result.final_text:
@@ -253,6 +288,16 @@ class NativeToolReplSession:
                     tool_invocation_count += 1
                     consecutive_malformed_streak = 0
                     messages.append(observation)
+                    if self.transcript_sink is not None:
+                        self.transcript_sink.append(
+                            "tool_result",
+                            {
+                                "tool_request_id": observation.tool_request_id,
+                                "output_text": observation.output_text,
+                                "is_error": observation.is_error,
+                                "provider_correlation_id": observation.provider_correlation_id,
+                            },
+                        )
 
                 if fatal:
                     ended_at = datetime.now(UTC)
