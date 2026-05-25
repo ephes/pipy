@@ -350,6 +350,7 @@ class OpenAICodexResponsesProvider:
     http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
     timeout_seconds: float = 60.0
+    supports_tool_calls: bool = False
 
     @property
     def name(self) -> str:

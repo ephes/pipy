@@ -23,14 +23,24 @@ from pipy_harness.native.tools.base import (
     make_tool_request_id,
     validate_arguments,
 )
+from pipy_harness.native.tools.messages import (
+    AssistantMessage,
+    LoopMessage,
+    ToolResultMessage,
+    UserMessage,
+)
 
 __all__ = [
+    "AssistantMessage",
+    "LoopMessage",
     "ToolArgumentError",
     "ToolContext",
     "ToolDefinition",
     "ToolExecutionResult",
     "ToolPort",
     "ToolRequest",
+    "ToolResultMessage",
+    "UserMessage",
     "make_tool_request_id",
     "validate_arguments",
 ]

@@ -91,6 +91,10 @@ class CapturingProvider:
     def model_id(self) -> str:
         return "capturing-model"
 
+    @property
+    def supports_tool_calls(self) -> bool:
+        return False
+
     def complete(self, request: ProviderRequest) -> ProviderResult:
         self.complete_calls += 1
         self.captured_request = request
@@ -119,6 +123,10 @@ class SequentialCapturingProvider:
     @property
     def model_id(self) -> str:
         return "capturing-model"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return False
 
     def complete(self, request: ProviderRequest) -> ProviderResult:
         if self.captured_requests is None:

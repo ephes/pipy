@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,12 +17,22 @@ from pipy_harness.native.models import (
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
+    ProviderToolCall,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class FakeNativeProvider:
-    """A deterministic non-AI provider used to exercise the native boundary."""
+    """A deterministic non-AI provider used to exercise the native boundary.
+
+    For Tool-Loop Parity Track tests, `supports_tool_calls` can be flipped to
+    `True` and `programmable_tool_calls` can be primed with a tuple of
+    `(ProviderToolCall, ...)` tuples, one per provider call. Each call to
+    `complete` consumes the next tuple in order; when the script is empty the
+    provider falls back to an empty `tool_calls` tuple and emits only
+    `final_text`. The fake never inspects pipy-owned `tool_request_id`
+    values; it only round-trips `provider_correlation_id`.
+    """
 
     model_id: str = "fake-native-bootstrap"
     final_text: str = "pipy native fake provider completed."
@@ -32,6 +42,9 @@ class FakeNativeProvider:
     tool_observation_fixture: dict[str, Any] | None = None
     read_only_tool_fixture: dict[str, Any] | None = None
     patch_proposal: dict[str, Any] | None = None
+    supports_tool_calls: bool = False
+    programmable_tool_calls: tuple[tuple[ProviderToolCall, ...], ...] = ()
+    _call_counter: list[int] = field(default_factory=lambda: [0])
 
     @property
     def name(self) -> str:
@@ -50,6 +63,12 @@ class FakeNativeProvider:
             metadata[PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY] = dict(self.read_only_tool_fixture)
         if self.patch_proposal is not None:
             metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY] = dict(self.patch_proposal)
+        tool_calls: tuple[ProviderToolCall, ...] = ()
+        if self.supports_tool_calls and self.programmable_tool_calls:
+            call_index = self._call_counter[0]
+            if call_index < len(self.programmable_tool_calls):
+                tool_calls = self.programmable_tool_calls[call_index]
+        self._call_counter[0] += 1
         return ProviderResult(
             status=self.status,
             provider_name=self.name,
@@ -59,6 +78,7 @@ class FakeNativeProvider:
             final_text=final_text,
             usage={},
             metadata=metadata or None,
+            tool_calls=tool_calls,
         )
 
 

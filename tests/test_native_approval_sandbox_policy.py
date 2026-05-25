@@ -773,27 +773,29 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity Track)"
+        "### Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity Track)"
         in next_slice
     )
-    assert "add a `supports_tool_calls` capability flag" in compact_next_slice
-    assert "real providers (`openai`, `openai-codex`, `openrouter`)" in (
-        compact_next_slice
-    )
-    assert "introduce a `ProviderToolCall` value object" in compact_next_slice
     assert (
-        "add an optional `tool_calls: tuple[ProviderToolCall, ...] = ()` field"
+        "`pipy repl --agent pipy-native --repl-mode tool-loop`"
         in compact_next_slice
     )
-    assert (
-        "small provider-agnostic message envelope shape"
-        in compact_next_slice
-    )
-    assert "`user`/`assistant`/`tool_result`" in compact_next_slice
-    assert "give `FakeNativeProvider` a `programmable_tool_calls` hook" in (
+    assert "thread a `--tool-budget` CLI flag with default 10 and hard cap 25" in (
         compact_next_slice
     )
-    assert "remaining nine slices of the Tool-Loop Parity Track stay closed" in (
+    assert (
+        "allocates a pipy-owned `tool_request_id` via `make_tool_request_id()`"
+        in compact_next_slice
+    )
+    assert "runs `validate_arguments()` against the selected tool's" in (
+        compact_next_slice
+    )
+    assert (
+        "three consecutive malformed turns become fatal" in compact_next_slice
+    )
+    assert "test-only `_FixtureTool`" in compact_next_slice
+    assert "production registry stays empty until slice 5" in compact_next_slice
+    assert "remaining eight slices of the Tool-Loop Parity Track stay closed" in (
         compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
@@ -824,7 +826,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity Track)."
+        "Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity Track)."
         in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term

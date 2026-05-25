@@ -71,6 +71,7 @@ from pipy_harness.native.models import (
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
+    ProviderToolCall,
 )
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
@@ -228,6 +229,7 @@ __all__ = [
     "ProviderPort",
     "ProviderRequest",
     "ProviderResult",
+    "ProviderToolCall",
     "ReplInputUnavailableError",
     "StaticNativeReplProviderState",
     "SUPPORTED_NATIVE_PROVIDERS",

@@ -138,6 +138,59 @@ class ProviderRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderToolCall:
+    """One model-emitted tool intent surfaced by a provider response.
+
+    `provider_correlation_id` is the opaque provider-side id. The Tool-Loop
+    Parity Track loop must round-trip it back to the provider in the next
+    message but must not use it as a pipy-owned identifier; pipy-owned
+    `tool_request_id` values are allocated by the loop, not the provider.
+    `arguments_json` is the raw JSON-encoded arguments string returned by the
+    provider; loop code is responsible for parsing and schema-validating it
+    before constructing a `ToolRequest`.
+    """
+
+    provider_correlation_id: str
+    tool_name: str
+    arguments_json: str
+
+    PROVIDER_CORRELATION_ID_MAX_LENGTH: ClassVar[int] = 256
+    TOOL_NAME_MAX_LENGTH: ClassVar[int] = 64
+    ARGUMENTS_JSON_MAX_LENGTH: ClassVar[int] = 64 * 1024
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.provider_correlation_id, str)
+            or not self.provider_correlation_id
+        ):
+            raise ValueError(
+                "ProviderToolCall requires a non-empty provider_correlation_id"
+            )
+        if (
+            len(self.provider_correlation_id)
+            > self.PROVIDER_CORRELATION_ID_MAX_LENGTH
+        ):
+            raise ValueError(
+                "ProviderToolCall provider_correlation_id exceeds "
+                f"{self.PROVIDER_CORRELATION_ID_MAX_LENGTH} characters"
+            )
+        if not isinstance(self.tool_name, str) or not self.tool_name:
+            raise ValueError("ProviderToolCall requires a non-empty tool_name")
+        if len(self.tool_name) > self.TOOL_NAME_MAX_LENGTH:
+            raise ValueError(
+                "ProviderToolCall tool_name exceeds "
+                f"{self.TOOL_NAME_MAX_LENGTH} characters"
+            )
+        if not isinstance(self.arguments_json, str):
+            raise ValueError("ProviderToolCall.arguments_json must be a string")
+        if len(self.arguments_json) > self.ARGUMENTS_JSON_MAX_LENGTH:
+            raise ValueError(
+                "ProviderToolCall.arguments_json exceeds "
+                f"{self.ARGUMENTS_JSON_MAX_LENGTH} characters"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderResult:
     """Result returned by a native provider."""
 
@@ -151,6 +204,7 @@ class ProviderResult:
     metadata: dict[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None
+    tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
 class NativeToolStatus(StrEnum):

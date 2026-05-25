@@ -1253,45 +1253,76 @@ lands:
   wiring, REPL session changes, archive events, public CLI shape changes, or
   workspace-effecting code lands in this slice; the contracts are inert until
   later slices.
+- Native ProviderPort tool-call extension (slice 3 of the Tool-Loop Parity
+  Track): `pipy_harness.native.provider.ProviderPort` gains a
+  `supports_tool_calls` capability flag (declared as a `@property` on the
+  `@runtime_checkable` Protocol); `pipy_harness.native.models` adds a
+  `ProviderToolCall` value object with bounded `provider_correlation_id`,
+  `tool_name`, and `arguments_json`; `ProviderResult.tool_calls: tuple[
+  ProviderToolCall, ...]` defaults to `()`; and
+  `pipy_harness.native.tools.messages` introduces a provider-agnostic
+  `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope plus a
+  `LoopMessage` tagged union. `OpenAIResponsesProvider`,
+  `OpenAICodexResponsesProvider`, and `OpenRouterChatCompletionsProvider`
+  all carry `supports_tool_calls: bool = False` and emit no `tool_calls`;
+  `FakeNativeProvider` gains `supports_tool_calls: bool = False` plus a
+  `programmable_tool_calls: tuple[tuple[ProviderToolCall, ...], ...]` script
+  that is consumed in order across `complete()` calls and returns `()` when
+  exhausted or when `supports_tool_calls=False`. Focused tests pin: real
+  adapters all satisfy the `ProviderPort` Protocol; the new
+  `ProviderResult.tool_calls` defaults to `()` on every existing producer;
+  `ProviderToolCall` rejects empty fields and over-length values; the
+  envelope shapes reject non-string content, non-tuple tool calls,
+  non-`ProviderToolCall` entries, non-pipy-owned `tool_request_id` values,
+  oversized outputs, non-bool `is_error`, and empty
+  `provider_correlation_id`s; and the `LoopMessage` union accepts each
+  message kind. No public CLI shape, REPL behavior, archive events, or
+  workspace effect changes in this slice; tool-call capability is declared
+  but inert outside `FakeNativeProvider` scripts.
 
 ## Next Slice
 
-### Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity Track)
+### Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity Track)
 
-Goal: extend the existing `pipy_harness.native.provider.ProviderPort` so the
-loop can negotiate model-driven tool calls without changing any real
-provider's runtime behavior. No REPL session, tool registry, or workspace
-effect lands in this slice.
+Goal: introduce a bounded model-driven REPL session that uses the slice 2
+contracts and the slice 3 provider extension, but ships with an empty
+production tool registry so it stays inert against the workspace until
+slice 5 adds the first real tool.
 
 Implementation focus:
 
-- add a `supports_tool_calls` capability flag on `ProviderPort`; real
-  providers (`openai`, `openai-codex`, `openrouter`) keep returning `False`
-  and stay otherwise inert
-- introduce a `ProviderToolCall` value object that carries the
-  `provider_correlation_id`, the model-selected tool name, and the raw
-  arguments JSON; this is the provider's view, not pipy's internal
-  `ToolRequest`
-- add an optional `tool_calls: tuple[ProviderToolCall, ...] = ()` field on
-  `ProviderResult` so the loop can read provider-emitted tool intent;
-  existing producers default to an empty tuple
-- add a small provider-agnostic message envelope shape
-  (`user`/`assistant`/`tool_result`) under
-  `pipy_harness.native.tools.messages` (or similar) so slice 4 can serialize
-  loop turns into a provider-neutral request without touching each adapter
-  yet
-- give `FakeNativeProvider` a `programmable_tool_calls` hook that test code
-  can prime to emit `ProviderToolCall`s on specific turns; real adapters
-  remain inert
-- ship focused tests pinning the new shapes, the `supports_tool_calls`
-  default of `False` on all real adapters, and the inert behavior of the
-  existing one-shot and no-tool REPL provider turns
-- keep the metadata-first archive contracts, `.git` default-deny posture,
-  `/verify just-check` scope, the existing no-tool REPL, and the existing
-  slash commands unchanged
+- add a `NativeToolReplSession` class behind a new
+  `pipy repl --agent pipy-native --repl-mode tool-loop` CLI mode; the
+  no-tool REPL stays available behind `--repl-mode no-tool`
+- thread a `--tool-budget` CLI flag with default 10 and hard cap 25; the
+  loop exits with a deterministic stderr diagnostic when the budget is
+  exhausted
+- on each turn, call `ProviderPort.complete(request)`; if the provider
+  emits `ProviderToolCall`s, the loop allocates a pipy-owned
+  `tool_request_id` via `make_tool_request_id()`, parses
+  `arguments_json` as JSON, runs `validate_arguments()` against the
+  selected tool's `ToolDefinition`, and either invokes the tool or returns
+  a `ToolArgumentError` observation to the model
+- malformed tool arguments are returned to the model as a synthetic
+  `ToolResultMessage` with `is_error=True`; three consecutive malformed
+  turns become fatal and exit the loop with a deterministic stderr
+  diagnostic; the malformed-turn counter resets after one successful
+  invocation
+- a test-only `_FixtureTool` (alphanumeric name only, no workspace effect)
+  is injected by tests through an explicit registry argument; the
+  production registry stays empty until slice 5
+- archive events remain metadata-only; pipy_session.recorder is not asked
+  to record prompts, model text, tool payloads, file contents, or diffs in
+  this slice
+- focused tests pin: the loop stops at the budget; malformed args are
+  returned as observations and become fatal after three consecutive
+  malformed turns; the production registry has no tools and refuses any
+  model-emitted tool call; the no-tool REPL and all listed slash commands
+  keep working in both modes; `--repl-mode tool-loop` is rejected when the
+  selected provider does not advertise `supports_tool_calls`
 
-The remaining nine slices of the Tool-Loop Parity Track stay closed in this
-slice. The full slice list, invariants, and deferred items are in the
+The remaining eight slices of the Tool-Loop Parity Track stay closed in
+this slice. The full slice list, invariants, and deferred items are in the
 `Tool-Loop Parity Track` section above.
 
 ## Near Term
@@ -1380,7 +1411,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity
+1. Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity
    Track).
 
 Foundation gates toward an interactive shell:
