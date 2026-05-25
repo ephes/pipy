@@ -244,7 +244,19 @@ with `OPENROUTER_API_KEY`, `pipy repl --native-provider openai
 --native-model <model>` with `OPENAI_API_KEY`, and `pipy repl
 --native-provider openai-codex --native-model <model>` after
 `pipy auth openai-codex login` all run the same bounded model-driven
-loop. The shell prints a compact startup
+loop. Workspace context (`AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, and
+`CLAUDE.MD` — in that per-directory precedence) is discovered from the
+workspace, then its parent directories root-most first, then the global
+pipy config root resolved through `PIPY_CONFIG_HOME`, then
+`${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy`. The matched files are
+deduped by canonical path, bounded by per-file (64 KiB) and total
+(256 KiB) byte caps with deterministic truncation markers, and appended
+to the native bootstrap system prompt in both REPL modes and the
+one-shot runner across `openai`, `openai-codex`, and `openrouter`.
+Only safe per-file metadata (workspace-relative path label, sha256, byte
+length, truncated flag) reaches the session archive; instruction bodies
+never appear in the JSONL events, the Markdown summary, or the opt-in
+`--archive-transcript` sidecar. The shell prints a compact startup
 chrome to stderr before
 the first prompt, including the pipy version, controls, safe command/resource
 labels, and the same kind of safe provider/model, workspace, turn, context,

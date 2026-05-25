@@ -3406,22 +3406,23 @@ it lands. They are not later slices of this track:
 
 ## Workspace Context Loading Parity Track
 
-The next named Pi-parity track after the
+The named Pi-parity track after the
 [OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
-adds AGENTS.md / CLAUDE.md discovery and injection into the native
+added AGENTS.md / CLAUDE.md discovery and injection into the native
 pipy system prompt across `pipy repl --agent pipy-native` and
 `pipy run --agent pipy-native`, in both `--repl-mode tool-loop` and
-`--repl-mode no-tool`. Pi's `loadProjectContextFiles` in
+`--repl-mode no-tool`, and has now shipped end-to-end. Pi's
+`loadProjectContextFiles` in
 `pi-mono/packages/coding-agent/src/core/resource-loader.ts` walks
 the workspace, then its parent directories, then a global agent
 configuration directory, picking the first existing file in the
 per-directory candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
 CLAUDE.MD` and dedupes by canonical absolute path. The pipy track
-slopforks the same behavior through pipy-owned Python boundaries,
-not as a literal TypeScript port. The slice ordering and current
-state live in `docs/backlog.md`
-(`Workspace Context Loading Parity Track`); the parity-map entry
-lives in `docs/pi-parity.md`
+slopforks the same behavior through pipy-owned Python boundaries in
+`pipy_harness.native.workspace_context`, not as a literal TypeScript
+port. The slice ordering and current state live in
+`docs/backlog.md` (`Workspace Context Loading Parity Track`); the
+parity-map entry lives in `docs/pi-parity.md`
 (`Workspace Context Loading Parity Track`). This section records
 the design-level goal, invariants, and deferred design choices of
 the track.

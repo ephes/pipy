@@ -40,6 +40,7 @@ Status labels are intentionally coarse:
 | Search/inspect/reflect | Implemented for pipy records | `pipy-session list/search/inspect/verify/reflect` operates over finalized metadata records, not full transcripts. |
 | Print-like one-shot mode | Partial | `pipy run --agent pipy-native` runs one native turn; default stdout is successful final text only, and `--native-output json` gives metadata-only automation output. |
 | Subprocess wrapping | Implemented as support path | `pipy run --agent custom|codex|claude|pi -- ...` records conservative lifecycle metadata around another command, but this is not the product runtime. |
+| AGENTS.md / CLAUDE.md workspace context discovery | Implemented | `pipy_harness.native.workspace_context.discover_workspace_instructions` walks the workspace, its parents, and the global pipy config root (resolved through `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy`), composes the discovered instructions into the system prompt for one-shot, no-tool REPL, and tool-loop modes across `openai`, `openai-codex`, and `openrouter`, and records only safe per-file metadata (path label, sha256, byte length) into the session archive. See the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track). |
 
 ## Still To Slopfork
 
@@ -53,12 +54,11 @@ metadata and boundary invariants are stable:
 - Automatic file-content reads from `@file` references, pasted images,
   persistent history, and broader keyboard shortcut handling.
 - Multiple file/context reads per session and broader context/resource loading.
-- AGENTS/CLAUDE-style context discovery beyond the static labels currently
-  shown by startup chrome. Tracked as the
+- Richer resource loading beyond AGENTS/CLAUDE-style instruction
+  discovery (skills, prompt templates, themes, extensions, and package
+  loading). The instruction-discovery slice itself shipped through the
   [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
-  later parity work covers richer resource loading (skills, prompt
-  templates, themes, extensions, and package loading) beyond this first
-  instruction-discovery slice list.
+  these other resource types remain deferred for later parity work.
 - Prompt templates, skills, themes, extensions, and package loading.
 - Session resume, branch/tree navigation, fork, compaction, export, and share.
 - RPC mode and SDK embedding surfaces.
@@ -264,17 +264,22 @@ lands. They are not later slices of this track:
 
 ## Workspace Context Loading Parity Track
 
-The next named Pi-parity track after the
+The named Pi-parity track after the
 [OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
-adds AGENTS.md / CLAUDE.md discovery and injection into the native
-pipy system prompt. Pi's `loadProjectContextFiles` in
+added AGENTS.md / CLAUDE.md discovery and injection into the native
+pipy system prompt and has now shipped end-to-end. Pi's
+`loadProjectContextFiles` in
 `pi-mono/packages/coding-agent/src/core/resource-loader.ts` walks the
 workspace, then its parent directories, then a global agent
 configuration directory, picking the first existing file in the
 per-directory candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
 CLAUDE.MD` and dedupes by canonical path. Pipy slopforks the same
-behavior through pipy-owned Python boundaries, not as a literal
-TypeScript port.
+behavior through pipy-owned Python boundaries in
+`pipy_harness.native.workspace_context`, not as a literal TypeScript
+port. The track shipped as four reviewed slices (docs-only opener,
+pure loader plus unit tests, system-prompt wiring plus round-trip
+tests, docs cleanup and close) alongside the existing one-shot
+runner, no-tool REPL, and tool-loop REPL.
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`Workspace Context Loading Parity Track`) and

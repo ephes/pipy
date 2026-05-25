@@ -773,19 +773,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Workspace Context Loading Parity Track — slice 1 (docs only)"
+        "### Choose the next pipy-native direction after the Workspace Context Loading Parity Track"
         in next_slice
     )
     assert (
-        "open the [Workspace Context Loading Parity Track]"
+        "pick the next reviewable boundary now that the"
         in compact_next_slice
     )
     assert (
-        "docs-only slice; no source code or test changes ship with it"
+        "[Workspace Context Loading Parity Track]"
         in compact_next_slice
     )
     assert (
-        "Pinned tests: none. This is a docs-only opener"
+        "are all now complete"
         in compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
