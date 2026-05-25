@@ -269,12 +269,15 @@ The named Pi-parity track after the
 added AGENTS.md / CLAUDE.md discovery and injection into the native
 pipy system prompt and has now shipped end-to-end. Pi's
 `loadProjectContextFiles` in
-`pi-mono/packages/coding-agent/src/core/resource-loader.ts` walks the
-workspace, then its parent directories, then a global agent
-configuration directory, picking the first existing file in the
-per-directory candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
-CLAUDE.MD` and dedupes by canonical path. Pipy slopforks the same
-behavior through pipy-owned Python boundaries in
+`pi-mono/packages/coding-agent/src/core/resource-loader.ts` resolves
+its global agent configuration root, walks from the workspace upward
+through every parent directory, picks the first existing file per
+directory in the candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
+CLAUDE.MD`, and dedupes by canonical path; the returned list is
+composed global-first, then ancestors from the root-most ancestor
+down to the workspace's direct parent, then the workspace itself
+last, so more-specific instructions override earlier ones. Pipy
+slopforks the same behavior through pipy-owned Python boundaries in
 `pipy_harness.native.workspace_context`, not as a literal TypeScript
 port. The track shipped as four reviewed slices (docs-only opener,
 pure loader plus unit tests, system-prompt wiring plus round-trip
@@ -305,7 +308,8 @@ the backlog entry in `docs/backlog.md`
   apply with deterministic truncation labels.
 - `pipy-session` records only metadata about which instruction files
   were loaded: workspace-relative path (or a `<global>`-prefixed label
-  for the global root), sha256, and byte length. A test pins that no
+  for the global root), sha256, byte length, and a `truncated` flag,
+  plus a `total_byte_cap_reached` boolean. A test pins that no
   instruction body reaches session JSONL, the Markdown summary, or the
   opt-in `--archive-transcript` sidecar.
 

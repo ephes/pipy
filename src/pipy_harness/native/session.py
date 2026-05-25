@@ -181,10 +181,15 @@ _ALLOWED_PATCH_PROPOSAL_KEYS = {
     "workspace_mutated",
 }
 _UNSAFE_PROVIDER_METADATA_KEYS = {
+    "available_tools",
+    "composed_system_prompt",
     "diff",
     "diffs",
     "file_content",
     "file_contents",
+    "input",
+    "instructions",
+    "messages",
     "model_output",
     "patch",
     "patch_text",
@@ -197,6 +202,10 @@ _UNSAFE_PROVIDER_METADATA_KEYS = {
     "request_body",
     "stderr",
     "stdout",
+    "system_prompt",
+    "tools",
+    "user_prompt",
+    "workspace_instruction_files",
 }
 INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"

@@ -83,6 +83,53 @@ class _CapturingFakeProvider:
         )
 
 
+class _EchoingFakeProvider:
+    """A hostile fake provider that echoes prompt-bearing fields back into
+    `ProviderResult.metadata` so `_safe_provider_metadata` is exercised on the
+    full set of request/prompt keys. Used by the regression test that pins
+    the archive-privacy boundary.
+    """
+
+    name = "echoing-fake"
+
+    def __init__(self, *, model_id: str = "echoing-model", final_text: str = "done") -> None:
+        self.model_id = model_id
+        self.final_text = final_text
+        self.captured_requests: list[ProviderRequest] = []
+        self.supports_tool_calls = False
+
+    def complete(self, request: ProviderRequest) -> ProviderResult:
+        self.captured_requests.append(request)
+        now = datetime.now(UTC)
+        leaky_metadata = {
+            "system_prompt": request.system_prompt,
+            "instructions": request.system_prompt,
+            "input": request.system_prompt,
+            "user_prompt": request.user_prompt,
+            "composed_system_prompt": request.system_prompt,
+            "messages": [{"role": "system", "content": request.system_prompt}],
+            "tools": [{"name": "leak", "system_prompt_echo": request.system_prompt}],
+            "available_tools": [request.system_prompt],
+            "workspace_instruction_files": [
+                {"path_label": "AGENTS.md", "leaked_content": request.system_prompt}
+            ],
+            "prompt": request.system_prompt,
+            "request_body": {"system_prompt": request.system_prompt},
+            "raw_provider_response": request.system_prompt,
+            "provider_response_store_requested": False,
+        }
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=self.final_text,
+            usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+            metadata=leaky_metadata,
+        )
+
+
 class _CapturingToolFakeProvider:
     """A tool-capable fake provider that records `ProviderRequest`.
 
@@ -368,6 +415,97 @@ def test_tool_loop_transcript_sidecar_does_not_contain_instruction_body(
     sidecar_text = sink.path.read_text(encoding="utf-8")
     assert _LEAK_MARKER not in sidecar_text
     assert "Do not record raw prompts" not in sidecar_text
+
+
+# -- provider metadata privacy regression -----------------------------------
+
+
+def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
+    workspace_with_agents_md: Path, tmp_path: Path
+) -> None:
+    """Regression for the first-review Critical finding: a provider that
+    echoes prompt-bearing fields back through `ProviderResult.metadata`
+    must not leak the AGENTS.md body into the JSONL via
+    `native.provider.completed` payloads.
+    """
+
+    provider = _EchoingFakeProvider()
+    adapter = PipyNativeAdapter(
+        provider=provider,
+        instruction_loader=_hermetic_loader,
+    )
+
+    root = tmp_path / "sessions"
+    result = HarnessRunner(
+        adapter=adapter,
+        id_factory=lambda: "echoing-leak-regression",
+    ).run(
+        RunRequest(
+            agent="pipy-native",
+            slug="ws-instr-echo-regression",
+            command=[],
+            cwd=workspace_with_agents_md,
+            root=root,
+            goal="echo-leak-regression",
+            capture_policy=CapturePolicy(),
+        )
+    )
+
+    assert result.exit_code == 0
+    assert provider.captured_requests
+    assert _LEAK_MARKER in provider.captured_requests[0].system_prompt
+
+    assert result.record.markdown_path is not None
+    jsonl_text = result.record.jsonl_path.read_text(encoding="utf-8")
+    md_text = result.record.markdown_path.read_text(encoding="utf-8")
+    assert _LEAK_MARKER not in jsonl_text
+    assert _LEAK_MARKER not in md_text
+    assert "Do not record raw prompts" not in jsonl_text
+    assert "Do not record raw prompts" not in md_text
+
+    # Confirm the safe payload still includes the legitimate
+    # workspace_instruction_files metadata (sourced from safe_context, not from
+    # provider_metadata) so the regression fix does not strip the per-file
+    # path/sha256/byte_length record.
+    events = _read_jsonl(result.record.jsonl_path)
+    session_started = [
+        event for event in events if event["type"] == "native.session.started"
+    ]
+    assert session_started
+    payload = session_started[0]["payload"]
+    instruction_files = payload.get("workspace_instruction_files")
+    assert isinstance(instruction_files, list)
+    assert len(instruction_files) == 1
+    only = instruction_files[0]
+    assert only["path_label"] == "AGENTS.md"
+    assert only["sha256"] == _expected_agents_md_sha256()
+    assert "leaked_content" not in only
+
+    # Confirm the provider_metadata sub-dict (where unsafe keys would have
+    # leaked) does not carry any of the echoed prompt fields.
+    provider_completed = [
+        event for event in events if event["type"] == "native.provider.completed"
+    ]
+    assert provider_completed
+    provider_metadata = provider_completed[0]["payload"].get("provider_metadata", {})
+    for unsafe_key in (
+        "system_prompt",
+        "instructions",
+        "input",
+        "user_prompt",
+        "composed_system_prompt",
+        "messages",
+        "tools",
+        "available_tools",
+        "workspace_instruction_files",
+        "prompt",
+        "request_body",
+        "raw_provider_response",
+    ):
+        assert unsafe_key not in provider_metadata, (
+            f"unsafe key {unsafe_key!r} leaked into provider_metadata: "
+            f"{provider_metadata}"
+        )
 
 
 # -- empty discovery default -------------------------------------------------
