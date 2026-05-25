@@ -20,6 +20,7 @@ from typing import ClassVar
 from pipy_harness.native.read_only_tool import (
     _is_ignored_or_generated,
     _is_relative_to,
+    _resolved_relative_label,
     _validate_workspace_relative_path,
 )
 from pipy_harness.native.tools.base import (
@@ -101,7 +102,12 @@ class LsTool:
             relative_prefix = path_arg.rstrip("/") + "/"
             if not _is_relative_to(target, workspace):
                 return self._error(request, "path escapes the workspace")
-            if _is_ignored_or_generated(path_arg, workspace):
+            target_label = _resolved_relative_label(target, workspace)
+            if target_label is None:
+                return self._error(request, "path escapes the workspace")
+            if _is_ignored_or_generated(
+                path_arg, workspace
+            ) or _is_ignored_or_generated(target_label, workspace):
                 return self._error(
                     request,
                     "path is ignored or under .git/generated directories",
@@ -122,6 +128,16 @@ class LsTool:
         for child in children:
             relative_child = relative_prefix + child.name
             if _is_ignored_or_generated(relative_child, workspace):
+                continue
+            try:
+                resolved_child_label = _resolved_relative_label(
+                    child.resolve(), workspace
+                )
+            except OSError:
+                resolved_child_label = None
+            if resolved_child_label is None:
+                continue
+            if _is_ignored_or_generated(resolved_child_label, workspace):
                 continue
             if len(rows) >= self.max_entries:
                 truncated = True

@@ -804,7 +804,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now landing the Tool-Loop Parity Track" in (
+    assert "The Tool-Loop Parity Track has now landed end-to-end" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term

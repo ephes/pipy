@@ -23,6 +23,7 @@ from pipy_harness.native.read_only_tool import (
     _CONTROL_CHARS,
     _is_ignored_or_generated,
     _is_relative_to,
+    _resolved_relative_label,
     _validate_workspace_relative_path,
 )
 from pipy_harness.native.tools.base import (
@@ -107,7 +108,12 @@ class ReadTool:
         candidate = (workspace / path_arg).resolve()
         if not _is_relative_to(candidate, workspace):
             return self._error(request, "path escapes the workspace")
-        if _is_ignored_or_generated(path_arg, workspace):
+        resolved_label = _resolved_relative_label(candidate, workspace)
+        if resolved_label is None:
+            return self._error(request, "path escapes the workspace")
+        if _is_ignored_or_generated(
+            path_arg, workspace
+        ) or _is_ignored_or_generated(resolved_label, workspace):
             return self._error(
                 request,
                 "path is ignored or under .git/generated directories",

@@ -3256,9 +3256,12 @@ These hold throughout the track, not as later deferrals:
 - The pipy-owned internal `tool_request_id` does not travel as a provider id.
   Provider identifiers are carried separately as
   `provider_correlation_id` and are only used for provider-side correlation.
-- `--tool-budget` defaults to 10 and is capped at 25. Malformed tool arguments
-  are returned to the model as an observation and become fatal after three
-  consecutive malformed turns within one REPL session.
+- `--tool-budget` defaults to 10 and is capped at 25. Malformed tool calls
+  (unknown tool name, JSON decode error, schema violation, or
+  `ToolArgumentError` from the tool) are returned to the model as an
+  observation and become fatal after three consecutive malformed calls,
+  whether those calls land across multiple provider responses or within a
+  single provider response. One successful invocation resets the streak.
 - The opt-in `TranscriptSink` writes raw turns to
   `~/.local/state/pipy/transcripts/<id>.jsonl` only when `--archive-transcript`
   is supplied. The sidecar lives outside the pipy session archive and is

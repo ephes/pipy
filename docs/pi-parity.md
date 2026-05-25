@@ -31,7 +31,7 @@ Status labels are intentionally coarse:
 | Active prompt state | Implemented | The line-oriented prompt label reflects safe provider/model, turn, read, proposal, and verification state before each input. |
 | Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion, explicit file/path completion, completion-only `@file` reference labels, and multiline entry on real TTY streams. Richer editor behavior remains deferred. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
-| Read tool | Partial | `/read <path>` supports explicit, bounded, UTF-8 workspace-relative excerpts within the shared two-successful-excerpt REPL budget. No broad model-selected read tool exists yet. |
+| Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track) and is invoked from `--repl-mode tool-loop`. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
 | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
 | Write/edit capability | Narrow first slice | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`. There is no general write/edit tool yet. |
@@ -52,10 +52,6 @@ metadata and boundary invariants are stable:
   explicit file/path completion, and multiline entry boundaries.
 - Automatic file-content reads from `@file` references, pasted images,
   persistent history, and broader keyboard shortcut handling.
-- Model-selected tool loop with read, write, edit, ls, grep, find, and
-  follow-up tool observations. Planned as the [Native Tool-Loop Parity
-  Track](#native-tool-loop-parity-track) below. A model-driven `bash` tool and
-  any generalization of `/verify just-check` remain explicitly out of scope.
 - Multiple file/context reads per session and broader context/resource loading.
 - AGENTS/CLAUDE-style context discovery beyond the static labels currently
   shown by startup chrome.
@@ -68,12 +64,14 @@ metadata and boundary invariants are stable:
 
 ## Native Tool-Loop Parity Track
 
-The next visible Pi-parity step is a bounded model-selected tool loop behind
-`pipy repl --agent pipy-native --repl-mode tool-loop`. It is planned as twelve
-reviewed slices that ship alongside the existing no-tool REPL and the existing
-slash-command boundaries. None of the tool-loop slices land in one change; each
-slice is a named conventional commit with focused tests, `just check`, and docs
-updates before review.
+The bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop` is now implemented.
+It shipped as twelve reviewed slices plus an OpenRouter response-parser
+follow-up, alongside the existing no-tool REPL and the existing
+slash-command boundaries. OpenRouter is the first real provider to
+advertise `supports_tool_calls=True`; OpenAI Responses and OpenAI Codex
+parsers remain a focused follow-up. Each slice landed as a named
+conventional commit with focused tests, `just check`, and docs updates.
 
 ### Goal
 
@@ -225,7 +223,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
 | UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; no raw transcript import by default. |
-| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries today; a bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, and `find` (no `bash`) is planned as the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
+| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, and `find` (no `bash`) behind `pipy repl --repl-mode tool-loop`. See the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Four current providers behind `ProviderPort`: fake, OpenAI API-key, OpenAI Codex OAuth, and OpenRouter. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Deferred. The current code has no extension runtime. |

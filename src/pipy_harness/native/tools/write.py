@@ -18,6 +18,7 @@ from typing import ClassVar
 from pipy_harness.native.read_only_tool import (
     _is_ignored_or_generated,
     _is_relative_to,
+    _resolved_relative_label,
     _validate_workspace_relative_path,
 )
 from pipy_harness.native.tools.base import (
@@ -106,7 +107,12 @@ class WriteTool:
         candidate = (workspace / path_arg).resolve()
         if not _is_relative_to(candidate, workspace):
             return self._error(request, "path escapes the workspace")
-        if _is_ignored_or_generated(path_arg, workspace):
+        resolved_label = _resolved_relative_label(candidate, workspace)
+        if resolved_label is None:
+            return self._error(request, "path escapes the workspace")
+        if _is_ignored_or_generated(
+            path_arg, workspace
+        ) or _is_ignored_or_generated(resolved_label, workspace):
             return self._error(
                 request,
                 "path is ignored or under .git/generated directories",
@@ -118,6 +124,14 @@ class WriteTool:
             return self._error(request, "parent directory does not exist")
         if not parent.is_dir():
             return self._error(request, "parent is not a directory")
+        parent_label = _resolved_relative_label(parent.resolve(), workspace)
+        if parent_label is None:
+            return self._error(request, "parent directory escapes the workspace")
+        if parent_label and _is_ignored_or_generated(parent_label, workspace):
+            return self._error(
+                request,
+                "parent directory is ignored or under .git/generated directories",
+            )
 
         try:
             candidate.write_text(content, encoding="utf-8")

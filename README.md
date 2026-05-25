@@ -220,7 +220,8 @@ directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
 remains accepted. The REPL's `--repl-mode` flag defaults to `auto`: when the
 selected provider advertises `supports_tool_calls=True`, the shell launches
 the bounded model-driven tool loop (with `read`, `ls`, `grep`, `find`,
-`write`, and `edit` from `pipy_harness.native.tools.production_tool_registry`)
+`write`, and `edit` from
+`pipy_harness.native.tool_loop_session.production_tool_registry`)
 and `--tool-budget` (default 10, max 25) caps invocations per user turn;
 otherwise it falls back to the existing line-oriented REPL with the
 `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and

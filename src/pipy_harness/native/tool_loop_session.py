@@ -230,6 +230,34 @@ class NativeToolReplSession:
                     available_tools=available_tools,
                 )
                 provider_result = self.provider.complete(provider_request)
+                if provider_result.status != HarnessStatus.SUCCEEDED:
+                    ended_at = datetime.now(UTC)
+                    error_type = provider_result.error_type or "ProviderFailed"
+                    error_message = (
+                        provider_result.error_message
+                        or f"provider {effective_provider_name!r} returned status "
+                        f"{provider_result.status.value!r} without a final response"
+                    )
+                    print(
+                        f"pipy: tool-loop ended after provider failure: "
+                        f"{error_type}: {error_message}",
+                        file=error_stream,
+                    )
+                    return NativeToolReplResult(
+                        status=HarnessStatus.FAILED,
+                        exit_code=1,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        malformed_argument_count=malformed_argument_count,
+                        consecutive_malformed_streak=consecutive_malformed_streak,
+                        budget_exhausted_count=budget_exhausted_count,
+                        error_type=error_type,
+                        error_message=error_message,
+                    )
                 tool_calls = tuple(provider_result.tool_calls)
                 messages.append(
                     AssistantMessage(

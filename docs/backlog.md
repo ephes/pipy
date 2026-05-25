@@ -1514,14 +1514,31 @@ lands:
   `--repl-mode tool-loop` continue to force their respective adapters,
   so users can opt out either way. README now documents the new
   default, the `--tool-budget` cap, and the opt-in `--archive-transcript`
-  sidecar. Tests pin: `auto` falls back to no-tool for the current
-  real providers (all carry `supports_tool_calls=False` at the time of
-  this slice); `auto` routes to tool-loop when the resolver sees a
-  tool-capable provider (stubbed); explicit `no-tool` overrides
-  `auto` even with a tool-capable provider; and explicit `tool-loop`
-  forces the tool loop regardless of capability. With this slice the
-  Tool-Loop Parity Track is complete; the next-slice planning starts a
-  new direction.
+  sidecar. Tests pin: `auto` falls back to no-tool when the selected
+  provider advertises `supports_tool_calls=False` (currently OpenAI
+  Responses and OpenAI Codex); `auto` routes to tool-loop when the
+  resolver sees a tool-capable provider (currently OpenRouter, plus
+  stubbed variants in tests); explicit `no-tool` overrides `auto` even
+  with a tool-capable provider; and explicit `tool-loop` forces the
+  tool loop regardless of capability. With this slice the Tool-Loop
+  Parity Track is complete; the next-slice planning starts a new
+  direction.
+- Tool-loop parity track first-review fix-ups: independent review of
+  the Tool-Loop Parity Track surfaced two critical findings, both
+  addressed in this follow-up. `NativeToolReplSession` now surfaces a
+  failed `NativeToolReplResult` (with the provider's `error_type`,
+  `error_message`, and a deterministic stderr diagnostic) when the
+  provider returns `HarnessStatus.FAILED`; previously, a failed
+  provider call with no `tool_calls` and no `final_text` was treated
+  as a normal completed assistant turn. The `read`, `ls`, `grep`,
+  `find`, `write`, and `edit` tools now resolve the candidate path and
+  re-check `_is_ignored_or_generated` against the resolved relative
+  label via the new `_resolved_relative_label` helper in
+  `read_only_tool.py`; this closes the symlink-bypass gap where
+  `gitconfig_link -> .git/config` would defeat `.git` default-deny.
+  Regression tests live in `tests/test_tool_loop_provider_failure.py`
+  and `tests/test_tool_loop_symlink_defense.py` and cover all six
+  model-driven tools.
 
 ## Next Slice
 
@@ -1561,9 +1578,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now landing the Tool-Loop Parity Track, slice by
-reviewed slice, after the reviewed narrow explicit multi-file context budget
-and the next-boundary decision recorded above. That track follows the
+The Tool-Loop Parity Track has now landed end-to-end. OpenRouter is
+the first real provider with `supports_tool_calls=True`; OpenAI
+Responses and OpenAI Codex parsers remain a focused follow-up. The
+immediate path is selecting the next pipy-native direction; the
+previous slice-by-slice rollout of the track followed the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
