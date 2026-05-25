@@ -180,9 +180,7 @@ _ALLOWED_PATCH_PROPOSAL_KEYS = {
     "raw_transcript_imported",
     "workspace_mutated",
 }
-_SAFE_PROVIDER_METADATA_LABEL_MAX_CHARS = 32
 _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL = "<unsupported>"
-_SAFE_PROVIDER_METADATA_OVERSIZED_LABEL = "<oversized>"
 _SAFE_PROVIDER_METADATA_HTTP_STATUS_MIN = 100
 _SAFE_PROVIDER_METADATA_HTTP_STATUS_MAX = 599
 _GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
@@ -191,6 +189,46 @@ _GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
     "read_only_tool_fixture_metadata_present",
     "patch_proposal_metadata_present",
 }
+
+# Closed enum sets for the three string-shaped allowlisted provider-metadata
+# fields. Real adapters constrain their own outputs through
+# `_safe_response_label` (see `openrouter_provider.py` /
+# `openai_codex_provider.py`) plus an explicit pipy-internal
+# `"unknown"` / `"failed"` default in error paths, so these enums are
+# wide enough to cover every value the production adapters actually
+# emit. Any other string value — including a short literal an
+# adversarial or future provider might use to smuggle instruction text
+# (for example "DO_NOT_ARCHIVE" or a snippet of an AGENTS.md line) — is
+# replaced with `<unsupported>` so the archive carries only known-safe
+# labels.
+_PROVIDER_RESPONSE_STATUS_ALLOWED: frozenset[str] = frozenset(
+    {
+        "cancelled",
+        "completed",
+        "failed",
+        "in_progress",
+        "incomplete",
+        "queued",
+        "unknown",
+    }
+)
+_PROVIDER_RESPONSE_OBJECT_ALLOWED: frozenset[str] = frozenset(
+    {
+        "chat.completion",
+        "chat.completion.chunk",
+        "unknown",
+    }
+)
+_PROVIDER_FINISH_REASON_ALLOWED: frozenset[str] = frozenset(
+    {
+        "content_filter",
+        "function_call",
+        "length",
+        "stop",
+        "tool_calls",
+        "unknown",
+    }
+)
 
 
 def _project_safe_bool_metadata(value: object) -> object:
@@ -213,27 +251,30 @@ def _project_safe_http_status_metadata(value: object) -> object:
     return value
 
 
-def _project_safe_label_metadata(value: object) -> object:
-    if not isinstance(value, str):
-        return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
-    sanitized = sanitize_text(value)
-    if len(sanitized) > _SAFE_PROVIDER_METADATA_LABEL_MAX_CHARS:
-        return _SAFE_PROVIDER_METADATA_OVERSIZED_LABEL
-    return sanitized
+def _make_enum_projector(allowed: frozenset[str]) -> Callable[[object], object]:
+    def project(value: object) -> object:
+        if not isinstance(value, str):
+            return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+        if value not in allowed:
+            return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+        return value
+
+    return project
 
 
 # Allowlist of provider-emitted metadata keys, each paired with a strict
 # per-key projector. Keys not in this mapping are dropped entirely. Values
-# whose type or shape does not match are replaced with a deterministic
-# unsafe-sentinel label (`<unsupported>` / `<oversized>`) so an
-# adversarial or future provider cannot route the composed system prompt
-# back into the archive by stuffing it into an allowlisted field.
+# whose type, shape, or enum membership does not match are replaced with
+# the deterministic `<unsupported>` sentinel so an adversarial or future
+# provider cannot route the composed system prompt back into the archive
+# by stuffing it into an allowlisted field — including with a short
+# string that fits inside any previous length cap.
 _SAFE_PROVIDER_METADATA_PROJECTORS: dict[str, Callable[[object], object]] = {
     "provider_response_store_requested": _project_safe_bool_metadata,
     "http_status": _project_safe_http_status_metadata,
-    "response_status": _project_safe_label_metadata,
-    "response_object": _project_safe_label_metadata,
-    "finish_reason": _project_safe_label_metadata,
+    "response_status": _make_enum_projector(_PROVIDER_RESPONSE_STATUS_ALLOWED),
+    "response_object": _make_enum_projector(_PROVIDER_RESPONSE_OBJECT_ALLOWED),
+    "finish_reason": _make_enum_projector(_PROVIDER_FINISH_REASON_ALLOWED),
 }
 INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"

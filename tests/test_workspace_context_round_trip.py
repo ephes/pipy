@@ -83,6 +83,43 @@ class _CapturingFakeProvider:
         )
 
 
+_SHORT_LEAK_MARKER = "DO_NOT_ARCHIVE"
+
+
+class _ShortMarkerLeakingProvider:
+    """A hostile fake provider that returns a short leak marker — short
+    enough to fit inside any reasonable length cap — under every allowlisted
+    string-shaped metadata key. The enum projection in
+    `_safe_provider_metadata` is the only thing that closes this vector.
+    """
+
+    name = "short-marker-fake"
+
+    def __init__(self, *, model_id: str = "short-marker-model", final_text: str = "done") -> None:
+        self.model_id = model_id
+        self.final_text = final_text
+        self.captured_requests: list[ProviderRequest] = []
+        self.supports_tool_calls = False
+
+    def complete(self, request: ProviderRequest) -> ProviderResult:
+        self.captured_requests.append(request)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=self.final_text,
+            usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+            metadata={
+                "response_status": _SHORT_LEAK_MARKER,
+                "response_object": _SHORT_LEAK_MARKER,
+                "finish_reason": _SHORT_LEAK_MARKER,
+            },
+        )
+
+
 class _EchoingFakeProvider:
     """A hostile fake provider that echoes prompt-bearing fields back into
     `ProviderResult.metadata` so `_safe_provider_metadata` is exercised on the
@@ -516,9 +553,9 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
     assert provider_metadata == {
         "provider_response_store_requested": "<unsupported>",
         "http_status": "<unsupported>",
-        "response_status": "<oversized>",
-        "response_object": "<oversized>",
-        "finish_reason": "<oversized>",
+        "response_status": "<unsupported>",
+        "response_object": "<unsupported>",
+        "finish_reason": "<unsupported>",
     }
     for unsafe_key in (
         # Top-level prompt-bearing keys.
@@ -549,6 +586,59 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
     # value-side leak through an allowlisted key, including the
     # whitespace-collapsed truncation window in `_project_safe_label_metadata`).
     assert _LEAK_MARKER not in json.dumps(provider_metadata)
+
+
+def test_short_string_in_allowlisted_metadata_field_is_replaced_with_unsupported_sentinel(
+    workspace_with_agents_md: Path, tmp_path: Path
+) -> None:
+    """Regression for the fourth-review Critical finding: a provider that
+    returns a *short* string value under `response_status` /
+    `response_object` / `finish_reason` must not archive that string. Only
+    the closed enum sets in `_safe_provider_metadata` survive; any other
+    string — including a short literal like "DO_NOT_ARCHIVE" — projects to
+    `<unsupported>`.
+    """
+
+    provider = _ShortMarkerLeakingProvider()
+    adapter = PipyNativeAdapter(
+        provider=provider,
+        instruction_loader=_hermetic_loader,
+    )
+
+    root = tmp_path / "sessions"
+    result = HarnessRunner(
+        adapter=adapter,
+        id_factory=lambda: "short-marker-leak-regression",
+    ).run(
+        RunRequest(
+            agent="pipy-native",
+            slug="ws-instr-short-marker-regression",
+            command=[],
+            cwd=workspace_with_agents_md,
+            root=root,
+            goal="short-marker-leak-regression",
+            capture_policy=CapturePolicy(),
+        )
+    )
+
+    assert result.exit_code == 0
+    assert result.record.markdown_path is not None
+    jsonl_text = result.record.jsonl_path.read_text(encoding="utf-8")
+    md_text = result.record.markdown_path.read_text(encoding="utf-8")
+    assert _SHORT_LEAK_MARKER not in jsonl_text
+    assert _SHORT_LEAK_MARKER not in md_text
+
+    events = _read_jsonl(result.record.jsonl_path)
+    provider_completed = [
+        event for event in events if event["type"] == "native.provider.completed"
+    ]
+    assert provider_completed
+    provider_metadata = provider_completed[0]["payload"].get("provider_metadata", {})
+    assert provider_metadata == {
+        "response_status": "<unsupported>",
+        "response_object": "<unsupported>",
+        "finish_reason": "<unsupported>",
+    }
 
 
 # -- empty discovery default -------------------------------------------------
