@@ -2834,6 +2834,109 @@ def test_cli_native_repl_ask_file_and_read_exhaust_successful_read_budget(
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_repl_read_and_ask_file_block_later_propose_file_before_read_or_provider(
+    tmp_path,
+    capfd,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "sessions"
+    first = tmp_path / "docs" / "first.txt"
+    second = tmp_path / "docs" / "second.txt"
+    third = tmp_path / "docs" / "third.txt"
+    first.parent.mkdir()
+    first.write_text("FIRST_READ_ONLY_CONTEXT\n", encoding="utf-8")
+    second.write_text("SECOND_ASK_PROVIDER_CONTEXT\n", encoding="utf-8")
+    third.write_text("THIRD_PROPOSE_SHOULD_NOT_BE_READ\n", encoding="utf-8")
+    captured_requests: list[ProviderRequest] = []
+
+    class CliFakeAskFileProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request: ProviderRequest) -> ProviderResult:
+            captured_requests.append(request)
+            now = datetime.now(UTC)
+            # Sentinel: the budget guard should block the third /propose-file before
+            # the provider is called, so this branch must never fire. If it does, the
+            # len(captured_requests) == 1 and provider_turn_label == "ask_file_repl"
+            # assertions below trip directly, and the proposal metadata attached here
+            # also surfaces a "native.patch.proposal.recorded" event the test forbids.
+            metadata: dict[str, object] = {}
+            if request.provider_turn_label == "propose_file_repl":
+                metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY] = safe_repl_patch_proposal()
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ASK_FILE_PROVIDER_OUTPUT",
+                metadata=metadata,
+            )
+
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeAskFileProvider)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        StringIO(
+            "/read docs/first.txt\n"
+            "/ask-file docs/second.txt -- Use the second file\n"
+            "/propose-file docs/third.txt -- This request must stay local\n/exit\n"
+        ),
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-mixed-budget-smoke",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert captured.out == "FIRST_READ_ONLY_CONTEXT\nASK_FILE_PROVIDER_OUTPUT\n"
+    assert "propose-file command skipped: read_command_limit_reached" in captured.err
+    assert len(captured_requests) == 1
+    assert captured_requests[0].provider_turn_label == "ask_file_repl"
+    assert "SECOND_ASK_PROVIDER_CONTEXT" in captured_requests[0].user_prompt
+    assert "FIRST_READ_ONLY_CONTEXT" not in captured_requests[0].user_prompt
+    assert "THIRD_PROPOSE_SHOULD_NOT_BE_READ" not in captured_requests[0].user_prompt
+    assert "This request must stay local" not in captured_requests[0].user_prompt
+
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    events = read_jsonl(finalized[0])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("native.tool.completed") == 2
+    assert event_types.count("native.provider.completed") == 1
+    assert "native.patch.proposal.recorded" not in event_types
+    completed_payload = [
+        event["payload"] for event in events if event["type"] == "native.session.completed"
+    ][0]
+    assert completed_payload["successful_read_count"] == 2
+    assert completed_payload["successful_read_budget_limit"] == 2
+    assert completed_payload["successful_read_budget_remaining"] == 0
+    assert completed_payload["ask_file_command_used"] is True
+    assert completed_payload["propose_file_command_used"] is False
+    assert completed_payload["provider_visible_context_used"] is True
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
+        encoding="utf-8"
+    )
+    assert "FIRST_READ_ONLY_CONTEXT" not in combined
+    assert "SECOND_ASK_PROVIDER_CONTEXT" not in combined
+    assert "THIRD_PROPOSE_SHOULD_NOT_BE_READ" not in combined
+    assert "This request must stay local" not in combined
+    assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_repl_malformed_ask_file_after_read_limit_prints_usage(
     tmp_path,
     capfd,

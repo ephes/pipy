@@ -772,24 +772,29 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "leading slash-command name completion" in compact_pi_parity_roadmap
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Review and smoke the explicit multi-file context budget" in next_slice
-    assert "validate the newly implemented two-successful-excerpt REPL budget" in (
+    assert (
+        "### Choose the next native shell boundary after explicit multi-file context"
+        in next_slice
+    )
+    assert "select the next small `pipy-native` boundary" in (
         compact_next_slice
     )
-    assert "stale one-read assumptions or privacy regressions" in (
+    assert "summary-safe session reflection" in compact_next_slice
+    assert "compare narrow next-boundary candidates" in (
         compact_next_slice
     )
-    assert "fails a third attempt closed before reading or provider visibility" in (
+    assert "two successful explicit file excerpts per REPL session" in (
         compact_next_slice
     )
-    assert "one provider-visible excerpt per `/ask-file` or `/propose-file`" in (
+    assert "one user-named file per command" in compact_next_slice
+    assert "at most one provider-visible excerpt per provider turn" in (
         compact_next_slice
     )
     assert (
-        "preserve command names, parser behavior, stdout/stderr contracts"
+        "exact-path proposal/apply constraints"
         in compact_next_slice
     )
-    assert "no automatic `@file` file-content reads" in compact_next_slice
+    assert "do not select automatic `@file` file-content reads" in compact_next_slice
     assert "full-screen TUI" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
@@ -813,12 +818,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now reviewing and smoking the narrow explicit multi-file context" in (
+    assert "immediate path is now choosing the next native-shell boundary" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Review and smoke the explicit multi-file context budget." in compact_near_term
+    assert "Choose the next native shell boundary after explicit multi-file context." in (
+        compact_near_term
+    )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
         compact_near_term

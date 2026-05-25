@@ -1102,35 +1102,51 @@ fuller UI surface or lower-level terminal ownership.
   model output, provider responses, stdout, stderr, diffs, file contents,
   command output, auth material, secrets, credentials, tokens, private keys,
   and sensitive personal data.
+- Native explicit multi-file context budget review and smoke: the
+  two-successful-excerpt REPL budget was reviewed for stale one-read
+  assumptions across implementation, prompt/startup/status labels, session
+  counters, tests, and docs. Focused captured-stream fake-provider smoke now
+  covers mixed `/read` plus `/ask-file` success followed by an over-budget
+  `/propose-file` that fails closed before a third read, provider visibility,
+  proposal metadata, stdout leakage, or archive leakage. Existing broader
+  budget tests still cover other mixed command orderings, failed/skipped
+  recovery, exact-path proposal/apply constraints, `/verify just-check`, and
+  metadata-only archive compatibility. The first independent review found no
+  critical or warning issues and two optional suggestions; both were accepted
+  and fixed by making the proposal-metadata smoke assertion non-vacuous and by
+  tightening the next-slice deferred-boundary wording.
 
 ## Next Slice
 
-### Review and smoke the explicit multi-file context budget
+### Choose the next native shell boundary after explicit multi-file context
 
-Goal: validate the newly implemented two-successful-excerpt REPL budget with an
-independent review and focused smoke before choosing a broader context or tool
-boundary.
+Goal: use summary-safe session reflection and the current shell constraints to
+select the next small `pipy-native` boundary after the reviewed
+two-successful-excerpt budget, without implementing the selected boundary in
+the same slice.
 
 Implementation focus:
 
-- review the budget implementation, prompt/startup/status labels, session
-  metadata counters, tests, and docs for stale one-read assumptions or privacy
-  regressions
-- smoke a captured-stream fake-provider REPL session that consumes two
-  successful excerpts across mixed `/read`, `/ask-file`, or `/propose-file`
-  commands and fails a third attempt closed before reading or provider
-  visibility
-- keep one file per command, one provider-visible excerpt per `/ask-file` or
-  `/propose-file` provider turn, and the bounded failed/skipped recovery
-  behavior
-- preserve command names, parser behavior, stdout/stderr contracts, exact-path
-  proposal/apply constraints, `/verify just-check`, and metadata-only archive
-  compatibility
-- keep deferred boundaries closed: no automatic `@file` file-content reads,
-  model-selected paths, broad context loading, multiple files in one provider
-  turn, multi-file proposal/apply, arbitrary shell execution, provider-side
-  tools, non-allowlisted verification, raw history storage, persistent
-  transcripts, full-screen TUI, or general model/tool loop
+- inspect summary-safe archive signals with `pipy-session reflect --json` and
+  targeted `pipy-session search` queries before changing backlog direction
+- compare narrow next-boundary candidates against the existing Pi-parity
+  ladder: resilient input behavior, persistent history, richer resource
+  discovery, narrow read/edit/tool affordances, session resume/search surfaces,
+  or provider access polish
+- document the selected next slice in this backlog and, when architectural
+  behavior changes, in `docs/harness-spec.md`
+- keep the current reviewed budget invariants intact: two successful explicit
+  file excerpts per REPL session, one user-named file per command, at most one
+  provider-visible excerpt per provider turn, bounded failed/skipped recovery,
+  exact-path proposal/apply constraints, `/verify just-check`, and
+  metadata-only archives
+- keep broad deferred boundaries closed unless a narrow Pi-parity follow-up is
+  explicitly selected as the next reviewed slice; do not select automatic
+  `@file` file-content reads, model-selected paths, broad context loading,
+  multiple files in one provider turn, multi-file proposal/apply, arbitrary
+  shell execution, provider-side tools, non-allowlisted verification, raw
+  history storage, persistent transcripts, full-screen TUI, or a general
+  model/tool loop from this planning slice
 
 ## Near Term
 
@@ -1141,18 +1157,19 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now reviewing and smoking the narrow explicit multi-file
-context budget after the
+The immediate path is now choosing the next native-shell boundary after the
+reviewed narrow explicit multi-file context budget, following the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
 leading slash-command completion, workspace-relative path completion,
 multiline input, bottom-toolbar status decision, real-TTY prompt-toolkit
 hardening, next-boundary decision, completion-only `@file` references, the
-post-`@file` next-boundary decision, and the budget implementation. The
-implemented boundaries prove the current shell can preserve plain
-captured-stream behavior while isolating optional prompt-toolkit input behind a
-small adapter. The bottom-toolbar decision deferred footer behavior because the
+post-`@file` next-boundary decision, the budget implementation, and the
+budget review/smoke slice. Those implemented boundaries prove the current
+shell can preserve plain captured-stream behavior while isolating optional
+prompt-toolkit input behind a small adapter. The bottom-toolbar decision
+deferred footer behavior because the
 prompt label already carries the safe input-time status labels, and the
 hardening pass resolved the adapter compatibility work found by real-TTY smoke
 testing before adding another terminal display surface.
@@ -1207,13 +1224,13 @@ with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands, completion-only `@file` references, and
 prompt-toolkit-only multiline input with hardened cursor-position and
 newline-key handling while still keeping the shipping runtime metadata-only and
-captured-stream compatible. The next visible parity step is review and smoke
-for the explicit multi-file context budget, not another prompt-toolkit input
-feature.
+captured-stream compatible. The next visible parity step is a summary-safe
+next-boundary decision after the explicit multi-file context budget, not an
+opportunistic broadening of context or tool execution.
 
 Small reviewable slices, in intended order:
 
-1. Review and smoke the explicit multi-file context budget.
+1. Choose the next native shell boundary after explicit multi-file context.
 
 Foundation gates toward an interactive shell:
 
