@@ -191,7 +191,7 @@ def test_write_tool_rejects_invalid_max_content_bytes():
         WriteTool(max_content_bytes=WriteTool.HARD_MAX_CONTENT_BYTES + 1)
 
 
-def test_production_tool_registry_holds_write():
+def test_production_tool_registry_includes_write():
     from pipy_harness.native import production_tool_registry
 
     assert "write" in production_tool_registry()

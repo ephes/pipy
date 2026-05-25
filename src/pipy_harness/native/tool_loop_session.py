@@ -62,11 +62,11 @@ from pipy_harness.native.tools import (
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    Slice 5 added `read`, slice 6 added `ls`, slice 7 added `grep`,
-    slice 8 added `find`, and slice 9 adds `write`. Slice 10 will add
-    `edit`.
+    Slices 5 through 10 add `read`, `ls`, `grep`, `find`, `write`, and
+    `edit` respectively. The registry holds all six tools at slice 10.
     """
 
+    from pipy_harness.native.tools.edit import EditTool
     from pipy_harness.native.tools.find import FindTool
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
@@ -79,6 +79,7 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "grep": GrepTool(),
         "find": FindTool(),
         "write": WriteTool(),
+        "edit": EditTool(),
     }
 
 

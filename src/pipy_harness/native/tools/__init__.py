@@ -29,6 +29,7 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from pipy_harness.native.tools.edit import EditTool
 from pipy_harness.native.tools.find import FindTool
 from pipy_harness.native.tools.grep import GrepTool
 from pipy_harness.native.tools.ls import LsTool
@@ -37,6 +38,7 @@ from pipy_harness.native.tools.write import WriteTool
 
 __all__ = [
     "AssistantMessage",
+    "EditTool",
     "FindTool",
     "GrepTool",
     "LoopMessage",

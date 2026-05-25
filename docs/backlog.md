@@ -1435,46 +1435,63 @@ lands:
   write (sentinel monkeypatch); the source file imports nothing from
   `pipy_session`; `max_content_bytes` validation bounds.
 
+- Native edit tool (slice 10 of the Tool-Loop Parity Track):
+  `pipy_harness.native.tools.edit.EditTool` performs a literal-string
+  replace on an existing workspace-relative UTF-8 file. By default,
+  `old_string` must appear exactly once; `replace_all=true` opts in to
+  replacing every occurrence. Path validation reuses the same helpers as
+  `ReadTool` and refuses `.git`, ignored paths, parent traversal,
+  absolute paths, missing files, directory targets, binary content, and
+  oversized files. Empty `old_string` and missing matches surface as
+  `ToolArgumentError`/error observations respectively. The tool computes
+  a unified diff via `difflib.unified_diff` against the original file
+  and streams it through `ToolContext.stderr_sink`. The archive
+  (`pipy_session.recorder.append_event`) is never invoked from inside
+  the tool; a sentinel monkeypatch test pins the invariant, and a
+  source-text test pins that the module imports nothing from
+  `pipy_session`. `production_tool_registry()` now returns the six
+  slice-10 tools `{"read", "ls", "grep", "find", "write", "edit"}`.
+  Tests cover the definition and schema, successful unique replace with
+  the diff appearing on `stderr_sink`, `replace_all` success, rejection
+  of duplicate matches without `replace_all`, rejection of empty
+  `old_string`, missing-file and `.git`/absolute-path refusals, no-match
+  observations, the archive-untouched sentinel, the no-`pipy_session`
+  import invariant, and registry contents.
+
 ## Next Slice
 
-### Add the edit tool (slice 10 of the Tool-Loop Parity Track)
+### Add the opt-in transcript sidecar (slice 11 of the Tool-Loop Parity Track)
 
-Goal: ship the second mutation tool, `edit`, which performs a
-string-replace edit on an existing workspace-relative file. Reuses the
-existing `patch_apply.py` helpers, requires a unique `old_string` by
-default with an opt-in `replace_all`, and streams the resulting unified
-diff to stderr through the same `ToolContext.stderr_sink`.
+Goal: ship the opt-in `~/.local/state/pipy/transcripts/<id>.jsonl`
+sidecar enabled by `--archive-transcript`. The sidecar carries raw
+turns (user input, assistant output with tool calls, tool result
+messages, diffs) and is explicitly outside the metadata-first archive.
+The sidecar is excluded from `pipy-session list/search/inspect`.
 
 Implementation focus:
 
-- add a `pipy_harness.native.tools.edit.EditTool` that accepts a `path`
-  (workspace-relative, validated identically to `ReadTool`), an
-  `old_string` (literal text to replace), a `new_string` (replacement
-  text), and an optional `replace_all: bool` defaulting to `false`
-- refuse paths under `.git`, ignored paths, paths that escape the
-  workspace, missing paths, directory targets, binary content, and
-  oversized files; require the file to be UTF-8 text
-- when `replace_all` is `false`, require `old_string` to appear exactly
-  once; when `true`, replace every occurrence; reject empty `old_string`
-- write the resulting file with UTF-8 encoding; compute the unified
-  diff with `difflib.unified_diff` against the original; stream it to
-  `ToolContext.stderr_sink`; do not touch the archive
-- reuse helpers from `pipy_harness.native.patch_apply` where possible
-  (path normalization and apply semantics); the existing
-  `NativePatchApplyTool` boundary is not affected
-- update `production_tool_registry()` to include `edit`
-- ship focused tests pinning: definition and schema; successful unique
-  replace; successful `replace_all`; rejection of duplicate matches when
-  `replace_all=false`; rejection of empty `old_string`; refusal of
-  `.git`, missing files, directories, and binary content; the archive
-  recorder is not invoked; the diff lands on the stderr sink only
-- keep metadata-first archive contracts, `.git` default-deny posture,
-  `/verify just-check` scope, the existing no-tool REPL, and the
-  existing slash commands unchanged
+- add a `pipy_harness.native.transcripts.TranscriptSink` that writes one
+  JSONL line per loop event (`user`, `assistant`, `tool_result`,
+  `diff`); the file path is
+  `~/.local/state/pipy/transcripts/<id>.jsonl` (override via
+  `PIPY_TRANSCRIPT_DIR`)
+- add an `--archive-transcript` boolean CLI flag to `pipy repl`; default
+  is off so existing behavior is unchanged
+- the `NativeToolReplSession` and `PipyNativeToolReplAdapter` accept
+  the optional sink and emit events into it when enabled; the
+  archive remains metadata-only
+- update `pipy-session list/search/inspect` to exclude the transcripts
+  directory; the catalog never reads it
+- mark transcripts as sensitive in user-facing docs (`docs/session-storage.md`)
+- ship focused privacy tests pinning: with `--archive-transcript`
+  unset, no sidecar file is created; when set, the sidecar contains
+  raw turns; the metadata archive is unchanged; `pipy-session list`
+  and `pipy-session search` do not surface transcript paths; the
+  sidecar lives outside the existing session root
 
-The remaining two slices of the Tool-Loop Parity Track stay closed in
-this slice. The full slice list, invariants, and deferred items are in
-the `Tool-Loop Parity Track` section above.
+The final slice 12 stays closed in this slice. The full slice list,
+invariants, and deferred items are in the `Tool-Loop Parity Track`
+section above.
 
 ## Near Term
 
@@ -1562,7 +1579,8 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the edit tool (slice 10 of the Tool-Loop Parity Track).
+1. Add the opt-in transcript sidecar (slice 11 of the Tool-Loop Parity
+   Track).
 
 Foundation gates toward an interactive shell:
 

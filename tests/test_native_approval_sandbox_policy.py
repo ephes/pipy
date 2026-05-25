@@ -773,24 +773,23 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Add the edit tool (slice 10 of the Tool-Loop Parity Track)"
-        in next_slice
+        "### Add the opt-in transcript sidecar (slice 11 of the Tool-Loop "
+        "Parity Track)" in next_slice
     )
     assert (
-        "`pipy_harness.native.tools.edit.EditTool`"
+        "`pipy_harness.native.transcripts.TranscriptSink`"
         in compact_next_slice
     )
-    assert "require `old_string` to appear exactly once" in compact_next_slice
-    assert "opt-in `replace_all`" in compact_next_slice
-    assert "reuse helpers from `pipy_harness.native.patch_apply`" in (
-        compact_next_slice
+    assert (
+        "`~/.local/state/pipy/transcripts/<id>.jsonl`"
+        in compact_next_slice
     )
-    assert "update `production_tool_registry()` to include `edit`" in (
-        compact_next_slice
+    assert "add an `--archive-transcript` boolean CLI flag" in compact_next_slice
+    assert (
+        "update `pipy-session list/search/inspect` to exclude the transcripts"
+        in compact_next_slice
     )
-    assert "remaining two slices of the Tool-Loop Parity Track stay closed" in (
-        compact_next_slice
-    )
+    assert "The final slice 12 stays closed in this slice" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
@@ -819,8 +818,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Add the edit tool (slice 10 of the Tool-Loop Parity Track)."
-        in compact_near_term
+        "Add the opt-in transcript sidecar (slice 11 of the Tool-Loop "
+        "Parity Track)." in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
