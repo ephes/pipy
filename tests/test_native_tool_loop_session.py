@@ -110,10 +110,10 @@ def _run_session(
 # --------------------- production registry holds read and ls --------------
 
 
-def test_production_tool_registry_holds_read_ls_grep_and_find():
+def test_production_tool_registry_holds_read_ls_grep_find_and_write():
     registry = production_tool_registry()
 
-    assert set(registry.keys()) == {"read", "ls", "grep", "find"}
+    assert set(registry.keys()) == {"read", "ls", "grep", "find", "write"}
     for name in registry:
         assert registry[name].definition.name == name
 

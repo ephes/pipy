@@ -157,9 +157,9 @@ def test_find_tool_rejects_invalid_max_results():
         FindTool(max_results=FindTool.HARD_MAX_RESULTS + 1)
 
 
-def test_production_tool_registry_holds_read_ls_grep_and_find():
+def test_production_tool_registry_includes_find():
     from pipy_harness.native import production_tool_registry
 
     registry = production_tool_registry()
 
-    assert set(registry.keys()) == {"read", "ls", "grep", "find"}
+    assert "find" in registry

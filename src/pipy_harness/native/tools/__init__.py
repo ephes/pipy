@@ -33,6 +33,7 @@ from pipy_harness.native.tools.find import FindTool
 from pipy_harness.native.tools.grep import GrepTool
 from pipy_harness.native.tools.ls import LsTool
 from pipy_harness.native.tools.read import ReadTool
+from pipy_harness.native.tools.write import WriteTool
 
 __all__ = [
     "AssistantMessage",
@@ -41,6 +42,7 @@ __all__ = [
     "LoopMessage",
     "LsTool",
     "ReadTool",
+    "WriteTool",
     "ToolArgumentError",
     "ToolContext",
     "ToolDefinition",

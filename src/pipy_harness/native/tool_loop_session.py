@@ -62,22 +62,23 @@ from pipy_harness.native.tools import (
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    Slice 5 added `read`, slice 6 added `ls`, slice 7 added `grep`, and
-    slice 8 adds `find`. Later slices populate the registry with `write`
-    and `edit` once each has its own focused tests, a green `just check`,
-    and a reviewed commit.
+    Slice 5 added `read`, slice 6 added `ls`, slice 7 added `grep`,
+    slice 8 added `find`, and slice 9 adds `write`. Slice 10 will add
+    `edit`.
     """
 
     from pipy_harness.native.tools.find import FindTool
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
     from pipy_harness.native.tools.read import ReadTool
+    from pipy_harness.native.tools.write import WriteTool
 
     return {
         "read": ReadTool(),
         "ls": LsTool(),
         "grep": GrepTool(),
         "find": FindTool(),
+        "write": WriteTool(),
     }
 
 
@@ -160,7 +161,11 @@ class NativeToolReplSession:
         cwd = cwd.expanduser().resolve()
         if not cwd.is_dir():
             raise ValueError(f"workspace_root is not a directory: {cwd}")
-        context = ToolContext(workspace_root=cwd)
+
+        def _stderr_sink(text: str) -> None:
+            error_stream.write(text)
+
+        context = ToolContext(workspace_root=cwd, stderr_sink=_stderr_sink)
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
 

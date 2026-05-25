@@ -38,8 +38,8 @@ Anything outside this subset raises a clear error at definition time.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -212,18 +212,23 @@ class ToolExecutionResult:
 class ToolContext:
     """Environment passed to one tool invocation.
 
-    Kept intentionally minimal in this slice. Later slices may add optional
-    sinks (for example, a stderr writer used by `write` and `edit` to emit
-    unified diffs) by introducing default-valued fields.
+    `stderr_sink` is an optional callable that mutation tools (`write`,
+    `edit`) use to stream unified diffs out to the loop's `error_stream`.
+    The default is `None`, in which case mutation tools fall back to
+    discarding the diff. The archive boundary is unrelated; diffs never
+    cross it from inside the tool.
     """
 
     workspace_root: Path
+    stderr_sink: Callable[[str], None] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):
             raise ValueError("ToolContext.workspace_root must be a Path")
         if not self.workspace_root.is_absolute():
             raise ValueError("ToolContext.workspace_root must be absolute")
+        if self.stderr_sink is not None and not callable(self.stderr_sink):
+            raise ValueError("ToolContext.stderr_sink must be callable or None")
 
 
 @runtime_checkable

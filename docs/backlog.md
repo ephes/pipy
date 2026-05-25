@@ -1414,43 +1414,65 @@ lands:
   shape, no-tool REPL, slash command, or `/verify just-check` behavior
   changes in this slice.
 
+- Native write tool with stderr diff sink (slice 9 of the Tool-Loop
+  Parity Track): `pipy_harness.native.tools.write.WriteTool` creates a
+  new workspace-relative UTF-8 file with provided content. The tool is
+  create-only in this slice: it refuses paths that already exist, paths
+  under `.git` or matching `.gitignore`, paths that escape the workspace,
+  and paths whose parent directory does not exist or is not a directory.
+  Mutation is direct (no proposal/apply two-step). `ToolContext` grew an
+  optional `stderr_sink: Callable[[str], None] | None` field; the tool
+  computes a unified diff against an empty original via
+  `difflib.unified_diff` and streams it through the sink. The
+  `NativeToolReplSession` wires the loop's `error_stream` to that sink,
+  so production runs print diffs to stderr. `production_tool_registry()`
+  now returns `{"read": ..., "ls": ..., "grep": ..., "find": ...,
+  "write": ...}`. Tests pin: definition and schema; successful file
+  creation with the unified diff appearing on `stderr_sink`; refusal of
+  existing files, `.git` paths, absolute paths, parent traversal, and
+  missing parent directories; empty-content writes succeed; the
+  `pipy_session.recorder.append_event` boundary is not invoked during a
+  write (sentinel monkeypatch); the source file imports nothing from
+  `pipy_session`; `max_content_bytes` validation bounds.
+
 ## Next Slice
 
-### Add the write tool (slice 9 of the Tool-Loop Parity Track)
+### Add the edit tool (slice 10 of the Tool-Loop Parity Track)
 
-Goal: ship the first model-driven write tool, `write`, which creates a
-new workspace-relative file with the provided contents and writes the
-resulting unified diff to stderr. Mutation is direct (no proposal/apply
-two-step) and archive contracts remain metadata-only.
+Goal: ship the second mutation tool, `edit`, which performs a
+string-replace edit on an existing workspace-relative file. Reuses the
+existing `patch_apply.py` helpers, requires a unique `old_string` by
+default with an opt-in `replace_all`, and streams the resulting unified
+diff to stderr through the same `ToolContext.stderr_sink`.
 
 Implementation focus:
 
-- add a `pipy_harness.native.tools.write.WriteTool` that accepts a
-  `path` (workspace-relative, validated identically to `ReadTool`) and
-  `content` (UTF-8 string with a maximum length)
-- refuse paths that already exist (create-only in this slice), paths
-  under `.git`, ignored paths, paths that escape the workspace, and
-  paths whose parent directory does not exist or is not a directory
-- write the file with UTF-8 encoding and emit a unified diff
-  (`difflib.unified_diff` against an empty original) to the loop's
-  `error_stream`; the archive remains untouched and the diff lands
-  only on stderr (and, when slice 11 lands, in the opt-in transcript
-  sidecar)
-- thread a `stderr_sink: Callable[[str], None] | None` default-None
-  field through `ToolContext` so tools can write the diff without
-  knowing about provider or REPL plumbing; the loop wires it to the
-  REPL's `error_stream`
-- update `production_tool_registry()` to include `write`
-- ship focused tests pinning: definition and schema; successful file
-  creation with unified diff written to stderr; refusal of existing
-  files, `.git`, absolute paths, parent traversal, and missing parent
-  directories; the archive (via `pipy_session.recorder`) is untouched
-  before and after the call; the diff lands on the stderr sink only
+- add a `pipy_harness.native.tools.edit.EditTool` that accepts a `path`
+  (workspace-relative, validated identically to `ReadTool`), an
+  `old_string` (literal text to replace), a `new_string` (replacement
+  text), and an optional `replace_all: bool` defaulting to `false`
+- refuse paths under `.git`, ignored paths, paths that escape the
+  workspace, missing paths, directory targets, binary content, and
+  oversized files; require the file to be UTF-8 text
+- when `replace_all` is `false`, require `old_string` to appear exactly
+  once; when `true`, replace every occurrence; reject empty `old_string`
+- write the resulting file with UTF-8 encoding; compute the unified
+  diff with `difflib.unified_diff` against the original; stream it to
+  `ToolContext.stderr_sink`; do not touch the archive
+- reuse helpers from `pipy_harness.native.patch_apply` where possible
+  (path normalization and apply semantics); the existing
+  `NativePatchApplyTool` boundary is not affected
+- update `production_tool_registry()` to include `edit`
+- ship focused tests pinning: definition and schema; successful unique
+  replace; successful `replace_all`; rejection of duplicate matches when
+  `replace_all=false`; rejection of empty `old_string`; refusal of
+  `.git`, missing files, directories, and binary content; the archive
+  recorder is not invoked; the diff lands on the stderr sink only
 - keep metadata-first archive contracts, `.git` default-deny posture,
   `/verify just-check` scope, the existing no-tool REPL, and the
   existing slash commands unchanged
 
-The remaining three slices of the Tool-Loop Parity Track stay closed in
+The remaining two slices of the Tool-Loop Parity Track stay closed in
 this slice. The full slice list, invariants, and deferred items are in
 the `Tool-Loop Parity Track` section above.
 
@@ -1540,7 +1562,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the write tool (slice 9 of the Tool-Loop Parity Track).
+1. Add the edit tool (slice 10 of the Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 

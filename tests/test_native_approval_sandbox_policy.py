@@ -773,20 +773,22 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Add the write tool (slice 9 of the Tool-Loop Parity Track)"
+        "### Add the edit tool (slice 10 of the Tool-Loop Parity Track)"
         in next_slice
     )
     assert (
-        "`pipy_harness.native.tools.write.WriteTool`"
+        "`pipy_harness.native.tools.edit.EditTool`"
         in compact_next_slice
     )
-    assert "create-only in this slice" in compact_next_slice
-    assert "writes the resulting unified diff to stderr" in compact_next_slice
-    assert "`stderr_sink: Callable[[str], None]" in compact_next_slice
-    assert "update `production_tool_registry()` to include `write`" in (
+    assert "require `old_string` to appear exactly once" in compact_next_slice
+    assert "opt-in `replace_all`" in compact_next_slice
+    assert "reuse helpers from `pipy_harness.native.patch_apply`" in (
         compact_next_slice
     )
-    assert "remaining three slices of the Tool-Loop Parity Track stay closed" in (
+    assert "update `production_tool_registry()` to include `edit`" in (
+        compact_next_slice
+    )
+    assert "remaining two slices of the Tool-Loop Parity Track stay closed" in (
         compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
@@ -817,7 +819,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Add the write tool (slice 9 of the Tool-Loop Parity Track)."
+        "Add the edit tool (slice 10 of the Tool-Loop Parity Track)."
         in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
