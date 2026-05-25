@@ -110,8 +110,10 @@ Useful ideas:
   events, but core session behavior is not embedded in the CLI.
 - Discover runtime context from workspace files such as `AGENTS.md`, `CLAUDE.md`,
   skills, and directory listings, but avoid baking all context into build
-  artifacts. Pipy can defer context discovery because external agents already do
-  their own instruction loading.
+  artifacts. `AGENTS.md` / `CLAUDE.md` instruction discovery is scoped
+  through the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
+  skills, prompt templates, themes, extensions, and package loading remain
+  deferred to later parity work.
 
 Things not to borrow yet:
 
@@ -3401,6 +3403,107 @@ it lands. They are not later slices of this track:
 - Streaming token-by-token model text in the loop's `final_text`
   surface; the SSE assembler still concatenates the streamed deltas
   before returning, matching today's single-shot loop contract.
+
+## Workspace Context Loading Parity Track
+
+The next named Pi-parity track after the
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
+adds AGENTS.md / CLAUDE.md discovery and injection into the native
+pipy system prompt across `pipy repl --agent pipy-native` and
+`pipy run --agent pipy-native`, in both `--repl-mode tool-loop` and
+`--repl-mode no-tool`. Pi's `loadProjectContextFiles` in
+`pi-mono/packages/coding-agent/src/core/resource-loader.ts` walks
+the workspace, then its parent directories, then a global agent
+configuration directory, picking the first existing file in the
+per-directory candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
+CLAUDE.MD` and dedupes by canonical absolute path. The pipy track
+slopforks the same behavior through pipy-owned Python boundaries,
+not as a literal TypeScript port. The slice ordering and current
+state live in `docs/backlog.md`
+(`Workspace Context Loading Parity Track`); the parity-map entry
+lives in `docs/pi-parity.md`
+(`Workspace Context Loading Parity Track`). This section records
+the design-level goal, invariants, and deferred design choices of
+the track.
+
+### Goal
+
+- `pipy repl --agent pipy-native` and `pipy run --agent pipy-native`
+  send a system prompt that includes the workspace's `AGENTS.md` /
+  `CLAUDE.md` content plus any parent-walk and global instructions,
+  in both `--repl-mode tool-loop` and `--repl-mode no-tool`, across
+  `openai`, `openai-codex`, and `openrouter`.
+- A round-trip smoke shows the model honoring an instruction stated
+  only in `AGENTS.md` (for example, "do not record raw prompts")
+  that would not be honored from the base bootstrap system prompt
+  alone. A hermetic test pins the same against a request-capturing
+  fake provider.
+- Discovery rules are pinned by focused unit tests: per-directory
+  candidate filename precedence, nested-workspace ordering, missing
+  files do not fail, symlinks must resolve inside the workspace,
+  the global root respects `PIPY_CONFIG_HOME`, then
+  `XDG_CONFIG_HOME/pipy`, then `~/.config/pipy`, and bounded
+  per-file and total byte caps apply with deterministic truncation
+  labels.
+- `pipy-session` records only metadata about which instruction
+  files were loaded (workspace-relative path or `<global>` label,
+  sha256, byte length). A test pins that no instruction body
+  reaches session JSONL, the Markdown summary, or the opt-in
+  `--archive-transcript` sidecar.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly.
+  `pipy_session.recorder` records no instruction bodies in any
+  slice; only safe per-file metadata (path label, sha256, byte
+  length). Pinned by tests.
+- The opt-in `--archive-transcript` sidecar contracts (path,
+  exclusion from `pipy-session list/search/inspect`,
+  off-by-default) stay unchanged. Instruction bodies never reach
+  the sidecar.
+- `.git` default-deny posture and existing slash commands
+  (`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`) keep working unchanged in both REPL modes.
+- No new runtime dependencies. Stdlib plus manual dict validation
+  only. No pydantic, jsonschema, or attrs.
+- Reuse the existing `ProviderPort` message envelope and
+  `NativeToolReplSession`. Do not redesign the loop.
+- Per-file and total byte caps are enforced before the prompt is
+  composed; an over-cap file is included up to its slice with a
+  deterministic truncation marker, and over-total reads stop at
+  the total cap with a deterministic notice.
+- Symlinks that resolve outside the workspace are skipped; their
+  metadata is not recorded.
+- The pipy-owned `tool_request_id` (`pipy-tool-` prefix) stays
+  internal; provider identifiers ride separately as
+  `provider_correlation_id`.
+- The existing `NativeToolResult` / `ToolExecutionResult`
+  archive-vs-provider boundary is unchanged. Workspace-instruction
+  metadata rides alongside session safe context, not in either of
+  those shapes.
+- Each slice ships focused tests, a green `just check`, updated
+  docs, a conventional commit, and stops for review.
+
+### Deferred Within The Track
+
+These remain explicitly out of scope while the track lands and
+after it lands. They are not later slices of this track:
+
+- Skills, prompt templates, themes, extensions, and package
+  loading. AGENTS/CLAUDE-style instruction discovery is the only
+  resource type introduced by this track.
+- Session resume, branch/fork navigation, compaction, and export.
+- Full TUI, persistent history, and resize handling.
+- A `bash` tool, generalizing `/verify` beyond `just check`, and
+  additional providers beyond `openai`, `openai-codex`, and
+  `openrouter`.
+- Watching the workspace for instruction-file changes during a
+  session. The current track resolves instructions once per run.
+- Sending an instruction file as a provider-visible attachment
+  rather than appending it to the system prompt; the system prompt
+  is the supported surface.
 
 ## Deferred Work
 

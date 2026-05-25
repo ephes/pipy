@@ -773,19 +773,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Choose the next pipy-native direction after the OpenAI "
-        "Responses + OpenAI Codex Tool-Call Parity Track" in next_slice
+        "### Workspace Context Loading Parity Track — slice 1 (docs only)"
+        in next_slice
     )
     assert (
-        "pick the next reviewable boundary" in compact_next_slice
+        "open the [Workspace Context Loading Parity Track]"
+        in compact_next_slice
     )
     assert (
-        "Pi-parity ladder" in compact_next_slice
+        "docs-only slice; no source code or test changes ship with it"
+        in compact_next_slice
     )
     assert (
-        "Both the original Tool-Loop Parity Track and the follow-up "
-        "OpenAI Responses + OpenAI Codex Tool-Call Parity Track are now "
-        "complete"
+        "Pinned tests: none. This is a docs-only opener"
         in compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec

@@ -117,7 +117,10 @@ discipline:
   persistent history, and a fuller TUI remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
   prompts, skills, extensions, and model/provider defaults, with metadata-only
-  archive behavior.
+  archive behavior. AGENTS/CLAUDE-style instruction discovery is now scoped
+  through the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
+  prompts, skills, extensions, and model/provider defaults remain deferred to
+  later parity work.
 - Tool parity: read, edit/write, bash/shell, verification, and follow-up tool
   observations behind pipy-owned boundaries, explicit scopes, and privacy
   invariants.
@@ -338,6 +341,128 @@ These hold throughout the track, not as later deferrals:
 - Additional providers beyond `openai`, `openai-codex`, and
   `openrouter`.
 - Removing the no-tool REPL or redesigning the tool-loop contracts.
+
+## Workspace Context Loading Parity Track
+
+The next named Pi-parity track after the
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
+adds AGENTS.md / CLAUDE.md discovery and injection into the native
+pipy system prompt. Pi's `loadProjectContextFiles` in
+`pi-mono/packages/coding-agent/src/core/resource-loader.ts` walks the
+workspace, then its parent directories, then a global agent
+configuration directory, picking the first existing file in the
+per-directory candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
+CLAUDE.MD` and dedupes by canonical path. Pipy slopforks the same
+behavior through pipy-owned Python boundaries, not as a literal
+TypeScript port.
+
+Use this section together with the matching design notes in
+`docs/harness-spec.md` (`Workspace Context Loading Parity Track`)
+and the parity-map entry in `docs/pi-parity.md`
+(`Workspace Context Loading Parity Track`).
+
+### Goal
+
+- `pipy repl --agent pipy-native` and `pipy run --agent pipy-native`
+  send a system prompt that includes the workspace's `AGENTS.md` /
+  `CLAUDE.md` content plus any parent-walk and global instructions,
+  in both `--repl-mode tool-loop` and `--repl-mode no-tool`, across
+  `openai`, `openai-codex`, and `openrouter`.
+- A round-trip smoke shows the model honoring an instruction stated
+  only in `AGENTS.md` and a hermetic test pins the same against the
+  fake provider.
+- Discovery rules are pinned by focused unit tests: per-directory
+  candidate filename precedence, nested-workspace ordering, missing
+  files do not fail, symlinks must resolve inside the workspace, the
+  global root respects `PIPY_CONFIG_HOME`, then
+  `XDG_CONFIG_HOME/pipy`, then `~/.config/pipy`, and bounded
+  per-file and total byte caps apply with deterministic truncation
+  labels.
+- `pipy-session` records only metadata about which instruction files
+  were loaded (workspace-relative path or `<global>` label, sha256,
+  byte length). A test pins that no instruction body reaches session
+  JSONL, the Markdown summary, or the opt-in `--archive-transcript`
+  sidecar.
+
+### Planned Slices
+
+1. Docs only. Record the workspace-context parity goal, invariants,
+   slice plan, and deferred work in `docs/pi-parity.md`,
+   `docs/backlog.md`, and `docs/harness-spec.md`.
+2. Workspace instruction loader. Add
+   `pipy_harness.native.workspace_context` with a
+   `WorkspaceInstructionFile` value object and a
+   `discover_workspace_instructions(...)` helper that mirrors
+   `loadProjectContextFiles` through pipy-owned Python: per-directory
+   candidate precedence, parent-walk ordering (root-most ancestor
+   first, the workspace itself last), the global root resolved
+   through `PIPY_CONFIG_HOME` then `XDG_CONFIG_HOME/pipy` then
+   `~/.config/pipy`, deduplication by canonical absolute path,
+   symlink resolution that stays inside the workspace, bounded
+   per-file and total byte caps with deterministic truncation
+   labels, and "missing files do not fail" semantics. Focused unit
+   tests pin every rule. No REPL or run wiring in this slice.
+3. System-prompt wiring and archive metadata. Compose the system
+   prompt from the existing bootstrap base plus the discovered
+   instructions, and pass it through `PipyNativeAdapter` (one-shot),
+   `PipyNativeReplAdapter` (no-tool REPL), and
+   `PipyNativeToolReplAdapter` (tool-loop). Record per-run
+   `workspace_instruction_files` metadata (workspace-relative or
+   `<global>` label, sha256, byte length) in the session safe
+   context. Pin that bodies never appear in JSONL, the Markdown
+   summary, or the `--archive-transcript` sidecar. Ship a hermetic
+   round-trip test against a request-capturing fake provider that
+   proves an `AGENTS.md` instruction reaches
+   `ProviderRequest.system_prompt` across both REPL modes and the
+   one-shot runner.
+4. Docs cleanup and close. Move the parity-map row to "Implemented",
+   remove the "Still To Slopfork" / "Deferred" wording for
+   AGENTS/CLAUDE-style context discovery, refresh the Pi Parity
+   Roadmap context/resource-loading bullet, add the Done entry in
+   `docs/backlog.md`, and run a real-provider smoke (recorded as a
+   metadata-only `pipy-session`) that honors an `AGENTS.md`-only
+   instruction end-to-end.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly.
+  `pipy_session.recorder` records no instruction bodies in any
+  slice; only safe per-file metadata (path label, sha256, byte
+  length). Pinned by tests.
+- The opt-in `--archive-transcript` sidecar contracts (path,
+  exclusion from `pipy-session list/search/inspect`, off-by-default)
+  stay unchanged. Instruction bodies never reach the sidecar.
+- `.git` default-deny posture and existing slash commands (`/read`,
+  `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`) keep working unchanged in both REPL modes.
+- No new runtime dependencies. Stdlib plus manual dict validation
+  only. No pydantic, jsonschema, or attrs.
+- Reuse the existing `ProviderPort` message envelope and
+  `NativeToolReplSession`. Do not redesign the loop.
+- Per-file and total byte caps are enforced before the prompt is
+  composed; an over-cap file is included up to its slice with a
+  deterministic truncation marker, and over-total reads stop at the
+  total cap with a deterministic notice.
+- Symlinks that resolve outside the workspace are skipped; their
+  metadata is not recorded.
+- Each slice ships focused tests, a green `just check`, updated
+  docs, a conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the track lands and after
+it lands. They are not later slices of this track:
+
+- Skills, prompt templates, themes, extensions, and package loading.
+- Session resume, branch/fork, compaction, and export.
+- Full TUI, persistent history, and resize handling.
+- A `bash` tool, generalizing `/verify` beyond `just check`, and
+  additional providers beyond `openai`, `openai-codex`, and
+  `openrouter`.
+- Watching the workspace for instruction-file changes during a
+  session. The current track resolves instructions once per run.
 
 ## Done
 
@@ -1781,38 +1906,41 @@ These hold throughout the track, not as later deferrals:
 
 ## Next Slice
 
-### Choose the next pipy-native direction after the OpenAI Responses + OpenAI Codex Tool-Call Parity Track
+### Workspace Context Loading Parity Track — slice 1 (docs only)
 
-Goal: pick the next reviewable boundary now that the OpenAI
-Responses + OpenAI Codex Tool-Call Parity Track has landed
-end-to-end across `openai`, `openai-codex`, and `openrouter`. The
-implementation track for the next slice is intentionally not
-selected here; the goal is to use summary-safe session reflection
-and the current parity gaps to choose the next small
-`pipy-native` boundary.
+Goal: open the
+[Workspace Context Loading Parity Track](#workspace-context-loading-parity-track)
+in `docs/pi-parity.md`, `docs/backlog.md`, and
+`docs/harness-spec.md` with the Goal / Planned Slices / Invariants /
+Out Of Scope shape used by the two completed parity tracks. This is
+a docs-only slice; no source code or test changes ship with it.
 
 Implementation focus:
 
-- inspect summary-safe archive signals with
-  `pipy-session reflect --json` and targeted `pipy-session search`
-  queries before picking a direction
-- compare next-boundary candidates against the Pi-parity ladder:
-  richer resource discovery (AGENTS / CLAUDE-style instruction
-  loading), session resume / search surfaces, persistent input
-  history, resilient TTY resize behavior, or provider-access
-  polish such as model-catalog discovery
-- document the selected next slice in this backlog and, when
-  architectural behavior changes, in `docs/harness-spec.md`
+- document the new track at H2 level in `docs/pi-parity.md` (between
+  the OpenAI Responses + OpenAI Codex Tool-Call Parity Track and
+  Architecture Differences From Pi), in `docs/backlog.md` (between
+  the OpenAI Responses + OpenAI Codex Tool-Call Parity Track and
+  the `## Done` ledger), and in `docs/harness-spec.md` (alongside
+  the existing parity-track design notes)
+- soften the "Still To Slopfork" wording in `docs/pi-parity.md` so
+  AGENTS/CLAUDE-style context discovery points to the new track
+  instead of being listed as deferred, while keeping richer
+  resource loading (skills, prompts, themes, extensions, packages)
+  in the deferred list
+- update the Pi Parity Roadmap context/resource-loading bullet in
+  `docs/backlog.md` to point at the new track
+- update the "Discover runtime context from workspace files such as
+  `AGENTS.md`, `CLAUDE.md`" Flue-lessons sentence in
+  `docs/harness-spec.md` so it no longer says context discovery can
+  be deferred
 - keep metadata-first archive contracts, `.git` default-deny
   posture, `/verify just-check` scope, the no-tool REPL, the
-  tool-loop REPL, and the existing slash commands unchanged in
-  this planning slice
+  tool-loop REPL, the opt-in `--archive-transcript` sidecar, and
+  the existing slash commands unchanged in this planning slice
 
-Both the original Tool-Loop Parity Track and the follow-up
-OpenAI Responses + OpenAI Codex Tool-Call Parity Track are now
-complete; subsequent slices may extend the tool-loop surface
-(for example, additional tools or richer streaming) or branch
-into other parity work.
+Pinned tests: none. This is a docs-only opener. Subsequent slices
+(loader, wiring, close) bring their own focused tests.
 
 ## Near Term
 
