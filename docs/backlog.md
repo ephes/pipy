@@ -1541,6 +1541,30 @@ lands:
   Regression tests live in `tests/test_tool_loop_provider_failure.py`
   and `tests/test_tool_loop_symlink_defense.py` and cover all six
   model-driven tools.
+- Tool-loop parity track second-review fix-ups: focused second review
+  surfaced two warnings, both addressed. `GrepTool._walk` now uses
+  `_resolved_relative_label` plus an `OSError` guard around
+  `Path.resolve()`, so the stdlib fallback skips outside-workspace
+  symlinks instead of raising and crashing the loop (the loop's
+  `_invoke` only catches `ToolArgumentError`). The track overview
+  paragraphs in `docs/backlog.md` and `docs/harness-spec.md` no longer
+  describe the implemented track as "planned" / "next visible step";
+  both now lead with the implemented state and call out the OpenRouter
+  parser follow-up. Regression test
+  `test_grep_stdlib_fallback_skips_outside_workspace_symlink` monkey-
+  patches `shutil.which` to force the fallback path and plants an
+  outside-workspace symlink to verify the walker skips it without
+  raising.
+- Tool-loop parity track review-cycle closure: the third focused
+  review came back clean (Critical 0, Warning 0, Suggestion 0).
+  Reviewer: Codex (GPT-5 family). No subagent use. Cumulative review
+  metrics across the three rounds: round 1 surfaced 2 Critical + 1
+  Warning (all addressed); round 2 surfaced 2 Warning (all addressed);
+  round 3 surfaced no findings. The OpenRouter end-to-end closure is
+  genuine; the metadata archive remains untouched across all six
+  model-driven tools and the opt-in `TranscriptSink`; the no-tool
+  REPL and the existing slash commands are unchanged. The Tool-Loop
+  Parity Track review cycle is closed.
 
 ## Next Slice
 
