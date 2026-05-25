@@ -163,10 +163,6 @@ Deferred:
 - Full Pi-style TUI editor, footer, overlays, selectors, and general keyboard
   runtime beyond the selected narrow `prompt-toolkit` input-adapter
   investigation.
-- Model-driven tool-call support on `OpenAIResponsesProvider` and
-  `OpenAICodexResponsesProvider`. Both currently carry
-  `supports_tool_calls=False`; OpenRouter is the only real provider that
-  drives the tool loop end-to-end today.
 - Multiple file reads beyond the shared two-successful-excerpt REPL budget
   for `/read`/`/ask-file`/`/propose-file`.
 - Arbitrary shell execution.

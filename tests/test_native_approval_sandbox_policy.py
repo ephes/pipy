@@ -773,15 +773,26 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Choose the next pipy-native direction after the Tool-Loop "
-        "Parity Track" in next_slice
+        "### OpenAI Responses + OpenAI Codex Tool-Call Parity Track"
+        in next_slice
     )
     assert (
-        "inspect summary-safe archive signals with `pipy-session reflect"
+        "bring real-provider tool-call parity to `OpenAIResponsesProvider`"
         in compact_next_slice
     )
-    assert "Pi-parity ladder" in compact_next_slice
-    assert "The Tool-Loop Parity Track is complete" in compact_next_slice
+    assert (
+        "matching the bar already met by OpenRouter in"
+        in compact_next_slice
+    )
+    assert (
+        "The first slice in this track is docs-only" in compact_next_slice
+    )
+    assert (
+        'The previous planning slice, "Choose the next pipy-native '
+        'direction after the Tool-Loop Parity Track", selected this track '
+        "as the next small pipy-native boundary."
+        in compact_next_slice
+    )
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
@@ -810,8 +821,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Choose the next pipy-native direction after the Tool-Loop "
-        "Parity Track." in compact_near_term
+        "OpenAI Responses + OpenAI Codex Tool-Call Parity Track"
+        in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (

@@ -68,10 +68,12 @@ The bounded model-selected tool loop behind
 `pipy repl --agent pipy-native --repl-mode tool-loop` is now implemented.
 It shipped as twelve reviewed slices plus an OpenRouter response-parser
 follow-up, alongside the existing no-tool REPL and the existing
-slash-command boundaries. OpenRouter is the first real provider to
-advertise `supports_tool_calls=True`; OpenAI Responses and OpenAI Codex
-parsers remain a focused follow-up. Each slice landed as a named
-conventional commit with focused tests, `just check`, and docs updates.
+slash-command boundaries. OpenRouter was the first real provider to
+advertise `supports_tool_calls=True`; the matching OpenAI Responses and
+OpenAI Codex parsers now ship as the separate
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track).
+Each slice landed as a named conventional commit with focused tests,
+`just check`, and docs updates.
 
 ### Goal
 
@@ -159,6 +161,100 @@ lands:
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
 - Removing the no-tool REPL or its slash-command boundaries.
+
+## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
+
+The Native Tool-Loop Parity Track shipped end-to-end with OpenRouter as
+the first and only real provider advertising `supports_tool_calls=True`.
+This follow-up track brings the same model-driven loop closure to
+`OpenAIResponsesProvider` and `OpenAICodexResponsesProvider`, so
+`pipy repl --agent pipy-native --native-provider openai` and
+`--native-provider openai-codex` can drive the existing bounded tool
+loop end-to-end against their respective endpoints, matching the bar
+already met by OpenRouter (see
+`tests/test_tool_loop_end_to_end.py`).
+
+### Goal
+
+- `OpenAIResponsesProvider` serializes the provider-agnostic message
+  envelope plus `available_tools` into the OpenAI Responses API
+  `input`/`tools` shape, parses `function_call` outputs into
+  `ProviderToolCall` values on `ProviderResult.tool_calls`, serializes
+  `ToolResultMessage` as Responses `function_call_output` items, and
+  flips `supports_tool_calls=True`.
+- `OpenAICodexResponsesProvider` does the same over Codex Responses
+  streaming, assembling function calls across SSE
+  `response.output_item.added` / `response.function_call_arguments.delta`
+  / `response.output_item.done` events (or equivalents), serializing
+  `ToolResultMessage` as `function_call_output` items, and flipping
+  `supports_tool_calls=True`.
+- Each provider ships a hermetic end-to-end loop-closure test against
+  a stub transport (JSON for `openai`, SSE for `openai-codex`),
+  mirroring `tests/test_tool_loop_end_to_end.py`.
+- Legacy no-tool / single-turn callers (`/ask-file`, `/propose-file`,
+  `pipy run --agent pipy-native --goal ...`) keep their existing
+  behavior; their tests stay green unchanged.
+
+### Planned Slices
+
+1. Docs only. Record the OpenAI parity goal, invariants, slice plan,
+   and deferred work in `docs/pi-parity.md`, `docs/backlog.md`,
+   `docs/harness-spec.md`, `docs/architecture.md`, and `README.md`.
+2. `OpenAIResponsesProvider` tool-call wiring: serialize messages and
+   tools into the Responses `input`/`tools` shape, parse `function_call`
+   outputs into `ProviderToolCall`, serialize `ToolResultMessage` as
+   `function_call_output`, flip `supports_tool_calls=True`, ship the
+   hermetic JSON-transport end-to-end test, and update the existing
+   `test_real_providers_advertise_tool_call_support_correctly` test.
+3. `OpenAICodexResponsesProvider` tool-call wiring: serialize messages
+   and tools into the Codex Responses streaming shape, assemble function
+   calls across the SSE event stream, allow terminal `response.completed`
+   without final text when tool_calls are present, serialize
+   `ToolResultMessage` as `function_call_output`, flip
+   `supports_tool_calls=True`, and ship the hermetic SSE-transport
+   end-to-end test.
+4. README and cross-doc cleanup: remove any remaining "follow-up" /
+   "OpenRouter is the only" phrasing once both providers have shipped.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly. `pipy_session.recorder`
+  records no prompts, model text, tool payloads, file contents, or diffs
+  in any slice. Pinned by tests.
+- `.git` is default-deny across all model-driven tools, including the
+  resolved-symlink check via `_resolved_relative_label`.
+- No new runtime dependencies. Stdlib plus manual dict validation only.
+  No pydantic, jsonschema, or attrs.
+- Reuse the existing tool-loop contracts and helpers (`ToolDefinition`,
+  `ToolRequest`, `ToolExecutionResult`, `ToolPort`, `validate_arguments`,
+  the `LoopMessage` envelope, `NativeToolReplSession`). Do not redesign
+  the loop.
+- `NativeToolResult` (archive-safe metadata) and `ToolExecutionResult`
+  (provider-visible payload) stay strictly separate; do not conflate.
+- Pipy-owned `tool_request_id` (`pipy-tool-` prefix) stays internal;
+  provider identifiers ride separately as `provider_correlation_id`.
+- The no-tool REPL and the existing slash commands (`/read`,
+  `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`) keep working unchanged in both modes.
+- The opt-in `--archive-transcript` sidecar contracts (path, exclusion
+  from `pipy-session list/search/inspect`, off-by-default) are unchanged.
+- Each slice ships focused tests, a green `just check`, updated docs,
+  a conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the track lands and after it
+lands. They are not later slices of this track:
+
+- A `bash` tool, generalizing `/verify` beyond `just check`, session
+  resume/branch/compaction, RPC mode, SDK embedding, extensions,
+  skills, prompt templates, theme/package loading, automatic `@file`
+  content reads, persistent history, and a full TUI.
+- Additional providers beyond `openai`, `openai-codex`, and
+  `openrouter`.
+- Removing the no-tool REPL or redesigning the tool-loop contracts.
 
 ## Architecture Differences From Pi
 

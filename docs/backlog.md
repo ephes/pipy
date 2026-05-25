@@ -144,9 +144,10 @@ It shipped as twelve reviewed slices plus an OpenRouter response-parser
 follow-up and a first-review fix-up commit, all alongside the existing
 no-tool REPL and the existing slash-command boundaries. Each slice
 landed as a named conventional commit with focused tests, `just check`,
-updated docs, and a stop for review. OpenRouter is the first real
+updated docs, and a stop for review. OpenRouter was the first real
 provider with `supports_tool_calls=True`; OpenAI Responses and OpenAI
-Codex parsers remain a focused follow-up.
+Codex parsers now ship through the separate
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track).
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`Native Tool-Loop Parity Track`) and the parity-map
@@ -240,6 +241,100 @@ lands:
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
 - Removing the no-tool REPL or its slash-command boundaries.
+
+## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
+
+The Native Tool-Loop Parity Track shipped end-to-end with OpenRouter
+as the first and only real provider advertising
+`supports_tool_calls=True`. This follow-up track brings the same loop
+closure to `OpenAIResponsesProvider` and `OpenAICodexResponsesProvider`,
+so `pipy repl --agent pipy-native --native-provider openai` and
+`--native-provider openai-codex` can drive the existing bounded tool
+loop end-to-end against their respective endpoints, matching the bar
+already met by OpenRouter in `tests/test_tool_loop_end_to_end.py`.
+
+Use this section together with the matching design notes in
+`docs/harness-spec.md` (`OpenAI Responses + OpenAI Codex Tool-Call
+Parity Track`) and the parity-map entry in `docs/pi-parity.md`
+(`OpenAI Responses + OpenAI Codex Tool-Call Parity Track`).
+
+### Goal
+
+- `OpenAIResponsesProvider` serializes the provider-agnostic message
+  envelope plus `available_tools` into the OpenAI Responses API
+  `input`/`tools` shape, parses `function_call` outputs into
+  `ProviderToolCall` values on `ProviderResult.tool_calls`, serializes
+  `ToolResultMessage` as Responses `function_call_output` items, and
+  flips `supports_tool_calls=True`.
+- `OpenAICodexResponsesProvider` does the same over Codex Responses
+  streaming, assembling function calls across the SSE event stream
+  (`response.output_item.added` / `response.function_call_arguments.delta`
+  / `response.output_item.done` or equivalents) and flipping
+  `supports_tool_calls=True`.
+- Each provider ships a hermetic end-to-end loop-closure test against a
+  stub transport (JSON for `openai`, SSE for `openai-codex`), mirroring
+  the OpenRouter bar in `tests/test_tool_loop_end_to_end.py`.
+- Legacy no-tool / single-turn callers (`/ask-file`, `/propose-file`,
+  `pipy run --agent pipy-native --goal ...`) keep their existing
+  behavior; their tests stay green unchanged.
+
+### Planned Slices
+
+1. Docs only. Record the OpenAI parity goal, invariants, slice plan,
+   and deferred work in `docs/pi-parity.md`, `docs/backlog.md`,
+   `docs/harness-spec.md`, `docs/architecture.md`, and `README.md`.
+2. `OpenAIResponsesProvider` tool-call wiring: serialize messages and
+   tools into the Responses `input`/`tools` shape, parse `function_call`
+   outputs into `ProviderToolCall`, serialize `ToolResultMessage` as
+   `function_call_output`, flip `supports_tool_calls=True`, ship the
+   hermetic JSON-transport end-to-end test, and update the existing
+   `test_real_providers_advertise_tool_call_support_correctly`
+   assertion that pins `openai.supports_tool_calls is False`.
+3. `OpenAICodexResponsesProvider` tool-call wiring: serialize messages
+   and tools into the Codex Responses streaming shape, assemble
+   function calls across the SSE event stream, allow terminal
+   `response.completed` without final text when tool_calls are present,
+   serialize `ToolResultMessage` as `function_call_output`, flip
+   `supports_tool_calls=True`, and ship the hermetic SSE-transport
+   end-to-end test.
+4. README and cross-doc cleanup: remove any remaining "follow-up" /
+   "OpenRouter is the only" phrasing once both providers have shipped.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly. `pipy_session.recorder`
+  records no prompts, model text, tool payloads, file contents, or diffs
+  in any slice. Pinned by tests.
+- `.git` is default-deny across all model-driven tools, including the
+  resolved-symlink check via `_resolved_relative_label`.
+- No new runtime dependencies. Stdlib plus manual dict validation only.
+  No pydantic, jsonschema, or attrs.
+- Reuse the existing tool-loop contracts and helpers (`ToolDefinition`,
+  `ToolRequest`, `ToolExecutionResult`, `ToolPort`, `validate_arguments`,
+  the `LoopMessage` envelope, `NativeToolReplSession`). Do not redesign
+  the loop.
+- `NativeToolResult` (archive-safe metadata) and `ToolExecutionResult`
+  (provider-visible payload) stay strictly separate; do not conflate.
+- Pipy-owned `tool_request_id` (`pipy-tool-` prefix) stays internal;
+  provider identifiers ride separately as `provider_correlation_id`.
+- The no-tool REPL and the existing slash commands keep working in
+  both modes.
+- The opt-in `--archive-transcript` sidecar contracts (path, exclusion
+  from `pipy-session list/search/inspect`, off-by-default) are unchanged.
+- Each slice ships focused tests, a green `just check`, updated docs,
+  a conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+- A `bash` tool, generalizing `/verify` beyond `just check`, session
+  resume/branch/compaction, RPC mode, SDK embedding, extensions,
+  skills, prompt templates, theme/package loading, automatic `@file`
+  content reads, persistent history, and a full TUI.
+- Additional providers beyond `openai`, `openai-codex`, and
+  `openrouter`.
+- Removing the no-tool REPL or redesigning the tool-loop contracts.
 
 ## Done
 
@@ -1568,32 +1663,35 @@ lands:
 
 ## Next Slice
 
-### Choose the next pipy-native direction after the Tool-Loop Parity Track
+### OpenAI Responses + OpenAI Codex Tool-Call Parity Track
 
-Goal: pick the next reviewable boundary now that the Tool-Loop Parity
-Track has landed end-to-end. The implementation track for the next
-slice is intentionally not selected in this slice; the goal is to use
-summary-safe session reflection and the current parity gaps to choose
-the next small `pipy-native` boundary.
+Goal: bring real-provider tool-call parity to
+`OpenAIResponsesProvider` and `OpenAICodexResponsesProvider` so
+`pipy repl --agent pipy-native --native-provider openai` and
+`--native-provider openai-codex` can drive the existing bounded
+tool loop end-to-end, matching the bar already met by OpenRouter
+in `tests/test_tool_loop_end_to_end.py`. The
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
+section above lists the goal, planned slices, invariants, and
+out-of-scope items. The first slice in this track is docs-only,
+landing this section and the matching design notes in
+`docs/harness-spec.md` and `docs/pi-parity.md`.
 
-Implementation focus:
+Implementation focus for slice 1 (docs):
 
-- inspect summary-safe archive signals with `pipy-session reflect --json`
-  and targeted `pipy-session search` queries before picking a direction
-- compare next-boundary candidates against the Pi-parity ladder: real
-  provider `supports_tool_calls=True` plus the matching tool-call
-  response parser (still deferred from slice 5), resilient input
-  behavior, persistent history, richer resource discovery, session
-  resume/search surfaces, or provider-access polish
-- document the selected next slice in this backlog and, when
-  architectural behavior changes, in `docs/harness-spec.md`
-- keep metadata-first archive contracts, `.git` default-deny posture,
-  `/verify just-check` scope, the no-tool REPL, the tool-loop REPL,
-  and the existing slash commands unchanged in this planning slice
+- record the OpenAI parity goal, invariants, slice plan, and
+  deferred work in `docs/pi-parity.md`, `docs/backlog.md`,
+  `docs/harness-spec.md`, `docs/architecture.md`, and `README.md`
+- remove any phrasing that implies OpenRouter is the only
+  tool-capable real provider or that OpenAI Responses / OpenAI
+  Codex parsers are an indefinite follow-up
+- keep code, tests, and runtime behavior unchanged in this slice;
+  subsequent slices land the provider serialization, parsers, and
+  hermetic end-to-end tests
 
-The Tool-Loop Parity Track is complete; subsequent slices may extend
-the track (for example, real-provider parsers) or branch into other
-parity work.
+The previous planning slice, "Choose the next pipy-native direction
+after the Tool-Loop Parity Track", selected this track as the next
+small pipy-native boundary.
 
 ## Near Term
 
@@ -1604,11 +1702,13 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The Tool-Loop Parity Track has now landed end-to-end. OpenRouter is
-the first real provider with `supports_tool_calls=True`; OpenAI
-Responses and OpenAI Codex parsers remain a focused follow-up. The
-immediate path is selecting the next pipy-native direction; the
-previous slice-by-slice rollout of the track followed the
+The Tool-Loop Parity Track has now landed end-to-end. OpenRouter was
+the first real provider with `supports_tool_calls=True`; the matching
+OpenAI Responses and OpenAI Codex parsers now ship through the
+separate
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track),
+which is the current near-term direction. The previous slice-by-slice
+rollout of the original track followed the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
