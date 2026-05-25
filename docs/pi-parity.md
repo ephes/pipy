@@ -52,8 +52,10 @@ metadata and boundary invariants are stable:
   explicit file/path completion, and multiline entry boundaries.
 - Automatic file-content reads from `@file` references, pasted images,
   persistent history, and broader keyboard shortcut handling.
-- Model-selected tool loop with read, write, edit, bash, and follow-up tool
-  observations.
+- Model-selected tool loop with read, write, edit, ls, grep, find, and
+  follow-up tool observations. Planned as the [Native Tool-Loop Parity
+  Track](#native-tool-loop-parity-track) below. A model-driven `bash` tool and
+  any generalization of `/verify just-check` remain explicitly out of scope.
 - Multiple file/context reads per session and broader context/resource loading.
 - AGENTS/CLAUDE-style context discovery beyond the static labels currently
   shown by startup chrome.
@@ -63,6 +65,102 @@ metadata and boundary invariants are stable:
 - Provider registry and broad provider/model catalog.
 - Cost/context/token footer behavior beyond safe usage counters.
 - Arbitrary shell command support and non-allowlisted verification.
+
+## Native Tool-Loop Parity Track
+
+The next visible Pi-parity step is a bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop`. It is planned as twelve
+reviewed slices that ship alongside the existing no-tool REPL and the existing
+slash-command boundaries. None of the tool-loop slices land in one change; each
+slice is a named conventional commit with focused tests, `just check`, and docs
+updates before review.
+
+### Goal
+
+- A real model-driven loop over `openai`, `openai-codex`, and `openrouter` with
+  bounded `read`, `write`, `edit`, `ls`, `grep`, and `find` tools, producing a
+  useful end-to-end change against this repo with `just check` green.
+- Pi-shaped behavior: the model picks files, edits them directly, the resulting
+  unified diff is written to stderr, no approval popups appear, and the loop
+  iterates within a bounded tool budget.
+- Slash commands `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+  `/verify just-check` keep working unchanged in both `--repl-mode no-tool` and
+  `--repl-mode tool-loop`.
+
+### Planned Slices
+
+1. Docs only. Record the tool-loop parity goal, invariants, and deferred work in
+   `docs/pi-parity.md`, `docs/backlog.md`, and `docs/harness-spec.md`.
+2. `tools/base.py` contracts: `ToolDefinition`, `ToolRequest`,
+   `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, and `ToolPort`,
+   built from stdlib dataclasses with manual JSON-schema validation. Focused
+   contract tests, no provider or REPL wiring.
+3. `ProviderPort` extension: a `supports_tool_calls` capability flag (real
+   providers stay `False`), a `ProviderToolCall` value object, `tool_calls` on
+   `ProviderResult`, and a provider-agnostic message envelope
+   (`user`/`assistant`/`tool_result`). The fake provider gains
+   `programmable_tool_calls` for tests; real adapters stay inert.
+4. `NativeToolReplSession` skeleton: bounded turn loop with `--tool-budget`
+   defaulting to 10 (max 25), malformed tool arguments returned to the model as
+   an observation (fatal after three consecutive malformed turns), a test-only
+   `_FixtureTool` injected by tests, and an empty production tool registry.
+5. `read` tool: reuses `read_only_tool.py` validation. The first real provider
+   adapter flips `supports_tool_calls` to `True`; a manual smoke run lands with
+   the slice.
+6. `ls` tool: bounded directory entries returned as workspace-relative paths.
+7. `grep` tool: `subprocess.run` to `rg` with no `shell=True`, a fixed argv, a
+   workspace `cwd`, a timeout, and bounded results, with a stdlib fallback when
+   `rg` is unavailable.
+8. `find` tool: bounded glob lookup.
+9. `write` tool: create-only; refuses existing files, `.git`, and paths that
+   escape the workspace; applies directly and writes the unified diff to
+   stderr. Tests pin: file mutation, diff lands only on stderr, archive remains
+   untouched, and the diff lands in the opt-in sidecar only when enabled.
+10. `edit` tool: string-replace with a unique-`old_string` default and an
+    opt-in `replace_all`; reuses `patch_apply.py`. Same diff and archive
+    privacy tests.
+11. Opt-in `TranscriptSink`: a sidecar JSONL at
+    `~/.local/state/pipy/transcripts/<id>.jsonl`, enabled by
+    `--archive-transcript`, marked sensitive, written outside the metadata
+    archive, and excluded from `pipy-session list/search/inspect`. Focused
+    privacy tests.
+12. Flip the default `--repl-mode` to `tool-loop` when the selected provider
+    supports tool calls. The `no-tool` mode stays available. Update README and
+    user-facing docs.
+
+### Invariants
+
+- Metadata-first archive privacy is preserved exactly across the whole track.
+  `pipy_session.recorder` records no prompts, model text, tool payloads, file
+  contents, or diffs in any slice. Any leak fails the slice.
+- `.git` is default-deny across all model-driven tools. Slash commands are
+  unaffected.
+- No new runtime dependencies. Stdlib plus manual dict validation only; no
+  pydantic.
+- `NativeToolResult` carries archive-safe metadata only;
+  `ToolExecutionResult` carries provider-visible payloads. The two shapes are
+  not conflated.
+- The internal pipy-owned `tool_request_id` does not leak as a provider id;
+  provider identifiers are carried separately as `provider_correlation_id`.
+- The existing no-tool REPL and the listed slash commands keep working in both
+  modes.
+- Each slice ships focused tests, a green `just check`, updated docs, a
+  conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the tool-loop track lands and after it
+lands:
+
+- A `bash` tool or any arbitrary shell execution tool.
+- Generalizing `/verify` beyond the allowlisted `just check` boundary.
+- Session resume, branch/fork navigation, and compaction.
+- RPC mode and SDK embedding.
+- Extensions, skills, prompt templates, and theme/package loading.
+- Automatic `@file` content reads from completion-only references.
+- Persistent shell history and a full interactive TUI.
+- Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+- Removing the no-tool REPL or its slash-command boundaries.
 
 ## Architecture Differences From Pi
 
@@ -127,7 +225,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
 | UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; no raw transcript import by default. |
-| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries; no general model-selected tool loop yet. |
+| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries today; a bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, and `find` (no `bash`) is planned as the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Four current providers behind `ProviderPort`: fake, OpenAI API-key, OpenAI Codex OAuth, and OpenRouter. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Deferred. The current code has no extension runtime. |

@@ -136,6 +136,109 @@ preserving the current stdout/stderr and metadata-only contracts. Textual,
 curses, and a custom terminal layer remain deferred until the product needs a
 fuller UI surface or lower-level terminal ownership.
 
+## Tool-Loop Parity Track
+
+The next-boundary decision after the explicit multi-file context budget selects
+a bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop` as the next visible
+Pi-parity step. It is planned as twelve reviewed slices that ship alongside
+the existing no-tool REPL and the existing slash-command boundaries. None of
+the slices land in one change; each is a named conventional commit with
+focused tests, `just check`, updated docs, and a stop for review.
+
+Use this section together with the matching design notes in
+`docs/harness-spec.md` (`Native Tool-Loop Parity Track`) and the parity-map
+entry in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`).
+
+### Goal
+
+- A real model-driven loop over `openai`, `openai-codex`, and `openrouter` with
+  bounded `read`, `write`, `edit`, `ls`, `grep`, and `find` tools, producing a
+  useful end-to-end change against this repo with `just check` green.
+- Pi-shaped behavior: the model picks files, edits them directly, the resulting
+  unified diff is written to stderr, no approval popups appear, and the loop
+  iterates within a bounded tool budget.
+- Slash commands `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+  `/verify just-check` keep working unchanged in both `--repl-mode no-tool` and
+  `--repl-mode tool-loop`.
+
+### Planned Slices
+
+1. Docs only. Record the tool-loop parity goal, invariants, and deferred work
+   in `docs/pi-parity.md`, `docs/backlog.md`, and `docs/harness-spec.md`.
+2. `tools/base.py` contracts: `ToolDefinition`, `ToolRequest`,
+   `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, and `ToolPort`,
+   built from stdlib dataclasses with manual JSON-schema validation. Focused
+   contract tests, no provider or REPL wiring.
+3. `ProviderPort` extension: a `supports_tool_calls` capability flag (real
+   providers stay `False`), a `ProviderToolCall` value object, `tool_calls` on
+   `ProviderResult`, and a provider-agnostic message envelope
+   (`user`/`assistant`/`tool_result`). The fake provider gains
+   `programmable_tool_calls` for tests; real adapters stay inert.
+4. `NativeToolReplSession` skeleton: bounded turn loop with `--tool-budget`
+   defaulting to 10 (max 25), malformed tool arguments returned to the model as
+   an observation (fatal after three consecutive malformed turns), a test-only
+   `_FixtureTool` injected by tests, and an empty production tool registry.
+5. `read` tool: reuses `read_only_tool.py` validation. The first real provider
+   adapter flips `supports_tool_calls` to `True`; a manual smoke run lands with
+   the slice.
+6. `ls` tool: bounded directory entries returned as workspace-relative paths.
+7. `grep` tool: `subprocess.run` to `rg` with no `shell=True`, a fixed argv, a
+   workspace `cwd`, a timeout, and bounded results, with a stdlib fallback when
+   `rg` is unavailable.
+8. `find` tool: bounded glob lookup.
+9. `write` tool: create-only; refuses existing files, `.git`, and paths that
+   escape the workspace; applies directly and writes the unified diff to
+   stderr. Tests pin: file mutation, diff lands only on stderr, archive remains
+   untouched, and the diff lands in the opt-in sidecar only when enabled.
+10. `edit` tool: string-replace with a unique-`old_string` default and an
+    opt-in `replace_all`; reuses `patch_apply.py`. Same diff and archive
+    privacy tests.
+11. Opt-in `TranscriptSink`: a sidecar JSONL at
+    `~/.local/state/pipy/transcripts/<id>.jsonl`, enabled by
+    `--archive-transcript`, marked sensitive, written outside the metadata
+    archive, and excluded from `pipy-session list/search/inspect`. Focused
+    privacy tests.
+12. Flip the default `--repl-mode` to `tool-loop` when the selected provider
+    supports tool calls. The `no-tool` mode stays available. Update README and
+    user-facing docs.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly across the whole track.
+  `pipy_session.recorder` records no prompts, model text, tool payloads, file
+  contents, or diffs in any slice. Any leak fails the slice.
+- `.git` is default-deny across all model-driven tools. Slash commands are
+  unaffected.
+- No new runtime dependencies. Stdlib plus manual dict validation only; no
+  pydantic.
+- `NativeToolResult` carries archive-safe metadata only;
+  `ToolExecutionResult` carries provider-visible payloads. The two shapes are
+  not conflated.
+- The internal pipy-owned `tool_request_id` does not leak as a provider id;
+  provider identifiers are carried separately as `provider_correlation_id`.
+- The existing no-tool REPL and the listed slash commands keep working in both
+  modes.
+- Each slice ships focused tests, a green `just check`, updated docs, a
+  conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the tool-loop track lands and after it
+lands:
+
+- A `bash` tool or any arbitrary shell execution tool.
+- Generalizing `/verify` beyond the allowlisted `just check` boundary.
+- Session resume, branch/fork navigation, and compaction.
+- RPC mode and SDK embedding.
+- Extensions, skills, prompt templates, and theme/package loading.
+- Automatic `@file` content reads from completion-only references.
+- Persistent shell history and a full interactive TUI.
+- Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+- Removing the no-tool REPL or its slash-command boundaries.
+
 ## Done
 
 - Durable file-based session archive with active/finalized lifecycle.
@@ -1115,38 +1218,49 @@ fuller UI surface or lower-level terminal ownership.
   critical or warning issues and two optional suggestions; both were accepted
   and fixed by making the proposal-metadata smoke assertion non-vacuous and by
   tightening the next-slice deferred-boundary wording.
+- Tool-loop parity track docs pass (slice 1 of the Tool-Loop Parity Track):
+  `docs/pi-parity.md`, `docs/backlog.md`, and `docs/harness-spec.md` now record
+  the goal, the twelve planned slices, the cross-track invariants
+  (metadata-first archive privacy, `.git` default-deny, stdlib-only,
+  `NativeToolResult` vs `ToolExecutionResult` separation, pipy-owned
+  `tool_request_id` vs `provider_correlation_id`, no-tool REPL plus
+  slash-command parity), and the out-of-scope items (no `bash` tool, no
+  `/verify` generalization, no resume/branch/compaction, no RPC/SDK, no
+  extensions/skills, no automatic `@file` content reads, no persistent
+  history, no full TUI, no additional providers, no removal of the no-tool
+  REPL). No runtime behavior, public CLI shape, stdout/stderr contracts,
+  archive contents, dependency set, or test surface changed in this slice.
 
 ## Next Slice
 
-### Choose the next native shell boundary after explicit multi-file context
+### Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity Track)
 
-Goal: use summary-safe session reflection and the current shell constraints to
-select the next small `pipy-native` boundary after the reviewed
-two-successful-excerpt budget, without implementing the selected boundary in
-the same slice.
+Goal: add the small `pipy_harness.native.tools.base` module that names the
+runtime contracts the rest of the Tool-Loop Parity Track will depend on, with
+no provider or REPL wiring yet.
 
 Implementation focus:
 
-- inspect summary-safe archive signals with `pipy-session reflect --json` and
-  targeted `pipy-session search` queries before changing backlog direction
-- compare narrow next-boundary candidates against the existing Pi-parity
-  ladder: resilient input behavior, persistent history, richer resource
-  discovery, narrow read/edit/tool affordances, session resume/search surfaces,
-  or provider access polish
-- document the selected next slice in this backlog and, when architectural
-  behavior changes, in `docs/harness-spec.md`
-- keep the current reviewed budget invariants intact: two successful explicit
-  file excerpts per REPL session, one user-named file per command, at most one
-  provider-visible excerpt per provider turn, bounded failed/skipped recovery,
-  exact-path proposal/apply constraints, `/verify just-check`, and
-  metadata-only archives
-- keep broad deferred boundaries closed unless a narrow Pi-parity follow-up is
-  explicitly selected as the next reviewed slice; do not select automatic
-  `@file` file-content reads, model-selected paths, broad context loading,
-  multiple files in one provider turn, multi-file proposal/apply, arbitrary
-  shell execution, provider-side tools, non-allowlisted verification, raw
-  history storage, persistent transcripts, full-screen TUI, or a general
-  model/tool loop from this planning slice
+- introduce `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`,
+  `ToolArgumentError`, `ToolContext`, and `ToolPort` as stdlib `dataclass`
+  value objects plus a `Protocol`/ABC port, with manual JSON-schema validation
+  helpers and no new runtime dependencies (no pydantic)
+- keep `ToolExecutionResult` strictly separate from the existing
+  archive-safe `NativeToolResult` metadata; do not conflate provider-visible
+  payloads with archive metadata
+- thread a pipy-owned internal `tool_request_id` and a separate
+  `provider_correlation_id` field, ready for slice 3 wiring; do not surface
+  internal ids as provider ids
+- ship focused contract tests for argument validation, port shape, and
+  schema round-tripping; no provider, REPL, or workspace-effecting code lands
+  in this slice
+- keep the metadata-first archive contracts, `.git` default-deny posture,
+  `/verify just-check` scope, the existing no-tool REPL, and the existing
+  slash commands unchanged
+
+The remaining ten slices of the Tool-Loop Parity Track stay closed in this
+slice. The full slice list, invariants, and deferred items are in the
+`Tool-Loop Parity Track` section above.
 
 ## Near Term
 
@@ -1157,8 +1271,9 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The immediate path is now choosing the next native-shell boundary after the
-reviewed narrow explicit multi-file context budget, following the
+The immediate path is now landing the Tool-Loop Parity Track, slice by
+reviewed slice, after the reviewed narrow explicit multi-file context budget
+and the next-boundary decision recorded above. That track follows the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
 terminal-layer direction checkpoint, prompt-toolkit feasibility boundary,
@@ -1224,13 +1339,17 @@ with leading slash-command name completion and workspace-relative file/path
 completion for explicit file commands, completion-only `@file` references, and
 prompt-toolkit-only multiline input with hardened cursor-position and
 newline-key handling while still keeping the shipping runtime metadata-only and
-captured-stream compatible. The next visible parity step is a summary-safe
-next-boundary decision after the explicit multi-file context budget, not an
-opportunistic broadening of context or tool execution.
+captured-stream compatible. The next visible parity step is the Tool-Loop
+Parity Track recorded above and in `docs/pi-parity.md` and
+`docs/harness-spec.md`: a bounded model-selected `read`/`write`/`edit`/`ls`/
+`grep`/`find` loop behind `pipy repl --agent pipy-native --repl-mode tool-loop`,
+landed as twelve reviewed slices alongside the existing no-tool REPL and
+slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Choose the next native shell boundary after explicit multi-file context.
+1. Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity
+   Track).
 
 Foundation gates toward an interactive shell:
 
@@ -1432,7 +1551,14 @@ Do not move to a tool-capable shell until these existing invariants still hold:
 - Full tool-capable native pipy agent runtime beyond the provider,
   conversation, approval, sandbox, and tool-boundary slices.
 - General native model/tool loop beyond bounded provider turns and explicitly
-  approved tool boundaries.
+  approved tool boundaries. The bounded Pi-shaped slice of this work is now
+  planned as the `Tool-Loop Parity Track` above; broader model/tool-loop
+  capabilities outside that track stay deferred.
+- A model-driven `bash` tool or any arbitrary-shell tool. The
+  `Tool-Loop Parity Track` deliberately excludes this.
+- Generalizing `/verify` beyond the allowlisted `just check` boundary. The
+  `Tool-Loop Parity Track` keeps `/verify just-check` intact and does not
+  introduce additional verification commands.
 - Broad repo maps or persistent workspace summaries beyond the first bounded
   provider-visible context policy.
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or

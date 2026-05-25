@@ -3215,6 +3215,76 @@ application, arbitrary shell execution, non-allowlisted verification commands,
 provider-side tools, and broader tool loops remain deferred to separately named
 slices.
 
+## Native Tool-Loop Parity Track
+
+The next visible Pi-parity step is a bounded model-selected tool loop behind
+`pipy repl --agent pipy-native --repl-mode tool-loop`. It is planned as twelve
+reviewed slices that ship alongside the existing no-tool REPL and the existing
+slash-command boundaries. The slice-level ordering and current state of the
+track live in `docs/backlog.md` (`Tool-Loop Parity Track`); the parity-map
+entry lives in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`). This
+section records the design-level goal, invariants, and deferred design
+choices.
+
+### Goal
+
+- A real model-driven loop over `openai`, `openai-codex`, and `openrouter`
+  with bounded `read`, `write`, `edit`, `ls`, `grep`, and `find` tools,
+  producing a useful end-to-end change against this repo with `just check`
+  green.
+- Pi-shaped behavior: the model picks files, edits them directly, the
+  resulting unified diff is written to stderr, no approval popups appear, and
+  the loop iterates within a bounded `--tool-budget` (default 10, max 25).
+- Slash commands `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+  `/verify just-check` keep working unchanged in both `--repl-mode no-tool`
+  and `--repl-mode tool-loop`.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly. `pipy_session.recorder`
+  records no prompts, model text, tool payloads, file contents, or diffs in
+  any slice. Pinned by tests in every slice that touches the archive.
+- `.git` is default-deny across all model-driven tools. Slash commands stay
+  unaffected.
+- No new runtime dependencies. Stdlib dataclasses plus manual dict and
+  JSON-schema validation only; no pydantic.
+- `NativeToolResult` carries archive-safe metadata only;
+  `ToolExecutionResult` carries provider-visible payloads. The two shapes are
+  not conflated, and provider-visible payloads do not leak into the archive.
+- The pipy-owned internal `tool_request_id` does not travel as a provider id.
+  Provider identifiers are carried separately as
+  `provider_correlation_id` and are only used for provider-side correlation.
+- `--tool-budget` defaults to 10 and is capped at 25. Malformed tool arguments
+  are returned to the model as an observation and become fatal after three
+  consecutive malformed turns within one REPL session.
+- The opt-in `TranscriptSink` writes raw turns to
+  `~/.local/state/pipy/transcripts/<id>.jsonl` only when `--archive-transcript`
+  is supplied. The sidecar lives outside the pipy session archive and is
+  excluded from `pipy-session list`, `search`, and `inspect`.
+- The existing no-tool REPL stays available behind
+  `--repl-mode no-tool` and the listed slash commands keep working in both
+  modes.
+- Each slice ships focused tests, a green `just check`, updated docs, a
+  conventional commit, and stops for review. Any privacy or behavior leak
+  fails the slice.
+
+### Deferred Within The Track
+
+These remain explicitly out of scope while the tool-loop track lands and
+after it lands. They are not later slices of this track:
+
+- A `bash` tool or any arbitrary shell execution tool.
+- Generalizing `/verify` beyond the allowlisted `just check` boundary.
+- Session resume, branch/fork navigation, and compaction.
+- RPC mode and SDK embedding.
+- Extensions, skills, prompt templates, and theme/package loading.
+- Automatic `@file` content reads from completion-only references.
+- Persistent shell history and a full interactive TUI.
+- Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+- Removing the no-tool REPL or its slash-command boundaries.
+
 ## Deferred Work
 
 For the current task-slice backlog and next-step ordering, see

@@ -773,29 +773,33 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Choose the next native shell boundary after explicit multi-file context"
+        "### Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity Track)"
         in next_slice
     )
-    assert "select the next small `pipy-native` boundary" in (
-        compact_next_slice
-    )
-    assert "summary-safe session reflection" in compact_next_slice
-    assert "compare narrow next-boundary candidates" in (
-        compact_next_slice
-    )
-    assert "two successful explicit file excerpts per REPL session" in (
-        compact_next_slice
-    )
-    assert "one user-named file per command" in compact_next_slice
-    assert "at most one provider-visible excerpt per provider turn" in (
-        compact_next_slice
-    )
     assert (
-        "exact-path proposal/apply constraints"
+        "add the small `pipy_harness.native.tools.base` module" in compact_next_slice
+    )
+    assert "no provider or REPL wiring yet" in compact_next_slice
+    assert "`ToolDefinition`, `ToolRequest`, `ToolExecutionResult`" in (
+        compact_next_slice
+    )
+    assert "`ToolArgumentError`, `ToolContext`, and `ToolPort`" in compact_next_slice
+    assert "stdlib `dataclass` value objects" in compact_next_slice
+    assert "no new runtime dependencies (no pydantic)" in compact_next_slice
+    assert "strictly separate from the existing archive-safe `NativeToolResult`" in (
+        compact_next_slice
+    )
+    assert "pipy-owned internal `tool_request_id`" in compact_next_slice
+    assert "separate `provider_correlation_id` field" in compact_next_slice
+    assert "do not surface internal ids as provider ids" in compact_next_slice
+    assert "ship focused contract tests" in compact_next_slice
+    assert (
+        "metadata-first archive contracts, `.git` default-deny posture"
         in compact_next_slice
     )
-    assert "do not select automatic `@file` file-content reads" in compact_next_slice
-    assert "full-screen TUI" in compact_next_slice
+    assert "remaining ten slices of the Tool-Loop Parity Track stay closed" in (
+        compact_next_slice
+    )
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
@@ -818,13 +822,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "immediate path is now choosing the next native-shell boundary" in (
+    assert "immediate path is now landing the Tool-Loop Parity Track" in (
         compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
-    assert "Choose the next native shell boundary after explicit multi-file context." in (
-        compact_near_term
+    assert (
+        "Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity Track)."
+        in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (
