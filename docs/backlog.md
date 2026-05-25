@@ -1279,51 +1279,78 @@ lands:
   message kind. No public CLI shape, REPL behavior, archive events, or
   workspace effect changes in this slice; tool-call capability is declared
   but inert outside `FakeNativeProvider` scripts.
+- Native tool-loop REPL session skeleton (slice 4 of the Tool-Loop Parity
+  Track): `pipy_harness.native.tool_loop_session` adds
+  `NativeToolReplSession`, the metadata-only `NativeToolReplResult` shape,
+  and a `production_tool_registry()` helper that returns `{}` until later
+  slices populate it. The session refuses providers that do not advertise
+  `supports_tool_calls`, refuses tool budgets outside `[1, 25]` (default
+  10), reads one user turn per `input_stream.readline()`, calls
+  `ProviderPort.complete()` per assistant turn, and for each
+  `ProviderToolCall`: allocates a pipy-owned `tool_request_id` via
+  `make_tool_request_id()`, parses `arguments_json`, runs
+  `validate_arguments()` against the selected tool's
+  `ToolDefinition.input_schema`, and either invokes the tool or returns a
+  deterministic `ToolResultMessage(is_error=True)` observation to the
+  model. Unknown tool names, JSON decode errors, schema violations, and
+  `ToolArgumentError`s raised from `tool.invoke()` all flow through the
+  same observation path. The session enforces a per-user-turn invocation
+  budget that emits a "tool budget exhausted" observation when reached and
+  a `MAX_MALFORMED_STREAK` of three consecutive malformed calls that ends
+  the loop with a deterministic stderr diagnostic; one successful
+  invocation resets the streak. Tests pin: an injected `_FixtureEchoTool`
+  drives a successful invocation; unknown tools, malformed JSON, and
+  schema violations each surface as one malformed-streak step; three
+  consecutive malformed turns - whether across or within one provider
+  response - end the loop with `error_type="NativeToolLoopMalformedFatal"`;
+  one success resets the streak; budgets cap invocations without raising;
+  empty input produces zero turns; `final_text` is printed on stdout when
+  no tools are emitted; `NativeToolReplResult` carries no payload, diff,
+  file-content, prompt, model-output, or provider-response fields. The
+  production tool registry stays empty; no CLI mode is wired in this
+  slice. The existing no-tool REPL, slash commands, archive contracts, and
+  `/verify just-check` boundary are unchanged.
 
 ## Next Slice
 
-### Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity Track)
+### Add the read tool and wire the first tool-loop CLI mode (slice 5 of the Tool-Loop Parity Track)
 
-Goal: introduce a bounded model-driven REPL session that uses the slice 2
-contracts and the slice 3 provider extension, but ships with an empty
-production tool registry so it stays inert against the workspace until
-slice 5 adds the first real tool.
+Goal: ship the first model-driven tool (`read`), wire
+`pipy repl --agent pipy-native --repl-mode tool-loop` through a new
+adapter that runs `NativeToolReplSession`, and flip the first real
+provider's `supports_tool_calls` to `True` once its response parser can
+surface `ProviderToolCall`s. A manual smoke run lands with the slice.
 
 Implementation focus:
 
-- add a `NativeToolReplSession` class behind a new
-  `pipy repl --agent pipy-native --repl-mode tool-loop` CLI mode; the
-  no-tool REPL stays available behind `--repl-mode no-tool`
-- thread a `--tool-budget` CLI flag with default 10 and hard cap 25; the
-  loop exits with a deterministic stderr diagnostic when the budget is
-  exhausted
-- on each turn, call `ProviderPort.complete(request)`; if the provider
-  emits `ProviderToolCall`s, the loop allocates a pipy-owned
-  `tool_request_id` via `make_tool_request_id()`, parses
-  `arguments_json` as JSON, runs `validate_arguments()` against the
-  selected tool's `ToolDefinition`, and either invokes the tool or returns
-  a `ToolArgumentError` observation to the model
-- malformed tool arguments are returned to the model as a synthetic
-  `ToolResultMessage` with `is_error=True`; three consecutive malformed
-  turns become fatal and exit the loop with a deterministic stderr
-  diagnostic; the malformed-turn counter resets after one successful
-  invocation
-- a test-only `_FixtureTool` (alphanumeric name only, no workspace effect)
-  is injected by tests through an explicit registry argument; the
-  production registry stays empty until slice 5
-- archive events remain metadata-only; pipy_session.recorder is not asked
-  to record prompts, model text, tool payloads, file contents, or diffs in
-  this slice
-- focused tests pin: the loop stops at the budget; malformed args are
-  returned as observations and become fatal after three consecutive
-  malformed turns; the production registry has no tools and refuses any
-  model-emitted tool call; the no-tool REPL and all listed slash commands
-  keep working in both modes; `--repl-mode tool-loop` is rejected when the
-  selected provider does not advertise `supports_tool_calls`
+- add a `pipy_harness.native.tools.read.ReadTool` that reuses
+  `read_only_tool.py` workspace-relative validation, bounded byte/line
+  limits, `.git` default-deny, and metadata-only archive behavior; it
+  returns provider-visible content through `ToolExecutionResult`, with
+  archive-safe counters in a separate `NativeToolResult` recording path
+- populate `production_tool_registry()` with the `read` tool only; later
+  slices add `ls`, `grep`, `find`, `write`, and `edit`
+- add a `--repl-mode {no-tool, tool-loop}` CLI flag defaulting to
+  `no-tool` so the existing REPL stays the default; add a
+  `--tool-budget` CLI flag (default 10, capped at 25) that is honored
+  only in `tool-loop`
+- introduce a `PipyNativeToolReplAdapter` that mirrors
+  `PipyNativeReplAdapter` but constructs a `NativeToolReplSession` with
+  the production registry and the selected tool budget
+- flip exactly one of `openai`/`openai-codex`/`openrouter` to
+  `supports_tool_calls=True` once its response parser surfaces tool
+  intents as `ProviderToolCall`s; the other two stay inert; document the
+  chosen first provider and the manual smoke run in the Done entry
+- ship focused tests that pin: the read tool's definition, schema, and
+  workspace-relative path validation; the production registry now has
+  exactly `{"read"}`; `--repl-mode tool-loop` is rejected when the
+  selected provider does not support tool calls; the no-tool REPL and
+  slash commands keep working in both modes; the metadata-first archive
+  contracts and `.git` default-deny posture hold across the new tool
 
-The remaining eight slices of the Tool-Loop Parity Track stay closed in
-this slice. The full slice list, invariants, and deferred items are in the
-`Tool-Loop Parity Track` section above.
+The remaining seven slices of the Tool-Loop Parity Track stay closed in
+this slice. The full slice list, invariants, and deferred items are in
+the `Tool-Loop Parity Track` section above.
 
 ## Near Term
 
@@ -1411,8 +1438,8 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the NativeToolReplSession skeleton (slice 4 of the Tool-Loop Parity
-   Track).
+1. Add the read tool and wire the first tool-loop CLI mode (slice 5 of the
+   Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 

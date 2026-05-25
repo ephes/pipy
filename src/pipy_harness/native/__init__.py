@@ -120,6 +120,11 @@ from pipy_harness.native.repl_input import (
 )
 from pipy_harness.native.session import NativeAgentSession, NativeNoToolReplSession
 from pipy_harness.native.tool import ToolPort
+from pipy_harness.native.tool_loop_session import (
+    NativeToolReplResult,
+    NativeToolReplSession,
+    production_tool_registry,
+)
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 from pipy_harness.native.verification import (
     NativeVerificationApprovalDecision,
@@ -201,6 +206,8 @@ __all__ = [
     "NativeToolRequest",
     "NativeToolRequestIdentity",
     "NativeToolResult",
+    "NativeToolReplResult",
+    "NativeToolReplSession",
     "NativeToolSandboxMode",
     "NativeToolSandboxPolicy",
     "NativeToolStatus",
@@ -241,6 +248,7 @@ __all__ = [
     "default_selection_for",
     "normalize_provider_usage",
     "parse_authorization_input",
+    "production_tool_registry",
     "resolve_read_only_workspace_approval",
     "validate_native_repl_input_runtime",
 ]
