@@ -1230,35 +1230,67 @@ lands:
   history, no full TUI, no additional providers, no removal of the no-tool
   REPL). No runtime behavior, public CLI shape, stdout/stderr contracts,
   archive contents, dependency set, or test surface changed in this slice.
+- Native pipy tool contracts (slice 2 of the Tool-Loop Parity Track): the new
+  `pipy_harness.native.tools` subpackage exposes `ToolDefinition`,
+  `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`,
+  and the `ToolPort` Protocol, plus a `make_tool_request_id()` helper and a
+  `validate_arguments()` stdlib JSON-schema-subset validator. Contract tests
+  pin: model-visible tool names are alphanumeric plus underscore; schemas are
+  validated at definition time and reject unsupported types or keys;
+  pipy-owned `tool_request_id` carries the `pipy-tool-` prefix and is
+  rejected on `ToolRequest`/`ToolExecutionResult` when a provider id is
+  passed in its place; `provider_correlation_id` rides separately and is
+  opaque to the contracts; `ToolExecutionResult` has no archive-safe metadata
+  fields, keeping it strictly distinct from
+  `pipy_harness.native.models.NativeToolResult`; `validate_arguments`
+  rejects missing required keys, unsupported extras, wrong scalar types,
+  `bool`-as-int/`bool`-as-string confusion, integer/string bound violations,
+  enum violations, array-item violations, and non-object top-level schemas,
+  and returns a defensive `dict` copy; the `_FixtureEchoTool` round-trip
+  passes `isinstance(tool, ToolPort)`; the subpackage does not re-export the
+  archive-safe `NativeToolResult` shape; no `pydantic`, `jsonschema`, or
+  `attrs` imports are added. No production tool implementations, provider
+  wiring, REPL session changes, archive events, public CLI shape changes, or
+  workspace-effecting code lands in this slice; the contracts are inert until
+  later slices.
 
 ## Next Slice
 
-### Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity Track)
+### Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity Track)
 
-Goal: add the small `pipy_harness.native.tools.base` module that names the
-runtime contracts the rest of the Tool-Loop Parity Track will depend on, with
-no provider or REPL wiring yet.
+Goal: extend the existing `pipy_harness.native.provider.ProviderPort` so the
+loop can negotiate model-driven tool calls without changing any real
+provider's runtime behavior. No REPL session, tool registry, or workspace
+effect lands in this slice.
 
 Implementation focus:
 
-- introduce `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`,
-  `ToolArgumentError`, `ToolContext`, and `ToolPort` as stdlib `dataclass`
-  value objects plus a `Protocol`/ABC port, with manual JSON-schema validation
-  helpers and no new runtime dependencies (no pydantic)
-- keep `ToolExecutionResult` strictly separate from the existing
-  archive-safe `NativeToolResult` metadata; do not conflate provider-visible
-  payloads with archive metadata
-- thread a pipy-owned internal `tool_request_id` and a separate
-  `provider_correlation_id` field, ready for slice 3 wiring; do not surface
-  internal ids as provider ids
-- ship focused contract tests for argument validation, port shape, and
-  schema round-tripping; no provider, REPL, or workspace-effecting code lands
-  in this slice
+- add a `supports_tool_calls` capability flag on `ProviderPort`; real
+  providers (`openai`, `openai-codex`, `openrouter`) keep returning `False`
+  and stay otherwise inert
+- introduce a `ProviderToolCall` value object that carries the
+  `provider_correlation_id`, the model-selected tool name, and the raw
+  arguments JSON; this is the provider's view, not pipy's internal
+  `ToolRequest`
+- add an optional `tool_calls: tuple[ProviderToolCall, ...] = ()` field on
+  `ProviderResult` so the loop can read provider-emitted tool intent;
+  existing producers default to an empty tuple
+- add a small provider-agnostic message envelope shape
+  (`user`/`assistant`/`tool_result`) under
+  `pipy_harness.native.tools.messages` (or similar) so slice 4 can serialize
+  loop turns into a provider-neutral request without touching each adapter
+  yet
+- give `FakeNativeProvider` a `programmable_tool_calls` hook that test code
+  can prime to emit `ProviderToolCall`s on specific turns; real adapters
+  remain inert
+- ship focused tests pinning the new shapes, the `supports_tool_calls`
+  default of `False` on all real adapters, and the inert behavior of the
+  existing one-shot and no-tool REPL provider turns
 - keep the metadata-first archive contracts, `.git` default-deny posture,
   `/verify just-check` scope, the existing no-tool REPL, and the existing
   slash commands unchanged
 
-The remaining ten slices of the Tool-Loop Parity Track stay closed in this
+The remaining nine slices of the Tool-Loop Parity Track stay closed in this
 slice. The full slice list, invariants, and deferred items are in the
 `Tool-Loop Parity Track` section above.
 
@@ -1348,7 +1380,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Define the pipy-native tool contracts (slice 2 of the Tool-Loop Parity
+1. Extend the ProviderPort for tool calls (slice 3 of the Tool-Loop Parity
    Track).
 
 Foundation gates toward an interactive shell:
