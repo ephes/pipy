@@ -773,23 +773,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Add the ls tool (slice 6 of the Tool-Loop Parity Track)"
+        "### Add the grep tool (slice 7 of the Tool-Loop Parity Track)"
         in next_slice
     )
     assert (
-        "`pipy_harness.native.tools.ls.LsTool` that reuses the same workspace path"
+        "`pipy_harness.native.tools.grep.GrepTool`"
         in compact_next_slice
     )
-    assert (
-        "returns a bounded list of workspace-relative entry labels"
-        in compact_next_slice
+    assert "invokes `rg` via `subprocess.run`" in compact_next_slice
+    assert "no `shell=True`" in compact_next_slice
+    assert "stdlib fallback runs when `rg` is unavailable" in compact_next_slice
+    assert "update `production_tool_registry()` to include `grep`" in (
+        compact_next_slice
     )
-    assert "hard maximum entry count (default 200)" in compact_next_slice
-    assert (
-        "update `production_tool_registry()` to include `{\"read\": ..., \"ls\": ...}`"
-        in compact_next_slice
-    )
-    assert "remaining six slices of the Tool-Loop Parity Track stay closed" in (
+    assert "remaining five slices of the Tool-Loop Parity Track stay closed" in (
         compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
@@ -820,7 +817,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Add the ls tool (slice 6 of the Tool-Loop Parity Track)."
+        "Add the grep tool (slice 7 of the Tool-Loop Parity Track)."
         in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
