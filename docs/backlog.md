@@ -1310,45 +1310,70 @@ lands:
   production tool registry stays empty; no CLI mode is wired in this
   slice. The existing no-tool REPL, slash commands, archive contracts, and
   `/verify just-check` boundary are unchanged.
+- Native read tool, tool-loop CLI mode, and tool-loop adapter (slice 5 of
+  the Tool-Loop Parity Track): `pipy_harness.native.tools.read.ReadTool`
+  reuses `_validate_workspace_relative_path`, `_is_ignored_or_generated`,
+  `_is_relative_to`, control-character detection, and `looks_sensitive`
+  from the existing `read_only_tool.py`; it returns provider-visible
+  content through `ToolExecutionResult` with bounded byte and line
+  limits and deterministic error observations for missing, oversized,
+  binary, or ignored paths. Absolute paths and parent traversal raise
+  `ToolArgumentError(field_path=("path",))` so the loop reports them as
+  argument errors rather than execution errors. `production_tool_registry()`
+  now returns `{"read": ReadTool()}`. The `repl` subcommand grows a
+  `--repl-mode {no-tool, tool-loop}` flag defaulting to `no-tool` and a
+  `--tool-budget` flag defaulting to 10 (capped at 25); the existing
+  no-tool REPL stays the default. A new `PipyNativeToolReplAdapter`
+  mirrors `PipyNativeReplAdapter` and constructs `NativeToolReplSession`
+  against the production registry plus the configured budget; the adapter
+  raises a deterministic `supports_tool_calls`-shaped error when the
+  selected provider is inert and reports only metadata-only counters
+  through `AdapterResult.metadata`. Focused tests pin: `ReadTool` satisfies
+  `ToolPort` and round-trips workspace-relative reads; `.git`/`.gitignore`
+  paths return error observations; absolute paths and parent traversal
+  raise `ToolArgumentError`; missing files, directory targets, and binary
+  content surface as error observations; byte and line limits truncate
+  output; `production_tool_registry()` exposes exactly `{"read"}`;
+  `--repl-mode` defaults to `no-tool` and round-trips through `--tool-budget`;
+  the adapter refuses tool-incapable providers; the adapter runs the loop
+  with `FakeNativeProvider` scripted tool calls and emits only
+  metadata-only adapter result metadata. The first real-provider
+  `supports_tool_calls` flip plus its tool-call response parser is the
+  only piece scoped into slice 5 that is intentionally deferred until the
+  matching provider-specific parsing work lands as a focused follow-up;
+  the no-tool REPL, slash commands, archive contracts, and
+  `/verify just-check` boundary are unchanged.
 
 ## Next Slice
 
-### Add the read tool and wire the first tool-loop CLI mode (slice 5 of the Tool-Loop Parity Track)
+### Add the ls tool (slice 6 of the Tool-Loop Parity Track)
 
-Goal: ship the first model-driven tool (`read`), wire
-`pipy repl --agent pipy-native --repl-mode tool-loop` through a new
-adapter that runs `NativeToolReplSession`, and flip the first real
-provider's `supports_tool_calls` to `True` once its response parser can
-surface `ProviderToolCall`s. A manual smoke run lands with the slice.
+Goal: ship the second model-driven tool, `ls`, which lists bounded
+workspace-relative directory entries for the loop to navigate the
+workspace.
 
 Implementation focus:
 
-- add a `pipy_harness.native.tools.read.ReadTool` that reuses
-  `read_only_tool.py` workspace-relative validation, bounded byte/line
-  limits, `.git` default-deny, and metadata-only archive behavior; it
-  returns provider-visible content through `ToolExecutionResult`, with
-  archive-safe counters in a separate `NativeToolResult` recording path
-- populate `production_tool_registry()` with the `read` tool only; later
-  slices add `ls`, `grep`, `find`, `write`, and `edit`
-- add a `--repl-mode {no-tool, tool-loop}` CLI flag defaulting to
-  `no-tool` so the existing REPL stays the default; add a
-  `--tool-budget` CLI flag (default 10, capped at 25) that is honored
-  only in `tool-loop`
-- introduce a `PipyNativeToolReplAdapter` that mirrors
-  `PipyNativeReplAdapter` but constructs a `NativeToolReplSession` with
-  the production registry and the selected tool budget
-- flip exactly one of `openai`/`openai-codex`/`openrouter` to
-  `supports_tool_calls=True` once its response parser surfaces tool
-  intents as `ProviderToolCall`s; the other two stay inert; document the
-  chosen first provider and the manual smoke run in the Done entry
-- ship focused tests that pin: the read tool's definition, schema, and
-  workspace-relative path validation; the production registry now has
-  exactly `{"read"}`; `--repl-mode tool-loop` is rejected when the
-  selected provider does not support tool calls; the no-tool REPL and
-  slash commands keep working in both modes; the metadata-first archive
-  contracts and `.git` default-deny posture hold across the new tool
+- add a `pipy_harness.native.tools.ls.LsTool` that reuses the same
+  workspace path validation as `ReadTool` (path inside the workspace,
+  `.git`/`.gitignore` default-deny, no parent traversal, no absolute
+  paths) and returns a bounded list of workspace-relative entry labels
+  plus one type tag per entry (`file`/`directory`/`other`); no sizes,
+  timestamps, owners, or modes are returned in this slice
+- enforce a hard maximum entry count (default 200) that truncates with a
+  deterministic suffix marker; respect the same byte-limit budget shape
+  used by `ReadTool`
+- update `production_tool_registry()` to include `{"read": ..., "ls":
+  ...}`; later slices add `grep`, `find`, `write`, and `edit`
+- ship focused tests pinning: definition shape and schema; successful
+  listing of a workspace directory; refusal of `.git` and ignored paths;
+  `ToolArgumentError` on absolute paths and parent traversal; truncation
+  with a deterministic marker when entry counts exceed the cap
+- keep metadata-first archive contracts, `.git` default-deny posture,
+  `/verify just-check` scope, the existing no-tool REPL, and the existing
+  slash commands unchanged
 
-The remaining seven slices of the Tool-Loop Parity Track stay closed in
+The remaining six slices of the Tool-Loop Parity Track stay closed in
 this slice. The full slice list, invariants, and deferred items are in
 the `Tool-Loop Parity Track` section above.
 
@@ -1438,8 +1463,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the read tool and wire the first tool-loop CLI mode (slice 5 of the
-   Tool-Loop Parity Track).
+1. Add the ls tool (slice 6 of the Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 

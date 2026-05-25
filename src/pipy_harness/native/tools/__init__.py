@@ -29,10 +29,12 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from pipy_harness.native.tools.read import ReadTool
 
 __all__ = [
     "AssistantMessage",
     "LoopMessage",
+    "ReadTool",
     "ToolArgumentError",
     "ToolContext",
     "ToolDefinition",

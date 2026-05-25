@@ -773,30 +773,23 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Add the read tool and wire the first tool-loop CLI mode "
-        "(slice 5 of the Tool-Loop Parity Track)" in next_slice
+        "### Add the ls tool (slice 6 of the Tool-Loop Parity Track)"
+        in next_slice
     )
     assert (
-        "`pipy_harness.native.tools.read.ReadTool` that reuses `read_only_tool.py`"
+        "`pipy_harness.native.tools.ls.LsTool` that reuses the same workspace path"
         in compact_next_slice
     )
     assert (
-        "populate `production_tool_registry()` with the `read` tool only"
+        "returns a bounded list of workspace-relative entry labels"
         in compact_next_slice
     )
+    assert "hard maximum entry count (default 200)" in compact_next_slice
     assert (
-        "add a `--repl-mode {no-tool, tool-loop}` CLI flag defaulting to `no-tool`"
+        "update `production_tool_registry()` to include `{\"read\": ..., \"ls\": ...}`"
         in compact_next_slice
     )
-    assert (
-        "introduce a `PipyNativeToolReplAdapter`"
-        in compact_next_slice
-    )
-    assert (
-        "flip exactly one of `openai`/`openai-codex`/`openrouter` to "
-        "`supports_tool_calls=True`" in compact_next_slice
-    )
-    assert "remaining seven slices of the Tool-Loop Parity Track stay closed" in (
+    assert "remaining six slices of the Tool-Loop Parity Track stay closed" in (
         compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
@@ -827,8 +820,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term
     assert (
-        "Add the read tool and wire the first tool-loop CLI mode "
-        "(slice 5 of the Tool-Loop Parity Track)." in compact_near_term
+        "Add the ls tool (slice 6 of the Tool-Loop Parity Track)."
+        in compact_near_term
     )
     assert "broader slopfork direction is Pi parity" in compact_near_term
     assert "input-adapter boundary are the first visible parity steps" in (

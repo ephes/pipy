@@ -9,7 +9,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.adapters import PipyNativeAdapter, PipyNativeReplAdapter, SubprocessAdapter
+from pipy_harness.adapters import (
+    PipyNativeAdapter,
+    PipyNativeReplAdapter,
+    PipyNativeToolReplAdapter,
+    SubprocessAdapter,
+)
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest, RunResult
 from pipy_harness.native import (
@@ -152,6 +157,27 @@ def build_parser() -> argparse.ArgumentParser:
             "available on real TTY streams, otherwise plain stdin/stderr."
         ),
     )
+    repl_parser.add_argument(
+        "--repl-mode",
+        choices=["no-tool", "tool-loop"],
+        default="no-tool",
+        help=(
+            "Native REPL mode. no-tool keeps the existing line-oriented REPL "
+            "with /read, /ask-file, /propose-file, /apply-proposal, and "
+            "/verify just-check. tool-loop launches the bounded model-driven "
+            "tool loop and requires a provider that advertises "
+            "supports_tool_calls=True."
+        ),
+    )
+    repl_parser.add_argument(
+        "--tool-budget",
+        type=int,
+        default=10,
+        help=(
+            "Per-user-turn tool invocation budget for --repl-mode tool-loop. "
+            "Default 10, capped at 25."
+        ),
+    )
 
     return parser
 
@@ -219,11 +245,24 @@ def main(argv: list[str] | None = None) -> int:
                 input_runtime=args.input_runtime,
                 workspace=args.cwd,
             )
-            repl_adapter = _repl_adapter_for(
-                args.native_provider,
-                args.native_model,
-                input_runtime=args.input_runtime,
-            )
+            repl_adapter: PipyNativeReplAdapter | PipyNativeToolReplAdapter
+            if args.repl_mode == "tool-loop":
+                if args.tool_budget < 1 or args.tool_budget > 25:
+                    raise ValueError(
+                        "--tool-budget must be in [1, 25]; got "
+                        f"{args.tool_budget}"
+                    )
+                repl_adapter = _tool_repl_adapter_for(
+                    args.native_provider,
+                    args.native_model,
+                    tool_budget=args.tool_budget,
+                )
+            else:
+                repl_adapter = _repl_adapter_for(
+                    args.native_provider,
+                    args.native_model,
+                    input_runtime=args.input_runtime,
+                )
             request = RunRequest(
                 agent=args.agent,
                 slug=args.slug,
@@ -390,6 +429,42 @@ def _repl_adapter_for(
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
     return PipyNativeReplAdapter(provider_state=provider_state, input_runtime=input_runtime)
+
+
+def _tool_repl_adapter_for(
+    native_provider: str | None,
+    native_model: str | None,
+    *,
+    tool_budget: int,
+) -> PipyNativeToolReplAdapter:
+    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
+        raise ValueError(f"unsupported native provider: {native_provider}")
+    defaults_store = NativeDefaultsStore(default_native_defaults_path())
+    selection = default_selection_for(
+        native_provider=native_provider,
+        native_model=native_model,
+        defaults_store=defaults_store
+        if native_provider is None and native_model is None
+        else None,
+    )
+    using_stored_default = native_provider is None and native_model is None
+    provider_state = NativeReplProviderState(
+        selection=selection,
+        provider_factory=_native_provider_for_selection,
+        defaults_store=defaults_store,
+        auth_manager_factory=OpenAICodexAuthManager,
+        openai_codex_auth_path=default_openai_codex_auth_path(),
+    )
+    if using_stored_default and not provider_state.provider_available(
+        selection.provider_name
+    ):
+        provider_state.selection = NativeModelSelection(
+            "fake", DEFAULT_NATIVE_MODELS["fake"]
+        )
+    return PipyNativeToolReplAdapter(
+        provider_state=provider_state,
+        tool_budget=tool_budget,
+    )
 
 
 def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:

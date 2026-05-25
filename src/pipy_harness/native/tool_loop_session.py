@@ -60,15 +60,17 @@ from pipy_harness.native.tools import (
 
 
 def production_tool_registry() -> dict[str, ToolPort]:
-    """Return the empty production tool registry.
+    """Return the current production tool registry.
 
-    Slice 4 of the Tool-Loop Parity Track ships no production tools. Later
-    slices populate this registry with `read`, `ls`, `grep`, `find`, `write`,
-    and `edit` once each tool has its own focused tests, a green
+    Slice 5 of the Tool-Loop Parity Track adds the first production tool,
+    `read`. Later slices populate this registry with `ls`, `grep`, `find`,
+    `write`, and `edit` once each has its own focused tests, a green
     `just check`, and a reviewed commit.
     """
 
-    return {}
+    from pipy_harness.native.tools.read import ReadTool
+
+    return {"read": ReadTool()}
 
 
 @dataclass(frozen=True, slots=True)

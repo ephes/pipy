@@ -107,11 +107,14 @@ def _run_session(
     return result, output_stream.getvalue(), error_stream.getvalue()
 
 
-# --------------------- production registry stays empty ---------------------
+# --------------------- production registry holds only read ----------------
 
 
-def test_production_tool_registry_is_empty():
-    assert production_tool_registry() == {}
+def test_production_tool_registry_holds_only_read_in_slice_5():
+    registry = production_tool_registry()
+
+    assert set(registry.keys()) == {"read"}
+    assert registry["read"].definition.name == "read"
 
 
 # ------------------------- provider capability gate ------------------------
