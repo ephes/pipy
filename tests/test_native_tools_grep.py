@@ -152,9 +152,9 @@ def test_grep_tool_rejects_invalid_timeout():
         GrepTool(timeout_seconds=120)
 
 
-def test_production_tool_registry_holds_read_ls_and_grep():
+def test_production_tool_registry_includes_grep():
     from pipy_harness.native import production_tool_registry
 
     registry = production_tool_registry()
 
-    assert set(registry.keys()) == {"read", "ls", "grep"}
+    assert "grep" in registry

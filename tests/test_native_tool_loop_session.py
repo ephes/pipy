@@ -110,13 +110,12 @@ def _run_session(
 # --------------------- production registry holds read and ls --------------
 
 
-def test_production_tool_registry_holds_read_ls_and_grep():
+def test_production_tool_registry_holds_read_ls_grep_and_find():
     registry = production_tool_registry()
 
-    assert set(registry.keys()) == {"read", "ls", "grep"}
-    assert registry["read"].definition.name == "read"
-    assert registry["ls"].definition.name == "ls"
-    assert registry["grep"].definition.name == "grep"
+    assert set(registry.keys()) == {"read", "ls", "grep", "find"}
+    for name in registry:
+        assert registry[name].definition.name == name
 
 
 # ------------------------- provider capability gate ------------------------

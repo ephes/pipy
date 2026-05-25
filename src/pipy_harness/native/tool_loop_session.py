@@ -62,17 +62,23 @@ from pipy_harness.native.tools import (
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    Slice 5 added `read`, slice 6 added `ls`, and slice 7 adds `grep`.
-    Later slices populate the registry with `find`, `write`, and `edit`
-    once each has its own focused tests, a green `just check`, and a
-    reviewed commit.
+    Slice 5 added `read`, slice 6 added `ls`, slice 7 added `grep`, and
+    slice 8 adds `find`. Later slices populate the registry with `write`
+    and `edit` once each has its own focused tests, a green `just check`,
+    and a reviewed commit.
     """
 
+    from pipy_harness.native.tools.find import FindTool
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
     from pipy_harness.native.tools.read import ReadTool
 
-    return {"read": ReadTool(), "ls": LsTool(), "grep": GrepTool()}
+    return {
+        "read": ReadTool(),
+        "ls": LsTool(),
+        "grep": GrepTool(),
+        "find": FindTool(),
+    }
 
 
 @dataclass(frozen=True, slots=True)

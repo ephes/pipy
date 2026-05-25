@@ -1395,37 +1395,62 @@ lands:
   public CLI shape, no-tool REPL, slash command, or `/verify just-check`
   behavior changes in this slice.
 
+- Native find tool (slice 8 of the Tool-Loop Parity Track):
+  `pipy_harness.native.tools.find.FindTool` returns workspace-relative
+  POSIX paths that match a POSIX glob pattern. Patterns that start with
+  `/`, contain `\`, or contain `..` raise `ToolArgumentError`, so glob
+  expansion cannot escape the workspace. The optional `path` argument
+  validates through the same `_validate_workspace_relative_path`
+  helper. `.git` and `.gitignore`-matched matches are filtered via
+  `_is_ignored_or_generated`. Results are capped at `max_results`
+  (default 200, capped at 1000) with the stable `"... (truncated)"`
+  marker on overflow; empty results yield `"(no matches)"`.
+  `production_tool_registry()` now returns
+  `{"read": ..., "ls": ..., "grep": ..., "find": ...}`. Tests pin: the
+  definition and schema; simple and recursive globs; `.git` filtering;
+  refusal of absolute and parent-traversal patterns and search roots;
+  truncation marker; `(no matches)` output; the search root must be a
+  directory; and `max_results` validation. No archive event, public CLI
+  shape, no-tool REPL, slash command, or `/verify just-check` behavior
+  changes in this slice.
+
 ## Next Slice
 
-### Add the find tool (slice 8 of the Tool-Loop Parity Track)
+### Add the write tool (slice 9 of the Tool-Loop Parity Track)
 
-Goal: ship the fourth model-driven tool, `find`, which returns a
-bounded list of workspace-relative file paths matching one or more
-POSIX-style glob patterns.
+Goal: ship the first model-driven write tool, `write`, which creates a
+new workspace-relative file with the provided contents and writes the
+resulting unified diff to stderr. Mutation is direct (no proposal/apply
+two-step) and archive contracts remain metadata-only.
 
 Implementation focus:
 
-- add a `pipy_harness.native.tools.find.FindTool` that accepts a
-  `pattern` (POSIX glob, e.g. `**/*.py`), an optional workspace-relative
-  `path` defaulting to `.`, and an optional `max_results` (default 200,
-  capped at 1000)
-- use `pathlib.Path.rglob` (or `glob.iglob`) under the workspace root;
-  reject patterns that contain `..` or start with `/`; refuse `.git`
-  and ignored matches by reusing `_is_ignored_or_generated`
-- emit one workspace-relative POSIX path per row; append the stable
-  `"... (truncated)"` marker on overflow; empty result yields
-  `"(no matches)"`
-- update `production_tool_registry()` to include `find`
-- ship focused tests pinning: definition and schema; successful glob
-  matching across one and multiple directories; refusal of `.git` and
-  ignored matches; `ToolArgumentError` on unsafe `path` arguments and on
-  patterns containing `..` or absolute prefixes; bounded result count;
-  the `(no matches)` output
+- add a `pipy_harness.native.tools.write.WriteTool` that accepts a
+  `path` (workspace-relative, validated identically to `ReadTool`) and
+  `content` (UTF-8 string with a maximum length)
+- refuse paths that already exist (create-only in this slice), paths
+  under `.git`, ignored paths, paths that escape the workspace, and
+  paths whose parent directory does not exist or is not a directory
+- write the file with UTF-8 encoding and emit a unified diff
+  (`difflib.unified_diff` against an empty original) to the loop's
+  `error_stream`; the archive remains untouched and the diff lands
+  only on stderr (and, when slice 11 lands, in the opt-in transcript
+  sidecar)
+- thread a `stderr_sink: Callable[[str], None] | None` default-None
+  field through `ToolContext` so tools can write the diff without
+  knowing about provider or REPL plumbing; the loop wires it to the
+  REPL's `error_stream`
+- update `production_tool_registry()` to include `write`
+- ship focused tests pinning: definition and schema; successful file
+  creation with unified diff written to stderr; refusal of existing
+  files, `.git`, absolute paths, parent traversal, and missing parent
+  directories; the archive (via `pipy_session.recorder`) is untouched
+  before and after the call; the diff lands on the stderr sink only
 - keep metadata-first archive contracts, `.git` default-deny posture,
-  `/verify just-check` scope, the existing no-tool REPL, and the existing
-  slash commands unchanged
+  `/verify just-check` scope, the existing no-tool REPL, and the
+  existing slash commands unchanged
 
-The remaining four slices of the Tool-Loop Parity Track stay closed in
+The remaining three slices of the Tool-Loop Parity Track stay closed in
 this slice. The full slice list, invariants, and deferred items are in
 the `Tool-Loop Parity Track` section above.
 
@@ -1515,7 +1540,7 @@ slash-command boundaries.
 
 Small reviewable slices, in intended order:
 
-1. Add the find tool (slice 8 of the Tool-Loop Parity Track).
+1. Add the write tool (slice 9 of the Tool-Loop Parity Track).
 
 Foundation gates toward an interactive shell:
 
