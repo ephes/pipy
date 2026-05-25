@@ -180,32 +180,18 @@ _ALLOWED_PATCH_PROPOSAL_KEYS = {
     "raw_transcript_imported",
     "workspace_mutated",
 }
-_UNSAFE_PROVIDER_METADATA_KEYS = {
-    "available_tools",
-    "composed_system_prompt",
-    "diff",
-    "diffs",
-    "file_content",
-    "file_contents",
-    "input",
-    "instructions",
-    "messages",
-    "model_output",
-    "patch",
-    "patch_text",
-    "prompt",
-    "provider_response",
-    "raw_diff",
-    "raw_patch",
-    "raw_patch_text",
-    "raw_provider_response",
-    "request_body",
-    "stderr",
-    "stdout",
-    "system_prompt",
-    "tools",
-    "user_prompt",
-    "workspace_instruction_files",
+_SAFE_PROVIDER_METADATA_KEYS = {
+    "finish_reason",
+    "http_status",
+    "provider_response_store_requested",
+    "response_object",
+    "response_status",
+}
+_GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
+    "tool_intent_metadata_present",
+    "tool_observation_fixture_metadata_present",
+    "read_only_tool_fixture_metadata_present",
+    "patch_proposal_metadata_present",
 }
 INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
@@ -2292,22 +2278,34 @@ def _safe_provider_metadata(
     *,
     patch_proposal_supported: bool,
 ) -> dict[str, object]:
-    safe_metadata = dict(metadata)
-    if PROVIDER_TOOL_INTENT_METADATA_KEY in safe_metadata:
-        safe_metadata.pop(PROVIDER_TOOL_INTENT_METADATA_KEY)
+    """Project provider-returned metadata into a fixed allowlist of safe keys.
+
+    The allowlist is the only way provider metadata reaches the session
+    archive: scalar status/finish-reason markers documented in
+    `_SAFE_PROVIDER_METADATA_KEYS` plus the four pipy-owned sentinel
+    `*_metadata_present` booleans synthesized below. Any other key — top
+    level or nested — never lands in the JSONL or Markdown. This closes
+    the family of leaks where a provider (or a hostile / future
+    `ProviderPort`) echoes the composed system prompt back through fields
+    like `system_prompt`, `instructions`, `input`, `messages`, or nested
+    wrappers such as `request.system_prompt`.
+    """
+
+    safe_metadata: dict[str, object] = {}
+    if PROVIDER_TOOL_INTENT_METADATA_KEY in metadata:
         safe_metadata["tool_intent_metadata_present"] = True
-    if PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY in safe_metadata:
-        safe_metadata.pop(PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY)
+    if PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY in metadata:
         safe_metadata["tool_observation_fixture_metadata_present"] = True
-    if PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY in safe_metadata:
-        safe_metadata.pop(PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY)
+    if PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY in metadata:
         safe_metadata["read_only_tool_fixture_metadata_present"] = True
-    if PROVIDER_PATCH_PROPOSAL_METADATA_KEY in safe_metadata:
-        safe_metadata.pop(PROVIDER_PATCH_PROPOSAL_METADATA_KEY)
-        if patch_proposal_supported:
-            safe_metadata["patch_proposal_metadata_present"] = True
-    for unsafe_key in _UNSAFE_PROVIDER_METADATA_KEYS:
-        safe_metadata.pop(unsafe_key, None)
+    if (
+        PROVIDER_PATCH_PROPOSAL_METADATA_KEY in metadata
+        and patch_proposal_supported
+    ):
+        safe_metadata["patch_proposal_metadata_present"] = True
+    for safe_key in _SAFE_PROVIDER_METADATA_KEYS:
+        if safe_key in metadata:
+            safe_metadata[safe_key] = metadata[safe_key]
     return sanitize_metadata(safe_metadata)
 
 

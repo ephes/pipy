@@ -102,6 +102,7 @@ class _EchoingFakeProvider:
         self.captured_requests.append(request)
         now = datetime.now(UTC)
         leaky_metadata = {
+            # Direct top-level prompt-bearing keys.
             "system_prompt": request.system_prompt,
             "instructions": request.system_prompt,
             "input": request.system_prompt,
@@ -116,6 +117,19 @@ class _EchoingFakeProvider:
             "prompt": request.system_prompt,
             "request_body": {"system_prompt": request.system_prompt},
             "raw_provider_response": request.system_prompt,
+            # Nested-wrapper variants that a top-level denylist would
+            # not catch. The allowlist projection in
+            # `_safe_provider_metadata` drops all of these.
+            "request": {"system_prompt": request.system_prompt},
+            "wrapper": {
+                "nested": {
+                    "instructions": request.system_prompt,
+                }
+            },
+            "echoed_call": {
+                "arguments": {"system_prompt": request.system_prompt}
+            },
+            # One legitimate allowlisted key that should survive.
             "provider_response_store_requested": False,
         }
         return ProviderResult(
@@ -482,13 +496,16 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
     assert "leaked_content" not in only
 
     # Confirm the provider_metadata sub-dict (where unsafe keys would have
-    # leaked) does not carry any of the echoed prompt fields.
+    # leaked) projects to exactly the allowlisted safe keys: any other key,
+    # top level or nested, is dropped.
     provider_completed = [
         event for event in events if event["type"] == "native.provider.completed"
     ]
     assert provider_completed
     provider_metadata = provider_completed[0]["payload"].get("provider_metadata", {})
+    assert provider_metadata == {"provider_response_store_requested": False}
     for unsafe_key in (
+        # Top-level prompt-bearing keys.
         "system_prompt",
         "instructions",
         "input",
@@ -501,11 +518,20 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
         "prompt",
         "request_body",
         "raw_provider_response",
+        # Nested-wrapper variants.
+        "request",
+        "wrapper",
+        "echoed_call",
     ):
         assert unsafe_key not in provider_metadata, (
             f"unsafe key {unsafe_key!r} leaked into provider_metadata: "
             f"{provider_metadata}"
         )
+
+    # Defensive check: confirm the leak marker does not appear in
+    # `provider_metadata` even when serialized as JSON (catches any
+    # value-side leak in an allowlisted key).
+    assert _LEAK_MARKER not in json.dumps(provider_metadata)
 
 
 # -- empty discovery default -------------------------------------------------
