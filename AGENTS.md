@@ -7,6 +7,7 @@ This file is for coding agents working in this repository. It records local proj
 - Keep `pipy-native` as the product runtime direction. Codex, Claude, Pi, or other CLI wrapping may be useful for capture/reference work, but must not become the main product execution path unless the project direction explicitly changes.
 - Keep capture metadata-first by default; see Session Capture and Workflow Learning Capture below for privacy rules.
 - For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
+- Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed.
 
 ## Dotfile Management (chezmoi)
 - Dotfiles are managed with **chezmoi** (source: `~/.local/share/chezmoi`, repo: dotfiles).
