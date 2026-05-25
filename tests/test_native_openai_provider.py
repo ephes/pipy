@@ -236,7 +236,10 @@ def test_openai_provider_rejects_empty_output_text(tmp_path):
 
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "OpenAIResponseParseError"
-    assert result.error_message == "OpenAI response did not include final output text."
+    assert (
+        result.error_message
+        == "OpenAI response did not include final output text or tool calls."
+    )
     assert result.final_text is None
 
 

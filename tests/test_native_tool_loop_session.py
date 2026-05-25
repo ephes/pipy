@@ -22,7 +22,6 @@ from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplResult,
     NativeToolReplSession,
-    OpenAIResponsesProvider,
     ProviderToolCall,
     production_tool_registry,
 )
@@ -129,7 +128,7 @@ def test_production_tool_registry_holds_all_six_slice_10_tools():
 
 
 def test_session_rejects_provider_without_tool_call_capability():
-    provider = OpenAIResponsesProvider(model_id="gpt-test")
+    provider = FakeNativeProvider(supports_tool_calls=False)
 
     with pytest.raises(ValueError, match="supports_tool_calls"):
         NativeToolReplSession(provider=provider)

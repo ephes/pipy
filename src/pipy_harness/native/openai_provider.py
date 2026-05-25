@@ -13,7 +13,12 @@ from typing import Any, Protocol
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.tools.messages import (
+    AssistantMessage,
+    ToolResultMessage,
+    UserMessage,
+)
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -79,14 +84,22 @@ class UrllibJsonHTTPClient:
 
 @dataclass(frozen=True, slots=True)
 class OpenAIResponsesProvider:
-    """One-turn OpenAI Responses API provider behind ProviderPort."""
+    """OpenAI Responses API provider behind ProviderPort.
+
+    Real adapter with `supports_tool_calls=True`. When
+    `ProviderRequest.messages` is non-empty the provider serializes them
+    into the Responses API `input` list (with `function_call` and
+    `function_call_output` items) and declares `tools` from
+    `available_tools`. Legacy single-turn callers leave `messages` empty
+    and keep the previous string/list `input` body builder.
+    """
 
     model_id: str
     api_key: str | None = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY"))
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
-    supports_tool_calls: bool = False
+    supports_tool_calls: bool = True
 
     @property
     def name(self) -> str:
@@ -111,12 +124,17 @@ class OpenAIResponsesProvider:
                 error_message="OpenAI API key is required in the environment for native provider openai.",
             )
 
-        body = {
+        body: dict[str, Any] = {
             "model": self.model_id,
             "instructions": request.system_prompt,
             "input": _responses_input(request),
             "store": False,
         }
+        if request.available_tools:
+            body["tools"] = [
+                _serialize_tool_for_openai_responses(tool)
+                for tool in request.available_tools
+            ]
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -157,10 +175,16 @@ class OpenAIResponsesProvider:
                 "provider_response_store_requested": False,
                 "response_status": result.response_status,
             },
+            tool_calls=result.tool_calls,
         )
 
 
 def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
+    if request.messages:
+        items: list[dict[str, object]] = []
+        for envelope in request.messages:
+            items.extend(_envelope_to_input_items(envelope))
+        return items
     if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
         return request.user_prompt
     messages: list[dict[str, object]] = []
@@ -186,11 +210,73 @@ def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
     return messages
 
 
+def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
+    """Translate one LoopMessage into one or more Responses API input items."""
+
+    if isinstance(envelope, UserMessage):
+        return [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": envelope.content}],
+            }
+        ]
+    if isinstance(envelope, AssistantMessage):
+        items: list[dict[str, object]] = []
+        if envelope.content:
+            items.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": envelope.content}
+                    ],
+                }
+            )
+        for call in envelope.tool_calls:
+            items.append(
+                {
+                    "type": "function_call",
+                    "call_id": call.provider_correlation_id,
+                    "name": call.tool_name,
+                    "arguments": call.arguments_json,
+                }
+            )
+        return items
+    if isinstance(envelope, ToolResultMessage):
+        return [
+            {
+                "type": "function_call_output",
+                "call_id": envelope.provider_correlation_id
+                or envelope.tool_request_id,
+                "output": envelope.output_text,
+            }
+        ]
+    raise OpenAIResponseParseError(
+        f"unsupported message envelope: {type(envelope).__name__}"
+    )
+
+
+def _serialize_tool_for_openai_responses(tool: Any) -> dict[str, Any]:
+    """Translate a `ToolDefinition` into the Responses API tool shape.
+
+    The Responses API takes function tools as a flat object with
+    `type`/`name`/`description`/`parameters` (no nested `function:`
+    wrapper, unlike Chat Completions).
+    """
+
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": dict(tool.input_schema),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedOpenAIResponse:
-    final_text: str
+    final_text: str | None
     usage: dict[str, int | float]
     response_status: str
+    tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
 class OpenAIProviderError(Exception):
@@ -243,9 +329,10 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
         )
 
     final_text = _extract_final_text(body)
-    if not final_text:
+    tool_calls = _extract_tool_calls(body.get("output"))
+    if not final_text and not tool_calls:
         raise OpenAIResponseParseError(
-            "OpenAI response did not include final output text.",
+            "OpenAI response did not include final output text or tool calls.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
@@ -256,12 +343,13 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
         final_text=final_text,
         usage=_extract_usage(body.get("usage")),
         response_status=response_status,
+        tool_calls=tool_calls,
     )
 
 
 def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     output_text = body.get("output_text")
-    if isinstance(output_text, str):
+    if isinstance(output_text, str) and output_text:
         return output_text
 
     output = body.get("output")
@@ -271,6 +359,8 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     chunks: list[str] = []
     for item in output:
         if not isinstance(item, Mapping):
+            continue
+        if item.get("type") not in (None, "message"):
             continue
         content = item.get("content")
         if not isinstance(content, list):
@@ -283,6 +373,47 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     if not chunks:
         return None
     return "".join(chunks)
+
+
+def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
+    """Parse Responses-API `output` items of type `function_call`."""
+
+    if not isinstance(value, list):
+        return ()
+    calls: list[ProviderToolCall] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("type") != "function_call":
+            continue
+        name = item.get("name")
+        arguments = item.get("arguments")
+        call_id = item.get("call_id")
+        if not isinstance(call_id, str) or not call_id:
+            candidate_id = item.get("id")
+            call_id = candidate_id if isinstance(candidate_id, str) and candidate_id else None
+        if not isinstance(name, str) or not name:
+            continue
+        if isinstance(arguments, Mapping):
+            arguments = json.dumps(arguments, sort_keys=True)
+        if not isinstance(arguments, str):
+            arguments = ""
+        correlation = call_id if call_id else f"openai-tool-{index}"
+        try:
+            calls.append(
+                ProviderToolCall(
+                    provider_correlation_id=correlation[
+                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
+                    ],
+                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
+                    arguments_json=arguments[
+                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
+                    ],
+                )
+            )
+        except ValueError:
+            continue
+    return tuple(calls)
 
 
 def _extract_usage(value: Any) -> dict[str, int | float]:

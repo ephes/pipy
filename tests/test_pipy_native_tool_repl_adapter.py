@@ -23,7 +23,6 @@ from pipy_harness.cli import build_parser
 from pipy_harness.models import RunRequest
 from pipy_harness.native import (
     FakeNativeProvider,
-    OpenAIResponsesProvider,
     ProviderToolCall,
 )
 
@@ -65,7 +64,7 @@ def test_pipy_native_tool_repl_adapter_requires_tool_capable_provider(
     tmp_path: Path,
 ):
     adapter = PipyNativeToolReplAdapter(
-        provider=OpenAIResponsesProvider(model_id="gpt-test"),
+        provider=FakeNativeProvider(supports_tool_calls=False),
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
@@ -176,12 +175,21 @@ def test_pipy_native_repl_adapter_no_tool_mode_unaffected_by_new_flag():
 # --------------------- slice 12: --repl-mode auto resolver -----------------
 
 
-def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_real_providers():
-    from pipy_harness.cli import _resolve_repl_mode
+def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_inert_provider(
+    monkeypatch,
+):
+    """When the selected provider advertises `supports_tool_calls=False`,
+    `auto` must fall back to the no-tool REPL."""
 
-    # Real providers all carry supports_tool_calls=False at slice 12.
-    resolved = _resolve_repl_mode(
-        "auto", native_provider="openai", native_model="gpt-test"
+    from pipy_harness import cli
+
+    class _Stub:
+        supports_tool_calls = False
+
+    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
+
+    resolved = cli._resolve_repl_mode(
+        "auto", native_provider="fake", native_model="fake-native-bootstrap"
     )
 
     assert resolved == "no-tool"
