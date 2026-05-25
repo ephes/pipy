@@ -180,18 +180,60 @@ _ALLOWED_PATCH_PROPOSAL_KEYS = {
     "raw_transcript_imported",
     "workspace_mutated",
 }
-_SAFE_PROVIDER_METADATA_KEYS = {
-    "finish_reason",
-    "http_status",
-    "provider_response_store_requested",
-    "response_object",
-    "response_status",
-}
+_SAFE_PROVIDER_METADATA_LABEL_MAX_CHARS = 32
+_SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL = "<unsupported>"
+_SAFE_PROVIDER_METADATA_OVERSIZED_LABEL = "<oversized>"
+_SAFE_PROVIDER_METADATA_HTTP_STATUS_MIN = 100
+_SAFE_PROVIDER_METADATA_HTTP_STATUS_MAX = 599
 _GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
     "tool_intent_metadata_present",
     "tool_observation_fixture_metadata_present",
     "read_only_tool_fixture_metadata_present",
     "patch_proposal_metadata_present",
+}
+
+
+def _project_safe_bool_metadata(value: object) -> object:
+    if value is True or value is False:
+        return value
+    return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+
+
+def _project_safe_http_status_metadata(value: object) -> object:
+    if isinstance(value, bool):
+        return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+    if not isinstance(value, int):
+        return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+    if not (
+        _SAFE_PROVIDER_METADATA_HTTP_STATUS_MIN
+        <= value
+        <= _SAFE_PROVIDER_METADATA_HTTP_STATUS_MAX
+    ):
+        return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+    return value
+
+
+def _project_safe_label_metadata(value: object) -> object:
+    if not isinstance(value, str):
+        return _SAFE_PROVIDER_METADATA_UNSUPPORTED_LABEL
+    sanitized = sanitize_text(value)
+    if len(sanitized) > _SAFE_PROVIDER_METADATA_LABEL_MAX_CHARS:
+        return _SAFE_PROVIDER_METADATA_OVERSIZED_LABEL
+    return sanitized
+
+
+# Allowlist of provider-emitted metadata keys, each paired with a strict
+# per-key projector. Keys not in this mapping are dropped entirely. Values
+# whose type or shape does not match are replaced with a deterministic
+# unsafe-sentinel label (`<unsupported>` / `<oversized>`) so an
+# adversarial or future provider cannot route the composed system prompt
+# back into the archive by stuffing it into an allowlisted field.
+_SAFE_PROVIDER_METADATA_PROJECTORS: dict[str, Callable[[object], object]] = {
+    "provider_response_store_requested": _project_safe_bool_metadata,
+    "http_status": _project_safe_http_status_metadata,
+    "response_status": _project_safe_label_metadata,
+    "response_object": _project_safe_label_metadata,
+    "finish_reason": _project_safe_label_metadata,
 }
 INITIAL_PROVIDER_TURN_LABEL = "initial"
 POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL = "post_tool_observation"
@@ -2303,9 +2345,9 @@ def _safe_provider_metadata(
         and patch_proposal_supported
     ):
         safe_metadata["patch_proposal_metadata_present"] = True
-    for safe_key in _SAFE_PROVIDER_METADATA_KEYS:
+    for safe_key, projector in _SAFE_PROVIDER_METADATA_PROJECTORS.items():
         if safe_key in metadata:
-            safe_metadata[safe_key] = metadata[safe_key]
+            safe_metadata[safe_key] = projector(metadata[safe_key])
     return sanitize_metadata(safe_metadata)
 
 

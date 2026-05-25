@@ -129,8 +129,15 @@ class _EchoingFakeProvider:
             "echoed_call": {
                 "arguments": {"system_prompt": request.system_prompt}
             },
-            # One legitimate allowlisted key that should survive.
-            "provider_response_store_requested": False,
+            # Allowlisted keys stuffed with prompt-bearing values so the
+            # per-key projector in `_safe_provider_metadata` is exercised:
+            # the booleans, ints, and short labels coerce; everything
+            # else is replaced with a deterministic sentinel.
+            "provider_response_store_requested": request.system_prompt,
+            "http_status": request.system_prompt,
+            "response_status": request.system_prompt,
+            "response_object": request.system_prompt,
+            "finish_reason": request.system_prompt,
         }
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -495,15 +502,24 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
     assert only["sha256"] == _expected_agents_md_sha256()
     assert "leaked_content" not in only
 
-    # Confirm the provider_metadata sub-dict (where unsafe keys would have
-    # leaked) projects to exactly the allowlisted safe keys: any other key,
-    # top level or nested, is dropped.
+    # Confirm the provider_metadata sub-dict projects to exactly the
+    # allowlisted safe keys with safe sentinel values: any other key,
+    # top level or nested, is dropped, and an allowlisted key whose value
+    # has the wrong type or is too long is replaced with a deterministic
+    # `<unsupported>` / `<oversized>` sentinel rather than passing through
+    # the composed system prompt.
     provider_completed = [
         event for event in events if event["type"] == "native.provider.completed"
     ]
     assert provider_completed
     provider_metadata = provider_completed[0]["payload"].get("provider_metadata", {})
-    assert provider_metadata == {"provider_response_store_requested": False}
+    assert provider_metadata == {
+        "provider_response_store_requested": "<unsupported>",
+        "http_status": "<unsupported>",
+        "response_status": "<oversized>",
+        "response_object": "<oversized>",
+        "finish_reason": "<oversized>",
+    }
     for unsafe_key in (
         # Top-level prompt-bearing keys.
         "system_prompt",
@@ -530,7 +546,8 @@ def test_provider_metadata_echoing_system_prompt_does_not_leak_to_archive(
 
     # Defensive check: confirm the leak marker does not appear in
     # `provider_metadata` even when serialized as JSON (catches any
-    # value-side leak in an allowlisted key).
+    # value-side leak through an allowlisted key, including the
+    # whitespace-collapsed truncation window in `_project_safe_label_metadata`).
     assert _LEAK_MARKER not in json.dumps(provider_metadata)
 
 
