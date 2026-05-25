@@ -176,11 +176,17 @@ turn, and never archives raw excerpt text. The OpenAI provider calls the
 Responses API through a small standard-library HTTP boundary, reads its API key
 from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
 internal system prompt as `instructions`, sends the short `--goal` as `input`,
-and requests `store: false`. It does not enable provider-side tools, streaming,
-retries, conversation state, background mode, model fallback, or raw transcript
-import. Provider final text is printed to stdout by the CLI contract only when
-the native run succeeds, but the pipy archive still stores only lifecycle
-metadata.
+and requests `store: false`. It now also serializes the model-driven loop's
+message envelope and `available_tools` into the Responses-API `input`/`tools`
+shape and parses returned `function_call` outputs into the loop's
+`ProviderToolCall` values when used through the tool-loop REPL; legacy
+single-turn `pipy run` / `/ask-file` / `/propose-file` callers continue to
+send the plain single-prompt body and receive no tool calls. It does not
+enable provider-side built-in tools (web search, file search, code
+interpreter, computer use), streaming, retries, conversation state,
+background mode, model fallback, or raw transcript import. Provider final
+text is printed to stdout by the CLI contract only when the native run
+succeeds, but the pipy archive still stores only lifecycle metadata.
 
 OpenRouter remains usable for real-provider smoke testing:
 
@@ -230,16 +236,15 @@ line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
 opt-in `--archive-transcript` flag writes raw loop turns to
 `~/.local/state/pipy/transcripts/<id>.jsonl` outside the metadata-first
 pipy session archive; the sidecar is sensitive content and excluded from
-`pipy-session list/search/inspect`. OpenRouter is the first
-real provider with tool-call support, so the easiest way to drive the
-loop today is `pipy repl --native-provider openrouter --native-model
-<vendor/model>` with `OPENROUTER_API_KEY` set in the environment. The
-matching tool-call wiring for OpenAI Responses (`--native-provider
-openai`) and OpenAI Codex (`--native-provider openai-codex`) ships
-through the OpenAI Responses + OpenAI Codex Tool-Call Parity Track in
-`docs/backlog.md`, `docs/harness-spec.md`, and `docs/pi-parity.md`;
-both providers currently advertise `supports_tool_calls=False` until
-the slices in that track flip them on. The shell prints a compact startup
+`pipy-session list/search/inspect`. All three real adapters
+(`openrouter`, `openai`, and `openai-codex`) advertise
+`supports_tool_calls=True` and drive the tool loop end-to-end, so
+`pipy repl --native-provider openrouter --native-model <vendor/model>`
+with `OPENROUTER_API_KEY`, `pipy repl --native-provider openai
+--native-model <model>` with `OPENAI_API_KEY`, and `pipy repl
+--native-provider openai-codex --native-model <model>` after
+`pipy auth openai-codex login` all run the same bounded model-driven
+loop. The shell prints a compact startup
 chrome to stderr before
 the first prompt, including the pipy version, controls, safe command/resource
 labels, and the same kind of safe provider/model, workspace, turn, context,

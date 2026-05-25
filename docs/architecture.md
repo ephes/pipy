@@ -117,8 +117,9 @@ Available now:
   parser behavior or read/apply gates.
 - `pipy repl --repl-mode {auto,no-tool,tool-loop}` selects the REPL mode.
   `auto` (the default) launches the bounded model-driven tool loop when the
-  selected provider advertises `supports_tool_calls=True` (currently
-  OpenRouter) and falls back to the existing no-tool REPL otherwise.
+  selected provider advertises `supports_tool_calls=True` (all three real
+  adapters — `openai`, `openai-codex`, and `openrouter` — qualify today)
+  and falls back to the existing no-tool REPL otherwise.
   `--tool-budget` (default 10, capped at 25) caps per-user-turn tool
   invocations in the tool-loop mode.
 - `--archive-transcript` is an opt-in flag that writes raw loop turns to a
@@ -187,7 +188,7 @@ Deferred:
 | Conversation state | `src/pipy_harness/native/conversation.py` | In-memory conversation identity, bounded turns, and metadata-only turn payloads. |
 | REPL state | `src/pipy_harness/native/repl_state.py` | Provider/model selection, non-secret defaults, and local availability checks. |
 | Provider port | `src/pipy_harness/native/provider.py` | `ProviderPort.complete()` protocol plus the `supports_tool_calls` capability flag. |
-| Providers | `src/pipy_harness/native/fake.py`, `openai_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus direct OpenAI, OpenAI Codex subscription, and OpenRouter adapters. OpenRouter is the first real provider with `supports_tool_calls=True`. |
+| Providers | `src/pipy_harness/native/fake.py`, `openai_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus direct OpenAI, OpenAI Codex subscription, and OpenRouter adapters. All three real adapters advertise `supports_tool_calls=True` and drive the bounded tool loop end-to-end. |
 | Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol used by `/read`, `/apply-proposal`, and `/verify just-check`. |
 | Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope. |
 | Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py` | Production registry tools for the bounded tool-loop. Each reuses `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and the new `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny. |

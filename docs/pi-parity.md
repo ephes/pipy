@@ -164,15 +164,17 @@ lands:
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
 
-The Native Tool-Loop Parity Track shipped end-to-end with OpenRouter as
-the first and only real provider advertising `supports_tool_calls=True`.
-This follow-up track brings the same model-driven loop closure to
-`OpenAIResponsesProvider` and `OpenAICodexResponsesProvider`, so
-`pipy repl --agent pipy-native --native-provider openai` and
-`--native-provider openai-codex` can drive the existing bounded tool
-loop end-to-end against their respective endpoints, matching the bar
-already met by OpenRouter (see
-`tests/test_tool_loop_end_to_end.py`).
+The Native Tool-Loop Parity Track originally shipped end-to-end with
+OpenRouter as the only real provider advertising
+`supports_tool_calls=True`. This follow-up track extended the same
+model-driven loop closure to `OpenAIResponsesProvider` and
+`OpenAICodexResponsesProvider`, so `pipy repl --agent pipy-native
+--native-provider openai` and `--native-provider openai-codex` now
+drive the existing bounded tool loop end-to-end against their
+respective endpoints, matching the bar set by OpenRouter (see
+`tests/test_tool_loop_end_to_end.py`,
+`tests/test_tool_loop_end_to_end_openai.py`, and
+`tests/test_tool_loop_end_to_end_openai_codex.py`).
 
 ### Goal
 

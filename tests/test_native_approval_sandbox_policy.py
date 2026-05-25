@@ -773,25 +773,19 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 4"
-        in next_slice
+        "### Choose the next pipy-native direction after the OpenAI "
+        "Responses + OpenAI Codex Tool-Call Parity Track" in next_slice
     )
     assert (
-        "complete the track with a final cleanup sweep"
-        in compact_next_slice
+        "pick the next reviewable boundary" in compact_next_slice
     )
     assert (
-        "OpenAI Responses and OpenAI Codex parsers remain a focused follow-up"
-        in compact_next_slice
+        "Pi-parity ladder" in compact_next_slice
     )
     assert (
-        "keep code and tests unchanged in this slice"
-        in compact_next_slice
-    )
-    assert (
-        'The previous planning slice, "Choose the next pipy-native '
-        'direction after the Tool-Loop Parity Track", selected this track '
-        "as the next small pipy-native boundary."
+        "Both the original Tool-Loop Parity Track and the follow-up "
+        "OpenAI Responses + OpenAI Codex Tool-Call Parity Track are now "
+        "complete"
         in compact_next_slice
     )
     assert "Native Pi-Like REPL Startup Chrome" in spec
@@ -816,8 +810,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
-    assert "The Tool-Loop Parity Track has now landed end-to-end" in (
-        compact_near_term
+    assert (
+        "The Tool-Loop Parity Track and the follow-up "
+        in compact_near_term
+    )
+    assert (
+        "have both landed end-to-end" in compact_near_term
     )
     assert "bottom-toolbar status decision" in compact_near_term
     assert "deferred footer behavior" in compact_near_term

@@ -3223,14 +3223,15 @@ It shipped as twelve reviewed slices plus an OpenRouter response-parser
 follow-up and a first-review fix-up, all alongside the existing no-tool
 REPL and the existing slash-command boundaries. OpenRouter was the
 first real provider with `supports_tool_calls=True`; the matching
-OpenAI Responses and OpenAI Codex parsers now ship through the separate
+OpenAI Responses and OpenAI Codex parsers landed through the separate
 [OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
-recorded below. The slice-level ordering and current state of the
-original track live in `docs/backlog.md` (`Tool-Loop Parity Track`);
-the parity-map entry lives in `docs/pi-parity.md`
-(`Native Tool-Loop Parity Track`). This section records the
-design-level goal, invariants, and deferred design choices of the
-original track.
+recorded below, and all three real adapters (`openai`, `openai-codex`,
+and `openrouter`) now drive the loop end-to-end. The slice-level
+ordering and current state of the original track live in
+`docs/backlog.md` (`Tool-Loop Parity Track`); the parity-map entry
+lives in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`). This
+section records the design-level goal, invariants, and deferred
+design choices of the original track.
 
 ### Goal
 
@@ -3296,16 +3297,17 @@ after it lands. They are not later slices of this track:
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
 
-The Native Tool-Loop Parity Track above shipped end-to-end with
-OpenRouter as the first and only real provider advertising
-`supports_tool_calls=True`. This follow-up track extends that closure
+The Native Tool-Loop Parity Track above originally shipped end-to-end
+with OpenRouter as the only real provider advertising
+`supports_tool_calls=True`. This follow-up track extended that closure
 to the OpenAI Platform Responses API and the OpenAI Codex subscription
-Responses streaming endpoint, so
-`pipy repl --agent pipy-native --native-provider openai` and
-`--native-provider openai-codex` can drive the existing bounded tool
-loop end-to-end, matching the bar already met by OpenRouter in
-`tests/test_tool_loop_end_to_end.py`. The slice-level ordering and
-current state live in `docs/backlog.md`
+Responses streaming endpoint, so `pipy repl --agent pipy-native
+--native-provider openai` and `--native-provider openai-codex` now
+drive the existing bounded tool loop end-to-end, matching the bar set
+by OpenRouter in `tests/test_tool_loop_end_to_end.py`,
+`tests/test_tool_loop_end_to_end_openai.py`, and
+`tests/test_tool_loop_end_to_end_openai_codex.py`. The slice-level
+ordering and historical record live in `docs/backlog.md`
 (`OpenAI Responses + OpenAI Codex Tool-Call Parity Track`); the
 parity-map entry lives in `docs/pi-parity.md`
 (`OpenAI Responses + OpenAI Codex Tool-Call Parity Track`). This

@@ -244,14 +244,17 @@ lands:
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
 
-The Native Tool-Loop Parity Track shipped end-to-end with OpenRouter
-as the first and only real provider advertising
-`supports_tool_calls=True`. This follow-up track brings the same loop
-closure to `OpenAIResponsesProvider` and `OpenAICodexResponsesProvider`,
-so `pipy repl --agent pipy-native --native-provider openai` and
-`--native-provider openai-codex` can drive the existing bounded tool
-loop end-to-end against their respective endpoints, matching the bar
-already met by OpenRouter in `tests/test_tool_loop_end_to_end.py`.
+The Native Tool-Loop Parity Track originally shipped end-to-end with
+OpenRouter as the only real provider advertising
+`supports_tool_calls=True`. This follow-up track extended the same
+loop closure to `OpenAIResponsesProvider` and
+`OpenAICodexResponsesProvider`, so `pipy repl --agent pipy-native
+--native-provider openai` and `--native-provider openai-codex` now
+drive the existing bounded tool loop end-to-end against their
+respective endpoints, matching the bar set by OpenRouter in
+`tests/test_tool_loop_end_to_end.py`,
+`tests/test_tool_loop_end_to_end_openai.py`, and
+`tests/test_tool_loop_end_to_end_openai_codex.py`.
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`OpenAI Responses + OpenAI Codex Tool-Call
@@ -1728,32 +1731,61 @@ These hold throughout the track, not as later deferrals:
   (`openai`, `openai-codex`, `openrouter`) advertise
   `supports_tool_calls=True`.
 
+- OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 4
+  (documentation cleanup sweep): README, `docs/pi-parity.md`,
+  `docs/backlog.md`, `docs/harness-spec.md`, and
+  `docs/architecture.md` no longer carry forward-looking copy
+  implying OpenRouter is the only tool-capable real provider or
+  that the OpenAI Responses and OpenAI Codex parsers are still a
+  follow-up. The `auto`-resolver narrative in
+  `docs/architecture.md` now names all three real adapters as
+  tool-capable; the README provider description for OpenAI
+  Responses now records that the provider serializes the loop's
+  message envelope into `input`/`tools` and parses returned
+  `function_call` outputs while legacy single-turn callers keep
+  the plain single-prompt body; historical `## Done` ledger
+  entries and the original Tool-Loop Parity Track's slice-list
+  paragraphs are kept intact for archaeology. No code or runtime
+  behavior changes in this slice; the
+  `test_backlog_records_done_completion_and_provider_priority_order`
+  assertions tracking the `Near Term` and `Next Slice` paragraphs
+  were updated alongside the new copy. With this slice the OpenAI
+  Responses + OpenAI Codex Tool-Call Parity Track is complete.
+
 ## Next Slice
 
-### OpenAI Responses + OpenAI Codex Tool-Call Parity Track slice 4
+### Choose the next pipy-native direction after the OpenAI Responses + OpenAI Codex Tool-Call Parity Track
 
-Goal: complete the track with a final cleanup sweep that removes
-any remaining phrasing implying OpenRouter is the only tool-capable
-real provider, or that the OpenAI Responses or OpenAI Codex parsers
-are still a follow-up. Update README, `docs/pi-parity.md`,
-`docs/backlog.md`, `docs/harness-spec.md`, and
-`docs/architecture.md` so the documentation reflects the now-shipped
-end-to-end loop closure across all three real providers.
+Goal: pick the next reviewable boundary now that the OpenAI
+Responses + OpenAI Codex Tool-Call Parity Track has landed
+end-to-end across `openai`, `openai-codex`, and `openrouter`. The
+implementation track for the next slice is intentionally not
+selected here; the goal is to use summary-safe session reflection
+and the current parity gaps to choose the next small
+`pipy-native` boundary.
 
 Implementation focus:
 
-- remove or rewrite "OpenRouter is the (only|first) real provider
-  with tool-call support" / "OpenAI Responses and OpenAI Codex
-  parsers remain a focused follow-up" phrasing wherever it survives
-- update the `auto`-resolver narrative so it no longer marks
-  OpenRouter as the sole tool-capable real provider in the
-  forward-looking copy (historical ledger entries stay intact)
-- keep code and tests unchanged in this slice; the change is
-  documentation only
+- inspect summary-safe archive signals with
+  `pipy-session reflect --json` and targeted `pipy-session search`
+  queries before picking a direction
+- compare next-boundary candidates against the Pi-parity ladder:
+  richer resource discovery (AGENTS / CLAUDE-style instruction
+  loading), session resume / search surfaces, persistent input
+  history, resilient TTY resize behavior, or provider-access
+  polish such as model-catalog discovery
+- document the selected next slice in this backlog and, when
+  architectural behavior changes, in `docs/harness-spec.md`
+- keep metadata-first archive contracts, `.git` default-deny
+  posture, `/verify just-check` scope, the no-tool REPL, the
+  tool-loop REPL, and the existing slash commands unchanged in
+  this planning slice
 
-The previous planning slice, "Choose the next pipy-native direction
-after the Tool-Loop Parity Track", selected this track as the next
-small pipy-native boundary.
+Both the original Tool-Loop Parity Track and the follow-up
+OpenAI Responses + OpenAI Codex Tool-Call Parity Track are now
+complete; subsequent slices may extend the tool-loop surface
+(for example, additional tools or richer streaming) or branch
+into other parity work.
 
 ## Near Term
 
@@ -1764,12 +1796,11 @@ a separate runtime and not a wrapper around Codex, Claude, Pi, or another
 agent CLI. The product posture is now explicitly Pi-like: no permission
 popups for normal interactive use.
 
-The Tool-Loop Parity Track has now landed end-to-end. OpenRouter was
-the first real provider with `supports_tool_calls=True`; the matching
-OpenAI Responses and OpenAI Codex parsers now ship through the
-separate
-[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track),
-which is the current near-term direction. The previous slice-by-slice
+The Tool-Loop Parity Track and the follow-up
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
+have both landed end-to-end. All three real adapters (`openai`,
+`openai-codex`, and `openrouter`) advertise `supports_tool_calls=True`
+and drive the existing bounded tool loop. The previous slice-by-slice
 rollout of the original track followed the
 styled Pi-like startup visual/resource-label pass, grouped slash-command
 discovery, post-help input ergonomics decision, state-aware prompt label,
