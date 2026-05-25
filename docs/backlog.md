@@ -1482,6 +1482,29 @@ lands:
   `pipy_session.catalog.list_finalized_sessions` does not surface the
   sidecar because it lives outside the session root.
 
+- OpenRouter tool-call wiring (Tool-Loop Parity Track follow-up to
+  slice 5): `OpenRouterChatCompletionsProvider` now advertises
+  `supports_tool_calls=True`. The provider serializes the loop's
+  `messages` envelope (UserMessage/AssistantMessage/ToolResultMessage)
+  into the OpenAI Chat Completions format with `tools` declarations
+  built from `available_tools`, parses returned `tool_calls` into
+  `ProviderToolCall` instances, and surfaces them on
+  `ProviderResult.tool_calls`. `ProviderRequest` grew two backward-
+  compatible fields, `messages: tuple[LoopMessage, ...] = ()` and
+  `available_tools: tuple[ToolDefinition, ...] = ()`; legacy single-
+  turn callers (the existing `/ask-file`/`/propose-file` paths) leave
+  both empty and keep the previous behavior. `NativeToolReplSession`
+  now passes `messages` and `available_tools` to the provider. Focused
+  tests pin the serialization, parsing, dict-arguments fallback, and
+  legacy single-turn path; an end-to-end hermetic test
+  (`tests/test_tool_loop_end_to_end.py`) drives the full loop against
+  OpenRouter's stubbed HTTP transport: the model emits a `read`
+  tool_call, the loop dispatches through the production registry, the
+  `read` tool returns content, the loop sends a `tool` message back,
+  and the provider returns final text on stdout. With this slice the
+  Tool-Loop Parity Track's "real model-driven loop" done-condition is
+  met for OpenRouter; the OpenAI Responses and OpenAI Codex parsers
+  remain a focused follow-up.
 - Native tool-loop default with archive-transcript guidance (slice 12
   of the Tool-Loop Parity Track): the `--repl-mode` flag now defaults to
   `auto` instead of `no-tool`. The `_resolve_repl_mode` resolver routes

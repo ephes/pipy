@@ -217,12 +217,17 @@ class NativeToolReplSession:
 
             while inner_iterations < inner_iteration_cap:
                 inner_iterations += 1
+                available_tools = tuple(
+                    tool.definition for tool in self.tool_registry.values()
+                )
                 provider_request = ProviderRequest(
                     system_prompt=system_prompt,
                     user_prompt=user_input,
                     provider_name=effective_provider_name,
                     model_id=effective_model_id,
                     cwd=cwd,
+                    messages=tuple(messages),
+                    available_tools=available_tools,
                 )
                 provider_result = self.provider.complete(provider_request)
                 tool_calls = tuple(provider_result.tool_calls)

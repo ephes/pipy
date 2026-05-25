@@ -372,7 +372,10 @@ def test_openrouter_provider_rejects_empty_message_content(tmp_path):
 
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "OpenRouterResponseParseError"
-    assert result.error_message == "OpenRouter response did not include final message content."
+    assert (
+        result.error_message
+        == "OpenRouter response did not include final message content or tool calls."
+    )
     assert result.metadata == {
         "finish_reason": "stop",
         "provider_response_store_requested": False,

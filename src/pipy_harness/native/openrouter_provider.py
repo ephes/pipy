@@ -13,7 +13,12 @@ from typing import Any, Protocol
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.tools.messages import (
+    AssistantMessage,
+    ToolResultMessage,
+    UserMessage,
+)
 from pipy_harness.native.usage import normalize_provider_usage
 
 OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -82,14 +87,21 @@ class UrllibJsonHTTPClient:
 
 @dataclass(frozen=True, slots=True)
 class OpenRouterChatCompletionsProvider:
-    """One-turn OpenRouter Chat Completions provider behind ProviderPort."""
+    """OpenRouter Chat Completions provider behind ProviderPort.
+
+    OpenRouter is the first real provider with `supports_tool_calls=True`.
+    When `ProviderRequest.messages` is non-empty the provider serializes
+    them in the OpenAI chat completions format (with `tool_calls` and
+    `tool` roles); otherwise it falls back to the legacy single-turn
+    payload built from `system_prompt`/`user_prompt`.
+    """
 
     model_id: str
     api_key: str | None = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY"))
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = OPENROUTER_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
-    supports_tool_calls: bool = False
+    supports_tool_calls: bool = True
 
     @property
     def name(self) -> str:
@@ -117,11 +129,15 @@ class OpenRouterChatCompletionsProvider:
                 ),
             )
 
-        body = {
+        body: dict[str, Any] = {
             "model": self.model_id,
             "messages": _chat_messages(request),
             "stream": False,
         }
+        if request.available_tools:
+            body["tools"] = [
+                _serialize_tool_for_openai(tool) for tool in request.available_tools
+            ]
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -163,15 +179,17 @@ class OpenRouterChatCompletionsProvider:
                 "response_object": result.response_object,
                 "finish_reason": result.finish_reason,
             },
+            tool_calls=result.tool_calls,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedOpenRouterResponse:
-    final_text: str
+    final_text: str | None
     usage: dict[str, int | float]
     response_object: str
     finish_reason: str
+    tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
 class OpenRouterProviderError(Exception):
@@ -241,9 +259,12 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
     message = first_choice.get("message")
     content = message.get("content") if isinstance(message, Mapping) else None
     final_text = _extract_text_content(content)
-    if not final_text:
+    tool_calls = _extract_tool_calls(
+        message.get("tool_calls") if isinstance(message, Mapping) else None
+    )
+    if not final_text and not tool_calls:
         raise OpenRouterResponseParseError(
-            "OpenRouter response did not include final message content.",
+            "OpenRouter response did not include final message content or tool calls.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_object": response_object,
@@ -256,17 +277,112 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
         usage=_extract_usage(body.get("usage")),
         response_object=response_object,
         finish_reason=finish_reason,
+        tool_calls=tool_calls,
     )
 
 
-def _chat_messages(request: ProviderRequest) -> list[dict[str, str]]:
-    messages = [{"role": "system", "content": request.system_prompt}]
+def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
+    if not isinstance(value, list):
+        return ()
+    calls: list[ProviderToolCall] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("type") not in (None, "function"):
+            continue
+        identifier = item.get("id")
+        function = item.get("function")
+        if not isinstance(function, Mapping):
+            continue
+        name = function.get("name")
+        arguments_json = function.get("arguments")
+        if not isinstance(name, str) or not name:
+            continue
+        if isinstance(arguments_json, Mapping):
+            arguments_json = json.dumps(arguments_json, sort_keys=True)
+        if not isinstance(arguments_json, str):
+            arguments_json = ""
+        correlation = (
+            identifier
+            if isinstance(identifier, str) and identifier
+            else f"openrouter-tool-{index}"
+        )
+        try:
+            calls.append(
+                ProviderToolCall(
+                    provider_correlation_id=correlation[
+                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
+                    ],
+                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
+                    arguments_json=arguments_json[
+                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
+                    ],
+                )
+            )
+        except ValueError:
+            continue
+    return tuple(calls)
+
+
+def _chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": request.system_prompt}
+    ]
+    if request.messages:
+        for envelope in request.messages:
+            messages.append(_envelope_to_chat_message(envelope))
+        return messages
     if request.no_tool_repl_context is not None:
         for exchange in request.no_tool_repl_context.exchanges:
             messages.append({"role": "user", "content": exchange.user_prompt})
             messages.append({"role": "assistant", "content": exchange.provider_final_text})
     messages.append({"role": "user", "content": request.user_prompt})
     return messages
+
+
+def _envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
+    if isinstance(envelope, UserMessage):
+        return {"role": "user", "content": envelope.content}
+    if isinstance(envelope, AssistantMessage):
+        message: dict[str, Any] = {"role": "assistant"}
+        if envelope.content:
+            message["content"] = envelope.content
+        if envelope.tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": call.provider_correlation_id,
+                    "type": "function",
+                    "function": {
+                        "name": call.tool_name,
+                        "arguments": call.arguments_json,
+                    },
+                }
+                for call in envelope.tool_calls
+            ]
+        if "content" not in message:
+            message["content"] = ""
+        return message
+    if isinstance(envelope, ToolResultMessage):
+        return {
+            "role": "tool",
+            "tool_call_id": envelope.provider_correlation_id
+            or envelope.tool_request_id,
+            "content": envelope.output_text,
+        }
+    raise OpenRouterResponseParseError(
+        f"unsupported message envelope: {type(envelope).__name__}"
+    )
+
+
+def _serialize_tool_for_openai(tool: Any) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": dict(tool.input_schema),
+        },
+    }
 
 
 def _extract_text_content(value: Any) -> str | None:

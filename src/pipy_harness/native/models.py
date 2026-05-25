@@ -13,6 +13,8 @@ from pipy_harness.models import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.conversation import NativeNoToolReplConversationContext
+    from pipy_harness.native.tools.base import ToolDefinition
+    from pipy_harness.native.tools.messages import LoopMessage
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
 PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
@@ -124,7 +126,14 @@ class NativeRunInput:
 
 @dataclass(frozen=True, slots=True)
 class ProviderRequest:
-    """Request sent across the native provider port."""
+    """Request sent across the native provider port.
+
+    The optional `messages` envelope and `available_tools` fields are used
+    by the model-driven tool loop (see `pipy_harness.native.tool_loop_session`)
+    to carry the conversation history and the tool catalog to providers that
+    advertise `supports_tool_calls=True`. Legacy single-turn callers leave
+    both empty; providers that do not support tool calls ignore them.
+    """
 
     system_prompt: str
     user_prompt: str
@@ -135,6 +144,8 @@ class ProviderRequest:
     provider_turn_label: str = "initial"
     tool_observation: NativeToolObservation | None = None
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None
+    messages: tuple["LoopMessage", ...] = ()
+    available_tools: tuple["ToolDefinition", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

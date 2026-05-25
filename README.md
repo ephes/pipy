@@ -229,7 +229,12 @@ line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
 opt-in `--archive-transcript` flag writes raw loop turns to
 `~/.local/state/pipy/transcripts/<id>.jsonl` outside the metadata-first
 pipy session archive; the sidecar is sensitive content and excluded from
-`pipy-session list/search/inspect`. The shell prints a compact startup
+`pipy-session list/search/inspect`. OpenRouter is currently the first
+real provider with tool-call support, so the easiest way to drive the
+loop is `pipy repl --native-provider openrouter --native-model
+<vendor/model>` with `OPENROUTER_API_KEY` set in the environment. OpenAI
+Responses and OpenAI Codex still carry `supports_tool_calls=False` until
+their own response parsers land. The shell prints a compact startup
 chrome to stderr before
 the first prompt, including the pipy version, controls, safe command/resource
 labels, and the same kind of safe provider/model, workspace, turn, context,
