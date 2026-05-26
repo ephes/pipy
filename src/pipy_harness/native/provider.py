@@ -48,12 +48,20 @@ class ProviderPort(Protocol):
         request: ProviderRequest,
         *,
         stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         """Complete one native turn.
 
         When `stream_sink` is supplied and the provider has flipped on
-        streaming, the provider invokes it once per emitted text delta
-        before returning the buffered `ProviderResult`. Providers that
-        have not yet wired streaming accept the keyword and ignore it;
-        their existing buffered behavior is unchanged.
+        streaming, the provider invokes it once per emitted assistant
+        text delta before returning the buffered `ProviderResult`.
+        Providers that have not yet wired streaming accept the keyword
+        and ignore it; their existing buffered behavior is unchanged.
+
+        ``reasoning_sink`` mirrors ``stream_sink`` for the model's
+        reasoning-summary text (Pi-equivalent to the italic "thinking"
+        text the user sees between tool calls). Providers that do not
+        expose reasoning summaries ignore the keyword. The reasoning
+        text never reaches the metadata archive; only the renderer sees
+        it.
         """

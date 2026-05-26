@@ -130,7 +130,7 @@ def test_renderer_streams_chunks_to_output_stream_with_assistant_prefix():
     assert err.getvalue() == ""
 
 
-def test_renderer_renders_tool_call_header_and_result_on_error_stream():
+def test_renderer_renders_pi_shape_tool_call_header():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
     renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
@@ -143,18 +143,23 @@ def test_renderer_renders_tool_call_header_and_result_on_error_stream():
         )
     )
     renderer.render_tool_result(
-        output_text="line one\nline two\nline three", is_error=False
+        output_text="line one\nline two\nline three",
+        is_error=False,
+        duration_seconds=0.123,
     )
 
     rendered = err.getvalue()
-    assert "→ read(" in rendered
-    assert 'path="docs/backlog.md"' in rendered
-    assert "↳" in rendered
+    assert "read docs/backlog.md:1-200" in rendered
     assert "line one" in rendered
     assert "line two" in rendered
+    assert "Took 0.1s" in rendered
+    # The Pi-shape rendering drops the leading arrow glyphs we used to
+    # emit before this slice.
+    assert "→" not in rendered
+    assert "↳" not in rendered
 
 
-def test_renderer_renders_tool_result_error_with_error_tag():
+def test_renderer_renders_tool_result_error_tag():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
     renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
@@ -164,11 +169,11 @@ def test_renderer_renders_tool_result_error_with_error_tag():
     )
 
     rendered = err.getvalue()
-    assert "↳ [error]" in rendered
+    assert "[error]" in rendered
     assert "path is ignored" in rendered
 
 
-def test_renderer_truncates_long_result_with_more_line_count():
+def test_renderer_truncates_long_result_with_earlier_lines_marker():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
     renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
@@ -177,9 +182,10 @@ def test_renderer_truncates_long_result_with_more_line_count():
     renderer.render_tool_result(output_text=long_body, is_error=False)
 
     rendered = err.getvalue()
-    assert "row 0" in rendered
-    assert "row 11" in rendered
-    assert "+8 more line(s)" in rendered
+    assert "8 earlier lines" in rendered
+    assert "ctrl+o to expand" in rendered
+    # Tail rendering retains the last preview window of rows.
+    assert "row 19" in rendered
 
 
 def test_renderer_disables_ansi_on_non_tty(monkeypatch: pytest.MonkeyPatch):
@@ -231,7 +237,10 @@ def test_renderer_argument_preview_handles_invalid_json():
         )
     )
 
-    assert "→ read(this is not json)" in err.getvalue()
+    rendered = err.getvalue()
+    # read uses the path argument when JSON parses; when it does not, the
+    # path falls back to an empty string and we still emit a header.
+    assert "read :1-200" in rendered
 
 
 # ---------------------- streaming integration with tool loop ---------------
@@ -294,8 +303,11 @@ def test_tool_loop_renders_tool_block_on_error_stream(tmp_path: Path):
         tmp_path=tmp_path,
     )
 
-    assert "→ noop(" in error
-    assert "↳" in error
+    # Unknown tool names fall back to a `name(args)` header so the user
+    # can still see the invocation. The Pi-shape lines for read/ls/grep/
+    # find are exercised by the focused renderer unit tests above.
+    assert "noop(" in error
+    assert "Took" in error
 
 
 def test_tool_loop_does_not_answer_i_cannot_inspect_when_inspection_available(

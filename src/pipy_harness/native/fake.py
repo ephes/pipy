@@ -46,6 +46,7 @@ class FakeNativeProvider:
     supports_tool_calls: bool = False
     programmable_tool_calls: tuple[tuple[ProviderToolCall, ...], ...] = ()
     programmable_text_chunks: tuple[str, ...] = ()
+    programmable_reasoning_chunks: tuple[str, ...] = ()
     _call_counter: list[int] = field(default_factory=lambda: [0])
 
     @property
@@ -57,8 +58,16 @@ class FakeNativeProvider:
         request: ProviderRequest,
         *,
         stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         started_at = datetime.now(UTC)
+        if (
+            reasoning_sink is not None
+            and self.programmable_reasoning_chunks
+            and self.status == HarnessStatus.SUCCEEDED
+        ):
+            for chunk in self.programmable_reasoning_chunks:
+                reasoning_sink(chunk)
         if (
             stream_sink is not None
             and self.programmable_text_chunks

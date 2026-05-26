@@ -151,10 +151,10 @@ def test_session_rejects_fake_provider_when_capability_not_flipped():
 def test_session_rejects_tool_budget_outside_supported_range():
     provider = FakeNativeProvider(supports_tool_calls=True)
 
-    with pytest.raises(ValueError, match=r"\[1, 25\]"):
+    with pytest.raises(ValueError, match=r"\[1, 200\]"):
         NativeToolReplSession(provider=provider, tool_budget=0)
-    with pytest.raises(ValueError, match=r"\[1, 25\]"):
-        NativeToolReplSession(provider=provider, tool_budget=26)
+    with pytest.raises(ValueError, match=r"\[1, 200\]"):
+        NativeToolReplSession(provider=provider, tool_budget=201)
 
 
 def test_session_rejects_non_int_tool_budget():

@@ -137,6 +137,7 @@ class BottomStatusFields:
     effort_label: str
     tokens_in: int = 0
     tokens_out: int = 0
+    tokens_reasoning: int = 0
     attention: str = ""
 
 
@@ -148,11 +149,14 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     """
 
     tokens_prefix = ""
-    if fields.tokens_in or fields.tokens_out:
-        tokens_prefix = (
-            f"↑{_short_token_count(fields.tokens_in)} "
-            f"↓{_short_token_count(fields.tokens_out)} "
-        )
+    if fields.tokens_in or fields.tokens_out or fields.tokens_reasoning:
+        parts = [
+            f"↑{_short_token_count(fields.tokens_in)}",
+            f"↓{_short_token_count(fields.tokens_out)}",
+        ]
+        if fields.tokens_reasoning:
+            parts.append(f"R{_short_token_count(fields.tokens_reasoning)}")
+        tokens_prefix = " ".join(parts) + " "
     left = (
         f"{tokens_prefix}{fields.cost_label} ({fields.plan_label}) "
         f"{fields.context_used_pct:.1f}%/{fields.context_budget_label}"

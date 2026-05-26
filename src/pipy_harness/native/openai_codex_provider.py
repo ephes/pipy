@@ -380,6 +380,7 @@ class OpenAICodexResponsesProvider:
         request: ProviderRequest,
         *,
         stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         started_at = _utc_now()
         if not self.model_id or not self.model_id.strip():
@@ -452,7 +453,11 @@ class OpenAICodexResponsesProvider:
                     f"OpenAI Codex request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_sse_response(response.body, stream_sink=stream_sink)
+            result = _parse_sse_response(
+                response.body,
+                stream_sink=stream_sink,
+                reasoning_sink=reasoning_sink,
+            )
         except OpenAICodexProviderError as exc:
             return _failed_result(
                 request,
@@ -757,6 +762,7 @@ def _parse_sse_response(
     body: str,
     *,
     stream_sink: StreamChunkSink | None = None,
+    reasoning_sink: StreamChunkSink | None = None,
 ) -> ParsedOpenAICodexResponse:
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
@@ -766,6 +772,17 @@ def _parse_sse_response(
 
     for event in _iter_sse_events(body):
         event_type = event.get("type")
+        if event_type == "response.reasoning_summary_text.delta":
+            delta = event.get("delta")
+            if reasoning_sink is not None and isinstance(delta, str) and delta:
+                reasoning_sink(delta)
+            continue
+        if event_type == "response.reasoning_summary_part.added":
+            # Part boundaries inside a reasoning summary; emit a paragraph
+            # break so the rendered text retains Pi's section-like cadence.
+            if reasoning_sink is not None:
+                reasoning_sink("\n\n")
+            continue
         if event_type == "error":
             code = event.get("code")
             safe_code = sanitize_text(str(code)) if code is not None else "unknown"

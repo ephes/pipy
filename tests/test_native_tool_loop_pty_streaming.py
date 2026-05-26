@@ -166,9 +166,9 @@ def test_pty_tool_loop_streams_and_renders_tool_block(
     )
 
     # Tool block rendering surface
-    assert "→ noop" in error_text
-    assert "↳" in error_text
+    assert "noop(" in error_text
     assert "noop result" in error_text
+    assert "Took" in error_text
 
     # ANSI escapes present on the real PTY (so styles render in user terminals)
     assert "\x1b[" in error_text

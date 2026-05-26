@@ -37,7 +37,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import ClassVar, TextIO
+from collections.abc import Mapping
+from typing import Any, ClassVar, TextIO
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.chrome import (
@@ -72,6 +73,211 @@ from pipy_harness.native.tools import (
     make_tool_request_id,
     validate_arguments,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _PricingEntry:
+    """Per-million-token pricing for one (provider, model) pair.
+
+    Pricing is illustrative and conservative. The bottom status only
+    shows the running total to the nearest mil-cent, so an exact match
+    against the provider's billing portal is not required.
+    """
+
+    input_per_million: float
+    output_per_million: float
+    reasoning_per_million: float
+
+
+_PRICING_TABLE: dict[tuple[str, str], _PricingEntry] = {
+    # OpenAI Codex subscription (GPT-5.x family) — approximate.
+    ("openai-codex", "gpt-5"): _PricingEntry(
+        input_per_million=1.25, output_per_million=10.00, reasoning_per_million=10.00
+    ),
+}
+
+
+def _pricing_for(provider_name: str, model_id: str) -> _PricingEntry | None:
+    """Return per-million-token pricing for (provider, model), or None.
+
+    Falls back to a model-family prefix lookup so e.g. ``gpt-5.5`` reuses
+    the ``gpt-5`` entry. ``None`` disables cost rendering for that
+    selection; the bottom status keeps showing ``$0.000``.
+    """
+
+    direct = _PRICING_TABLE.get((provider_name, model_id))
+    if direct is not None:
+        return direct
+    for (entry_provider, entry_model), price in _PRICING_TABLE.items():
+        if entry_provider != provider_name:
+            continue
+        if model_id.startswith(entry_model):
+            return price
+    return None
+
+
+class _UsageAccumulator:
+    """Running counters fed from each provider turn's usage payload.
+
+    Captures input, output, and reasoning tokens plus an approximate USD
+    cost. The last-turn total-token snapshot drives the context-window
+    meter so the bottom status reflects real provider numbers when the
+    adapter reports them and falls back to the deterministic estimate
+    otherwise.
+    """
+
+    __slots__ = (
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "last_total_tokens",
+        "cost_usd",
+        "_pricing",
+        "_provider_name",
+        "_model_id",
+    )
+
+    def __init__(self) -> None:
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.reasoning_tokens = 0
+        self.last_total_tokens = 0
+        self.cost_usd = 0.0
+        self._pricing: _PricingEntry | None = None
+        self._provider_name = ""
+        self._model_id = ""
+
+    def bind(self, provider_name: str, model_id: str) -> None:
+        self._provider_name = provider_name
+        self._model_id = model_id
+        self._pricing = _pricing_for(provider_name, model_id)
+
+    def absorb(self, usage: Mapping[str, Any] | None) -> None:
+        if not usage:
+            return
+        input_tokens = _coerce_int(usage.get("input_tokens"))
+        output_tokens = _coerce_int(usage.get("output_tokens"))
+        reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
+        total_tokens = _coerce_int(usage.get("total_tokens"))
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
+        self.reasoning_tokens += reasoning_tokens
+        if total_tokens > 0:
+            self.last_total_tokens = total_tokens
+        else:
+            self.last_total_tokens = (
+                input_tokens + output_tokens + reasoning_tokens
+            )
+        if self._pricing is not None:
+            self.cost_usd += (
+                input_tokens * self._pricing.input_per_million
+                + output_tokens * self._pricing.output_per_million
+                + reasoning_tokens * self._pricing.reasoning_per_million
+            ) / 1_000_000.0
+
+
+def _coerce_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return 0
+
+
+@dataclass(frozen=True, slots=True)
+class _ContextBudget:
+    """Approximate provider/model context-window budget for the meter.
+
+    ``token_budget`` is the absolute denominator; ``budget_label`` is the
+    short label rendered into the bottom status (e.g. ``272k`` for the
+    272 000-token GPT-5.5 context).
+    """
+
+    token_budget: int
+    budget_label: str
+
+
+_CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
+_DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
+
+
+def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
+    """Return the rough context-window budget label for the bottom status.
+
+    The mapping deliberately covers the providers/models that pipy is
+    tested against today. Unknown selections fall back to the safe
+    128k default so the meter still renders. Switching to authoritative
+    provider usage telemetry is a separate follow-up.
+    """
+
+    if provider_name == "openai-codex":
+        if model_id.startswith("gpt-5"):
+            return _CODEX_GPT_5_5_BUDGET
+    if provider_name in {"anthropic"} and "sonnet" in model_id.lower():
+        return _ContextBudget(token_budget=200_000, budget_label="200k")
+    return _DEFAULT_CONTEXT_BUDGET
+
+
+def _effort_label_for(provider_name: str, model_id: str) -> str:
+    """Return the reasoning-effort label the bottom status surfaces.
+
+    Pi shows ``high`` for the codex GPT-5.x family because those models
+    default to high reasoning effort. Other providers / unknown
+    configurations keep the safe ``default`` label.
+    """
+
+    if provider_name == "openai-codex" and model_id.startswith("gpt-5"):
+        return "high"
+    return "default"
+
+
+def _friendly_cwd_label(cwd: Path) -> str:
+    """Render ``cwd`` as ``~/<rel> (branch)`` when inside the user's home.
+
+    Falls back to the absolute path when ``cwd`` is outside ``~`` or
+    when the home directory cannot be resolved. The ``(branch)`` suffix
+    is appended when ``cwd`` (or any parent up to the home directory)
+    contains a ``.git`` directory whose ``HEAD`` can be read.
+    """
+
+    label = str(cwd)
+    try:
+        home = Path.home()
+    except RuntimeError:
+        home = None
+    if home is not None:
+        try:
+            relative = cwd.resolve().relative_to(home.resolve())
+            relative_str = relative.as_posix()
+            label = "~" if relative_str in {"", "."} else f"~/{relative_str}"
+        except ValueError:
+            pass
+    branch = _detect_git_branch(cwd)
+    if branch:
+        label = f"{label} ({branch})"
+    return label
+
+
+def _detect_git_branch(cwd: Path) -> str | None:
+    """Walk up from ``cwd`` looking for ``.git/HEAD`` and return the branch."""
+
+    candidate: Path | None = cwd
+    while candidate is not None and candidate != candidate.parent:
+        head = candidate / ".git" / "HEAD"
+        try:
+            text = head.read_text(encoding="utf-8")
+        except OSError:
+            candidate = candidate.parent
+            continue
+        text = text.strip()
+        if text.startswith("ref: refs/heads/"):
+            return text.split("refs/heads/", 1)[1]
+        if text:
+            return text[:7]
+        return None
+    return None
 
 
 def production_tool_registry() -> dict[str, ToolPort]:
@@ -146,14 +352,14 @@ class NativeToolReplSession:
 
     provider: ProviderPort
     tool_registry: dict[str, ToolPort] = field(default_factory=production_tool_registry)
-    tool_budget: int = 10
+    tool_budget: int = 50
     workspace_root: Path | None = None
     transcript_sink: TranscriptSink | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
 
-    DEFAULT_TOOL_BUDGET: ClassVar[int] = 10
-    MAX_TOOL_BUDGET: ClassVar[int] = 25
+    DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
+    MAX_TOOL_BUDGET: ClassVar[int] = 200
     MAX_MALFORMED_STREAK: ClassVar[int] = 3
 
     def __post_init__(self) -> None:
@@ -223,6 +429,8 @@ class NativeToolReplSession:
         malformed_argument_count = 0
         consecutive_malformed_streak = 0
         budget_exhausted_count = 0
+        usage_accumulator = _UsageAccumulator()
+        usage_accumulator.bind(effective_provider_name, effective_model_id)
 
         repl_input = self._build_repl_input(
             input_stream=input_stream,
@@ -244,6 +452,7 @@ class NativeToolReplSession:
                 model_id=effective_model_id,
                 user_turn_count=user_turn_count,
                 tool_invocation_count=tool_invocation_count,
+                usage_accumulator=usage_accumulator,
             )
 
         while True:
@@ -255,6 +464,7 @@ class NativeToolReplSession:
                 user_turn_count=user_turn_count,
                 tool_invocation_count=tool_invocation_count,
                 error_stream=error_stream,
+                usage_accumulator=usage_accumulator,
             )
             try:
                 line = repl_input.read_line("> ", footer=footer_text)
@@ -328,9 +538,13 @@ class NativeToolReplSession:
                     available_tools=available_tools,
                 )
                 renderer.begin_provider_turn()
+                renderer.show_working()
                 provider_result = self.provider.complete(
-                    provider_request, stream_sink=renderer.stream_sink
+                    provider_request,
+                    stream_sink=renderer.stream_sink,
+                    reasoning_sink=renderer.reasoning_sink,
                 )
+                usage_accumulator.absorb(provider_result.usage)
                 renderer.end_provider_turn(
                     final_text=provider_result.final_text or "",
                     has_tool_calls=bool(provider_result.tool_calls),
@@ -400,6 +614,7 @@ class NativeToolReplSession:
                         model_id=effective_model_id,
                         user_turn_count=user_turn_count,
                         tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
                     )
                     break
 
@@ -427,10 +642,16 @@ class NativeToolReplSession:
                         continue
 
                     renderer.render_tool_call(call)
+                    tool_started_at = datetime.now(UTC)
                     observation = self._invoke(call=call, context=context)
+                    tool_ended_at = datetime.now(UTC)
+                    tool_duration = (
+                        tool_ended_at - tool_started_at
+                    ).total_seconds()
                     renderer.render_tool_result(
                         output_text=observation.output_text,
                         is_error=observation.is_error,
+                        duration_seconds=tool_duration,
                     )
                     if observation.is_error:
                         malformed_argument_count += 1
@@ -529,27 +750,71 @@ class NativeToolReplSession:
         user_turn_count: int,
         tool_invocation_count: int,
         error_stream: TextIO | None = None,
+        usage_accumulator: "_UsageAccumulator | None" = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
+        budget = _context_budget_for(provider_name, model_id)
         used_pct = 0.0
-        if self.tool_budget > 0:
-            used_pct = (
-                100.0 * float(tool_invocation_count) / float(self.tool_budget)
-            )
+        if budget.token_budget > 0:
+            if usage_accumulator is not None and usage_accumulator.last_total_tokens > 0:
+                used_pct = (
+                    100.0
+                    * usage_accumulator.last_total_tokens
+                    / float(budget.token_budget)
+                )
+            else:
+                estimated_tokens = self._estimated_context_tokens(
+                    tool_invocation_count=tool_invocation_count,
+                    user_turn_count=user_turn_count,
+                )
+                used_pct = 100.0 * estimated_tokens / float(budget.token_budget)
             used_pct = min(used_pct, 999.9)
+        cost_label = (
+            f"${usage_accumulator.cost_usd:.3f}"
+            if usage_accumulator is not None
+            else "$0.000"
+        )
         fields = BottomStatusFields(
             cwd_label="",
-            cost_label="$0.000",
+            cost_label=cost_label,
             plan_label=plan_label,
             context_used_pct=used_pct,
-            context_budget_label=f"{max(1, self.tool_budget)}",
-            context_budget_suffix=f"tools · turn {user_turn_count}",
+            context_budget_label=budget.budget_label,
+            context_budget_suffix="auto",
             provider_name=provider_name,
             model_id=model_id,
-            effort_label="default",
+            effort_label=_effort_label_for(provider_name, model_id),
+            tokens_in=(
+                usage_accumulator.input_tokens if usage_accumulator else 0
+            ),
+            tokens_out=(
+                usage_accumulator.output_tokens if usage_accumulator else 0
+            ),
+            tokens_reasoning=(
+                usage_accumulator.reasoning_tokens if usage_accumulator else 0
+            ),
         )
         status_line = format_bottom_status_line(chrome_width(error_stream), fields)
-        return f"{cwd}\n{status_line}"
+        cwd_label = _friendly_cwd_label(cwd)
+        return f"{cwd_label}\n{status_line}"
+
+    def _estimated_context_tokens(
+        self, *, tool_invocation_count: int, user_turn_count: int
+    ) -> float:
+        """Cheap upper-bound estimate for the prompt's context-window draw.
+
+        We do not parse provider usage telemetry yet; until that lands the
+        bottom-status meter shows a deterministic rough estimate that
+        grows with tool invocations and user turns. This matches Pi's
+        ``used%/budget`` shape without inventing fake exact counts.
+        """
+
+        per_turn_tokens = 2_000.0
+        per_tool_tokens = 1_500.0
+        return (
+            user_turn_count * per_turn_tokens
+            + tool_invocation_count * per_tool_tokens
+        )
 
     def _print_footer(
         self,
@@ -560,6 +825,7 @@ class NativeToolReplSession:
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
+        usage_accumulator: "_UsageAccumulator | None" = None,
     ) -> None:
         print_input_separator(error_stream)
         footer = self._footer_text(
@@ -569,6 +835,7 @@ class NativeToolReplSession:
             user_turn_count=user_turn_count,
             tool_invocation_count=tool_invocation_count,
             error_stream=error_stream,
+            usage_accumulator=usage_accumulator,
         )
         cwd_label, _, status_line = footer.partition("\n")
         print_bottom_status_block(
@@ -690,6 +957,9 @@ class _ToolLoopRenderer:
         self._stream_active = False
         self._stream_emitted_any = False
         self._streamed_any = False
+        self._working_shown = False
+        self._reasoning_active = False
+        self._reasoning_emitted_any = False
 
     @staticmethod
     def _compute_enabled(stream: TextIO) -> bool:
@@ -709,8 +979,42 @@ class _ToolLoopRenderer:
         return self._handle_stream_chunk
 
     def begin_provider_turn(self) -> None:
+        self._close_reasoning()
         self._stream_active = False
         self._stream_emitted_any = False
+        self._working_shown = False
+        self._reasoning_emitted_any = False
+
+    @property
+    def reasoning_sink(self) -> StreamChunkSink:
+        return self.handle_reasoning_chunk
+
+    def show_working(self) -> None:
+        """Print a Pi-shape `⠋ Working...` line on the error stream.
+
+        Pi animates this glyph between provider polls; pipy stays
+        single-line and prints the first frame as an immediate visual
+        cue without a separate animation thread. The line is cleared
+        before streaming text or the next render block appears so the
+        user does not see a stale marker. On non-TTY streams the line
+        is suppressed entirely so captured logs stay clean.
+        """
+
+        if not self._enabled:
+            self._working_shown = False
+            return
+        marker = self._style("⠋ Working...", self._ANSI_DIM + self._ANSI_ITALIC)
+        self._error_stream.write(f" {marker}")
+        self._error_stream.flush()
+        self._working_shown = True
+
+    def _clear_working(self) -> None:
+        if not self._working_shown:
+            return
+        if self._enabled:
+            self._error_stream.write("\r\x1b[K")
+            self._error_stream.flush()
+        self._working_shown = False
 
     def end_provider_turn(
         self, *, final_text: str, has_tool_calls: bool
@@ -727,6 +1031,7 @@ class _ToolLoopRenderer:
     def _handle_stream_chunk(self, chunk: str) -> None:
         if not chunk:
             return
+        self._clear_working()
         if not self._stream_active:
             self._stream_active = True
             prefix = self._style("assistant > ", self._ANSI_DIM + self._ANSI_CYAN)
@@ -736,29 +1041,124 @@ class _ToolLoopRenderer:
         self._stream_emitted_any = True
         self._streamed_any = True
 
+    def handle_reasoning_chunk(self, chunk: str) -> None:
+        """Render an italic dim reasoning-summary delta inline.
+
+        Pi paints the model's reasoning summary between tool calls with
+        an italicized prose voice. Pipy mirrors that by routing the
+        codex `response.reasoning_summary_text.delta` events through
+        this method so the user sees the same "thinking" cues. The
+        renderer collapses whitespace-only deltas, opens a fresh
+        paragraph on the first chunk, and closes with a trailing
+        newline when the reasoning stream goes idle.
+        """
+
+        if not chunk:
+            return
+        self._clear_working()
+        if not self._reasoning_active:
+            self._reasoning_active = True
+            indent = self._style(" ", self._ANSI_DIM)
+            self._error_stream.write("\n" + indent)
+        styled = self._style(chunk, self._ANSI_ITALIC + self._ANSI_DIM)
+        self._error_stream.write(styled)
+        self._error_stream.flush()
+        self._reasoning_emitted_any = True
+
+    def _close_reasoning(self) -> None:
+        if not self._reasoning_active:
+            return
+        self._error_stream.write("\n")
+        self._error_stream.flush()
+        self._reasoning_active = False
+
     def render_tool_call(self, call: ProviderToolCall) -> None:
-        preview = self._argument_preview(call.arguments_json)
-        header = f"→ {call.tool_name}({preview})"
-        styled = self._style(header, self._ANSI_ITALIC + self._ANSI_GREEN)
-        self._error_stream.write(styled + "\n")
+        self._clear_working()
+        self._close_reasoning()
+        header = self._format_pi_call_header(
+            call.tool_name, call.arguments_json
+        )
+        styled = self._style(header, self._ANSI_DIM + self._ANSI_CYAN)
+        self._error_stream.write("\n " + styled + "\n\n")
         self._error_stream.flush()
 
-    def render_tool_result(self, *, output_text: str, is_error: bool) -> None:
-        if is_error:
-            head = self._style("↳ [error]", self._ANSI_RED + self._ANSI_DIM)
-        else:
-            head = self._style("↳", self._ANSI_DIM + self._ANSI_GREEN)
+    def render_tool_result(
+        self,
+        *,
+        output_text: str,
+        is_error: bool,
+        duration_seconds: float | None = None,
+    ) -> None:
         lines = output_text.splitlines() or [""]
         preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-        more = len(lines) - len(preview_lines)
-        for line in preview_lines:
-            styled_body = self._style("  " + line, self._ANSI_DIM)
-            self._error_stream.write(f"{head} {styled_body}\n")
-            head = self._style(" ", self._ANSI_DIM)
-        if more > 0:
-            footer = self._style(f"  … (+{more} more line(s))", self._ANSI_DIM)
-            self._error_stream.write(f"{head} {footer}\n")
+        earlier = len(lines) - len(preview_lines)
+        if earlier > 0:
+            elided = self._style(
+                f" ... ({earlier} earlier lines, ctrl+o to expand)",
+                self._ANSI_DIM,
+            )
+            self._error_stream.write(elided + "\n")
+            tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
+        else:
+            tail_preview = preview_lines
+        for line in tail_preview:
+            styled_body = self._style(" " + line, self._ANSI_DIM)
+            self._error_stream.write(styled_body + "\n")
+        if is_error:
+            err_tag = self._style(
+                " [error] tool reported a failure", self._ANSI_RED + self._ANSI_DIM
+            )
+            self._error_stream.write(err_tag + "\n")
+        if duration_seconds is not None:
+            took = self._style(
+                f" Took {duration_seconds:.1f}s", self._ANSI_DIM
+            )
+            self._error_stream.write("\n" + took + "\n")
         self._error_stream.flush()
+
+    def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
+        """Render a Pi-shape one-line tool header.
+
+        Built-in read/ls/grep/find/write/edit tools render as Pi-style
+        compact lines: ``read path:1-line_limit``, ``ls path``,
+        ``grep "pattern" path``, ``find "pattern" path``. Unknown tools
+        fall back to a ``name(args)`` form so the user can still see the
+        invocation.
+        """
+
+        try:
+            data = json.loads(arguments_json)
+        except (json.JSONDecodeError, ValueError):
+            data = None
+        if not isinstance(data, dict):
+            data = {}
+        if tool_name == "read":
+            path = data.get("path", "")
+            return f"read {path}:1-200"
+        if tool_name == "ls":
+            path = data.get("path", ".")
+            return f"ls {path}"
+        if tool_name == "grep":
+            pattern = data.get("pattern", "")
+            path = data.get("path", ".")
+            return f'grep "{pattern}" {path}'
+        if tool_name == "find":
+            pattern = data.get("pattern", "")
+            path = data.get("path", ".")
+            return f'find "{pattern}" {path}'
+        if tool_name == "write":
+            path = data.get("path", "")
+            return f"write {path}"
+        if tool_name == "edit":
+            path = data.get("path", "")
+            return f"edit {path}"
+        if tool_name == "edit_diff":
+            path = data.get("path", "")
+            return f"edit_diff {path}"
+        if tool_name == "truncate":
+            return "truncate"
+        preview = self._argument_preview(arguments_json)
+        return f"{tool_name}({preview})"
 
     def _argument_preview(self, arguments_json: str) -> str:
         try:

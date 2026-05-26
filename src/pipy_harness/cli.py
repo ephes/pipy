@@ -222,10 +222,10 @@ def build_parser() -> argparse.ArgumentParser:
     repl_parser.add_argument(
         "--tool-budget",
         type=int,
-        default=10,
+        default=50,
         help=(
             "Per-user-turn tool invocation budget for --repl-mode tool-loop. "
-            "Default 10, capped at 25."
+            "Default 50, capped at 200."
         ),
     )
     repl_parser.add_argument(
@@ -339,9 +339,9 @@ def main(argv: list[str] | None = None) -> int:
                 native_model=args.native_model,
             )
             if resolved_repl_mode == "tool-loop":
-                if args.tool_budget < 1 or args.tool_budget > 25:
+                if args.tool_budget < 1 or args.tool_budget > 200:
                     raise ValueError(
-                        "--tool-budget must be in [1, 25]; got "
+                        "--tool-budget must be in [1, 200]; got "
                         f"{args.tool_budget}"
                     )
                 reference_roots = _resolve_reference_roots(

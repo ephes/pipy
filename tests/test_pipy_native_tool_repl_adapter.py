@@ -43,7 +43,7 @@ def test_repl_mode_defaults_to_auto():
     args = parser.parse_args(["repl"])
 
     assert args.repl_mode == "auto"
-    assert args.tool_budget == 10
+    assert args.tool_budget == 50
 
 
 def test_repl_mode_tool_loop_flag_round_trips():

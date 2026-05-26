@@ -134,8 +134,9 @@ class AzureOpenAIResponsesProvider:
         request: ProviderRequest,
         *,
         stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
-        del stream_sink
+        del stream_sink, reasoning_sink
         started_at = _utc_now()
         if not self.model_id:
             return _failed_result(
