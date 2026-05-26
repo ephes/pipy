@@ -63,13 +63,11 @@ from pipy_harness.native.tools import (
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    Adds `bash` alongside the read/ls/grep/find/write/edit tools as
-    part of the pi-mono parity push. `bash` runs through `shell=True`
-    with a workspace-relative cwd, bounded output, bounded timeout,
-    and a `.git` substring refusal.
+    `bash` is intentionally not registered here. A shell tool needs a real
+    process/filesystem sandbox before it can satisfy pipy's default-deny
+    `.git` and secret-isolation invariants in the model-visible loop.
     """
 
-    from pipy_harness.native.tools.bash import BashTool
     from pipy_harness.native.tools.edit import EditTool
     from pipy_harness.native.tools.edit_diff import EditDiffTool
     from pipy_harness.native.tools.find import FindTool
@@ -86,7 +84,6 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "find": FindTool(),
         "write": WriteTool(),
         "edit": EditTool(),
-        "bash": BashTool(),
         "edit_diff": EditDiffTool(),
         "truncate": TruncateTool(),
     }

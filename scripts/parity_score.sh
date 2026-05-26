@@ -51,7 +51,7 @@ check B3  "grep"        small  "test -f src/pipy_harness/native/tools/grep.py"
 check B4  "find"        small  "test -f src/pipy_harness/native/tools/find.py"
 check B5  "write"       small  "test -f src/pipy_harness/native/tools/write.py"
 check B6  "edit"        small  "test -f src/pipy_harness/native/tools/edit.py"
-check B7  "bash"        big    "test -f src/pipy_harness/native/tools/bash.py"
+check B7  "bash"        big    "uv run python -c \"from pipy_harness.native.tool_loop_session import production_tool_registry; raise SystemExit(0 if 'bash' in production_tool_registry() else 1)\""
 check B8  "edit-diff"   small  "test -f src/pipy_harness/native/tools/edit_diff.py"
 check B9  "truncate"    small  "test -f src/pipy_harness/native/tools/truncate.py"
 

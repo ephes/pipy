@@ -1,24 +1,24 @@
-"""The `bash` tool: bounded shell command execution.
+"""Standalone `bash` helper: bounded shell command execution.
 
 `BashTool` runs a shell command through `subprocess.Popen` with
 `shell=True`, a workspace-relative `cwd`, a hard timeout, bounded stdout
-and stderr collection, and a default-deny check for paths that contain the
-`.git` substring or the `--git-dir` flag. The command text and capped raw
-output are kept in memory for the model-visible tool result; the pipy
-session archive (`pipy_session.recorder`) is never touched from inside
-the tool, so it only ever sees a metadata-safe summary through the
-existing `NativeToolResult` shape produced by the tool-loop session.
+and stderr collection, a minimal environment, and conservative preflight
+checks for direct, quoted, and globbed `.git` access. The command text and
+capped raw output are kept in memory for the caller; the pipy session archive
+(`pipy_session.recorder`) is never touched from inside the tool.
 
 Unlike `read`, `ls`, `grep`, `find`, `write`, and `edit`, this tool is
-deliberately broader: the model can run any single shell command. The
-remaining safeties are: workspace-relative cwd, bounded output, bounded
-timeout, a default `.git` substring refusal, and no shell history
-mutation. The tool does not export environment variables, parse the
-command for further sandboxing, or spawn a process tree manager.
+deliberately broader and still lacks a real shell sandbox. For that reason it
+is not registered in the production model-loop registry. Re-enabling
+model-visible shell execution requires a stronger process/filesystem sandbox
+that preserves secret isolation and `.git` default-deny.
 """
 
 from __future__ import annotations
 
+import glob
+import os
+import shlex
 import subprocess
 import selectors
 import time
@@ -35,6 +35,13 @@ from pipy_harness.native.tools.base import (
 
 TRUNCATION_MARKER = "... (truncated)"
 _DEFAULT_DENY_SUBSTRINGS: tuple[str, ...] = (".git/", " .git ", "--git-dir")
+_DENIED_SHELL_EXPANSION_MARKERS: tuple[str, ...] = ("$", "`")
+_SAFE_ENV: dict[str, str] = {
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin",
+    "PYTHONIOENCODING": "utf-8",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +145,9 @@ class BashTool:
                 request,
                 "command refused: contains a .git path or --git-dir flag",
             )
+        safety_error = _command_safety_error(command, context.workspace_root)
+        if safety_error is not None:
+            return self._error(request, safety_error)
 
         timeout_arg = request.arguments.get("timeout_seconds")
         timeout = self.default_timeout_seconds
@@ -190,6 +200,7 @@ class BashTool:
         process = subprocess.Popen(  # noqa: S602 - shell=True is the bash tool point
             command,
             cwd=str(workspace),
+            env=dict(_SAFE_ENV),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=True,
@@ -335,3 +346,46 @@ class _BoundedProcessResult:
     stdout_truncated: bool
     stderr_truncated: bool
     timed_out: bool
+
+
+def _command_safety_error(command: str, workspace) -> str | None:
+    """Reject shell shapes known to pierce the standalone bash guard.
+
+    This is a conservative preflight for the standalone tool, not a closed-form
+    shell sandbox: recursive readers can still enter sensitive directories at
+    runtime. The model-visible production registry does not expose `bash`; a
+    real shell sandbox is still required before re-enabling it there.
+    """
+
+    if any(marker in command for marker in _DENIED_SHELL_EXPANSION_MARKERS):
+        return "command refused: shell expansion markers are not supported"
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return "command refused: could not parse shell command safely"
+    workspace_path = workspace.expanduser().resolve()
+    for token in tokens:
+        if _token_invokes_git(token):
+            return "command refused: git executable is not allowed"
+        if _token_mentions_dot_git(token):
+            return "command refused: contains a .git path or --git-dir flag"
+        if _token_globs_to_dot_git(token, workspace_path):
+            return "command refused: shell glob resolves under .git"
+    return None
+
+
+def _token_invokes_git(token: str) -> bool:
+    normalized = token.replace("\\", "/").rstrip("/")
+    return normalized.rsplit("/", 1)[-1] == "git"
+
+
+def _token_mentions_dot_git(token: str) -> bool:
+    normalized = token.replace("\\", "/")
+    return ".git" in normalized.split("/")
+
+
+def _token_globs_to_dot_git(token: str, workspace: os.PathLike[str]) -> bool:
+    if not any(marker in token for marker in ("*", "?", "[")):
+        return False
+    matches = glob.glob(token, root_dir=workspace)
+    return any(_token_mentions_dot_git(match) for match in matches)

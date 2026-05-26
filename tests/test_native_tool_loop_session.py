@@ -106,17 +106,24 @@ def _run_session(
     return result, output_stream.getvalue(), error_stream.getvalue()
 
 
-# --------------------- production registry holds read and ls --------------
+# --------------------- production registry holds safe model tools ----------
 
 
-def test_production_tool_registry_holds_all_slice_10_tools_plus_bash():
+def test_production_tool_registry_excludes_bash_until_sandboxed():
     registry = production_tool_registry()
 
-    expected_baseline = {"read", "ls", "grep", "find", "write", "edit", "bash"}
-    assert expected_baseline.issubset(set(registry.keys()))
-    # parity push also adds edit_diff + truncate; allow either ordering
-    optional = {"edit_diff", "truncate"}
-    assert set(registry.keys()).issubset(expected_baseline | optional)
+    expected = {
+        "read",
+        "ls",
+        "grep",
+        "find",
+        "write",
+        "edit",
+        "edit_diff",
+        "truncate",
+    }
+    assert set(registry.keys()) == expected
+    assert "bash" not in registry
     for name in registry:
         assert registry[name].definition.name == name
 

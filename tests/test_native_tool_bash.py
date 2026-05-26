@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -23,6 +24,10 @@ def _make_request(arguments: dict[str, object]) -> ToolRequest:
         tool_name="bash",
         arguments=arguments,
     )
+
+
+def _python_command(script: str) -> str:
+    return f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
 
 
 def test_bash_tool_satisfies_tool_port_protocol() -> None:
@@ -79,6 +84,37 @@ def test_bash_tool_refuses_command_with_dot_git_path(tmp_path: Path) -> None:
     assert "command refused" in result.output_text
 
 
+@pytest.mark.parametrize(
+    "command",
+    (
+        "ls .git",
+        "cat .g''it/config",
+        "cat .g*it/config",
+        "cat ./.g??/config",
+        "git status",
+        "cat $(printf .git)/config",
+    ),
+)
+def test_bash_tool_refuses_dot_git_bypass_shapes(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text(
+        "private git config\n",
+        encoding="utf-8",
+    )
+    tool = BashTool()
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"command": command})
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is True
+    assert "command refused" in result.output_text
+    assert "private git config" not in result.output_text
+
+
 def test_bash_tool_refuses_command_with_git_dir_flag(tmp_path: Path) -> None:
     tool = BashTool()
     context = ToolContext(workspace_root=tmp_path)
@@ -90,11 +126,34 @@ def test_bash_tool_refuses_command_with_git_dir_flag(tmp_path: Path) -> None:
     assert "command refused" in result.output_text
 
 
+def test_bash_tool_does_not_inherit_secret_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PIPY_REVIEW_SECRET", "critical-secret-sentinel")
+    tool = BashTool()
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request(
+        {
+            "command": _python_command(
+                'import os; print(os.environ.get("PIPY_REVIEW_SECRET", "missing"))'
+            )
+        }
+    )
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is False
+    assert "critical-secret-sentinel" not in result.output_text
+    assert "missing" in result.output_text
+
+
 def test_bash_tool_truncates_oversized_stdout(tmp_path: Path) -> None:
     tool = BashTool(max_stdout_bytes=64)
     context = ToolContext(workspace_root=tmp_path)
-    # produce 200 bytes of output
-    request = _make_request({"command": "printf '%.0sA' {1..200}"})
+    request = _make_request(
+        {"command": _python_command('import sys; sys.stdout.write("A" * 200)')}
+    )
 
     result = tool.invoke(request, context)
 
@@ -106,7 +165,7 @@ def test_bash_tool_truncates_oversized_stderr(tmp_path: Path) -> None:
     tool = BashTool(max_stderr_bytes=64)
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request(
-        {"command": "printf '%.0sE' {1..200} >&2"}
+        {"command": _python_command('import sys; sys.stderr.write("E" * 200)')}
     )
 
     result = tool.invoke(request, context)

@@ -219,5 +219,6 @@ def test_production_tool_registry_holds_edit():
 
     registry = production_tool_registry()
     assert "edit" in registry
-    expected = {"read", "ls", "grep", "find", "write", "edit", "bash"}
+    expected = {"read", "ls", "grep", "find", "write", "edit"}
     assert expected.issubset(set(registry.keys()))
+    assert "bash" not in registry
