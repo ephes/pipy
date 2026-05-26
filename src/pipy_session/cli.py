@@ -30,7 +30,8 @@ from pipy_session.catalog import (
     search_finalized_sessions,
     verify_session_archive,
 )
-from pipy_session.recorder import append_event, finalize_session, init_session
+from pipy_session.export import export_session_from_args
+from pipy_session.recorder import append_event, finalize_session, init_session, resolve_session_root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,12 +112,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of a tab-separated report.",
     )
 
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Emit one finalized session record as metadata-only JSON.",
+    )
+    _add_root_option(export_parser)
+    export_parser.add_argument("record", help="Finalized record basename or stem.")
+    export_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Accepted for symmetry. Export always emits JSON to stdout.",
+    )
+    export_parser.add_argument(
+        "--include-transcript",
+        action="store_true",
+        help=(
+            "Also include raw transcript events from the opt-in sidecar at "
+            "~/.local/state/pipy/transcripts/<stem>.jsonl. Refuses if missing."
+        ),
+    )
+
     reflect_parser = subparsers.add_parser("reflect", help="Summarize learnings from finalized records.")
     _add_root_option(reflect_parser)
     reflect_parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON instead of a Markdown report.",
+    )
+
+    resume_info_parser = subparsers.add_parser(
+        "resume-info",
+        help="Emit metadata-only resume context for one finalized session record.",
+    )
+    _add_root_option(resume_info_parser)
+    resume_info_parser.add_argument(
+        "record",
+        help="Finalized record basename or stem to resume context from.",
     )
 
     workflow_parser = subparsers.add_parser(
@@ -335,12 +366,37 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_archive_verification(verification))
             return 0
 
+        if args.command == "export":
+            export_payload = export_session_from_args(
+                args.record,
+                include_transcript=args.include_transcript,
+                root=args.root,
+            )
+            print(json.dumps(export_payload, sort_keys=True))
+            return 0
+
         if args.command == "reflect":
             reflection = reflect_on_finalized_sessions(root=args.root)
             if args.json:
                 print(json.dumps(reflection.to_dict(), sort_keys=True))
             else:
                 print(format_session_reflection(reflection))
+            return 0
+
+        if args.command == "resume-info":
+            # Local import keeps the native harness module out of the
+            # session-CLI import graph unless the resume-info subcommand is
+            # actually invoked.
+            from pipy_harness.native.session_resume import (
+                resume_session_from_archive,
+            )
+
+            session_root = resolve_session_root(args.root)
+            resume_context = resume_session_from_archive(
+                args.record,
+                session_root=session_root,
+            )
+            print(json.dumps(resume_context.to_dict(), sort_keys=True))
             return 0
 
         if args.command == "workflow":
@@ -433,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"pipy-session: {exc}", file=sys.stderr)
         return 2
+    except LookupError as exc:
+        print(f"pipy-session: {exc}", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"pipy-session: {exc}", file=sys.stderr)
         return 1
