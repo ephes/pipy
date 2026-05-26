@@ -935,6 +935,7 @@ class _ToolLoopRenderer:
     printing the final buffered text when streaming already covered it.
     """
 
+    _ANSI_BOLD = "\x1b[1m"
     _ANSI_DIM = "\x1b[2m"
     _ANSI_ITALIC = "\x1b[3m"
     _ANSI_GREEN = "\x1b[32m"
@@ -1045,12 +1046,13 @@ class _ToolLoopRenderer:
         """Render an italic dim reasoning-summary delta inline.
 
         Pi paints the model's reasoning summary between tool calls with
-        an italicized prose voice. Pipy mirrors that by routing the
-        codex `response.reasoning_summary_text.delta` events through
-        this method so the user sees the same "thinking" cues. The
-        renderer collapses whitespace-only deltas, opens a fresh
-        paragraph on the first chunk, and closes with a trailing
-        newline when the reasoning stream goes idle.
+        an italicized prose voice and renders section titles in bold.
+        Pipy mirrors that by routing the codex
+        `response.reasoning_summary_text.delta` events through this
+        method so the user sees the same "thinking" cues. ``**...**``
+        spans inside the chunk are rendered as ANSI bold+italic so
+        section titles like `**Investigating pi-mono and pipy**`
+        appear as bold prose instead of literal asterisks.
         """
 
         if not chunk:
@@ -1060,10 +1062,47 @@ class _ToolLoopRenderer:
             self._reasoning_active = True
             indent = self._style(" ", self._ANSI_DIM)
             self._error_stream.write("\n" + indent)
-        styled = self._style(chunk, self._ANSI_ITALIC + self._ANSI_DIM)
-        self._error_stream.write(styled)
+        for segment, is_bold in self._split_reasoning_segments(chunk):
+            if not segment:
+                continue
+            if is_bold:
+                styled = self._style(
+                    segment, self._ANSI_BOLD + self._ANSI_ITALIC + self._ANSI_DIM
+                )
+            else:
+                styled = self._style(
+                    segment, self._ANSI_ITALIC + self._ANSI_DIM
+                )
+            self._error_stream.write(styled)
         self._error_stream.flush()
         self._reasoning_emitted_any = True
+
+    @staticmethod
+    def _split_reasoning_segments(text: str) -> list[tuple[str, bool]]:
+        """Split a reasoning chunk into (segment, is_bold) pairs.
+
+        ``**…**`` spans become bold segments; the literal asterisks are
+        removed from the rendered output. Unmatched trailing ``**`` is
+        emitted verbatim so partial deltas across chunk boundaries do
+        not silently drop the open marker.
+        """
+
+        segments: list[tuple[str, bool]] = []
+        cursor = 0
+        while True:
+            open_index = text.find("**", cursor)
+            if open_index == -1:
+                segments.append((text[cursor:], False))
+                break
+            if open_index > cursor:
+                segments.append((text[cursor:open_index], False))
+            close_index = text.find("**", open_index + 2)
+            if close_index == -1:
+                segments.append((text[open_index + 2 :], True))
+                break
+            segments.append((text[open_index + 2 : close_index], True))
+            cursor = close_index + 2
+        return segments
 
     def _close_reasoning(self) -> None:
         if not self._reasoning_active:
@@ -1134,7 +1173,8 @@ class _ToolLoopRenderer:
             data = {}
         if tool_name == "read":
             path = data.get("path", "")
-            return f"read {path}:1-200"
+            prefix = "read resource" if str(path).startswith("/") else "read"
+            return f"{prefix} {path}:1-200 (ctrl+o to expand)"
         if tool_name == "ls":
             path = data.get("path", ".")
             return f"ls {path}"

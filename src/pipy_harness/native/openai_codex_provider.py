@@ -423,6 +423,7 @@ class OpenAICodexResponsesProvider:
             "stream": True,
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],
+            "reasoning": {"summary": "auto"},
             "tool_choice": "auto",
             "parallel_tool_calls": True,
         }

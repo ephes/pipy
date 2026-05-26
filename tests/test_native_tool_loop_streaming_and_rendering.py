@@ -224,6 +224,86 @@ def test_renderer_enables_ansi_on_tty_with_color(monkeypatch: pytest.MonkeyPatch
     assert "\x1b[" in err.getvalue()
 
 
+def test_renderer_renders_read_resource_for_absolute_path():
+    out = _StreamingStub(isatty=False)
+    err = _StreamingStub(isatty=False)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.render_tool_call(
+        ProviderToolCall(
+            provider_correlation_id="cc",
+            tool_name="read",
+            arguments_json='{"path": "/Users/x/src/pi-mono/AGENTS.md"}',
+        )
+    )
+
+    rendered = err.getvalue()
+    assert "read resource /Users/x/src/pi-mono/AGENTS.md:1-200 (ctrl+o to expand)" in rendered
+
+
+def test_renderer_renders_read_relative_without_resource_prefix():
+    out = _StreamingStub(isatty=False)
+    err = _StreamingStub(isatty=False)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.render_tool_call(
+        ProviderToolCall(
+            provider_correlation_id="cc",
+            tool_name="read",
+            arguments_json='{"path": "docs/backlog.md"}',
+        )
+    )
+
+    rendered = err.getvalue()
+    assert "read docs/backlog.md:1-200 (ctrl+o to expand)" in rendered
+    assert "read resource" not in rendered
+
+
+def test_renderer_streams_reasoning_with_bold_titles():
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.begin_provider_turn()
+    renderer.handle_reasoning_chunk("**Investigating pi-mono**")
+    renderer.handle_reasoning_chunk("\n\nI need to compare the files carefully.")
+
+    rendered = err.getvalue()
+    # Bold span is emitted as ANSI bold+italic+dim without literal asterisks.
+    assert "Investigating pi-mono" in rendered
+    assert "**" not in rendered
+    assert "\x1b[1m" in rendered  # bold escape present
+    assert "\x1b[2m" in rendered  # dim escape present
+
+
+def test_renderer_reasoning_routes_to_error_stream_not_output():
+    out = _StreamingStub(isatty=False)
+    err = _StreamingStub(isatty=False)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.begin_provider_turn()
+    renderer.handle_reasoning_chunk("Thinking about parity.")
+
+    assert "Thinking about parity." in err.getvalue()
+    assert out.getvalue() == ""
+
+
+def test_renderer_clears_working_marker_before_streaming(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.begin_provider_turn()
+    renderer.show_working()
+    assert "Working..." in err.getvalue()
+
+    renderer.stream_sink("hello ")
+    # The clear sequence (\r\x1b[K) is written before stream output appears.
+    assert "\r\x1b[K" in err.getvalue()
+    assert "hello " in out.getvalue()
+
+
 def test_renderer_argument_preview_handles_invalid_json():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)

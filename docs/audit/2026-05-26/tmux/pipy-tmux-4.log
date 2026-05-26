@@ -1,0 +1,50 @@
+ pipy v0.1.0  native shell
+ ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred
+ Type / to open the command menu; /help for the full reference.
+
+[Context]
+  AGENTS.md, ~/.claude/CLAUDE.md
+
+[Skills]
+  goal-handoff, handoff-impl, handoff-review, mermaid-marked2-markdown, summarize-youtube, commit-workflow, implement-handoff, local-dev-orchestration, review-handoff
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>  compare the provider files in our src/pipy_harness/native vs the ones in ~/src/pi-mono/packages/ai/src/providers
+
+ find "*" src/pipy_harness/native
+
+ ... (29 earlier lines, ctrl+o to expand)
+ src/pipy_harness/native/session_branching.py
+ src/pipy_harness/native/session_compaction.py
+ src/pipy_harness/native/session_resume.py
+ src/pipy_harness/native/skills.py
+ src/pipy_harness/native/themes.py
+ src/pipy_harness/native/tool.py
+ src/pipy_harness/native/tool_loop_session.py
+ src/pipy_harness/native/tools
+ src/pipy_harness/native/transcripts.py
+ src/pipy_harness/native/usage.py
+ src/pipy_harness/native/verification.py
+ src/pipy_harness/native/workspace_context.py
+
+ Took 0.0s
+
+ find "*" /Users/jochen/src/pi-mono/packages/ai/src/providers
+
+ ... (7 earlier lines, ctrl+o to expand)
+ pi-mono/packages/ai/src/providers/google-vertex.ts
+ pi-mono/packages/ai/src/providers/google.ts
+ pi-mono/packages/ai/src/providers/images
+ pi-mono/packages/ai/src/providers/mistral.ts
+ pi-mono/packages/ai/src/providers/openai-codex-responses.ts
+ pi-mono/packages/ai/src/providers/openai-completions.ts
+ pi-mono/packages/ai/src/providers/openai-prompt-cache.ts
+ pi-mono/packages/ai/src/providers/openai-responses-shared.ts
+ pi-mono/packages/ai/src/providers/openai-responses.ts
+ pi-mono/packages/ai/src/providers/register-builtins.ts
+ pi-mono/packages/ai/src/providers/simple-options.ts
+ pi-mono/packages/ai/src/providers/transform-messages.ts
+
+ Took 0.0s
+ ⠋ Working...
+

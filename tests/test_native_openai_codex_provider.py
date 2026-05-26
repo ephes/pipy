@@ -213,6 +213,7 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
         "stream": True,
         "text": {"verbosity": "medium"},
         "include": ["reasoning.encrypted_content"],
+        "reasoning": {"summary": "auto"},
         "tool_choice": "auto",
         "parallel_tool_calls": True,
     }
