@@ -966,11 +966,15 @@ class _ToolLoopRenderer:
     # contiguous strip.
     _ANSI_BG_TOOL_PANEL_TRUECOLOR = "\x1b[48;2;28;42;30m"
     _ANSI_BG_TOOL_PANEL_256 = "\x1b[48;5;235m"
-    # Pi's `userMessageBg` theme uses a muted dark-violet panel behind
-    # the user's typed message so it reads as a chat bubble distinct
-    # from the green tool panel.
-    _ANSI_BG_USER_MESSAGE_TRUECOLOR = "\x1b[48;2;42;42;58m"
-    _ANSI_BG_USER_MESSAGE_256 = "\x1b[48;5;236m"
+    # Pi's `userMessageBg` theme paints a muted slate-gray panel
+    # spanning the full row behind the user's typed message so it
+    # reads as a chat bubble distinct from the green tool panel. The
+    # bubble is three rows tall: one blank padding row above the text,
+    # the text row itself, and one blank padding row below — mirror
+    # pi by emitting all three with the same background and
+    # `\x1b[K` clear-to-EOL.
+    _ANSI_BG_USER_MESSAGE_TRUECOLOR = "\x1b[48;2;52;53;65m"
+    _ANSI_BG_USER_MESSAGE_256 = "\x1b[48;5;237m"
     _ANSI_CLEAR_EOL = "\x1b[K"
     _ANSI_CURSOR_UP_ONE = "\x1b[1A"
     _ANSI_CLEAR_LINE = "\x1b[2K"
@@ -1083,7 +1087,7 @@ class _ToolLoopRenderer:
                 ]
                 marker = self._style(
                     f"{glyph} Working...",
-                    self._ANSI_DIM + self._ANSI_ITALIC,
+                    self._ANSI_DIM,
                 )
                 try:
                     self._error_stream.write(f"\r\x1b[K {marker}")
@@ -1125,10 +1129,15 @@ class _ToolLoopRenderer:
         del has_tool_calls
         if self._stream_active:
             # Flush a trailing newline so the next render block starts
-            # on its own line, even when the provider did not emit one.
+            # on its own line, even when the provider did not emit one,
+            # then a second one so a blank row sits between the last
+            # response line and the next input-frame separator, matching
+            # pi's spacing below the assistant message.
             if not self._stream_emitted_any or not final_text.endswith("\n"):
+                self._output_stream.write("\n\n")
+            else:
                 self._output_stream.write("\n")
-                self._output_stream.flush()
+            self._output_stream.flush()
         self._stream_active = False
 
     def _handle_stream_chunk(self, chunk: str) -> None:
@@ -1137,13 +1146,15 @@ class _ToolLoopRenderer:
         self._clear_working()
         if not self._stream_active:
             self._stream_active = True
-            # Pi prints the final assistant answer without a "label" prefix —
-            # the surrounding blank-line padding from `end_provider_turn`
-            # is what separates the answer from the preceding tool blocks.
-            # Emit a leading newline so the answer never butts up against
-            # the last tool result line on the same column.
-            self._output_stream.write("\n")
-        self._output_stream.write(chunk)
+            # Pi prints the final assistant answer with a one-space
+            # left indent and a single blank row above. The bottom
+            # padding row of the user-message bubble already provides
+            # one of the two visual rows between the bubble text and
+            # the answer; emit one more `\n` plus the leading indent
+            # here. Subsequent lines within the same stream get their
+            # indent from the newline rewrite below.
+            self._output_stream.write("\n ")
+        self._output_stream.write(chunk.replace("\n", "\n "))
         self._output_stream.flush()
         self._stream_emitted_any = True
         self._streamed_any = True
@@ -1220,38 +1231,79 @@ class _ToolLoopRenderer:
     def render_user_message(self, text: str) -> None:
         """Paint the submitted user message on the user-message panel.
 
-        The readline / slash-menu adapter has already echoed the
-        typed text to the error stream and emitted a trailing newline.
-        We overwrite that previous line with `\\x1b[1A\\x1b[2K\\r` and
-        re-print the message on a muted dark-violet panel so the
-        prompt reads as a chat bubble — distinct from the green tool
-        panel. Multi-line input emits one panel row per logical line
-        with the same background. Non-TTY streams skip the rewrite
-        and just leave the readline echo in place.
+        Pi's user-message bubble is three rows tall and fills the row
+        width: a blank padding row above the text, the text row, and a
+        blank padding row below — all painted on the same
+        ``userMessageBg`` background. The readline / slash-menu adapter
+        has already echoed the typed text to the error stream; we
+        overwrite that previous line plus the `print_input_separator`
+        row above with `\\x1b[1A\\x1b[2K\\r` and re-render the bubble in
+        place. Non-TTY streams skip the rewrite and just leave the
+        readline echo in place.
         """
 
         if not text:
             return
         lines = text.splitlines() or [""]
         if self._enabled:
-            # Step back over the readline echo (one line per logical
-            # input line) and clear each so the styled panel rows can
-            # be re-rendered in place.
+            # Step back over the readline echo plus the separator row
+            # that `print_input_separator` drew above the input area.
+            # The readline echo of a single logical line can wrap to
+            # multiple visual rows on narrow panes (`ceil(len /
+            # width)`), so count visual rows — not logical lines —
+            # before clearing, otherwise stale echo fragments stay
+            # above the rendered bubble.
+            width = max(1, chrome_width(self._error_stream))
+            visual_rows = 0
+            for line in lines:
+                # `len(line) + 1` accounts for the leading prompt-area
+                # column pi-parity already reserves; `// width` plus
+                # the always-present row itself gives the wrapped
+                # count, with empty lines counting as one row.
+                effective = max(1, len(line) + 1)
+                visual_rows += (effective + width - 1) // width
             self._error_stream.write("\r")
-            for _ in lines:
+            for _ in range(visual_rows + 1):
                 self._error_stream.write(self._ANSI_CURSOR_UP_ONE + self._ANSI_CLEAR_LINE)
             self._error_stream.write("\r")
+            # Top padding row of the bubble (full-width bg).
+            self._error_stream.write(self._user_message_panel_blank_line())
         for line in lines:
             self._error_stream.write(self._user_message_panel_line(line))
+        if self._enabled:
+            # Bottom padding row of the bubble (full-width bg).
+            self._error_stream.write(self._user_message_panel_blank_line())
         self._error_stream.flush()
 
     def _user_message_panel_line(self, text: str) -> str:
-        """Render one row inside the user-message panel."""
+        """Render the text row of the user-message bubble."""
 
         if not self._enabled:
             return f" {text}\n"
+        # Full-width bg behind the text row. We pad with spaces out to
+        # the rendered chrome width instead of relying solely on
+        # `\x1b[K` because `tmux capture-pane -e` drops cells that
+        # carry attributes but no character — without explicit space
+        # characters the bg disappears in screenshots and replay.
+        width = chrome_width(self._error_stream)
+        padding = " " * max(0, width - len(text) - 1)
         return (
-            f"{self._user_message_bg} {text}{self._ANSI_CLEAR_EOL}"
+            f"{self._user_message_bg} {text}{padding}{self._ANSI_CLEAR_EOL}"
+            f"{self._ANSI_RESET}\n"
+        )
+
+    def _user_message_panel_blank_line(self) -> str:
+        """Render an empty padding row in the user-message bubble.
+
+        Filled with spaces (not just `\\x1b[K`) so tmux/screenshot
+        replays still see the bg on every cell of the row — empty bg
+        cells get dropped by `tmux capture-pane`.
+        """
+
+        width = chrome_width(self._error_stream)
+        padding = " " * width
+        return (
+            f"{self._user_message_bg}{padding}{self._ANSI_CLEAR_EOL}"
             f"{self._ANSI_RESET}\n"
         )
 

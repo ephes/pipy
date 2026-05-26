@@ -25,7 +25,7 @@ ANSI="$TMP_DIR/pane.ansi"
 HTML="$TMP_DIR/pane.html"
 WRAPPED="$TMP_DIR/pane-wrapped.html"
 
-tmux capture-pane -t "$SESSION" -p -e -S -500 > "$ANSI"
+tmux capture-pane -t "$SESSION" -p -e -J -S -500 > "$ANSI"
 aha --black --no-header < "$ANSI" > "$HTML"
 
 python3 - "$HTML" "$WRAPPED" <<'PY'
@@ -43,7 +43,12 @@ inner = match.group("inner") if match else body
 # lines unstyled. Split every panel-bg-bearing span by `\n` and
 # re-wrap each line in its own row-spanning span so every panel row
 # reads as a contiguous strip in the screenshot.
-panel_bgs = ("#1c2a1e", "#202020", "#2a2a3a", "#262626")
+#
+# Includes the user-message bg (#373a4b): pi's user-message bubble is
+# a full-width three-row strip (top padding, text, bottom padding),
+# and pipy mirrors that via `_user_message_panel_blank_line` plus
+# `\x1b[K` on the text row.
+panel_bgs = ("#1c2a1e", "#202020", "#343541", "#262626")
 def _expand(match: re.Match) -> str:
     style_attr = match.group(1).strip(";")
     body = match.group(2)

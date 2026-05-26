@@ -495,6 +495,9 @@ class _SlashMenuLineEditor:
                             self._accept_menu_selection()
                     self._finalize_and_print_buffer(submitted=True)
                     return self._buffer + "\n"
+                if key == "shift-enter":
+                    self._insert_char("\n")
+                    continue
                 if key in ("up", "down"):
                     self._navigate_menu(key)
                     continue
@@ -535,6 +538,11 @@ class _SlashMenuLineEditor:
             next1 = self._read_byte_with_timeout(0.05)
             if next1 == "":
                 return "esc"
+            # Alt/shift + Enter is reported by most terminals as
+            # `ESC \r` or `ESC \n`; treat it as a newline insertion
+            # request to match pi's "Shift+Enter = newline" UX.
+            if next1 == "\r" or next1 == "\n":
+                return "shift-enter"
             if next1 != "[":
                 return "esc"
             next2 = self._read_byte_with_timeout(0.05)
@@ -550,6 +558,21 @@ class _SlashMenuLineEditor:
                 return "home"
             if next2 == "F":
                 return "end"
+            # xterm `modifyOtherKeys=2` encodes Shift+Enter as
+            # `ESC [ 27 ; 2 ; 13 ~`. Drain the params and return
+            # shift-enter when the trailing key matches Enter (13).
+            if next2 == "2":
+                rest = self._read_csi_remainder()
+                if rest == "7;2;13~":
+                    return "shift-enter"
+                return "esc"
+            # kitty keyboard protocol encodes Shift+Enter as
+            # `ESC [ 13 ; 2 u`. Detect the `13;2u` suffix.
+            if next2 == "1":
+                rest = self._read_csi_remainder()
+                if rest == "3;2u":
+                    return "shift-enter"
+                return "esc"
             return "esc"
         if ch == "\r" or ch == "\n":
             return "enter"
@@ -586,6 +609,26 @@ class _SlashMenuLineEditor:
         if self.input_fd not in r:
             return ""
         return self._read_byte()
+
+    def _read_csi_remainder(self) -> str:
+        """Drain the rest of a CSI parameter+intermediate+final sequence.
+
+        Reads up to a small bounded number of bytes after the initial
+        `ESC [` prefix and the first parameter digit, stopping when a
+        final byte (`~`, `u`, alphabetic, etc.) arrives or the read
+        times out. Used to detect modifyOtherKeys / kitty encodings
+        for Shift+Enter without growing the main escape switch.
+        """
+
+        out = ""
+        for _ in range(16):
+            byte = self._read_byte_with_timeout(0.05)
+            if not byte:
+                break
+            out += byte
+            if byte == "~" or byte.isalpha():
+                break
+        return out
 
     def _insert_char(self, ch: str) -> None:
         self._buffer = self._buffer[: self._cursor] + ch + self._buffer[self._cursor :]
@@ -659,9 +702,26 @@ class _SlashMenuLineEditor:
             out.write("\r")
             out.write(f"\x1b[{self._last_drawn_rows}A")
         out.write("\x1b[J")
-        prompt_text = f"{self.prompt_label} "
+        # When the prompt label is empty (pi-parity: no leading glyph
+        # before the input cursor), don't append a separator space —
+        # otherwise the cursor sits one column to the right of pi's
+        # column-1 input position.
+        prompt_text = (
+            f"{self.prompt_label} " if self.prompt_label else ""
+        )
         out.write(prompt_text)
         out.write(self._buffer)
+        # Pi's TUI paints an explicit block-cursor character at the
+        # input position, so the cursor stays visible even when the
+        # terminal pane loses focus. The native terminal cursor
+        # blinks off in unfocused panes, so we burn a reverse-video
+        # space at the input column and let the absolute
+        # `\x1b[{target_col}G` move below place the real cursor back
+        # over it. When the cursor is in the middle of the buffer we
+        # already have a character there, so the reverse-video paint
+        # is unnecessary.
+        if self._cursor == len(self._buffer):
+            out.write("\x1b[7m \x1b[0m")
         rows_below = 0
         matches = self._filtered_commands()
         if self._menu_open and matches:
@@ -698,6 +758,14 @@ class _SlashMenuLineEditor:
 
         Returns the number of rows printed. Cursor is left on the last
         printed row; the caller moves it back up to the prompt input.
+
+        Trailing blank row: pi's TUI leaves one row of vertical
+        breathing room between the status line and the pane's bottom
+        edge so the status never butts up against the pane border.
+        Pipy mirrors that here by appending one extra `\\r\\n` past
+        the status row — the caller's `\\x1b[Nrows_below A` already
+        moves the cursor back to the input row, so the extra row just
+        renders as an empty bottom-frame buffer.
         """
 
         if not self.footer:
@@ -713,6 +781,8 @@ class _SlashMenuLineEditor:
         for line in self.footer.splitlines():
             out.write("\r\n" + style.dim(line))
             rows += 1
+        out.write("\r\n")
+        rows += 1
         return rows
 
     def _finalize_and_print_buffer(self, *, submitted: bool) -> None:
