@@ -145,6 +145,21 @@ def test_load_image_attachment_refuses_non_image_mime(tmp_path: Path) -> None:
         load_image_attachment(target, workspace_root=workspace)
 
 
+def test_load_image_attachment_refuses_symlink_escaping_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.png"
+    _write_png(outside, b"OUTSIDE")
+    symlink = workspace / "escape.png"
+    try:
+        symlink.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation not permitted on this platform")
+
+    with pytest.raises(ImageAttachmentError):
+        load_image_attachment(symlink, workspace_root=workspace)
+
+
 def test_image_attachment_max_bytes_default_is_sane() -> None:
     assert IMAGE_ATTACHMENT_MAX_BYTES >= 1 * 1024 * 1024
     assert IMAGE_ATTACHMENT_MAX_BYTES <= 64 * 1024 * 1024

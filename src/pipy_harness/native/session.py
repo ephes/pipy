@@ -569,6 +569,9 @@ class NativeAgentSession:
                             conversation_state,
                             provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
                         )
+                        # Streaming is scoped to the initial provider turn per the
+                        # Streaming Output Parity Track in docs/backlog.md; the
+                        # post-tool follow-up turn intentionally stays buffered.
                         follow_up_provider_result, follow_up_provider_usage = _call_provider_turn(
                             self.provider,
                             run_input,
