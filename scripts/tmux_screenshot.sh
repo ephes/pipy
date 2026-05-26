@@ -38,11 +38,22 @@ inner = match.group("inner") if match else body
 
 # Restore the tool-panel "fill to end of row" effect that real
 # terminals implement via `\x1b[K`. aha emits each colored span as
-# its own element; we hand each green-backgrounded row a 100%-width
-# block so the panel reads as a contiguous strip.
+# its own element; we expand every span whose background matches the
+# pipy tool-panel hex (truecolor `\x1b[48;2;28;42;30m` -> #1c2a1e,
+# 256-color `\x1b[48;5;235m` -> #202020) into a row-spanning block
+# so the panel reads as a contiguous strip in the screenshot.
+panel_bgs = ("#1c2a1e", "#202020")
+def _expand(match: re.Match) -> str:
+    style_attr = match.group(1).lower()
+    if not any(bg_hex in style_attr for bg_hex in panel_bgs):
+        return match.group(0)
+    return (
+        f'<span style="{match.group(1)};display:inline-block;width:100%">'
+        f'{match.group(2)}</span>'
+    )
 inner = re.sub(
-    r"<span([^>]*background-color:[^>]*green[^>]*)>([^<]*)</span>",
-    r'<span\1 style="display:inline-block;width:100%">\2</span>',
+    r'<span style="([^"]*background-color:[^"]*)">([^<]*)</span>',
+    _expand,
     inner,
 )
 
