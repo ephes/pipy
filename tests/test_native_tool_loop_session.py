@@ -189,7 +189,7 @@ def test_session_invokes_fixture_tool_and_reports_metadata(tmp_path: Path):
     assert result.consecutive_malformed_streak == 0
     assert result.budget_exhausted_count == 0
     assert result.error_type is None
-    assert stderr == ""
+    assert "pipy v" in stderr  # chrome present
 
 
 # ----------------------------- unknown tool name ----------------------------
@@ -212,7 +212,7 @@ def test_unknown_tool_is_returned_as_error_observation(tmp_path: Path):
     assert result.tool_invocation_count == 0
     assert result.malformed_argument_count == 1
     assert result.consecutive_malformed_streak == 1
-    assert stderr == ""
+    assert "pipy v" in stderr  # chrome present
 
 
 # ------------------------------ malformed JSON ------------------------------
@@ -234,7 +234,7 @@ def test_invalid_arguments_json_is_returned_as_error_observation(tmp_path: Path)
 
     assert result.malformed_argument_count == 1
     assert result.tool_invocation_count == 0
-    assert stderr == ""
+    assert "pipy v" in stderr  # chrome present
 
 
 # --------------------------- schema validation fail -------------------------
@@ -257,7 +257,7 @@ def test_schema_violation_is_returned_as_error_observation(tmp_path: Path):
     assert result.malformed_argument_count == 1
     assert result.consecutive_malformed_streak == 1
     assert result.tool_invocation_count == 0
-    assert stderr == ""
+    assert "pipy v" in stderr  # chrome present
 
 
 # --------------------- three consecutive malformed = fatal ------------------
@@ -356,7 +356,7 @@ def test_budget_exhausted_emits_observation_without_invoking(tmp_path: Path):
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.tool_invocation_count == 2
     assert result.budget_exhausted_count == 1
-    assert stderr == ""
+    assert "pipy v" in stderr  # chrome present
 
 
 # ---------------------- final text printed on stdout -----------------------
@@ -384,7 +384,9 @@ def test_final_text_is_printed_when_no_tool_calls(tmp_path: Path):
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.user_turn_count == 1
     assert "hello world" in output_stream.getvalue()
-    assert error_stream.getvalue() == ""
+    stderr = error_stream.getvalue()
+    assert "pipy v" in stderr  # startup chrome rendered
+    assert "native shell" in stderr
 
 
 # ---------------- session ends on EOF and stays archive-safe ---------------

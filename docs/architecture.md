@@ -98,26 +98,43 @@ Markdown, catalog output, and structured native JSON output by default.
 
 The native shell is line-oriented and bounded. It is intentionally not a full
 Pi-style TUI yet, but the terminal product experience now mirrors Pi's:
-compact startup chrome with `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]`
-sections rendered only when loaded, a one-line dim controls strip, a simple
-`>` prompt leader framed by horizontal separators, and a two-line dim footer
-(workspace path plus `provider/model · turns · read` summary) below the
-input area. REPL input now goes through a small adapter: captured and
-non-TTY streams keep the plain stdin/stderr behavior, real TTY sessions can
-use optional prompt-toolkit line-editor input when it is available or
-explicitly selected, and when prompt-toolkit is absent a stdlib `readline`
-adapter takes over so Tab-driven slash-command discovery still works without
-any runtime dependency. All adapters share the same slash-command set,
-descriptions, and read/apply gates.
+compact startup chrome with sage `pipy v… native shell` title, yellow
+`[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections rendered only
+when loaded, a one-line dim controls strip, a simple `>` prompt leader
+framed by a purple separator, and a two-line dim footer (workspace path
+plus `(provider) model · turns N · …` summary) below the input area. REPL
+input now goes through a small adapter: captured and non-TTY streams keep
+the plain stdin/stderr behavior; real TTY sessions default to a
+stdlib-only `slash-menu` raw-mode line editor that opens a Pi-like
+popup command menu when the user types `/` (with names, descriptions, and
+a reverse-video selection highlight) and accepts the highlighted entry on
+Enter or Tab; optional prompt-toolkit input is still available when the
+package is installed or explicitly selected, and a stdlib `readline`
+adapter remains the next fall-through for Tab-driven discovery without a
+runtime dependency. All adapters share the same slash-command set,
+descriptions, and read/apply gates. The default provider/model selection
+auto-picks an available real provider (openai-codex OAuth, then keyed
+providers in priority order) so the footer surfaces a real
+`(provider) model` rather than the deterministic fake bootstrap whenever
+credentials are configured. Chrome rendering, the input separator, and
+the footer dim/section/title color palette are shared between the no-tool
+and bounded tool-loop sessions through `pipy_harness.native.chrome`.
 
 Available now:
 
 - `pipy` and `pipy repl --agent pipy-native` start the native REPL in the
-  current directory with compact startup chrome.
-- `pipy repl --input-runtime auto|plain|prompt-toolkit|readline` selects the
-  REPL input boundary; `auto` prefers prompt-toolkit when it is importable on
-  real TTY streams, then falls back to the stdlib readline adapter (Tab
-  completion, no external deps), and finally to plain stdin/stderr.
+  current directory with compact startup chrome and a real-provider
+  footer when credentials are configured.
+- `pipy repl --input-runtime auto|plain|prompt-toolkit|readline|slash-menu`
+  selects the REPL input boundary; `auto` prefers the stdlib slash-menu
+  raw-mode editor when stdin/stderr are real TTYs, then prompt-toolkit
+  when it is importable, then the stdlib readline adapter, and finally
+  plain stdin/stderr.
+- In the default slash-menu path, typing `/` opens a popup command menu
+  rendered beneath the prompt with names and descriptions. Up/Down navigate;
+  Enter submits the highlighted entry; Tab accepts the selection without
+  submitting; Esc closes the menu while keeping typed text. Filtering
+  follows the typed `/prefix`.
 - In the optional prompt-toolkit path, the completer reports descriptions
   alongside command names and surfaces the full menu on empty input. The
   stdlib readline path uses the same command list and descriptions through

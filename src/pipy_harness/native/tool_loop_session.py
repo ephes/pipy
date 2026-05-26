@@ -39,11 +39,22 @@ from pathlib import Path
 from typing import ClassVar, TextIO
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.chrome import (
+    format_provider_model,
+    print_footer_lines,
+    print_input_separator,
+    print_startup_chrome,
+)
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderToolCall,
 )
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl_input import (
+    REPL_INPUT_RUNTIME_AUTO,
+    NativeReplInput,
+    native_repl_input_for,
+)
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
     AssistantMessage,
@@ -135,6 +146,7 @@ class NativeToolReplSession:
     tool_budget: int = 10
     workspace_root: Path | None = None
     transcript_sink: TranscriptSink | None = None
+    input_runtime: str = REPL_INPUT_RUNTIME_AUTO
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 10
     MAX_TOOL_BUDGET: ClassVar[int] = 25
@@ -201,15 +213,82 @@ class NativeToolReplSession:
         consecutive_malformed_streak = 0
         budget_exhausted_count = 0
 
+        repl_input = self._build_repl_input(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=cwd,
+        )
+        print_startup_chrome(error_stream, cwd=cwd)
+        # Pi-parity: surface the workspace + provider/model footer once before
+        # the first prompt so users see the real provider/model state without
+        # having to submit a turn first.
+        print_footer_lines(
+            error_stream,
+            self._footer_text(
+                cwd=cwd,
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                user_turn_count=user_turn_count,
+                tool_invocation_count=tool_invocation_count,
+            ).splitlines(),
+        )
+
         while True:
+            print_input_separator(error_stream)
+            footer_text = self._footer_text(
+                cwd=cwd,
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                user_turn_count=user_turn_count,
+                tool_invocation_count=tool_invocation_count,
+            )
             try:
-                line = input_stream.readline()
-            except (KeyboardInterrupt, EOFError):
+                line = repl_input.read_line("> ", footer=footer_text)
+            except KeyboardInterrupt:
+                print(file=error_stream)
                 break
             if not line:
                 break
             user_input = line.rstrip("\n")
-            if not user_input.strip():
+            stripped = user_input.strip()
+            if not stripped:
+                self._print_footer(
+                    error_stream,
+                    cwd=cwd,
+                    provider_name=effective_provider_name,
+                    model_id=effective_model_id,
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                )
+                continue
+            if stripped in {"/exit", "/quit"}:
+                break
+            if stripped == "/help":
+                self._print_help(error_stream)
+                self._print_footer(
+                    error_stream,
+                    cwd=cwd,
+                    provider_name=effective_provider_name,
+                    model_id=effective_model_id,
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                )
+                continue
+            if stripped.startswith("/"):
+                print(
+                    f"pipy: {stripped!r} is not handled in tool-loop mode; "
+                    "supported local commands are /help, /exit, /quit. "
+                    "Other prompts are sent to the model.",
+                    file=error_stream,
+                )
+                self._print_footer(
+                    error_stream,
+                    cwd=cwd,
+                    provider_name=effective_provider_name,
+                    model_id=effective_model_id,
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                )
                 continue
             messages.append(UserMessage(content=user_input))
             user_turn_count += 1
@@ -248,6 +327,10 @@ class NativeToolReplSession:
                         f"{error_type}: {error_message}",
                         file=error_stream,
                     )
+                    try:
+                        repl_input.close()
+                    except Exception:
+                        pass
                     return NativeToolReplResult(
                         status=HarnessStatus.FAILED,
                         exit_code=1,
@@ -289,6 +372,14 @@ class NativeToolReplSession:
                 if not tool_calls:
                     if provider_result.final_text:
                         print(provider_result.final_text, file=output_stream)
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
                     break
 
                 fatal = False
@@ -339,6 +430,10 @@ class NativeToolReplSession:
 
                 if fatal:
                     ended_at = datetime.now(UTC)
+                    try:
+                        repl_input.close()
+                    except Exception:
+                        pass
                     return NativeToolReplResult(
                         status=HarnessStatus.FAILED,
                         exit_code=1,
@@ -358,6 +453,10 @@ class NativeToolReplSession:
                         ),
                     )
 
+        try:
+            repl_input.close()
+        except Exception:
+            pass
         ended_at = datetime.now(UTC)
         return NativeToolReplResult(
             status=HarnessStatus.SUCCEEDED,
@@ -371,6 +470,69 @@ class NativeToolReplSession:
             malformed_argument_count=malformed_argument_count,
             consecutive_malformed_streak=consecutive_malformed_streak,
             budget_exhausted_count=budget_exhausted_count,
+        )
+
+    def _build_repl_input(
+        self,
+        *,
+        input_stream: TextIO,
+        error_stream: TextIO,
+        workspace: Path,
+    ) -> NativeReplInput:
+        return native_repl_input_for(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            input_runtime=self.input_runtime,
+            workspace=workspace,
+        )
+
+    def _footer_text(
+        self,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+    ) -> str:
+        provider_label = format_provider_model(provider_name, model_id)
+        workspace_label = cwd.name or str(cwd)
+        return (
+            f"{cwd}\n"
+            f"{workspace_label} · {provider_label} · "
+            f"turns {user_turn_count} · tools {tool_invocation_count} "
+            f"(budget {self.tool_budget}/turn)"
+        )
+
+    def _print_footer(
+        self,
+        error_stream: TextIO,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+    ) -> None:
+        print_input_separator(error_stream)
+        print_footer_lines(
+            error_stream,
+            self._footer_text(
+                cwd=cwd,
+                provider_name=provider_name,
+                model_id=model_id,
+                user_turn_count=user_turn_count,
+                tool_invocation_count=tool_invocation_count,
+            ).splitlines(),
+        )
+
+    def _print_help(self, error_stream: TextIO) -> None:
+        print(
+            "pipy: tool-loop mode supports `/help`, `/exit`, `/quit` locally. "
+            "Other input is sent to the model. The model can call bounded "
+            "`read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`, and "
+            "`truncate` tools (budget per user turn).",
+            file=error_stream,
         )
 
     def _invoke(

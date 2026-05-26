@@ -107,6 +107,7 @@ from pipy_harness.native.read_only_tool import (
     NativeReadOnlyGateDecision,
 )
 from pipy_harness.native.repl_state import (
+    AUTO_DEFAULT_PROVIDER_PRIORITY,
     DEFAULT_NATIVE_MODELS,
     SUPPORTED_NATIVE_PROVIDERS,
     NativeDefaultsStore,
@@ -114,6 +115,7 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
+    auto_default_selection,
     default_native_defaults_path,
     default_selection_for,
 )
@@ -155,6 +157,7 @@ from pipy_harness.native.verification import (
 )
 
 __all__ = [
+    "AUTO_DEFAULT_PROVIDER_PRIORITY",
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
     "FileOpenAICodexCredentialStore",
@@ -266,6 +269,7 @@ __all__ = [
     "SUPPORTED_NATIVE_PROVIDERS",
     "SUPPORTED_REPL_INPUT_RUNTIMES",
     "ToolPort",
+    "auto_default_selection",
     "create_authorization_flow",
     "default_native_defaults_path",
     "default_openai_codex_auth_path",

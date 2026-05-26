@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import select
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -16,11 +18,13 @@ REPL_INPUT_RUNTIME_AUTO = "auto"
 REPL_INPUT_RUNTIME_PLAIN = "plain"
 REPL_INPUT_RUNTIME_PROMPT_TOOLKIT = "prompt-toolkit"
 REPL_INPUT_RUNTIME_READLINE = "readline"
+REPL_INPUT_RUNTIME_SLASH_MENU = "slash-menu"
 SUPPORTED_REPL_INPUT_RUNTIMES = (
     REPL_INPUT_RUNTIME_AUTO,
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
     REPL_INPUT_RUNTIME_READLINE,
+    REPL_INPUT_RUNTIME_SLASH_MENU,
 )
 DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/help",
@@ -347,6 +351,368 @@ class ReadlineNativeReplInput:
 
 
 @dataclass(slots=True)
+class SlashMenuNativeReplInput:
+    """Stdlib raw-mode line editor with a Pi-like ``/`` command menu.
+
+    Provides the centerpiece of pipy's default Pi-parity REPL experience:
+    a `/` keystroke on an empty line opens a popup command menu below the
+    prompt with names, descriptions, and a reverse-video selection
+    highlight. Up/Down navigate; Enter (or Tab) accepts the selection;
+    Esc closes the menu while preserving typed text. No runtime
+    dependencies — uses ``termios``/``tty`` for cbreak mode and ANSI
+    escapes for rendering.
+
+    Streams must be real TTYs; otherwise raises
+    :class:`ReplInputUnavailableError` so the auto resolver falls back to
+    the readline or plain adapter. The adapter restores the prior
+    terminal attributes on close.
+    """
+
+    input_stream: TextIO
+    error_stream: TextIO
+    command_names: tuple[str, ...] = DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    command_descriptions: Mapping[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    )
+    runtime_label: str = REPL_INPUT_RUNTIME_SLASH_MENU
+    _termios_module: Any | None = None
+    _tty_module: Any | None = None
+    _input_fd: int = -1
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        input_stream: TextIO,
+        error_stream: TextIO,
+        workspace: Path | None = None,
+        command_names: tuple[str, ...] | None = None,
+        command_descriptions: Mapping[str, str] | None = None,
+    ) -> "SlashMenuNativeReplInput":
+        del workspace
+        if not _slash_menu_streams_supported(input_stream, error_stream):
+            raise ReplInputUnavailableError(
+                "slash-menu input requires the process stdin and stderr TTY streams"
+            )
+        try:
+            termios_module = importlib.import_module("termios")
+            tty_module = importlib.import_module("tty")
+        except ImportError as exc:
+            raise ReplInputUnavailableError(
+                "slash-menu input requires termios and tty stdlib modules"
+            ) from exc
+        try:
+            fd = input_stream.fileno()
+            termios_module.tcgetattr(fd)
+        except (OSError, ValueError, AttributeError) as exc:
+            raise ReplInputUnavailableError(
+                "slash-menu input requires a stdin file descriptor with termios access"
+            ) from exc
+        instance = cls(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            command_names=command_names or DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
+            command_descriptions=(
+                dict(command_descriptions)
+                if command_descriptions is not None
+                else dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+            ),
+        )
+        instance._termios_module = termios_module
+        instance._tty_module = tty_module
+        instance._input_fd = fd
+        return instance
+
+    def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
+        editor = _SlashMenuLineEditor(
+            input_stream=self.input_stream,
+            error_stream=self.error_stream,
+            command_names=self.command_names,
+            command_descriptions=self.command_descriptions,
+            termios_module=self._termios_module,
+            tty_module=self._tty_module,
+            input_fd=self._input_fd,
+            prompt_label=prompt_label,
+            footer=footer,
+        )
+        return editor.run()
+
+    def close(self) -> None:
+        return None
+
+
+_SLASH_MENU_MAX_ITEMS = 8
+
+
+@dataclass(slots=True)
+class _SlashMenuLineEditor:
+    """Stateful per-call helper that owns one read_line invocation."""
+
+    input_stream: TextIO
+    error_stream: TextIO
+    command_names: tuple[str, ...]
+    command_descriptions: Mapping[str, str]
+    termios_module: Any
+    tty_module: Any
+    input_fd: int
+    prompt_label: str
+    footer: str | None
+    _buffer: str = ""
+    _cursor: int = 0
+    _menu_open: bool = False
+    _menu_selection: int = 0
+    _last_drawn_rows: int = 0
+
+    def run(self) -> str:
+        if self.termios_module is None or self.tty_module is None:
+            raise ReplInputUnavailableError(
+                "slash-menu input requires termios and tty stdlib modules"
+            )
+        old_state = self.termios_module.tcgetattr(self.input_fd)
+        try:
+            self.tty_module.setcbreak(self.input_fd, self.termios_module.TCSANOW)
+            new_state = self.termios_module.tcgetattr(self.input_fd)
+            new_state[3] &= ~self.termios_module.ECHO
+            self.termios_module.tcsetattr(
+                self.input_fd, self.termios_module.TCSANOW, new_state
+            )
+            self._render()
+            while True:
+                key = self._read_key()
+                if key is None:
+                    self._finalize_and_print_buffer(submitted=False)
+                    return ""
+                if key == "ctrl-c":
+                    self._finalize_and_print_buffer(submitted=False)
+                    raise KeyboardInterrupt
+                if key == "ctrl-d" and not self._buffer:
+                    self._finalize_and_print_buffer(submitted=False)
+                    return ""
+                if key == "enter":
+                    if self._menu_open and self._filtered_commands():
+                        matches = self._filtered_commands()
+                        if self._buffer not in matches:
+                            self._accept_menu_selection()
+                    self._finalize_and_print_buffer(submitted=True)
+                    return self._buffer + "\n"
+                if key in ("up", "down"):
+                    self._navigate_menu(key)
+                    continue
+                if key == "tab":
+                    if self._menu_open and self._filtered_commands():
+                        self._accept_menu_selection()
+                    continue
+                if key == "esc":
+                    if self._menu_open:
+                        self._menu_open = False
+                        self._render()
+                    continue
+                if key == "backspace":
+                    self._handle_backspace()
+                    continue
+                if key in ("left", "right", "home", "end"):
+                    self._handle_cursor_move(key)
+                    continue
+                if key == "ctrl-u":
+                    self._buffer = self._buffer[self._cursor :]
+                    self._cursor = 0
+                    self._refresh_menu_state()
+                    self._render()
+                    continue
+                if len(key) == 1 and key.isprintable():
+                    self._insert_char(key)
+                    continue
+        finally:
+            self.termios_module.tcsetattr(
+                self.input_fd, self.termios_module.TCSADRAIN, old_state
+            )
+
+    def _read_key(self) -> str | None:
+        ch = self._read_byte()
+        if ch == "":
+            return None
+        if ch == "\x1b":
+            next1 = self._read_byte_with_timeout(0.05)
+            if next1 == "":
+                return "esc"
+            if next1 != "[":
+                return "esc"
+            next2 = self._read_byte_with_timeout(0.05)
+            if next2 == "A":
+                return "up"
+            if next2 == "B":
+                return "down"
+            if next2 == "C":
+                return "right"
+            if next2 == "D":
+                return "left"
+            if next2 == "H":
+                return "home"
+            if next2 == "F":
+                return "end"
+            return "esc"
+        if ch == "\r" or ch == "\n":
+            return "enter"
+        if ch == "\t":
+            return "tab"
+        if ch == "\x7f" or ch == "\x08":
+            return "backspace"
+        if ch == "\x03":
+            return "ctrl-c"
+        if ch == "\x04":
+            return "ctrl-d"
+        if ch == "\x15":
+            return "ctrl-u"
+        if ch == "\x01":
+            return "home"
+        if ch == "\x05":
+            return "end"
+        return ch
+
+    def _read_byte(self) -> str:
+        try:
+            data = os.read(self.input_fd, 1)
+        except (OSError, InterruptedError):
+            return ""
+        if not data:
+            return ""
+        try:
+            return data.decode("utf-8", errors="replace")
+        except UnicodeDecodeError:
+            return ""
+
+    def _read_byte_with_timeout(self, timeout: float) -> str:
+        r, _, _ = select.select([self.input_fd], [], [], timeout)
+        if self.input_fd not in r:
+            return ""
+        return self._read_byte()
+
+    def _insert_char(self, ch: str) -> None:
+        self._buffer = self._buffer[: self._cursor] + ch + self._buffer[self._cursor :]
+        self._cursor += len(ch)
+        self._refresh_menu_state()
+        self._render()
+
+    def _handle_backspace(self) -> None:
+        if self._cursor == 0:
+            return
+        self._buffer = self._buffer[: self._cursor - 1] + self._buffer[self._cursor :]
+        self._cursor -= 1
+        self._refresh_menu_state()
+        self._render()
+
+    def _handle_cursor_move(self, key: str) -> None:
+        if key == "left" and self._cursor > 0:
+            self._cursor -= 1
+        elif key == "right" and self._cursor < len(self._buffer):
+            self._cursor += 1
+        elif key == "home":
+            self._cursor = 0
+        elif key == "end":
+            self._cursor = len(self._buffer)
+        self._render()
+
+    def _refresh_menu_state(self) -> None:
+        if self._buffer.startswith("/"):
+            self._menu_open = True
+            matches = self._filtered_commands()
+            if not matches:
+                self._menu_open = False
+                self._menu_selection = 0
+            elif self._menu_selection >= len(matches):
+                self._menu_selection = 0
+        else:
+            self._menu_open = False
+            self._menu_selection = 0
+
+    def _filtered_commands(self) -> tuple[str, ...]:
+        if not self._menu_open:
+            return ()
+        prefix = self._buffer
+        return tuple(name for name in self.command_names if name.startswith(prefix))
+
+    def _accept_menu_selection(self) -> None:
+        matches = self._filtered_commands()
+        if not matches:
+            return
+        selected = matches[self._menu_selection]
+        self._buffer = selected
+        self._cursor = len(selected)
+        self._menu_open = False
+        self._menu_selection = 0
+        self._render()
+
+    def _navigate_menu(self, key: str) -> None:
+        matches = self._filtered_commands()
+        if not self._menu_open or not matches:
+            return
+        n = len(matches)
+        delta = -1 if key == "up" else 1
+        self._menu_selection = (self._menu_selection + delta) % n
+        self._render()
+
+    def _render(self) -> None:
+        out = self.error_stream
+        out.write("\r")
+        if self._last_drawn_rows > 0:
+            out.write(f"\x1b[{self._last_drawn_rows}B")
+            out.write("\r")
+            out.write(f"\x1b[{self._last_drawn_rows}A")
+        out.write("\x1b[J")
+        prompt_text = f"{self.prompt_label} "
+        out.write(prompt_text)
+        out.write(self._buffer)
+        rows_below = 0
+        matches = self._filtered_commands()
+        if self._menu_open and matches:
+            visible = matches[:_SLASH_MENU_MAX_ITEMS]
+            for idx, name in enumerate(visible):
+                description = self.command_descriptions.get(name, "")
+                line = f"  {name:<16} {description}"
+                if idx == self._menu_selection:
+                    line = f"\x1b[7m{line}\x1b[0m"
+                out.write("\r\n" + line)
+                rows_below += 1
+            if len(matches) > len(visible):
+                more = f"  … {len(matches) - len(visible)} more"
+                out.write("\r\n" + f"\x1b[2m{more}\x1b[0m")
+                rows_below += 1
+        if rows_below > 0:
+            out.write(f"\x1b[{rows_below}A")
+        out.write("\r")
+        target_col = len(prompt_text) + self._cursor + 1
+        out.write(f"\x1b[{target_col}G")
+        out.flush()
+        self._last_drawn_rows = rows_below
+
+    def _finalize_and_print_buffer(self, *, submitted: bool) -> None:
+        del submitted
+        out = self.error_stream
+        if self._last_drawn_rows > 0:
+            out.write(f"\x1b[{self._last_drawn_rows}B")
+            out.write("\r")
+            out.write(f"\x1b[{self._last_drawn_rows}A")
+        out.write("\r\x1b[J")
+        out.write(f"{self.prompt_label} {self._buffer}\n")
+        out.flush()
+        self._last_drawn_rows = 0
+
+
+def _slash_menu_streams_supported(
+    input_stream: TextIO, error_stream: TextIO
+) -> bool:
+    if input_stream is not sys.stdin or error_stream is not sys.stderr:
+        return False
+    if not bool(getattr(input_stream, "isatty", lambda: False)()):
+        return False
+    if not bool(getattr(error_stream, "isatty", lambda: False)()):
+        return False
+    if sys.platform.startswith("win"):
+        return False
+    return True
+
+
+@dataclass(slots=True)
 class PromptToolkitNativeReplInput:
     """Prompt-toolkit backed multiline editor for real TTY input."""
 
@@ -434,7 +800,22 @@ def native_repl_input_for(
             error_stream=error_stream,
             workspace=workspace,
         )
+    if input_runtime == REPL_INPUT_RUNTIME_SLASH_MENU:
+        return SlashMenuNativeReplInput.create(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=workspace,
+        )
 
+    if _slash_menu_streams_supported(input_stream, error_stream):
+        try:
+            return SlashMenuNativeReplInput.create(
+                input_stream=input_stream,
+                error_stream=error_stream,
+                workspace=workspace,
+            )
+        except Exception:
+            pass
     if _prompt_toolkit_streams_supported(input_stream, error_stream):
         try:
             return PromptToolkitNativeReplInput.create(
@@ -475,6 +856,12 @@ def validate_native_repl_input_runtime(
         )
     if input_runtime == REPL_INPUT_RUNTIME_READLINE:
         ReadlineNativeReplInput.create(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=workspace,
+        )
+    if input_runtime == REPL_INPUT_RUNTIME_SLASH_MENU:
+        SlashMenuNativeReplInput.create(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=workspace,

@@ -254,6 +254,7 @@ class PipyNativeToolReplAdapter:
         error_stream: TextIO | None = None,
         transcript_sink: TranscriptSink | None = None,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
+        input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -270,6 +271,7 @@ class PipyNativeToolReplAdapter:
         self.error_stream = error_stream or sys.stderr
         self.transcript_sink = transcript_sink
         self.instruction_loader = instruction_loader
+        self.input_runtime = input_runtime
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -330,6 +332,7 @@ class PipyNativeToolReplAdapter:
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
             transcript_sink=self.transcript_sink,
+            input_runtime=self.input_runtime,
         )
         try:
             run_output = session.run(

@@ -432,11 +432,94 @@ def default_native_defaults_path() -> Path:
     return Path.home() / ".local" / "state" / "pipy" / "native-defaults.json"
 
 
+AUTO_DEFAULT_PROVIDER_PRIORITY: tuple[str, ...] = (
+    "openai-codex",
+    "openai",
+    "anthropic",
+    "google",
+    "openrouter",
+    "mistral",
+    "amazon-bedrock",
+    "azure-openai",
+    "cloudflare",
+    "google-vertex",
+    "openai-completions",
+)
+"""Order in which the REPL chooses a real provider for the default session.
+
+The default invocation `pipy` should not show `fake/fake-native-bootstrap`
+to a user who has a real provider configured. This priority list scans the
+ambient environment (OAuth credential files and conventional API-key env
+vars) and selects the first match. The list intentionally mirrors common
+Pi defaults — `openai-codex` first because Pi uses it when the user has
+logged in, then keyed providers in rough order of how widely deployed they
+are. `fake` remains the last-resort fallback.
+"""
+
+
+def auto_default_selection(
+    *,
+    env: Mapping[str, str] | None = None,
+    openai_codex_auth_path: Path | None = None,
+) -> NativeModelSelection | None:
+    """Probe the ambient environment for an available real provider.
+
+    Returns `None` when no real provider is available; callers fall back to
+    the deterministic fake provider in that case.
+    """
+
+    probe_env = env if env is not None else os.environ
+    codex_path = openai_codex_auth_path or default_openai_codex_auth_path()
+    for provider_name in AUTO_DEFAULT_PROVIDER_PRIORITY:
+        if _provider_available_in_env(provider_name, env=probe_env, openai_codex_auth_path=codex_path):
+            return NativeModelSelection(
+                provider_name=provider_name,
+                model_id=DEFAULT_NATIVE_MODELS[provider_name],
+            )
+    return None
+
+
+def _provider_available_in_env(
+    provider_name: str,
+    *,
+    env: Mapping[str, str],
+    openai_codex_auth_path: Path,
+) -> bool:
+    if provider_name == "openai-codex":
+        return openai_codex_auth_path.exists()
+    if provider_name == "openai":
+        return bool(env.get("OPENAI_API_KEY"))
+    if provider_name == "openai-completions":
+        return bool(env.get("OPENAI_API_KEY"))
+    if provider_name == "anthropic":
+        return bool(env.get("ANTHROPIC_API_KEY"))
+    if provider_name == "google":
+        return bool(env.get("GOOGLE_API_KEY") or env.get("GEMINI_API_KEY"))
+    if provider_name == "openrouter":
+        return bool(env.get("OPENROUTER_API_KEY"))
+    if provider_name == "mistral":
+        return bool(env.get("MISTRAL_API_KEY"))
+    if provider_name == "amazon-bedrock":
+        return bool(env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"))
+    if provider_name == "azure-openai":
+        return bool(env.get("AZURE_OPENAI_ENDPOINT") and env.get("AZURE_OPENAI_API_KEY"))
+    if provider_name == "cloudflare":
+        return bool(env.get("CLOUDFLARE_ACCOUNT_ID") and env.get("CLOUDFLARE_API_TOKEN"))
+    if provider_name == "google-vertex":
+        return bool(
+            env.get("GOOGLE_ACCESS_TOKEN")
+            and (env.get("GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_PROJECT_ID"))
+        )
+    return False
+
+
 def default_selection_for(
     *,
     native_provider: str | None,
     native_model: str | None,
     defaults_store: NativeDefaultsStore | None = None,
+    env: Mapping[str, str] | None = None,
+    openai_codex_auth_path: Path | None = None,
 ) -> NativeModelSelection:
     if native_provider is not None:
         if native_provider not in SUPPORTED_NATIVE_PROVIDERS:
@@ -449,6 +532,11 @@ def default_selection_for(
         return NativeModelSelection(provider_name="fake", model_id=native_model)
     if defaults_store is not None:
         loaded = defaults_store.load()
-        if loaded is not None:
+        if loaded is not None and loaded.provider_name != "fake":
             return loaded
+    auto = auto_default_selection(
+        env=env, openai_codex_auth_path=openai_codex_auth_path
+    )
+    if auto is not None:
+        return auto
     return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])

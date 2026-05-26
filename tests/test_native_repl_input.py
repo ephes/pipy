@@ -17,6 +17,7 @@ from pipy_harness.native.repl_input import (
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
     REPL_INPUT_RUNTIME_READLINE,
+    REPL_INPUT_RUNTIME_SLASH_MENU,
     PlainNativeReplInput,
     PromptToolkitNativeReplInput,
     PromptToolkitReplCompleter,
@@ -25,6 +26,7 @@ from pipy_harness.native.repl_input import (
     ReplInputUnavailableError,
     _prompt_toolkit_multiline_key_bindings,
     _readline_backend_is_libedit,
+    _SlashMenuLineEditor,
     native_repl_input_for,
 )
 from pipy_harness.native.session import _REPL_COMMAND_GROUPS
@@ -880,3 +882,141 @@ def test_prompt_toolkit_read_line_forwards_footer_as_bottom_toolbar(
     repl_input.read_line(">", footer="cwd\nstatus")
 
     assert created["bottom_toolbar_value"] == "cwd\nstatus"
+
+
+# ---------------------- slash-menu input runtime tests ----------------------
+
+
+def _make_slash_menu_editor(
+    *,
+    initial_buffer: str = "",
+    error_stream=None,
+    command_names: tuple[str, ...] | None = None,
+) -> _SlashMenuLineEditor:
+    """Build an editor without entering raw mode for unit-level state tests."""
+
+    editor = _SlashMenuLineEditor(
+        input_stream=StringIO(),
+        error_stream=error_stream or StringIO(),
+        command_names=command_names or DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
+        command_descriptions=dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS),
+        termios_module=None,
+        tty_module=None,
+        input_fd=-1,
+        prompt_label=">",
+        footer=None,
+    )
+    if initial_buffer:
+        for ch in initial_buffer:
+            editor._insert_char(ch)
+    return editor
+
+
+def test_slash_menu_runtime_rejects_captured_streams() -> None:
+    with pytest.raises(ReplInputUnavailableError, match="TTY"):
+        native_repl_input_for(
+            input_stream=StringIO("/exit\n"),
+            error_stream=StringIO(),
+            input_runtime=REPL_INPUT_RUNTIME_SLASH_MENU,
+        )
+
+
+def test_slash_menu_typing_slash_opens_menu_with_all_commands() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="/")
+    matches = editor._filtered_commands()
+
+    assert editor._menu_open is True
+    assert matches == DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+
+
+def test_slash_menu_typing_filters_to_matching_prefix() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="/he")
+    matches = editor._filtered_commands()
+
+    assert editor._menu_open is True
+    assert matches == ("/help",)
+
+
+def test_slash_menu_arrow_navigation_wraps_within_filtered_commands() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="/")
+    editor.error_stream = StringIO()  # suppress render output
+    n = len(editor._filtered_commands())
+
+    editor._navigate_menu("down")
+    editor._navigate_menu("down")
+    assert editor._menu_selection == 2
+
+    editor._navigate_menu("up")
+    editor._navigate_menu("up")
+    editor._navigate_menu("up")
+    assert editor._menu_selection == (2 - 3) % n
+
+
+def test_slash_menu_accept_replaces_buffer_with_selected_command() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="/h")
+    matches_before = editor._filtered_commands()
+    assert matches_before, "/h must have matches"
+
+    editor._accept_menu_selection()
+
+    assert editor._buffer == matches_before[0]
+    assert editor._cursor == len(editor._buffer)
+    assert editor._menu_open is False
+
+
+def test_slash_menu_backspace_leaving_slash_keeps_menu_open() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="/help")
+    editor._handle_backspace()  # `/hel`
+    assert editor._menu_open is True
+    editor._handle_backspace()  # `/he`
+    editor._handle_backspace()  # `/h`
+    editor._handle_backspace()  # `/`
+    assert editor._menu_open is True
+    editor._handle_backspace()  # ``
+    assert editor._menu_open is False
+
+
+def test_slash_menu_renders_descriptions_below_input() -> None:
+    error_stream = StringIO()
+    editor = _make_slash_menu_editor(initial_buffer="", error_stream=error_stream)
+    editor._buffer = "/"
+    editor._cursor = 1
+    editor._refresh_menu_state()
+    editor._render()
+
+    output = error_stream.getvalue()
+    assert "/help" in output
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/help"] in output
+    # Selection highlight: the first item is rendered in reverse video.
+    assert "\x1b[7m" in output
+
+
+def test_slash_menu_render_clears_old_menu_before_redrawing() -> None:
+    error_stream = StringIO()
+    editor = _make_slash_menu_editor(initial_buffer="", error_stream=error_stream)
+    editor._buffer = "/"
+    editor._cursor = 1
+    editor._refresh_menu_state()
+    editor._render()
+    first_rows = editor._last_drawn_rows
+    assert first_rows > 0
+
+    # Now narrow the buffer so fewer matches remain; the redraw must shrink.
+    editor._buffer = "/he"
+    editor._cursor = 3
+    editor._refresh_menu_state()
+    editor._render()
+
+    assert editor._last_drawn_rows < first_rows
+    # Clear-to-end-of-screen must appear at least once across renders.
+    assert "\x1b[J" in error_stream.getvalue()
+
+
+def test_slash_menu_typing_non_slash_text_keeps_menu_closed() -> None:
+    editor = _make_slash_menu_editor(initial_buffer="hello")
+    assert editor._menu_open is False
+    assert editor._filtered_commands() == ()
+
+
+def test_slash_menu_runtime_label_constant_is_pinned() -> None:
+    assert REPL_INPUT_RUNTIME_SLASH_MENU == "slash-menu"

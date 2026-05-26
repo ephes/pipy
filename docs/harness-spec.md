@@ -1439,21 +1439,26 @@ The implementation stays plain terminal output for captured and non-TTY streams
 and may add ANSI title, section, and dim styling only for suitable TTY streams.
 The current rendering is:
 
-- a compact `pipy v<version>  native shell` header line with a dim subtitle
+- a compact `pipy v<version>  native shell` header line with a dim subtitle,
+  rendered in muted sage truecolor (with a 16-color fallback) to mirror Pi
 - a one-line dim controls strip
-  (`Ctrl-C interrupt · /exit quit · /help commands · Tab menu · ! bash deferred`)
-- a dim `Type /help for the full command reference and loaded resources.`
+  (`Ctrl-C interrupt · /exit quit · / commands · /help reference · ! bash deferred`)
+- a dim `Type / to open the command menu; /help for the full reference.`
   affordance
 - safe loaded-context/resource sections rendered as `[Context]`, `[Skills]`,
   `[Prompts]`, `[Extensions]` with indented comma-separated values, only when
   the corresponding workspace source exists; absent sections do not render and
-  no "not loaded" filler is printed
-- a horizontal separator line above the input area
+  no "not loaded" filler is printed. Section headings render in soft yellow.
+- a purple horizontal separator line above the input area
 - a simple `> ` prompt leader (no bracketed status label)
-- a horizontal separator line below the input area, followed by a two-line
-  dim footer rendered after each submission: the workspace cwd path and a
-  one-line `<workspace> · <provider>/<model> · turns N/M · read R/L`
-  summary (plus `· proposal ready` and `· verify ready` when applicable)
+- a two-line dim footer rendered after each submission: the workspace cwd
+  path and a one-line `<workspace> · (provider) model · turns N/M · read R/L`
+  summary (plus `· proposal ready` and `· verify ready` when applicable). The
+  same footer is also printed once before the first prompt so the real
+  provider/model is visible at startup.
+- the shared chrome (`print_startup_chrome`, `print_input_separator`,
+  `print_footer_lines`) lives in `pipy_harness.native.chrome` and is reused
+  by the bounded tool-loop session so both paths render the same frame
 
 The startup chrome is presentation only. It must not invoke providers, tools,
 reads, writes, verification commands, shell commands, network access,
@@ -1627,20 +1632,34 @@ input submission. The footer is also forwarded to prompt-toolkit's
 `bottom_toolbar` when that adapter is selected so it stays visible while the
 user types.
 
-To make Tab-driven command discovery work in the live terminal without
-declaring a runtime dependency, the input-adapter boundary now includes a
-third adapter, `ReadlineNativeReplInput`, that uses the Python stdlib
-`readline` module to bind Tab to slash-command completion on real TTY
-streams when prompt-toolkit is unavailable. The auto runtime tries
-prompt-toolkit first, then readline, and finally the plain adapter, mirroring
-the previous fall-through. The readline adapter shares the same slash-command
-list and descriptions as the prompt-toolkit completer; descriptions are
-rendered through `readline.set_completion_display_matches_hook` where the
-underlying backend honors it (GNU readline) and degrade gracefully to the
-default columnar match listing on libedit (macOS) without losing discovery.
-Empty-input Tab surfaces the complete slash-command set; partial `/<prefix>`
-input filters it. The CLI exposes the adapter explicitly as
-`--input-runtime readline` for smoke tests and reproducible captures.
+To deliver Pi's `/` keystroke command menu in the live terminal without
+declaring a runtime dependency, the input-adapter boundary includes a
+stdlib-only adapter, `SlashMenuNativeReplInput`, that takes ownership of
+the terminal in raw cbreak mode (via `termios`/`tty`) and renders the
+prompt + buffer + an inline popup menu beneath the input. The default
+`auto` runtime selects this adapter on real TTY streams; it falls back
+to prompt-toolkit (when installed), then to the stdlib readline adapter,
+then to plain stdin/stderr for captured streams. The slash-menu adapter
+opens the menu when the user types `/` on an empty buffer, filters the
+list as more characters are typed (matching `/<prefix>`), renders each
+row as `<name>  <description>`, highlights the active row in reverse
+video, navigates with Up/Down, accepts the highlighted entry with Tab
+without submitting, submits with Enter (accepting the highlight if the
+buffer is not already a complete command), and closes the menu with Esc
+while preserving typed text. Backspace shrinks the buffer; emptying the
+buffer past `/` closes the menu. The adapter restores the prior terminal
+attributes (including ECHO) on close.
+
+The `ReadlineNativeReplInput` adapter remains available as a fall-back
+when slash-menu cannot run (for example when stdin lacks `termios`
+access) and as the explicit `--input-runtime readline` choice for smoke
+tests and reproducible captures. It uses the Python stdlib `readline`
+module to bind Tab to slash-command completion on real TTY streams, with
+descriptions rendered through `readline.set_completion_display_matches_hook`
+where the backend supports it (GNU readline) and degraded gracefully to
+the default columnar match listing on libedit (macOS) without losing
+discovery. Empty-input Tab surfaces the complete slash-command set;
+partial `/<prefix>` input filters it.
 
 This boundary remains presentation-only. It does not change provider
 behavior, tool boundaries, file-context safety gates, archive shapes, or

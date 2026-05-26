@@ -766,9 +766,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         compact_pi_parity_roadmap
     )
     assert (
-        "input-adapter boundary now preserves plain captured-stream fallback"
+        "input-adapter boundary preserves plain captured-stream fallback"
         in (compact_pi_parity_roadmap)
     )
+    assert "stdlib-only `slash-menu` raw-mode line editor" in compact_pi_parity_roadmap
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap

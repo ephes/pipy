@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
-import shutil
-import textwrap
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from importlib import metadata
 from math import isfinite
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterable, Mapping, TextIO
@@ -17,6 +13,15 @@ from typing import Callable, Iterable, Mapping, TextIO
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.chrome import (
+    ChromeStyle,
+    chrome_style_for,
+    chrome_width,
+    format_provider_model,
+    print_footer_lines,
+    print_input_separator,
+    print_startup_chrome,
+)
 from pipy_harness.native.conversation import (
     NativeConversationState,
     NativeNoToolReplConversationContext,
@@ -336,15 +341,6 @@ _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
 _REPL_APPLY_PROPOSAL_FENCE = "pipy-apply-proposal-v1"
 _REPL_APPLY_PROPOSAL_REPLACEMENT_START = "--- replacement_text ---"
 _REPL_APPLY_PROPOSAL_REPLACEMENT_END = "--- end_replacement_text ---"
-_STARTUP_CHROME_WIDTH_FALLBACK = 88
-_STARTUP_CHROME_RESOURCE_SOURCES = {
-    "context": ("AGENTS.md", "CLAUDE.md", ".claude"),
-    "skills": (".claude/skills", ".codex/skills", ".agents/skills"),
-    "prompts": (".claude/commands", "prompts", ".agents/prompts"),
-    "extensions": (".claude/extensions", ".agents/plugins", ".codex/plugins"),
-}
-
-
 @dataclass(frozen=True, slots=True)
 class _ParsedToolIntent:
     intent: NativeToolIntent | None = None
@@ -467,23 +463,7 @@ class _ReplDisplayState:
     verification_available: bool
 
 
-@dataclass(frozen=True, slots=True)
-class _StartupChromeStyle:
-    enabled: bool
-
-    def title(self, text: str) -> str:
-        return self._wrap(text, "1;36")
-
-    def section_label(self, text: str) -> str:
-        return self._wrap(text, "1;33")
-
-    def dim(self, text: str) -> str:
-        return self._wrap(text, "2")
-
-    def _wrap(self, text: str, code: str) -> str:
-        if not self.enabled:
-            return text
-        return f"\x1b[{code}m{text}\x1b[0m"
+_StartupChromeStyle = ChromeStyle
 
 
 @dataclass(slots=True)
@@ -1697,73 +1677,15 @@ def _print_repl_startup_chrome(
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
 ) -> None:
-    """Render compact pipy startup chrome.
-
-    Layout mirrors the Pi terminal product: a one-line title, a one-line
-    dim controls strip, a one-line affordance for the full reference, and
-    `[Section]` listings for loaded resources. The per-turn status lives
-    in the footer printed alongside each prompt rather than in a startup
-    block, matching Pi's pattern.
-    """
-
-    del conversation_state
-    del read_budgets
-    del no_tool_context
-    del pending_apply_draft
-    del verify_after_apply_available
-    style = _startup_chrome_style(error_stream)
-    width = _startup_chrome_width(error_stream)
-    resource_labels = _startup_resource_labels(run_input.cwd)
-
-    print(style.title(f"pipy v{_pipy_version_label()}  native shell"), file=error_stream)
-    _print_wrapped_repl_line(
-        error_stream,
-        "  ",
-        "Local slash commands and bounded provider turns stay behind pipy-owned boundaries.",
-        width=width,
-        style=style.dim,
+    del (
+        provider_state,
+        conversation_state,
+        read_budgets,
+        no_tool_context,
+        pending_apply_draft,
+        verify_after_apply_available,
     )
-    print(file=error_stream)
-    _print_wrapped_repl_line(
-        error_stream,
-        "  ",
-        " · ".join(
-            (
-                "Ctrl-C interrupt",
-                "/exit quit",
-                "/help commands",
-                "Tab menu",
-                "! bash deferred",
-            )
-        ),
-        width=width,
-        style=style.dim,
-    )
-    _print_wrapped_repl_line(
-        error_stream,
-        "  ",
-        "Type /help for the full command reference and loaded resources.",
-        width=width,
-        style=style.dim,
-    )
-    print(file=error_stream)
-    for section_name, label in (
-        ("Context", resource_labels.get("context", "")),
-        ("Skills", resource_labels.get("skills", "")),
-        ("Prompts", resource_labels.get("prompts", "")),
-        ("Extensions", resource_labels.get("extensions", "")),
-    ):
-        if not label or label == "not loaded":
-            continue
-        print(style.section_label(f"[{section_name}]"), file=error_stream)
-        _print_wrapped_repl_line(
-            error_stream,
-            "  ",
-            label,
-            width=width,
-            style=_identity_text,
-        )
-        print(file=error_stream)
+    print_startup_chrome(error_stream, cwd=run_input.cwd)
 
 
 def _repl_footer_text(
@@ -1813,7 +1735,6 @@ def _print_repl_footer(
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
 ) -> None:
-    style = _startup_chrome_style(error_stream)
     footer = _repl_footer_text(
         provider_state,
         run_input=run_input,
@@ -1823,14 +1744,11 @@ def _print_repl_footer(
         pending_apply_draft=pending_apply_draft,
         verify_after_apply_available=verify_after_apply_available,
     )
-    for line in footer.splitlines():
-        print(style.dim(line), file=error_stream)
+    print_footer_lines(error_stream, footer.splitlines())
 
 
 def _print_repl_input_separator(error_stream: TextIO) -> None:
-    style = _startup_chrome_style(error_stream)
-    width = _startup_chrome_width(error_stream)
-    print(style.dim("─" * width), file=error_stream)
+    print_input_separator(error_stream)
 
 
 def _repl_prompt_label_for(
@@ -1861,7 +1779,7 @@ def _repl_prompt_label(state: _ReplDisplayState) -> str:
 
 
 def _repl_model_reference_label(state: _ReplDisplayState) -> str:
-    return sanitize_text(f"{state.provider_name}/{state.model_id}")
+    return format_provider_model(state.provider_name, state.model_id)
 
 
 def _ready_label(value: bool) -> str:
@@ -1875,65 +1793,11 @@ def _read_budget_label(state: _ReplDisplayState) -> str:
 
 
 def _startup_chrome_style(error_stream: TextIO) -> _StartupChromeStyle:
-    is_tty = bool(getattr(error_stream, "isatty", lambda: False)())
-    term = os.environ.get("TERM", "")
-    enabled = is_tty and "NO_COLOR" not in os.environ and term.lower() != "dumb"
-    return _StartupChromeStyle(enabled=enabled)
+    return chrome_style_for(error_stream)
 
 
 def _startup_chrome_width(error_stream: TextIO) -> int:
-    if bool(getattr(error_stream, "isatty", lambda: False)()):
-        return max(60, shutil.get_terminal_size((_STARTUP_CHROME_WIDTH_FALLBACK, 24)).columns)
-    return _STARTUP_CHROME_WIDTH_FALLBACK
-
-
-def _identity_text(text: str) -> str:
-    return text
-
-
-def _print_wrapped_repl_line(
-    error_stream: TextIO,
-    prefix: str,
-    text: str,
-    *,
-    width: int,
-    style: Callable[[str], str],
-) -> None:
-    wrapper = textwrap.TextWrapper(
-        width=max(20, width),
-        initial_indent=prefix,
-        subsequent_indent=" " * len(prefix),
-        break_long_words=False,
-        break_on_hyphens=False,
-    )
-    lines = wrapper.wrap(text) or [prefix.rstrip()]
-    for line in lines:
-        print(style(line), file=error_stream)
-
-
-def _startup_resource_labels(cwd: Path) -> dict[str, str]:
-    return {
-        category: _startup_resource_label(cwd, candidates)
-        for category, candidates in _STARTUP_CHROME_RESOURCE_SOURCES.items()
-    }
-
-
-def _startup_resource_label(cwd: Path, candidates: Iterable[str]) -> str:
-    labels = [
-        f"{candidate} labels-only"
-        for candidate in candidates
-        if _startup_resource_source_exists(cwd, candidate)
-    ]
-    if not labels:
-        return "not loaded"
-    return ", ".join(labels)
-
-
-def _startup_resource_source_exists(cwd: Path, candidate: str) -> bool:
-    try:
-        return (cwd / candidate).exists()
-    except OSError:
-        return False
+    return chrome_width(error_stream)
 
 
 def _print_repl_status(
@@ -2062,13 +1926,6 @@ def _repl_display_state(
 
 def _workspace_label(cwd: Path) -> str:
     return sanitize_text(cwd.name) or "."
-
-
-def _pipy_version_label() -> str:
-    try:
-        return metadata.version("pipy")
-    except metadata.PackageNotFoundError:
-        return "unknown"
 
 
 def _status_bool(value: bool) -> str:

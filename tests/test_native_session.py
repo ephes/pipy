@@ -627,10 +627,10 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     assert "native shell" in stderr
     assert "Ctrl-C interrupt" in stderr
     assert "/exit quit" in stderr
-    assert "Tab menu" in stderr
-    assert "Type /help for the full command reference" in stderr
+    assert "/ commands" in stderr
+    assert "Type / to open the command menu" in stderr
     assert "[Context]" not in stderr  # AGENTS.md not present in tmp_path
-    assert "capturing-fake/capturing-model · turns 0/4 · read 2/2" in stderr
+    assert "(capturing-fake) capturing-model · turns 0/4 · read 2/2" in stderr
     assert "\x1b[" not in stderr
     assert stderr.count("pipy v") == 1
     assert "> " in stderr
@@ -796,8 +796,8 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     assert captured_requests[1].no_tool_repl_context is not None
     assert captured_requests[1].no_tool_repl_context.exchanges == ()
     stderr = error_stream.getvalue()
-    assert "fake/before-model · turns 0/4 · read 2/2" in stderr
-    assert "fake/after-model · turns 1/4 · read 2/2" in stderr
+    assert "(fake) before-model · turns 0/4 · read 2/2" in stderr
+    assert "(fake) after-model · turns 1/4 · read 2/2" in stderr
 
 
 def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):

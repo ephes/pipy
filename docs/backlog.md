@@ -105,31 +105,42 @@ discipline:
 
 - Shell chrome and orientation: startup header, safe loaded-resource labels,
   compact command affordances, and status/footer-style state presentation.
-  Current state: Pi-like compact startup chrome (one-line dim controls strip,
-  loaded-only `[Section]` resource listings, no startup `Status` block), a
-  simple `> ` prompt leader framed by horizontal separators, and a two-line
-  dim footer (workspace cwd plus `<workspace> · <provider>/<model> · turns ·
-  read` summary) are implemented and verified by a pseudo-TTY smoke test.
-  The footer is also forwarded to prompt-toolkit's `bottom_toolbar` so it
-  stays visible while the user types when that adapter is selected.
-- Interactive input ergonomics: the input-adapter boundary now preserves
-  plain captured-stream fallback, can use optional prompt-toolkit line-editor
-  input on real TTY streams, and falls back to a stdlib `readline` adapter
-  (`--input-runtime readline`) when prompt-toolkit is unavailable so
-  Tab-driven slash-command discovery still works without declaring a runtime
-  dependency. Empty-input Tab surfaces the full slash-command menu;
-  partial `/<prefix>` Tab filters it. Slash-command completions now carry
-  descriptions through prompt-toolkit's `display_meta` and through
-  `readline.set_completion_display_matches_hook` where the underlying
-  backend honors it (libedit on macOS gracefully degrades to the default
-  columnar match listing). Workspace-relative path completion for explicit
-  file commands, completion-only `@file` references in ordinary prompts and
-  supported command free-text, multiline entry in the prompt-toolkit path,
-  the cursor-position warning hardening, and the LF-encoded newline key
-  sequences from earlier slices are preserved. Explicit file-context
-  commands continue to share a two-successful-excerpt REPL budget. Resilient
-  terminal resize behavior, persistent history, and a fuller TUI remain
-  future slices.
+  Current state: Pi-like compact startup chrome (sage truecolor title, dim
+  controls strip referencing `/ commands`, `Type /` affordance, loaded-only
+  `[Section]` resource listings in yellow), a simple `> ` prompt leader
+  framed by a purple input separator, and a two-line dim footer (workspace
+  cwd plus `<workspace> · (provider) model · turns · read` summary) are
+  implemented and verified by pseudo-TTY smoke tests. The footer is also
+  printed once before the first prompt so the real provider/model surfaces
+  immediately, and is forwarded to prompt-toolkit's `bottom_toolbar` so it
+  stays visible while the user types when that adapter is selected. Chrome
+  rendering is shared between the no-tool and bounded tool-loop sessions
+  through `pipy_harness.native.chrome`. The default provider/model selector
+  auto-picks an available real provider (openai-codex OAuth, then keyed
+  providers in priority order) so the footer no longer surfaces
+  `fake/fake-native-bootstrap` when credentials are configured.
+- Interactive input ergonomics: the input-adapter boundary preserves plain
+  captured-stream fallback, defaults to a stdlib-only `slash-menu` raw-mode
+  line editor on real TTY streams (Pi-style `/` keystroke opens a popup
+  command menu beneath the input with names, descriptions, reverse-video
+  selection highlight, Up/Down navigation, Enter to submit the selection,
+  Tab to accept without submitting, and Esc to close), still supports
+  optional prompt-toolkit line-editor input when the package is installed
+  or explicitly selected, and falls back to a stdlib `readline` adapter
+  (`--input-runtime readline`) for Tab-driven discovery without a runtime
+  dependency. Empty-input Tab surfaces the full slash-command menu in the
+  readline path; partial `/<prefix>` Tab filters it. Slash-command
+  completions now carry descriptions through prompt-toolkit's `display_meta`
+  and through `readline.set_completion_display_matches_hook` where the
+  underlying backend honors it (libedit on macOS gracefully degrades to the
+  default columnar match listing). Workspace-relative path completion for
+  explicit file commands, completion-only `@file` references in ordinary
+  prompts and supported command free-text, multiline entry in the
+  prompt-toolkit path, the cursor-position warning hardening, and the
+  LF-encoded newline key sequences from earlier slices are preserved.
+  Explicit file-context commands continue to share a two-successful-excerpt
+  REPL budget. Resilient terminal resize behavior, persistent history, and
+  a fuller TUI remain future slices.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery plus
   workspace/global skill, prompt-template, and custom-command discovery, with
   metadata-only archive behavior. Runtime slash commands for loading those

@@ -336,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.native_model,
                     tool_budget=args.tool_budget,
                     archive_transcript=args.archive_transcript,
+                    input_runtime=args.input_runtime,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -554,12 +555,33 @@ def _repl_adapter_for(
         openai_codex_auth_path=default_openai_codex_auth_path(),
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
-        provider_state.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+        provider_state.selection = _fallback_default_selection(provider_state)
     return PipyNativeReplAdapter(
         provider_state=provider_state,
         input_runtime=input_runtime,
         instruction_loader=default_workspace_instruction_loader,
     )
+
+
+def _fallback_default_selection(
+    provider_state: NativeReplProviderState,
+) -> NativeModelSelection:
+    """Pick a real provider when the saved/initial selection is unavailable.
+
+    Mirrors Pi's behavior of surfacing a real provider/model in the footer
+    when one is configured, rather than showing the deterministic fake
+    bootstrap. Falls back to fake only when no real provider is reachable.
+    """
+
+    from pipy_harness.native.repl_state import AUTO_DEFAULT_PROVIDER_PRIORITY
+
+    for provider_name in AUTO_DEFAULT_PROVIDER_PRIORITY:
+        if provider_state.provider_available(provider_name):
+            return NativeModelSelection(
+                provider_name=provider_name,
+                model_id=DEFAULT_NATIVE_MODELS[provider_name],
+            )
+    return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
 
 
 def _resolve_repl_mode(
@@ -599,6 +621,7 @@ def _tool_repl_adapter_for(
     *,
     tool_budget: int,
     archive_transcript: bool = False,
+    input_runtime: str = "auto",
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -621,9 +644,7 @@ def _tool_repl_adapter_for(
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
     ):
-        provider_state.selection = NativeModelSelection(
-            "fake", DEFAULT_NATIVE_MODELS["fake"]
-        )
+        provider_state.selection = _fallback_default_selection(provider_state)
     transcript_sink = None
     if archive_transcript:
         from pipy_harness.native.transcripts import TranscriptSink
@@ -634,6 +655,7 @@ def _tool_repl_adapter_for(
         tool_budget=tool_budget,
         transcript_sink=transcript_sink,
         instruction_loader=default_workspace_instruction_loader,
+        input_runtime=input_runtime,
     )
 
 

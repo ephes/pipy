@@ -120,8 +120,8 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
 
     assert "pipy v" in captured
     assert "native shell" in captured
-    assert "Ctrl-C interrupt · /exit quit · /help commands · Tab menu" in captured
-    assert "Type /help for the full command reference" in captured
+    assert "Ctrl-C interrupt · /exit quit · / commands" in captured
+    assert "Type / to open the command menu" in captured
     assert "[Context]" in captured
     assert "AGENTS.md labels-only" in captured
     # Compact chrome must NOT have the old verbose label rows.
@@ -167,4 +167,98 @@ def test_live_repl_tab_completion_surfaces_slash_command_menu(pipy_cli, tmp_path
     found = [name for name in expected if name in captured]
     assert len(found) == len(expected), (
         f"missing slash commands in Tab menu: have {found}; output={captured!r}"
+    )
+
+
+def test_live_repl_slash_keystroke_opens_command_menu_with_descriptions(
+    pipy_cli, tmp_path
+) -> None:
+    """Pressing `/` on the default runtime must open a Pi-like command menu.
+
+    The default ``pipy repl`` invocation must select the stdlib slash-menu
+    input runtime when stdin/stderr are real TTYs. A single ``/`` keystroke
+    should surface a popup menu with command names and dim descriptions
+    rendered beneath the input line. We do not force ``--input-runtime``
+    here: the test verifies the default user-facing experience.
+    """
+
+    captured = _decode_capture(
+        _run_pty(
+            pipy_cli
+            + [
+                "--cwd",
+                str(tmp_path),
+                "--root",
+                str(tmp_path / "sessions"),
+                "--native-provider",
+                "fake",
+            ],
+            post_input=b"/",
+            wait_before_input=2.5,
+            wait_after_input=1.5,
+            total_max=7.0,
+            cwd=tmp_path,
+        )
+    )
+
+    # The `/` keystroke alone should list all available slash commands. Tab
+    # is not required.
+    expected_names = ("/help", "/clear", "/status", "/model", "/exit")
+    found_names = [name for name in expected_names if name in captured]
+    assert len(found_names) == len(expected_names), (
+        f"missing slash commands in `/` menu: have {found_names}; "
+        f"output={captured!r}"
+    )
+    # The menu must include descriptive metadata next to at least one name,
+    # not just the bare list (this is what distinguishes the Pi-style
+    # popup from a flat Tab completion list).
+    assert "Show pipy command reference" in captured or (
+        "Show REPL state" in captured
+    ), (
+        "slash menu must render command descriptions, not bare names; "
+        f"output={captured!r}"
+    )
+
+
+def test_live_repl_default_runtime_does_not_force_alternate_input(
+    pipy_cli, tmp_path
+) -> None:
+    """The default ``pipy repl`` invocation must select the slash-menu adapter.
+
+    The session start event records the resolved ``input_runtime`` in the
+    finalized JSONL. The default invocation must report ``slash-menu`` —
+    falling back to readline or plain would indicate the goal's
+    Pi-parity contract is not actually exercised by default users.
+    """
+
+    import json
+
+    _run_pty(
+        pipy_cli
+        + [
+            "--cwd",
+            str(tmp_path),
+            "--root",
+            str(tmp_path / "sessions"),
+            "--native-provider",
+            "fake",
+        ],
+        post_input=b"/exit\r",
+        wait_before_input=2.5,
+        wait_after_input=2.5,
+        total_max=8.0,
+        cwd=tmp_path,
+    )
+
+    finalized = list((tmp_path / "sessions" / "pipy").glob("*/*/*.jsonl"))
+    assert finalized, "the REPL must finalize a session record"
+    events = [
+        json.loads(line)
+        for line in finalized[0].read_text(encoding="utf-8").splitlines()
+    ]
+    start_events = [event for event in events if event["type"] == "native.session.started"]
+    assert start_events, "missing native.session.started event"
+    payload = start_events[0]["payload"]
+    assert payload.get("input_runtime") == "slash-menu", (
+        f"default invocation should resolve to slash-menu; got {payload.get('input_runtime')!r}"
     )
