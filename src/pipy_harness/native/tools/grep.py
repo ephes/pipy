@@ -48,10 +48,12 @@ class GrepTool:
     max_results: int = 100
     max_output_bytes: int = 32 * 1024
     timeout_seconds: float = 5.0
+    max_scan_file_bytes: int = 1024 * 1024
 
     DEFAULT_MAX_RESULTS: ClassVar[int] = 100
     HARD_MAX_RESULTS: ClassVar[int] = 1000
     HARD_MAX_OUTPUT_BYTES: ClassVar[int] = 256 * 1024
+    HARD_MAX_SCAN_FILE_BYTES: ClassVar[int] = 16 * 1024 * 1024
 
     def __post_init__(self) -> None:
         if (
@@ -81,6 +83,16 @@ class GrepTool:
         ):
             raise ValueError(
                 "GrepTool timeout_seconds must be in (0, 60]"
+            )
+        if (
+            not isinstance(self.max_scan_file_bytes, int)
+            or isinstance(self.max_scan_file_bytes, bool)
+            or self.max_scan_file_bytes < 1
+            or self.max_scan_file_bytes > self.HARD_MAX_SCAN_FILE_BYTES
+        ):
+            raise ValueError(
+                "GrepTool max_scan_file_bytes must be in "
+                f"[1, {self.HARD_MAX_SCAN_FILE_BYTES}]"
             )
 
     @property
@@ -280,8 +292,14 @@ class GrepTool:
             if len(rows) >= self.max_results:
                 truncated = True
                 break
+            candidate = workspace / relative_label
             try:
-                text = (workspace / relative_label).read_text(encoding="utf-8")
+                if candidate.stat().st_size > self.max_scan_file_bytes:
+                    continue
+            except OSError:
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
             if "\x00" in text:

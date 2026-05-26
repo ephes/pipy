@@ -415,6 +415,11 @@ def _expected_hash_reason(path: Path, expected_sha256: str | None) -> NativePatc
     if not _is_sha256(expected_sha256):
         return NativePatchApplyReason.EXPECTED_HASH_INVALID
     try:
+        if path.stat().st_size > NativePatchApplyTool.MAX_FILE_BYTES:
+            return NativePatchApplyReason.LIMIT_EXCEEDED
+    except OSError:
+        return NativePatchApplyReason.UNREADABLE_FILE
+    try:
         current = path.read_bytes()
     except OSError:
         return NativePatchApplyReason.UNREADABLE_FILE

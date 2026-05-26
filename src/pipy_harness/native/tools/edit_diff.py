@@ -149,6 +149,11 @@ class EditDiffTool:
             return self._error(request, "file does not exist")
         if not candidate.is_file():
             return self._error(request, "path is not a regular file")
+        try:
+            if candidate.stat().st_size > self.max_content_bytes:
+                return self._error(request, "file exceeds max_content_bytes")
+        except OSError as exc:
+            return self._error(request, f"failed to stat file: {exc}")
 
         try:
             original_bytes = candidate.read_bytes()

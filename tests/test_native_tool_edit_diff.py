@@ -175,6 +175,27 @@ def test_refuses_missing_file(tmp_path: Path):
     assert "does not exist" in result.output_text
 
 
+def test_refuses_oversized_file_before_read(tmp_path: Path):
+    target = tmp_path / "large.py"
+    target.write_bytes(b"x" * 65)
+    diff = (
+        "--- a/large.py\n"
+        "+++ b/large.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-x\n"
+        "+y\n"
+    )
+    tool = EditDiffTool(max_content_bytes=64)
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"path": "large.py", "unified_diff": diff})
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is True
+    assert "max_content_bytes" in result.output_text
+    assert target.read_bytes() == b"x" * 65
+
+
 def test_refuses_context_mismatch(tmp_path: Path):
     target = tmp_path / "mismatch.py"
     original = "alpha\nbeta\ngamma\n"

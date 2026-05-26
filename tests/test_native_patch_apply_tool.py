@@ -369,6 +369,26 @@ def test_patch_apply_rejects_secret_looking_new_content(tmp_path: Path):
     assert not (tmp_path / "example.py").exists()
 
 
+def test_patch_apply_rejects_oversized_existing_file_before_hash_read(tmp_path: Path):
+    target = tmp_path / "large.py"
+    target.write_bytes(b"x" * (NativePatchApplyTool.MAX_FILE_BYTES + 1))
+
+    result = NativePatchApplyTool(tmp_path).invoke(
+        current_request(
+            NativePatchApplyOperationRequest(
+                operation=NativePatchApplyOperation.DELETE,
+                workspace_relative_path="large.py",
+                expected_sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+            )
+        ),
+        allowed_gate(),
+    )
+
+    assert result.status == NativeToolStatus.SKIPPED
+    assert result.reason_label == NativePatchApplyReason.LIMIT_EXCEEDED
+    assert target.exists()
+
+
 def test_patch_apply_result_rejects_true_storage_booleans():
     with pytest.raises(ValueError, match="patch_text_stored"):
         NativePatchApplyResult(

@@ -138,6 +138,22 @@ def test_edit_tool_reports_missing_file(tmp_path: Path):
     assert "does not exist" in result.output_text
 
 
+def test_edit_tool_refuses_oversized_file_before_read(tmp_path: Path):
+    target = tmp_path / "large.py"
+    target.write_bytes(b"x" * 65)
+    tool = EditTool(max_content_bytes=64)
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request(
+        {"path": "large.py", "old_string": "x", "new_string": "y"}
+    )
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is True
+    assert "max_content_bytes" in result.output_text
+    assert target.read_bytes() == b"x" * 65
+
+
 def test_edit_tool_refuses_dot_git(tmp_path: Path):
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("x", encoding="utf-8")

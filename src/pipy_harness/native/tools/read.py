@@ -1,6 +1,6 @@
 """The first model-driven tool: `read`.
 
-`ReadTool` returns a bounded UTF-8 excerpt of a workspace-relative file. It
+`ReadTool` returns a bounded UTF-8 excerpt of a bounded-size workspace-relative file. It
 reuses `pipy_harness.native.read_only_tool` validation helpers (path safety,
 `.git`/`.gitignore` defaults, control-character and secret-looking content
 checks) so the existing `/read`, `/ask-file`, and `/propose-file` boundaries
@@ -46,6 +46,7 @@ class ReadTool:
     DEFAULT_LINE_LIMIT: ClassVar[int] = 200
     MAX_BYTE_LIMIT: ClassVar[int] = 32 * 1024
     MAX_LINE_LIMIT: ClassVar[int] = 1000
+    MAX_CONTENT_BYTES: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
         if (
@@ -122,6 +123,11 @@ class ReadTool:
             return self._error(request, "file does not exist")
         if not candidate.is_file():
             return self._error(request, "path is not a regular file")
+        try:
+            if candidate.stat().st_size > self.MAX_CONTENT_BYTES:
+                return self._error(request, "file exceeds max_content_bytes")
+        except OSError as exc:
+            return self._error(request, f"failed to stat file: {exc}")
         try:
             raw = candidate.read_bytes()
         except OSError as exc:

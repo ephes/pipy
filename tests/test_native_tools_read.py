@@ -121,6 +121,19 @@ def test_read_tool_reports_directory_target(tmp_path: Path):
     assert "not a regular file" in result.output_text
 
 
+def test_read_tool_refuses_oversized_file_before_read(tmp_path: Path):
+    target = tmp_path / "huge.txt"
+    target.write_bytes(b"x" * (ReadTool.MAX_CONTENT_BYTES + 1))
+    tool = ReadTool()
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"path": "huge.txt"})
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is True
+    assert "max_content_bytes" in result.output_text
+
+
 def test_read_tool_reports_binary_content(tmp_path: Path):
     target = tmp_path / "binary.bin"
     target.write_bytes(b"hello\x00world")

@@ -126,6 +126,25 @@ def test_grep_tool_uses_stdlib_fallback_when_rg_missing(
     assert "a.txt:2:FALLBACK_HIT" in result.output_text
 
 
+def test_grep_stdlib_fallback_skips_files_above_scan_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    (tmp_path / "small.txt").write_text("SMALL_HIT\n", encoding="utf-8")
+    (tmp_path / "huge.txt").write_bytes(b"HUGE_HIT\n" + b"x" * 128)
+    monkeypatch.setattr(
+        "pipy_harness.native.tools.grep.shutil.which", lambda _name: None
+    )
+    tool = GrepTool(max_scan_file_bytes=64)
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"pattern": "HIT"})
+
+    result = tool.invoke(request, context)
+
+    assert result.is_error is False
+    assert "small.txt:1:SMALL_HIT" in result.output_text
+    assert "HUGE_HIT" not in result.output_text
+
+
 def test_grep_tool_no_matches_reports_safely(tmp_path: Path):
     (tmp_path / "a.txt").write_text("alpha\nbeta\n", encoding="utf-8")
     tool = GrepTool()
@@ -150,6 +169,13 @@ def test_grep_tool_rejects_invalid_timeout():
         GrepTool(timeout_seconds=0)
     with pytest.raises(ValueError, match="timeout_seconds"):
         GrepTool(timeout_seconds=120)
+
+
+def test_grep_tool_rejects_invalid_scan_file_cap():
+    with pytest.raises(ValueError, match="max_scan_file_bytes"):
+        GrepTool(max_scan_file_bytes=0)
+    with pytest.raises(ValueError, match="max_scan_file_bytes"):
+        GrepTool(max_scan_file_bytes=GrepTool.HARD_MAX_SCAN_FILE_BYTES + 1)
 
 
 def test_grep_stdlib_fallback_skips_outside_workspace_symlink(
