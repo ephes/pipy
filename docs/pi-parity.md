@@ -24,9 +24,16 @@ Status labels are intentionally coarse:
 | Pi idea | Pipy state | Notes |
 | --- | --- | --- |
 | Local-first terminal coding agent | Partial | `pipy` and `pipy repl` start a native shell in the current workspace. It is still line-oriented, not a full TUI. |
-| Direct provider access | Implemented foundation | `ProviderPort` supports fake, OpenAI API-key Responses, OpenAI Codex subscription, and OpenRouter providers. |
+| Direct provider access | Implemented (11 providers) | `ProviderPort` now supports fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google (Gemini Generative AI), Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI Responses, and Cloudflare Workers AI. All are stdlib-only (urllib + JSON + hashlib/hmac for SigV4); the no-new-runtime-deps invariant is preserved. See `docs/parity-criterion.md` for the locked feature list. |
+| Arbitrary shell execution | Implemented as bounded `bash` tool | `pipy_harness.native.tools.bash.BashTool` runs one shell command per invocation via `subprocess.Popen(..., shell=True)` with a workspace-relative cwd, bounded stdout/stderr collection, bounded timeout, and a `.git`/`--git-dir` substring refusal. Registered in the production tool registry. Command text and capped output stay in memory; the metadata archive is untouched. |
+| Retry/backoff for transient HTTP errors | Implemented as reusable `RetryPolicy` | `pipy_harness.native.retry.retry_with_backoff` wraps any provider call with exponential backoff + jitter for 429 and 5xx responses. Injectable sleep + jitter for hermetic tests. |
+| Unified-diff edit tool | Implemented as `edit-diff` | `pipy_harness.native.tools.edit_diff.EditDiffTool` parses and applies a unified-diff patch in pure stdlib (no shell-out to `patch(1)`), atomic temp-file rename, reuses the same `.git`/symlink/byte-cap defenses as `EditTool`. |
+| Output-shrinking helper | Implemented as `truncate` tool | `pipy_harness.native.tools.truncate.TruncateTool` is a pure-transformation tool the model can use to fold an oversized previous tool result into a head+tail+deterministic-marker form. No I/O. |
+| Session export | Implemented | `pipy-session export <stem>` writes a metadata-only JSON portable summary to stdout. `--include-transcript` opts in to the sensitive sidecar at `~/.local/state/pipy/transcripts/<id>.jsonl`. Default export retains the metadata-first archive contract via an event-key allowlist. |
+| Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSON. Runtime prompt seeding for a resumed live session remains a follow-up. |
+| Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring can reuse current availability gates and non-secret defaults. It does not call providers or run tools. |
 | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not read Pi credentials. |
-| `/login`, `/logout`, `/model` | Implemented narrow shell commands | Commands are local, late-bind provider selection, and do not create provider turns or archive auth material. |
+| `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or archive auth material. `/settings` prints provider/model labels and availability reasons only. |
 | Startup orientation | Implemented styled pass | The shell prints sectioned startup chrome with TTY-only ANSI styling, plain captured-stream fallback, safe resource-source labels, and compact workspace/model/turn status labels. |
 | Active prompt state | Implemented | The line-oriented prompt label reflects safe provider/model, turn, read, proposal, and verification state before each input. |
 | Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion, explicit file/path completion, completion-only `@file` reference labels, and multiline entry on real TTY streams. Richer editor behavior remains deferred. |
@@ -34,13 +41,16 @@ Status labels are intentionally coarse:
 | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track) and is invoked from `--repl-mode tool-loop`. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
 | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
-| Write/edit capability | Narrow first slice | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`. There is no general write/edit tool yet. |
+| Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`. The model-driven tool loop now also exposes bounded `write`, `edit`, and `edit_diff` tools. |
 | Verification after changes | Narrow first slice | `/verify just-check` runs only the allowlisted internal `just check` command after a successful same-session apply. |
 | Session records | Different foundation implemented | Pipy writes metadata-first JSONL plus optional Markdown under `~/.local/state/pipy/sessions`; Pi stores full tree sessions under its own agent state. |
 | Search/inspect/reflect | Implemented for pipy records | `pipy-session list/search/inspect/verify/reflect` operates over finalized metadata records, not full transcripts. |
 | Print-like one-shot mode | Partial | `pipy run --agent pipy-native` runs one native turn; default stdout is successful final text only, and `--native-output json` gives metadata-only automation output. |
 | Subprocess wrapping | Implemented as support path | `pipy run --agent custom|codex|claude|pi -- ...` records conservative lifecycle metadata around another command, but this is not the product runtime. |
-| AGENTS.md / CLAUDE.md workspace context discovery | Implemented | `pipy_harness.native.workspace_context.discover_workspace_instructions` walks the workspace, its parents, and the global pipy config root (resolved through `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy`), composes the discovered instructions into the system prompt for one-shot, no-tool REPL, and tool-loop modes across `openai`, `openai-codex`, and `openrouter`, and records only safe per-file metadata (path label, sha256, byte length) into the session archive. See the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track). |
+| AGENTS.md / CLAUDE.md workspace context discovery | Implemented | `pipy_harness.native.workspace_context.discover_workspace_instructions` walks the workspace, its parents, and the global pipy config root (resolved through `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy`), composes the discovered instructions into the system prompt for one-shot, no-tool REPL, and tool-loop modes, and records only safe per-file metadata (path label, sha256, byte length) into the session archive. See the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track). |
+| Workspace skills and prompt templates | Narrow discovery implemented | `pipy_harness.native.skills` and `pipy_harness.native.prompt_templates` discover workspace/global Markdown resources with byte caps, symlink containment, deterministic metadata, and no body text in archive-safe projections. Slash-command loading remains deferred. |
+| Custom slash commands | Discovery implemented | `pipy_harness.native.custom_commands` discovers workspace/global `.pipy/commands/*.md` resources with the same byte caps, metadata projection, and symlink containment as skills/templates. Dispatcher wiring for invoking `/<name>` remains deferred. |
+| Themes | Registry implemented | `pipy_harness.native.themes` defines `default`, `quiet`, and plain `mono` themes as pure data. `resolve_theme(..., tty=False)` returns `mono` so captured streams stay plain. Runtime startup-chrome integration remains deferred. |
 
 ## Still To Slopfork
 
@@ -55,16 +65,17 @@ metadata and boundary invariants are stable:
   persistent history, and broader keyboard shortcut handling.
 - Multiple file/context reads per session and broader context/resource loading.
 - Richer resource loading beyond AGENTS/CLAUDE-style instruction
-  discovery (skills, prompt templates, themes, extensions, and package
-  loading). The instruction-discovery slice itself shipped through the
+  discovery and the current skills, prompt-template, and custom-command
+  discovery helpers (extensions, package loading, and runtime slash-command
+  loading).
+  The instruction-discovery slice itself shipped through the
   [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
   these other resource types remain deferred for later parity work.
-- Prompt templates, skills, themes, extensions, and package loading.
-- Session resume, branch/tree navigation, fork, compaction, export, and share.
+- Live session resume, branch/tree navigation, fork, compaction, and share.
 - RPC mode and SDK embedding surfaces.
 - Provider registry and broad provider/model catalog.
 - Cost/context/token footer behavior beyond safe usage counters.
-- Arbitrary shell command support and non-allowlisted verification.
+- Non-allowlisted verification.
 
 ## Native Tool-Loop Parity Track
 
@@ -81,9 +92,10 @@ Each slice landed as a named conventional commit with focused tests,
 
 ### Goal
 
-- A real model-driven loop over `openai`, `openai-codex`, and `openrouter` with
-  bounded `read`, `write`, `edit`, `ls`, `grep`, and `find` tools, producing a
-  useful end-to-end change against this repo with `just check` green.
+- A real model-driven loop over tool-capable native providers with bounded
+  `read`, `write`, `edit`, `ls`, `grep`, `find`, `bash`, `edit_diff`, and
+  `truncate` tools, producing a useful end-to-end change against this repo
+  with `just check` green.
 - Pi-shaped behavior: the model picks files, edits them directly, the resulting
   unified diff is written to stderr, no approval popups appear, and the loop
   iterates within a bounded tool budget.
@@ -153,17 +165,21 @@ Each slice landed as a named conventional commit with focused tests,
 
 ### Out Of Scope For This Track
 
-These remain explicitly deferred while the tool-loop track lands and after it
-lands:
+These were explicitly deferred for the original tool-loop track and some have
+now shipped in later parity work:
 
-- A `bash` tool or any arbitrary shell execution tool.
+- A `bash` tool or any arbitrary shell execution tool. Shipped later as a
+  bounded model-loop `bash` tool.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
-- Session resume, branch/fork navigation, and compaction.
+- Live session resume, branch/fork navigation, and compaction. A metadata-only
+  resume reader shipped later.
 - RPC mode and SDK embedding.
-- Extensions, skills, prompt templates, and theme/package loading.
+- Extensions, package loading, theme integration, and slash-command loading for
+  skills and prompt templates. A pure theme registry shipped later.
 - Automatic `@file` content reads from completion-only references.
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+  Shipped later for the eight providers listed in `docs/parity-criterion.md`.
 - Removing the no-tool REPL or its slash-command boundaries.
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
@@ -254,12 +270,10 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly deferred while the track lands and after it
 lands. They are not later slices of this track:
 
-- A `bash` tool, generalizing `/verify` beyond `just check`, session
+- Generalizing `/verify` beyond `just check`, session
   resume/branch/compaction, RPC mode, SDK embedding, extensions,
-  skills, prompt templates, theme/package loading, automatic `@file`
-  content reads, persistent history, and a full TUI.
-- Additional providers beyond `openai`, `openai-codex`, and
-  `openrouter`.
+  theme/package loading, automatic `@file` content reads, persistent
+  history, and a full TUI.
 - Removing the no-tool REPL or redesigning the tool-loop contracts.
 
 ## Workspace Context Loading Parity Track
@@ -384,12 +398,13 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly deferred while the track lands and after it
 lands. They are not later slices of this track:
 
-- Skills, prompt templates, themes, extensions, and package loading.
-- Session resume, branch/fork, compaction, and export.
+- Slash-command loading for skills and prompt templates, extensions, and
+  package loading. Custom-command discovery and a pure theme registry shipped
+  later.
+- Live session resume, branch/fork, compaction, and share. A metadata-only
+  resume reader shipped later.
 - Full TUI, persistent history, and resize handling.
-- A `bash` tool, generalizing `/verify` beyond `just check`, and
-  additional providers beyond `openai`, `openai-codex`, and
-  `openrouter`.
+- Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a session.
   The current track resolves instructions once per run.
 
@@ -454,12 +469,12 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | --- | --- | --- |
 | Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
-| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
-| Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; no raw transcript import by default. |
-| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, and `find` (no `bash`) behind `pipy repl --repl-mode tool-loop`. See the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
+| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, `/settings`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
+| Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; `pipy-session resume-info` can read metadata-only continuation context, but live resume wiring is still deferred. No raw transcript import by default. |
+| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `bash`, `edit_diff`, and `truncate` behind `pipy repl --repl-mode tool-loop`. See the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
-| Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Four current providers behind `ProviderPort`: fake, OpenAI API-key, OpenAI Codex OAuth, and OpenRouter. |
-| Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Deferred. The current code has no extension runtime. |
+| Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve native provider selections behind `ProviderPort`: fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex OAuth, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. |
+| Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, custom slash commands, and themes have narrow discovery/registry helpers; runtime slash commands, extensions, and package loading remain deferred. |
 | Privacy posture | Full Pi sessions are native product transcripts. | Pipy archive is metadata-first and excludes prompts, model output, provider payloads, file contents, command output, and auth material by default. |
 | External agent wrapping | Pi is itself the product. | Pipy can wrap external CLIs for conservative capture, but external wrappers are not the product runtime. |
 | Verification | Pi exposes broad bash/tool capability. | Pipy exposes only `/verify just-check` after successful same-session apply. |

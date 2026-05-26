@@ -140,7 +140,7 @@ Optional flags:
 - `--cwd <path>`: child process working directory, defaulting to the current directory
 - `--root <path>`: session root override, matching `pipy-session --root`
 - `--record-files`: after the child exits, record changed git file paths only
-- `--native-provider fake|openai|openai-codex|openrouter`: native provider for `--agent pipy-native`, defaulting to `fake`
+- `--native-provider fake|openai|openai-codex|openrouter|anthropic|google|google-vertex|mistral|amazon-bedrock|azure-openai|cloudflare|openai-completions`: native provider for `--agent pipy-native`, defaulting to `fake`. All real providers are stdlib-only (no third-party SDK dependencies); see `docs/parity-criterion.md` for the locked feature list.
 - `--native-model <id>`: model label for the native provider; required for real providers in one-shot `pipy run`
 - `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
 
@@ -226,11 +226,13 @@ directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
 remains accepted. The REPL's `--repl-mode` flag defaults to `auto`: when the
 selected provider advertises `supports_tool_calls=True`, the shell launches
 the bounded model-driven tool loop (with `read`, `ls`, `grep`, `find`,
-`write`, and `edit` from
+`write`, `edit`, `bash` (bounded shell with workspace cwd, output caps,
+timeout, `.git` substring refusal), `edit_diff` (in-process unified-diff
+applier), and `truncate` from
 `pipy_harness.native.tool_loop_session.production_tool_registry`)
 and `--tool-budget` (default 10, max 25) caps invocations per user turn;
 otherwise it falls back to the existing line-oriented REPL with the
-`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+`/settings`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
 `/verify just-check` commands. Pass `--repl-mode no-tool` to force the
 line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
 opt-in `--archive-transcript` flag writes raw loop turns to
@@ -290,12 +292,14 @@ conversation context and any pending proposal draft without resetting
 provider/model selection, auth state, read budgets, verification availability,
 or provider turn indexes. `/status` prints only safe local shell-state labels
 and counters to stderr, including provider/model selection, provider-turn
-count, retained no-tool history counters, read-budget counters and flags, pending proposal
-availability, and verification availability; it does not call providers, tools,
-reads, writes, verification, or mutate REPL state. `/model` with no argument
-shows the current selection and configured usable model references. Successful
-`/model` selections are persisted as non-secret native defaults under local
-pipy state.
+count, retained no-tool history counters, read-budget counters and flags,
+pending proposal availability, and verification availability; it does not call
+providers, tools, reads, writes, verification, or mutate REPL state.
+`/settings` prints the active provider/model plus safe registered-provider
+availability labels without exposing environment values. `/model` with no
+argument shows the current selection and configured usable model references.
+Successful `/model` selections are persisted as non-secret native defaults under
+local pipy state.
 The explicit
 `/read <workspace-relative-path>` command shares a two-successful-excerpt
 budget per REPL session across `/read`, `/ask-file`, and `/propose-file`
@@ -385,16 +389,16 @@ read-only path that can forward one bounded in-memory excerpt to a follow-up
 provider turn, plus a supervised patch-apply boundary for injected
 human-reviewed requests and an injected post-apply allowlisted verification
 boundary for `just check`. The REPL exposes the
-explicit `/read` and `/ask-file` commands, the proposal-only
-`/propose-file` command, the same-session one-file `/apply-proposal`
-command, the post-apply `/verify just-check` command, and — in
+local `/settings` command, the explicit `/read` and `/ask-file` commands,
+the proposal-only `/propose-file` command, the same-session one-file
+`/apply-proposal` command, the post-apply `/verify just-check` command, and — in
 `--repl-mode tool-loop` (or `auto` against a provider that advertises
 `supports_tool_calls=True`) — the bounded model-driven loop with
-`read`, `ls`, `grep`, `find`, `write`, and `edit`. OpenAI, OpenAI
-Codex, and OpenRouter CLI runs still do not expose provider-side
+`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash`, `edit_diff`,
+and `truncate`. Native provider CLI runs still do not expose provider-side
 built-in tools (web search, file search, code interpreter, computer
-use), arbitrary shell execution, non-allowlisted verification commands,
-retries, streaming, provider registry, or raw transcript import. Native OAuth belongs only to the distinct
+use), non-allowlisted verification commands, streaming provider output,
+a dynamic provider registry, or raw transcript import. Native OAuth belongs only to the distinct
 `openai-codex` subscription provider, not to the existing `openai` API-key
 provider.
 
@@ -498,6 +502,20 @@ event type counts, and the matching Markdown summary text when present. It does
 not dump raw JSONL event bodies. Human labels collapse control whitespace so
 record metadata or event type strings cannot forge extra table or label lines;
 `--json` keeps structured values non-lossy.
+
+Export or inspect resume metadata for one finalized record:
+
+```sh
+uv run pipy-session export 2026-05-02T064433Z-studio-codex-session-work
+uv run pipy-session resume-info 2026-05-02T064433Z-studio-codex-session-work
+```
+
+`export` emits metadata-only JSON to stdout by default; raw transcript sidecar
+events are included only with explicit `--include-transcript`. `resume-info`
+also emits JSON-only stdout and returns safe continuation metadata: prior
+session id, provider/model labels, turn count, workspace hash, timestamps, and
+the optional Markdown summary for inspection. Runtime seeding of a resumed
+native session is a later slice.
 
 Reflect on finalized records to extract summary-safe learning signals:
 

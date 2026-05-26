@@ -36,9 +36,10 @@ The existing optional real-TTY prompt-toolkit input path is now hardened for
 cursor-position warning noise and LF-encoded Enter/Esc+Enter key sequences,
 and explicit file-context commands now share a two-successful-excerpt REPL
 budget. The bottom-toolbar status decision remains deferred. The public shell
-still cannot execute arbitrary shell commands, request provider-side tools,
-read multiple files in one provider turn, run non-allowlisted verification
-commands, or run a general model/tool loop.
+now has a bounded model/tool loop with provider-emitted tool calls and a
+bounded `bash` tool. It still cannot read multiple files in one no-tool
+provider turn, run non-allowlisted verification commands, stream provider
+output, or provide a full TUI.
 
 Use this page as a planning index:
 
@@ -115,11 +116,10 @@ discipline:
   LF-encoded newline key sequences. Explicit file-context commands now share a
   two-successful-excerpt REPL budget. Resilient terminal resize behavior,
   persistent history, and a fuller TUI remain future slices.
-- Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery,
-  prompts, skills, extensions, and model/provider defaults, with metadata-only
-  archive behavior. AGENTS/CLAUDE-style instruction discovery shipped through
-  the [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
-  prompts, skills, extensions, and model/provider defaults remain deferred to
+- Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery plus
+  workspace/global skill, prompt-template, and custom-command discovery, with
+  metadata-only archive behavior. Runtime slash commands for loading those
+  resources, extensions, and broader model/provider defaults remain deferred to
   later parity work.
 - Tool parity: read, edit/write, bash/shell, verification, and follow-up tool
   observations behind pipy-owned boundaries, explicit scopes, and privacy
@@ -232,17 +232,21 @@ These hold throughout the track, not as later deferrals:
 
 ### Out Of Scope For This Track
 
-These remain explicitly deferred while the tool-loop track lands and after it
-lands:
+These were explicitly deferred for the original tool-loop track; some have now
+shipped in later parity work:
 
-- A `bash` tool or any arbitrary shell execution tool.
+- A `bash` tool or any arbitrary shell execution tool. Shipped later as the
+  bounded model-loop `bash` tool.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
-- Session resume, branch/fork navigation, and compaction.
+- Live session resume, branch/fork navigation, and compaction. A metadata-only
+  resume reader shipped later.
 - RPC mode and SDK embedding.
-- Extensions, skills, prompt templates, and theme/package loading.
+- Extensions, package loading, theme integration, and slash-command loading for
+  skills and prompt templates. A pure theme registry shipped later.
 - Automatic `@file` content reads from completion-only references.
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+  Shipped later for the eight providers listed in `docs/parity-criterion.md`.
 - Removing the no-tool REPL or its slash-command boundaries.
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
@@ -334,12 +338,10 @@ These hold throughout the track, not as later deferrals:
 
 ### Out Of Scope For This Track
 
-- A `bash` tool, generalizing `/verify` beyond `just check`, session
+- Generalizing `/verify` beyond `just check`, session
   resume/branch/compaction, RPC mode, SDK embedding, extensions,
-  skills, prompt templates, theme/package loading, automatic `@file`
-  content reads, persistent history, and a full TUI.
-- Additional providers beyond `openai`, `openai-codex`, and
-  `openrouter`.
+  theme/package loading, automatic `@file` content reads, persistent
+  history, and a full TUI.
 - Removing the no-tool REPL or redesigning the tool-loop contracts.
 
 ## Workspace Context Loading Parity Track
@@ -467,17 +469,25 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly deferred while the track lands and after
 it lands. They are not later slices of this track:
 
-- Skills, prompt templates, themes, extensions, and package loading.
-- Session resume, branch/fork, compaction, and export.
+- Slash-command loading for skills and prompt templates, extensions, and
+  package loading. Custom-command discovery and a pure theme registry shipped
+  later.
+- Live session resume, branch/fork, compaction, and share. A metadata-only
+  resume reader shipped later.
 - Full TUI, persistent history, and resize handling.
-- A `bash` tool, generalizing `/verify` beyond `just check`, and
-  additional providers beyond `openai`, `openai-codex`, and
-  `openrouter`.
+- Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
 
 ## Done
 
+- Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 6 of 6 required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `bash` tool, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. All landed under the existing architectural invariants (no new runtime deps, metadata-first archive, `.git` default-deny, no third-party schema validators). Score check: `just parity-score`.
+- Pi-mono 90%-parity increment (2026-05-26): raised pipy from 40/50 to 45/50
+  (90%) by adding metadata-only session resume context (`pipy-session
+  resume-info`), dynamic provider/model swap helpers, custom slash-command
+  discovery, a pure ANSI theme registry, and a read-only `/settings` REPL
+  command. Runtime wiring for live resume prompt seeding and custom-command
+  dispatch remains the next product slice. Score check: `just parity-score`.
 - Durable file-based session archive with active/finalized lifecycle.
 - `pipy-session` recorder, catalog, search, inspect, reflect, verify, sync, and
   conservative automatic-capture helpers.

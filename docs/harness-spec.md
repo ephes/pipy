@@ -3287,14 +3287,19 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly out of scope while the tool-loop track lands and
 after it lands. They are not later slices of this track:
 
-- A `bash` tool or any arbitrary shell execution tool.
+- A `bash` tool or any arbitrary shell execution tool. Shipped later as the
+  bounded model-loop `bash` tool.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
-- Session resume, branch/fork navigation, and compaction.
+- Live session resume, branch/fork navigation, and compaction. A metadata-only
+  resume reader shipped later.
 - RPC mode and SDK embedding.
-- Extensions, skills, prompt templates, and theme/package loading.
+- Extensions, package loading, theme integration, and slash-command loading for
+  skills and prompt templates. Skills, prompt-template discovery, custom-command
+  discovery, and a pure theme registry shipped later.
 - Automatic `@file` content reads from completion-only references.
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
+  Shipped later for the eight providers listed in `docs/parity-criterion.md`.
 - Removing the no-tool REPL or its slash-command boundaries.
 
 ## OpenAI Responses + OpenAI Codex Tool-Call Parity Track
@@ -3496,14 +3501,14 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly out of scope while the track lands and
 after it lands. They are not later slices of this track:
 
-- Skills, prompt templates, themes, extensions, and package
-  loading. AGENTS/CLAUDE-style instruction discovery is the only
-  resource type introduced by this track.
-- Session resume, branch/fork navigation, compaction, and export.
+- Slash-command loading for skills and prompt templates, extensions, and
+  package loading. AGENTS/CLAUDE-style instruction discovery is the only
+  resource type introduced by this track; skills, prompt-template discovery,
+  custom-command discovery, and a pure theme registry shipped later.
+- Live session resume, branch/fork navigation, compaction, and share. A
+  metadata-only resume reader and metadata-only export shipped later.
 - Full TUI, persistent history, and resize handling.
-- A `bash` tool, generalizing `/verify` beyond `just check`, and
-  additional providers beyond `openai`, `openai-codex`, and
-  `openrouter`.
+- Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
 - Sending an instruction file as a provider-visible attachment

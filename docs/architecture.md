@@ -27,7 +27,7 @@ flowchart LR
   NativeSession --> InputAdapter[REPL Input Adapter]
   NativeSession --> ProviderPort[ProviderPort]
   NativeSession --> ToolBoundaries[Tool Boundaries]
-  ProviderPort --> Providers[Fake, OpenAI, OpenAI Codex, OpenRouter]
+  ProviderPort --> Providers[Fake plus native HTTP providers]
   ToolBoundaries --> Workspace[Workspace]
   Runner --> RecorderPort[RecorderPort]
   RecorderPort --> SessionRecorder[pipy_session.recorder]
@@ -129,6 +129,8 @@ Available now:
 - `pipy run --agent pipy-native --goal ...` runs one native provider turn.
 - `/help` prints static command usage.
 - `/status` prints safe local shell state to stderr.
+- `/settings` prints the active provider/model and safe provider availability
+  labels to stderr.
 - `/clear` clears retained no-tool conversation context and pending proposal
   state.
 - `/login [openai-codex]`, `/logout [openai-codex]`, and `/model ...` manage
@@ -149,15 +151,16 @@ Available now:
   successful same-session apply.
 - In `--repl-mode tool-loop`, the bounded model-driven loop dispatches
   provider-emitted tool calls into the production registry of `read`, `ls`,
-  `grep`, `find`, `write`, and `edit` tools defined under
+  `grep`, `find`, `write`, `edit`, `bash`, `edit_diff`, and `truncate` tools defined under
   `pipy_harness.native.tools`. The loop refuses providers without
   `supports_tool_calls=True`, returns malformed tool calls to the model as
-  observations (fatal after three consecutive), streams `write`/`edit`
+  observations (fatal after three consecutive), streams mutation-tool
   diffs to stderr via `ToolContext.stderr_sink`, and refuses paths under
   `.git`/`.gitignore` plus paths that resolve into ignored locations via
   symlink. The metadata archive is never touched from inside the tools.
 - `pipy-session` can initialize, append, finalize, list, search, inspect,
-  verify, reflect, and record workflow-learning events.
+  export, report metadata-only resume context, verify, reflect, and record
+  workflow-learning events.
 
 Deferred:
 
@@ -166,9 +169,8 @@ Deferred:
   investigation.
 - Multiple file reads beyond the shared two-successful-excerpt REPL budget
   for `/read`/`/ask-file`/`/propose-file`.
-- Arbitrary shell execution.
 - Non-allowlisted verification commands.
-- Branching, compaction, resume UI, RPC mode, extension APIs, and a provider
+- Branching, compaction, live resume UI, RPC mode, extension APIs, and a provider
   registry.
 - Raw transcript import by default.
 
@@ -187,17 +189,20 @@ Deferred:
 | Native value objects | `src/pipy_harness/native/models.py` | Provider, tool, read, proposal, apply, verification, output, and `ProviderToolCall` value objects; `ProviderRequest.messages`/`available_tools`; closed labels and storage booleans. |
 | Conversation state | `src/pipy_harness/native/conversation.py` | In-memory conversation identity, bounded turns, and metadata-only turn payloads. |
 | REPL state | `src/pipy_harness/native/repl_state.py` | Provider/model selection, non-secret defaults, and local availability checks. |
+| Dynamic provider swap | `src/pipy_harness/native/dynamic_provider.py` | Thin provider/model swap helpers around `NativeReplProviderState.select_model`; future command wiring can reuse the existing availability gates and persistence semantics. |
 | Provider port | `src/pipy_harness/native/provider.py` | `ProviderPort.complete()` protocol plus the `supports_tool_calls` capability flag. |
-| Providers | `src/pipy_harness/native/fake.py`, `openai_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus direct OpenAI, OpenAI Codex subscription, and OpenRouter adapters. All three real adapters advertise `supports_tool_calls=True` and drive the bounded tool loop end-to-end. |
+| Providers | `src/pipy_harness/native/fake.py`, `openai_provider.py`, `openai_completions_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py`, `anthropic_provider.py`, `google_provider.py`, `google_vertex_provider.py`, `mistral_provider.py`, `bedrock_provider.py`, `azure_openai_provider.py`, `cloudflare_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus stdlib HTTP adapters for OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. Tool-capable real adapters advertise `supports_tool_calls=True` and drive the bounded tool loop end-to-end. |
 | Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol used by `/read`, `/apply-proposal`, and `/verify just-check`. |
 | Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope. |
-| Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py` | Production registry tools for the bounded tool-loop. Each reuses `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and the new `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny. |
+| Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py`, `bash.py`, `edit_diff.py`, `truncate.py` | Production registry tools for the bounded tool-loop. Filesystem tools reuse `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny; `bash` uses bounded shell execution with workspace cwd and output/time caps; `truncate` is pure transformation only. |
 | Transcript sidecar | `src/pipy_harness/native/transcripts.py` | Opt-in `TranscriptSink` writing raw loop turns to `~/.local/state/pipy/transcripts/<id>.jsonl` outside the pipy session archive, excluded from `pipy-session list/search/inspect`. |
 | Approval prompt helper | `src/pipy_harness/native/approval_prompt.py` | Test-covered visible approval/sandbox prompt resolver for read-only request shapes; not wired into normal explicit REPL read/context commands. |
 | Usage normalization | `src/pipy_harness/native/usage.py` | Normalizes provider token counters to the safe allowlisted metadata keys. |
 | Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation, a shared two-successful-excerpt REPL budget, metadata-only archive output, and the `_resolved_relative_label` helper used by every model-driven tool. |
 | Patch apply boundary | `src/pipy_harness/native/patch_apply.py` | One approved, human-reviewed, bounded workspace mutation request. |
 | Verification boundary | `src/pipy_harness/native/verification.py` | One allowlisted post-apply `just-check` command mapping to `just check`. |
+| Resource discovery | `src/pipy_harness/native/_resource_files.py`, `skills.py`, `prompt_templates.py`, `custom_commands.py`, `themes.py` | Shared Markdown resource discovery for skills/templates/custom commands with byte caps and symlink containment, plus a pure-data theme registry with a plain non-TTY fallback. |
+| Session resume | `src/pipy_harness/native/session_resume.py` | Metadata-only finalized-record reader and safe resume system-block composer; live native runtime hook remains deferred. |
 | Session recorder | `src/pipy_session/recorder.py` | Active `.in-progress/pipy` JSONL records, finalized `pipy/YYYY/MM` records, immutable finalization, and Markdown summaries. |
 | Session catalog | `src/pipy_session/catalog.py` | Read-only list, search, inspect, verify, and reflect surfaces over finalized records. |
 | Automatic capture | `src/pipy_session/auto_capture.py` | Conservative adapter helpers for wrapper and hook-based partial capture, including Pi session references without transcript import. |
