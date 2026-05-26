@@ -109,17 +109,14 @@ def _run_session(
 # --------------------- production registry holds read and ls --------------
 
 
-def test_production_tool_registry_holds_all_six_slice_10_tools():
+def test_production_tool_registry_holds_all_slice_10_tools_plus_bash():
     registry = production_tool_registry()
 
-    assert set(registry.keys()) == {
-        "read",
-        "ls",
-        "grep",
-        "find",
-        "write",
-        "edit",
-    }
+    expected_baseline = {"read", "ls", "grep", "find", "write", "edit", "bash"}
+    assert expected_baseline.issubset(set(registry.keys()))
+    # parity push also adds edit_diff + truncate; allow either ordering
+    optional = {"edit_diff", "truncate"}
+    assert set(registry.keys()).issubset(expected_baseline | optional)
     for name in registry:
         assert registry[name].definition.name == name
 

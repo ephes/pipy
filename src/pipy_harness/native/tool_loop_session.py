@@ -63,15 +63,20 @@ from pipy_harness.native.tools import (
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    Slices 5 through 10 add `read`, `ls`, `grep`, `find`, `write`, and
-    `edit` respectively. The registry holds all six tools at slice 10.
+    Adds `bash` alongside the read/ls/grep/find/write/edit tools as
+    part of the pi-mono parity push. `bash` runs through `shell=True`
+    with a workspace-relative cwd, bounded output, bounded timeout,
+    and a `.git` substring refusal.
     """
 
+    from pipy_harness.native.tools.bash import BashTool
     from pipy_harness.native.tools.edit import EditTool
+    from pipy_harness.native.tools.edit_diff import EditDiffTool
     from pipy_harness.native.tools.find import FindTool
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
     from pipy_harness.native.tools.read import ReadTool
+    from pipy_harness.native.tools.truncate import TruncateTool
     from pipy_harness.native.tools.write import WriteTool
 
     return {
@@ -81,6 +86,9 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "find": FindTool(),
         "write": WriteTool(),
         "edit": EditTool(),
+        "bash": BashTool(),
+        "edit_diff": EditDiffTool(),
+        "truncate": TruncateTool(),
     }
 
 

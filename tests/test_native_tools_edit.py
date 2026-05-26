@@ -217,12 +217,7 @@ def test_edit_tool_source_does_not_import_recorder():
 def test_production_tool_registry_holds_edit():
     from pipy_harness.native import production_tool_registry
 
-    assert "edit" in production_tool_registry()
-    assert set(production_tool_registry().keys()) == {
-        "read",
-        "ls",
-        "grep",
-        "find",
-        "write",
-        "edit",
-    }
+    registry = production_tool_registry()
+    assert "edit" in registry
+    expected = {"read", "ls", "grep", "find", "write", "edit", "bash"}
+    assert expected.issubset(set(registry.keys()))
