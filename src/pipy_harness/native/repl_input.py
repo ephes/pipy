@@ -23,6 +23,7 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/help",
     "/clear",
     "/status",
+    "/settings",
     "/login",
     "/logout",
     "/model",

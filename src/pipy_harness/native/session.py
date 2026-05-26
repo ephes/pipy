@@ -286,6 +286,7 @@ NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 CLEAR_REPL_COMMAND = "/clear"
 STATUS_REPL_COMMAND = "/status"
+SETTINGS_REPL_COMMAND = "/settings"
 LOGIN_REPL_COMMAND = "/login"
 LOGOUT_REPL_COMMAND = "/logout"
 MODEL_REPL_COMMAND = "/model"
@@ -305,7 +306,7 @@ class _ReplCommandGroup:
 
 _REPL_COMMAND_GROUPS = (
     _ReplCommandGroup("Controls", ("/help",)),
-    _ReplCommandGroup("Local state", ("/clear", "/status")),
+    _ReplCommandGroup("Local state", ("/clear", "/status", "/settings")),
     _ReplCommandGroup(
         "Provider and model",
         (
@@ -984,6 +985,14 @@ class NativeNoToolReplSession:
                     )
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, STATUS_REPL_COMMAND)
+                continue
+            if _is_repl_command_invocation(command, SETTINGS_REPL_COMMAND):
+                if command == SETTINGS_REPL_COMMAND:
+                    _print_repl_settings(error_stream, provider_state)
+                else:
+                    _print_repl_command_usage_diagnostic(
+                        error_stream, SETTINGS_REPL_COMMAND
+                    )
                 continue
             if _is_repl_command_invocation(command, LOGIN_REPL_COMMAND):
                 pending_apply_draft = None
@@ -1903,6 +1912,41 @@ def _print_repl_status(
     )
     print(
         f"  verification_available: {_status_bool(state.verification_available)}",
+        file=error_stream,
+    )
+
+
+def _print_repl_settings(
+    error_stream: TextIO,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+) -> None:
+    """Render safe local configuration to stderr.
+
+    Like /status, /settings is read-only: it does not call providers,
+    run tools, mutate state, or consume any budget. It surfaces the
+    current selection, the registered defaults, and the local
+    availability of each supported provider so the user can see what
+    they could switch to via /model.
+    """
+
+    current = provider_state.current_selection()
+    print("pipy native REPL settings:", file=error_stream)
+    print(
+        f"  active: {sanitize_text(current.provider_name)}/{sanitize_text(current.model_id)}",
+        file=error_stream,
+    )
+    print("  registered providers:", file=error_stream)
+    for option in provider_state.model_options():
+        availability = "available" if option.available else f"unavailable ({option.reason or 'unknown'})"
+        print(
+            "    "
+            f"{sanitize_text(option.selection.provider_name)}/"
+            f"{sanitize_text(option.selection.model_id)} "
+            f"[{availability}]",
+            file=error_stream,
+        )
+    print(
+        "  /login, /logout, and /model are local; /settings is read-only.",
         file=error_stream,
     )
 
