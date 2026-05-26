@@ -70,7 +70,7 @@ check C10 "Tool budget"              small  "grep -q tool_budget src/pipy_harnes
 check C11 ".git default-deny"        small  "grep -q _resolved_relative_label src/pipy_harness/native/read_only_tool.py"
 check C12 "Transcript sidecar"       small  "test -f src/pipy_harness/native/transcripts.py"
 check C13 "JSON output mode"         small  "uv run pipy run --help 2>&1 | grep -q native-output"
-check C14 "Streaming output"         big    "test -f src/pipy_harness/native/streaming.py || grep -rq StreamingProvider src/pipy_harness/native/ 2>/dev/null"
+check C14 "Streaming output"         big    "grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py"
 check C15 "Retry/backoff"            big    "test -f src/pipy_harness/native/retry.py"
 
 echo

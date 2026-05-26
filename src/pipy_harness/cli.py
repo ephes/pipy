@@ -37,8 +37,15 @@ from pipy_harness.native import (
     default_selection_for,
     validate_native_repl_input_runtime,
 )
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.workspace_context import default_workspace_instruction_loader
 from pipy_harness.runner import HarnessRunner
+
+
+STREAMING_NATIVE_PROVIDERS = frozenset({"openai-codex", "fake"})
+"""Native providers that advertise streaming text deltas through
+`ProviderPort.complete(..., stream_sink=...)`. `--stream` fails closed
+with a stderr diagnostic when the active provider is not in this set."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -106,6 +113,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-output",
         choices=["json"],
         help="Native stdout mode for --agent pipy-native. Only json is supported.",
+    )
+    run_parser.add_argument(
+        "--stream",
+        action="store_true",
+        help=(
+            "Stream provider-emitted assistant text deltas to stdout in plain "
+            "text mode or stderr in --native-output json mode. Requires "
+            "--agent pipy-native and a streaming-capable native provider "
+            "(openai-codex or fake). Off by default; the final buffered "
+            "result is still emitted on completion."
+        ),
     )
     run_parser.add_argument(
         "--record-files",
@@ -243,10 +261,25 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if args.command == "run":
             _validate_native_output(args.agent, args.native_output)
+            _validate_stream(
+                args.agent,
+                args.stream,
+                native_provider=args.native_provider,
+            )
             command = _native_command(args.native_command, agent=args.agent)
             if args.agent == "pipy-native" and not args.goal:
                 raise ValueError("pipy-native runs require --goal")
-            adapter = _adapter_for(args.agent, args.native_provider, args.native_model)
+            stream_sink: StreamChunkSink | None = None
+            if args.stream:
+                stream_sink = _build_stream_sink(
+                    native_output=args.native_output
+                )
+            adapter = _adapter_for(
+                args.agent,
+                args.native_provider,
+                args.native_model,
+                stream_sink=stream_sink,
+            )
             request = RunRequest(
                 agent=args.agent,
                 slug=args.slug,
@@ -358,6 +391,35 @@ def _validate_native_output(agent: str, native_output: str | None) -> None:
         raise ValueError("--native-output requires --agent pipy-native")
 
 
+def _validate_stream(
+    agent: str,
+    stream: bool,
+    *,
+    native_provider: str | None,
+) -> None:
+    if not stream:
+        return
+    if agent != "pipy-native":
+        raise ValueError("--stream requires --agent pipy-native")
+    selected = native_provider or "fake"
+    if selected not in STREAMING_NATIVE_PROVIDERS:
+        raise ValueError(
+            "--stream requires a streaming-capable native provider "
+            f"(one of: {', '.join(sorted(STREAMING_NATIVE_PROVIDERS))}); "
+            f"got {selected}"
+        )
+
+
+def _build_stream_sink(*, native_output: str | None) -> StreamChunkSink:
+    target = sys.stderr if native_output == "json" else sys.stdout
+
+    def _sink(chunk: str) -> None:
+        target.write(chunk)
+        target.flush()
+
+    return _sink
+
+
 def _native_command(command: list[str], *, agent: str) -> list[str]:
     if command and command[0] == "--":
         command = command[1:]
@@ -423,6 +485,8 @@ def _adapter_for(
     agent: str,
     native_provider: str | None,
     native_model: str | None,
+    *,
+    stream_sink: StreamChunkSink | None = None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
         if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
@@ -451,13 +515,17 @@ def _adapter_for(
                     )
                 ),
                 instruction_loader=default_workspace_instruction_loader,
+                stream_sink=stream_sink,
             )
         return PipyNativeAdapter(
             provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap"),
             instruction_loader=default_workspace_instruction_loader,
+            stream_sink=stream_sink,
         )
     if native_provider is not None or native_model is not None:
         raise ValueError("--native-provider and --native-model require --agent pipy-native")
+    if stream_sink is not None:
+        raise ValueError("--stream requires --agent pipy-native")
     return SubprocessAdapter()
 
 

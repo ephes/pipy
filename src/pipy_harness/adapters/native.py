@@ -10,7 +10,7 @@ from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
@@ -46,10 +46,12 @@ class PipyNativeAdapter:
         tool: ToolPort | None = None,
         *,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
+        stream_sink: StreamChunkSink | None = None,
     ) -> None:
         self.provider = provider
         self.tool = tool or FakeNoOpNativeTool()
         self.instruction_loader = instruction_loader
+        self.stream_sink = stream_sink
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -84,6 +86,7 @@ class PipyNativeAdapter:
             provider=self.provider,
             tool=self.tool,
             instruction_loader=self.instruction_loader,
+            stream_sink=self.stream_sink,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "",
@@ -95,8 +98,19 @@ class PipyNativeAdapter:
             ),
             event_sink,
         )
-        if prepared.native_output != "json" and run_output.final_text:
+        if (
+            prepared.native_output != "json"
+            and self.stream_sink is None
+            and run_output.final_text
+        ):
             print(run_output.final_text, file=sys.stdout)
+        elif (
+            prepared.native_output != "json"
+            and self.stream_sink is not None
+            and run_output.final_text
+        ):
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
         return AdapterResult(
             status=run_output.status,

@@ -67,7 +67,7 @@ from pipy_harness.native.patch_apply import (
     NativePatchApplyResult,
     NativePatchApplyTool,
 )
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptResult,
     NativeExplicitFileExcerptTarget,
@@ -499,6 +499,7 @@ class NativeAgentSession:
     instruction_loader: WorkspaceInstructionLoader = field(
         default=empty_workspace_instruction_loader
     )
+    stream_sink: StreamChunkSink | None = None
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = _utc_now()
@@ -536,6 +537,7 @@ class NativeAgentSession:
             provider_turn=provider_turn,
             tool_observation=None,
             system_prompt=composed_system_prompt,
+            stream_sink=self.stream_sink,
         )
 
         tool_result: NativeToolResult | None = None
@@ -2280,6 +2282,7 @@ def _call_provider_turn(
     archive_provider_metadata: bool = True,
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None,
     system_prompt: str | None = None,
+    stream_sink: StreamChunkSink | None = None,
 ) -> tuple[ProviderResult, dict[str, int | float]]:
     effective_system_prompt = (
         system_prompt if system_prompt is not None else _build_system_prompt()
@@ -2320,7 +2323,8 @@ def _call_provider_turn(
                 provider_turn_label=provider_turn_label,
                 tool_observation=tool_observation,
                 no_tool_repl_context=no_tool_repl_context,
-            )
+            ),
+            stream_sink=stream_sink,
         )
     except Exception as exc:
         provider_result = _failed_provider_result(run_input, exc, started_at=provider_started_at)

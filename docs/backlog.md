@@ -605,6 +605,17 @@ it lands. They are not later slices of this track:
 
 ## Done
 
+- Streaming Output Parity Track (2026-05-26): closed parity-criterion row
+  C14, raising the score from 44/50 to 45/50 (90%) with 8 "big" features
+  green. Added a `StreamChunkSink` callable boundary on `ProviderPort`,
+  wired `OpenAICodexResponsesProvider` to push parsed
+  `response.output_text.delta` events through the sink, and exposed
+  `pipy run --stream` for text/json output modes. Other tool-capable
+  providers (`openai`, `openrouter`, plus the eight non-tool real
+  adapters) accept the keyword and stay on their buffered paths. The
+  metadata-first archive contracts, the opt-in `--archive-transcript`
+  sidecar, `.git` default-deny, no-new-runtime-deps, and the existing
+  slash commands are unchanged. Score check: `just parity-score`.
 - Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 5+ required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. Production `bash` registration was later removed pending a real shell sandbox. Score check: `just parity-score`.
 - Pi-mono 90%-parity increment (2026-05-26): raised pipy from 40/50 to 45/50,
   then settled at 44/50 after disabling production `bash` for invariant
@@ -2102,46 +2113,42 @@ it lands. They are not later slices of this track:
 
 ## Next Slice
 
-### Streaming Output Parity Track — slice 2 (ProviderPort stream sink)
+### Choose the next pipy-native direction after the Streaming Output Parity Track
 
-Goal: implement slice 2 of the
-[Streaming Output Parity Track](#streaming-output-parity-track) now
-that slice 1 (docs-only opener) has shipped. The next reviewable
-boundary is the `ProviderPort` chunk sink plus fake-provider
-support, with no real-provider wiring and no CLI changes yet.
+Goal: pick the next reviewable boundary now that the
+[Streaming Output Parity Track](#streaming-output-parity-track)
+has shipped end-to-end. Slice 4 closed parity-criterion row C14
+(`✅`) and raised the score to 45/50 (90%) with 8 "big" features
+green. The remaining unchecked rows are D8 image attachments, E2
+session compaction, E3 session branching, E7 RPC/SDK, and B7 bash
+(deferred behind a real shell sandbox). The implementation track
+for the next slice is intentionally not selected here; the goal is
+to use summary-safe session reflection and the current parity gaps
+to choose the next small `pipy-native` boundary.
 
 Implementation focus:
 
-- add a `StreamChunkSink` callable alias to
-  `pipy_harness.native.provider`
-- extend `ProviderPort.complete(...)` with an optional
-  keyword-only `stream_sink: StreamChunkSink | None = None`
-  parameter, accepted (and ignored) by every existing real
-  provider so the Protocol stays satisfied bit-for-bit
-- add a `programmable_text_chunks: tuple[str, ...]` field to
-  `FakeNativeProvider`; when supplied and a sink is provided, the
-  fake pushes the chunks through the sink in order before returning
-  the result, with `final_text` set to the concatenation of those
-  chunks (or `final_text` overridden, whichever is explicit)
-- pin behavior with focused contract tests in a new
-  `tests/test_native_provider_streaming.py` (sink missing keeps
-  identical behavior; sink supplied receives chunks in order; final
-  text equals the concatenation of chunks; archive privacy
-  unchanged)
+- inspect summary-safe archive signals with
+  `pipy-session reflect --json` and targeted `pipy-session search`
+  queries before picking a direction
+- compare next-boundary candidates against the remaining parity
+  rows: D8 image attachments, E2 session compaction, E3 session
+  branching, E7 RPC/SDK
+- document the selected next slice in this backlog and, when
+  architectural behavior changes, in `docs/harness-spec.md`
 - keep metadata-first archive contracts, `.git` default-deny
   posture, `/verify just-check` scope, the no-tool REPL, the
   tool-loop REPL, the opt-in `--archive-transcript` sidecar, the
-  existing slash commands, and the workspace-context system-prompt
-  wiring unchanged in this slice
-- no `pipy run` CLI changes; no real-provider behavior changes;
-  no new runtime dependencies
+  existing slash commands, the workspace-context system-prompt
+  wiring, and the newly added `--stream` boundary unchanged in
+  this planning slice
 
 The Tool-Loop Parity Track, the OpenAI Responses + OpenAI Codex
-Tool-Call Parity Track, and the Workspace Context Loading Parity
-Track are all complete; the Streaming Output Parity Track is now
-the active named track. Once slice 4 lands, the next named
-selection will pick from D8 image attachments, E2 session
-compaction, E3 session branching, or E7 RPC/SDK.
+Tool-Call Parity Track, the Workspace Context Loading Parity
+Track, and the Streaming Output Parity Track are all complete;
+subsequent slices may extend streaming to the REPL modes, broaden
+multimodal input support, add session compaction, or branch into
+other parity work.
 
 ## Near Term
 

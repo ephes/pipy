@@ -86,7 +86,7 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |
 | C12 | Transcript sidecar (opt-in) | ✅ | `test -f src/pipy_harness/native/transcripts.py` |
 | C13 | JSON output mode | ✅ | `uv run pipy run --help \| grep -q 'native-output'` |
-| C14 | Streaming output (provider→stdout) | ❌ | `grep -rq 'streaming' src/pipy_harness/native/ \| head -1; grep -rq 'stream' src/pipy_harness/native/openai_provider.py` |
+| C14 | Streaming output (provider→stdout) | ✅ | `grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py` |
 | C15 | Retry/backoff for transient provider errors | ✅ | `test -f src/pipy_harness/native/retry.py \|\| grep -rq 'RetryPolicy' src/pipy_harness/native/` |
 
 ### D. Workspace-context & resource loading (8 features)
@@ -119,9 +119,9 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after bash hardening): 44
-target  ✅ count for 80% parity:                    40
-delta beyond 80% target:                            +4
+current ✅ count (2026-05-26, after streaming track close): 45
+target  ✅ count for 80% parity:                            40
+delta beyond 80% target:                                    +5
 ```
 
 ## How To Verify

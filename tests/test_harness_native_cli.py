@@ -5954,3 +5954,254 @@ def test_cli_native_output_rejects_non_native_agent_before_creating_record(tmp_p
     assert "--native-output requires --agent pipy-native" in captured.err
     assert captured.out == ""
     assert not root.exists()
+
+
+def test_cli_stream_requires_pipy_native_agent(tmp_path, capsys):
+    root = tmp_path / "sessions"
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "custom",
+            "--stream",
+            "--slug",
+            "custom-stream",
+            "--root",
+            str(root),
+            "--",
+            sys.executable,
+            "-c",
+            "print('should not run')",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "--stream requires --agent pipy-native" in captured.err
+    assert captured.out == ""
+    assert not root.exists()
+
+
+def test_cli_stream_rejects_non_streaming_native_provider(tmp_path, capsys):
+    root = tmp_path / "sessions"
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "openrouter",
+            "--native-model",
+            "openrouter/auto",
+            "--stream",
+            "--goal",
+            "GOAL",
+            "--slug",
+            "openrouter-stream",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "streaming-capable native provider" in captured.err
+    assert captured.out == ""
+    assert not root.exists()
+
+
+def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archive_metadata_only(
+    tmp_path, capsys, monkeypatch
+):
+    root = tmp_path / "sessions"
+
+    class CliStreamingFakeProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+            self.programmable_text_chunks = ("STREAM_", "CHUNK_", "ABC")
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink=None,
+            **_kwargs: object,
+        ) -> ProviderResult:
+            now = datetime.now(UTC)
+            final = "".join(self.programmable_text_chunks)
+            if stream_sink is not None:
+                for piece in self.programmable_text_chunks:
+                    stream_sink(piece)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=final,
+                usage={"input_tokens": 1, "output_tokens": 3, "total_tokens": 4},
+                metadata=None,
+            )
+
+    monkeypatch.setattr(
+        "pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--stream",
+            "--goal",
+            "stream smoke",
+            "--slug",
+            "fake-stream",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "STREAM_CHUNK_ABC\n"
+    assert "session finalized" in captured.err
+
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    serialized = json.dumps(events)
+    assert "STREAM_" not in serialized
+    assert "CHUNK_" not in serialized
+    assert "STREAM_CHUNK_ABC" not in serialized
+
+
+def test_cli_stream_in_json_output_mode_routes_chunks_to_stderr(
+    tmp_path, capsys, monkeypatch
+):
+    root = tmp_path / "sessions"
+
+    class CliStreamingFakeProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+            self.programmable_text_chunks = ("ALPHA", "BETA")
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink=None,
+            **_kwargs: object,
+        ) -> ProviderResult:
+            now = datetime.now(UTC)
+            final = "".join(self.programmable_text_chunks)
+            if stream_sink is not None:
+                for piece in self.programmable_text_chunks:
+                    stream_sink(piece)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=final,
+                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+                metadata=None,
+            )
+
+    monkeypatch.setattr(
+        "pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--stream",
+            "--native-output",
+            "json",
+            "--goal",
+            "GOAL",
+            "--slug",
+            "fake-stream-json",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "ALPHABETA" in captured.err
+    json_lines = [line for line in captured.out.splitlines() if line.startswith("{")]
+    assert len(json_lines) == 1
+    parsed = json.loads(json_lines[0])
+    assert parsed.get("schema") == "pipy.native_output"
+
+
+def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
+    tmp_path, capsys, monkeypatch
+):
+    root = tmp_path / "sessions"
+
+    class CliBufferedFakeProvider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink=None,
+            **_kwargs: object,
+        ) -> ProviderResult:
+            assert stream_sink is None, "stream_sink should not be passed when --stream is off"
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="BUFFERED_TEXT",
+                usage={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                metadata=None,
+            )
+
+    monkeypatch.setattr(
+        "pipy_harness.cli.FakeNativeProvider", CliBufferedFakeProvider
+    )
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--goal",
+            "GOAL",
+            "--slug",
+            "fake-buffered",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "BUFFERED_TEXT\n"

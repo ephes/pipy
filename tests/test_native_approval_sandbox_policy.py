@@ -773,11 +773,11 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Streaming Output Parity Track — slice 2 (ProviderPort stream sink)"
+        "### Choose the next pipy-native direction after the Streaming Output Parity Track"
         in next_slice
     )
     assert (
-        "implement slice 2 of the"
+        "pick the next reviewable boundary now that the"
         in compact_next_slice
     )
     assert (
