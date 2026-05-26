@@ -43,7 +43,7 @@ inner = match.group("inner") if match else body
 # lines unstyled. Split every panel-bg-bearing span by `\n` and
 # re-wrap each line in its own row-spanning span so every panel row
 # reads as a contiguous strip in the screenshot.
-panel_bgs = ("#1c2a1e", "#202020")
+panel_bgs = ("#1c2a1e", "#202020", "#2a2a3a", "#262626")
 def _expand(match: re.Match) -> str:
     style_attr = match.group(1).strip(";")
     body = match.group(2)

@@ -480,28 +480,37 @@ class NativeToolReplSession:
                 break
             user_input = line.rstrip("\n")
             stripped = user_input.strip()
+            # Pi paints the submitted user message back on a muted
+            # `userMessageBg` panel — distinct from the green tool
+            # panel — so the prompt reads as a chat bubble. Overwrite
+            # the readline echo line with the styled panel row when
+            # the renderer can drive ANSI cursor controls.
+            if stripped:
+                renderer.render_user_message(user_input)
             if not stripped:
-                self._print_footer(
-                    error_stream,
-                    cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
-                )
+                if repl_input.runtime_label != "slash-menu":
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
                 continue
             if stripped in {"/exit", "/quit"}:
                 break
             if stripped == "/help":
                 self._print_help(error_stream)
-                self._print_footer(
-                    error_stream,
-                    cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
-                )
+                if repl_input.runtime_label != "slash-menu":
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
                 continue
             if stripped.startswith("/"):
                 print(
@@ -510,14 +519,15 @@ class NativeToolReplSession:
                     "Other prompts are sent to the model.",
                     file=error_stream,
                 )
-                self._print_footer(
-                    error_stream,
-                    cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
-                )
+                if repl_input.runtime_label != "slash-menu":
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
                 continue
             messages.append(UserMessage(content=user_input))
             user_turn_count += 1
@@ -572,15 +582,16 @@ class NativeToolReplSession:
                         f"{error_type}: {error_message}",
                         file=error_stream,
                     )
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
+                    if repl_input.runtime_label != "slash-menu":
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
                     break
                 tool_calls = tuple(provider_result.tool_calls)
                 messages.append(
@@ -608,15 +619,16 @@ class NativeToolReplSession:
                 if not tool_calls:
                     if provider_result.final_text and not renderer.streamed_any:
                         print(provider_result.final_text, file=output_stream)
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
+                    if repl_input.runtime_label != "slash-menu":
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
                     break
 
                 fatal = False
@@ -954,7 +966,14 @@ class _ToolLoopRenderer:
     # contiguous strip.
     _ANSI_BG_TOOL_PANEL_TRUECOLOR = "\x1b[48;2;28;42;30m"
     _ANSI_BG_TOOL_PANEL_256 = "\x1b[48;5;235m"
+    # Pi's `userMessageBg` theme uses a muted dark-violet panel behind
+    # the user's typed message so it reads as a chat bubble distinct
+    # from the green tool panel.
+    _ANSI_BG_USER_MESSAGE_TRUECOLOR = "\x1b[48;2;42;42;58m"
+    _ANSI_BG_USER_MESSAGE_256 = "\x1b[48;5;236m"
     _ANSI_CLEAR_EOL = "\x1b[K"
+    _ANSI_CURSOR_UP_ONE = "\x1b[1A"
+    _ANSI_CLEAR_LINE = "\x1b[2K"
 
     _RESULT_LINE_PREVIEW_MAX_LENGTH = 12
     _ARGUMENT_VALUE_PREVIEW_LIMIT = 80
@@ -972,6 +991,11 @@ class _ToolLoopRenderer:
             self._ANSI_BG_TOOL_PANEL_TRUECOLOR
             if self._supports_truecolor()
             else self._ANSI_BG_TOOL_PANEL_256
+        )
+        self._user_message_bg = (
+            self._ANSI_BG_USER_MESSAGE_TRUECOLOR
+            if self._supports_truecolor()
+            else self._ANSI_BG_USER_MESSAGE_256
         )
         self._stream_active = False
         self._stream_emitted_any = False
@@ -1192,6 +1216,44 @@ class _ToolLoopRenderer:
         self._error_stream.write("\n")
         self._error_stream.flush()
         self._reasoning_active = False
+
+    def render_user_message(self, text: str) -> None:
+        """Paint the submitted user message on the user-message panel.
+
+        The readline / slash-menu adapter has already echoed the
+        typed text to the error stream and emitted a trailing newline.
+        We overwrite that previous line with `\\x1b[1A\\x1b[2K\\r` and
+        re-print the message on a muted dark-violet panel so the
+        prompt reads as a chat bubble — distinct from the green tool
+        panel. Multi-line input emits one panel row per logical line
+        with the same background. Non-TTY streams skip the rewrite
+        and just leave the readline echo in place.
+        """
+
+        if not text:
+            return
+        lines = text.splitlines() or [""]
+        if self._enabled:
+            # Step back over the readline echo (one line per logical
+            # input line) and clear each so the styled panel rows can
+            # be re-rendered in place.
+            self._error_stream.write("\r")
+            for _ in lines:
+                self._error_stream.write(self._ANSI_CURSOR_UP_ONE + self._ANSI_CLEAR_LINE)
+            self._error_stream.write("\r")
+        for line in lines:
+            self._error_stream.write(self._user_message_panel_line(line))
+        self._error_stream.flush()
+
+    def _user_message_panel_line(self, text: str) -> str:
+        """Render one row inside the user-message panel."""
+
+        if not self._enabled:
+            return f" {text}\n"
+        return (
+            f"{self._user_message_bg} {text}{self._ANSI_CLEAR_EOL}"
+            f"{self._ANSI_RESET}\n"
+        )
 
     def render_tool_call(self, call: ProviderToolCall) -> None:
         self._clear_working()
