@@ -943,6 +943,14 @@ class _ToolLoopRenderer:
     _ANSI_RED = "\x1b[31m"
     _ANSI_CYAN = "\x1b[36m"
     _ANSI_RESET = "\x1b[0m"
+    # Pi's `toolPendingBg` theme uses a muted dark-green panel behind
+    # each tool block. We render the same intent through a 256-color
+    # background (color index 22 ≈ dark green) plus `\x1b[K` to fill
+    # the rest of the row with the same background. Truecolor terminals
+    # could pin an exact RGB, but the 256-color fallback is portable
+    # and reproduces Pi's look closely enough in real terminals.
+    _ANSI_BG_TOOL_PANEL = "\x1b[48;5;22m"
+    _ANSI_CLEAR_EOL = "\x1b[K"
 
     _RESULT_LINE_PREVIEW_MAX_LENGTH = 12
     _ARGUMENT_VALUE_PREVIEW_LIMIT = 80
@@ -1164,8 +1172,15 @@ class _ToolLoopRenderer:
         header = self._format_pi_call_header(
             call.tool_name, call.arguments_json
         )
-        styled = self._style(header, self._ANSI_DIM + self._ANSI_CYAN)
-        self._error_stream.write("\n " + styled + "\n\n")
+        self._error_stream.write(self._tool_panel_blank_line())
+        self._error_stream.write(
+            self._tool_panel_line(
+                header,
+                style=self._ANSI_BOLD,
+                bold=True,
+            )
+        )
+        self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
     def render_tool_result(
@@ -1179,28 +1194,64 @@ class _ToolLoopRenderer:
         preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
         earlier = len(lines) - len(preview_lines)
         if earlier > 0:
-            elided = self._style(
-                f" ... ({earlier} earlier lines, ctrl+o to expand)",
-                self._ANSI_DIM,
+            self._error_stream.write(
+                self._tool_panel_line(
+                    f"... ({earlier} earlier lines, ctrl+o to expand)",
+                    style=self._ANSI_DIM,
+                )
             )
-            self._error_stream.write(elided + "\n")
             tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
         else:
             tail_preview = preview_lines
         for line in tail_preview:
-            styled_body = self._style(" " + line, self._ANSI_DIM)
-            self._error_stream.write(styled_body + "\n")
-        if is_error:
-            err_tag = self._style(
-                " [error] tool reported a failure", self._ANSI_RED + self._ANSI_DIM
+            self._error_stream.write(
+                self._tool_panel_line(line, style=self._ANSI_DIM)
             )
-            self._error_stream.write(err_tag + "\n")
+        if is_error:
+            self._error_stream.write(
+                self._tool_panel_line(
+                    "[error] tool reported a failure",
+                    style=self._ANSI_RED + self._ANSI_DIM,
+                )
+            )
+        # The panel ends here; `Took {n}s` lives outside the green
+        # background so the timing reads as a footer caption.
         if duration_seconds is not None:
             took = self._style(
                 f" Took {duration_seconds:.1f}s", self._ANSI_DIM
             )
             self._error_stream.write("\n" + took + "\n")
         self._error_stream.flush()
+
+    def _tool_panel_line(
+        self,
+        text: str,
+        *,
+        style: str = "",
+        bold: bool = False,
+    ) -> str:
+        """Render one row of a tool block inside the dark-green panel.
+
+        Pads with a leading space (matches Pi's column gutter), applies
+        the supplied style on top of the panel background, then writes
+        `\\x1b[K` to fill the remainder of the row with the same
+        background before resetting. On non-TTY streams the helper
+        falls back to plain text with the leading space so captured
+        logs stay readable.
+        """
+
+        if not self._enabled:
+            return f" {text}\n"
+        prefix = self._ANSI_BG_TOOL_PANEL
+        weight = self._ANSI_BOLD if bold else ""
+        return f"{prefix}{weight}{style} {text}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
+
+    def _tool_panel_blank_line(self) -> str:
+        """Emit an empty row of the dark-green panel (spacing inside the block)."""
+
+        if not self._enabled:
+            return "\n"
+        return f"{self._ANSI_BG_TOOL_PANEL}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
 
     @staticmethod
     def _read_range_label(data: Mapping[str, Any]) -> str:

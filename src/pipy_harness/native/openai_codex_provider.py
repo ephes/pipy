@@ -14,7 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -48,10 +48,19 @@ OPENAI_CODEX_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 
 @dataclass(frozen=True, slots=True)
 class SseResponse:
-    """Small SSE response boundary used by the Codex subscription endpoint."""
+    """Small SSE response boundary used by the Codex subscription endpoint.
+
+    ``body`` holds the complete decoded SSE stream (used by hermetic
+    test stubs). ``event_stream``, when present, is an iterator of
+    pre-parsed event dicts that yields each event as it arrives over
+    the network. Real adapters set ``event_stream`` so stream/reasoning
+    sinks fire live; test stubs leave it as ``None`` and the parser
+    falls back to splitting ``body`` after the fact.
+    """
 
     status_code: int
     body: str
+    event_stream: Iterator[Mapping[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +128,15 @@ class OpenAICodexCredentialStore(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class UrllibSseHTTPClient:
-    """Standard-library SSE client for Codex Responses calls."""
+    """Standard-library SSE client for Codex Responses calls.
+
+    The client streams events line-by-line from the underlying HTTP
+    response so that the caller's `stream_sink` and `reasoning_sink`
+    fire as deltas arrive over the wire, not after the full body is
+    buffered. The optional `body` field on the returned `SseResponse`
+    is filled progressively for compatibility with tests that read
+    the full string; production code should consume `event_stream`.
+    """
 
     def post_sse(
         self,
@@ -137,16 +154,90 @@ class UrllibSseHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            response = urllib.request.urlopen(  # noqa: S310 - URL is fixed at provider construction
+                request, timeout=timeout_seconds
+            )
         except urllib.error.HTTPError as exc:
             raise OpenAICodexHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
             reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
             raise OpenAICodexTransportError(f"OpenAI Codex request failed: {reason}") from exc
 
-        return SseResponse(status_code=status_code, body=payload.decode("utf-8", errors="replace"))
+        status_code = response.getcode()
+        # Build a streaming iterator that yields parsed events as they
+        # arrive. The iterator also captures the raw decoded body into
+        # `collected_body` so the SseResponse retains an after-the-fact
+        # transcript for tests and diagnostics.
+        collected_body: list[str] = []
+
+        def _events() -> Iterator[Mapping[str, Any]]:
+            try:
+                for event in _iter_sse_stream(response, collected_body):
+                    yield event
+            finally:
+                try:
+                    response.close()
+                except Exception:  # noqa: BLE001 - best-effort cleanup
+                    pass
+
+        return SseResponse(
+            status_code=status_code,
+            body="",  # populated lazily as the stream is consumed
+            event_stream=_events(),
+        )
+
+
+def _iter_sse_stream(
+    response: Any,
+    collected_body: list[str],
+) -> Iterator[Mapping[str, Any]]:
+    """Yield parsed SSE events line-by-line from a urllib response.
+
+    SSE events are separated by blank lines. Each event line either
+    starts with ``data:`` (the payload) or is a comment/keepalive
+    starting with ``:`` (skipped). The function accumulates ``data:``
+    lines per event, joins them, parses JSON, and yields the parsed
+    mapping. Malformed JSON raises ``OpenAICodexResponseParseError``.
+    """
+
+    data_lines: list[str] = []
+    for raw in response:
+        if isinstance(raw, bytes):
+            line = raw.decode("utf-8", errors="replace")
+        else:
+            line = str(raw)
+        collected_body.append(line)
+        # Strip a single trailing newline so the SSE separator check
+        # works on stripped lines.
+        stripped_line = line.rstrip("\r\n")
+        if stripped_line == "":
+            payload = "\n".join(data_lines).strip()
+            data_lines.clear()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise OpenAICodexResponseParseError(
+                    "OpenAI Codex stream included malformed event JSON."
+                ) from exc
+            if isinstance(parsed, Mapping):
+                yield parsed
+            continue
+        if stripped_line.startswith("data:"):
+            data_lines.append(stripped_line.removeprefix("data:").strip())
+    # Flush any trailing event that did not end with a blank line.
+    if data_lines:
+        payload = "\n".join(data_lines).strip()
+        if payload and payload != "[DONE]":
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise OpenAICodexResponseParseError(
+                    "OpenAI Codex stream included malformed event JSON."
+                ) from exc
+            if isinstance(parsed, Mapping):
+                yield parsed
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +549,7 @@ class OpenAICodexResponsesProvider:
                 response.body,
                 stream_sink=stream_sink,
                 reasoning_sink=reasoning_sink,
+                event_stream=response.event_stream,
             )
         except OpenAICodexProviderError as exc:
             return _failed_result(
@@ -764,6 +856,7 @@ def _parse_sse_response(
     *,
     stream_sink: StreamChunkSink | None = None,
     reasoning_sink: StreamChunkSink | None = None,
+    event_stream: Iterator[Mapping[str, Any]] | None = None,
 ) -> ParsedOpenAICodexResponse:
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
@@ -771,7 +864,10 @@ def _parse_sse_response(
     function_call_items: dict[str, _StreamingFunctionCall] = {}
     next_call_order = 0
 
-    for event in _iter_sse_events(body):
+    events: Iterator[Mapping[str, Any]] = (
+        event_stream if event_stream is not None else iter(_iter_sse_events(body))
+    )
+    for event in events:
         event_type = event.get("type")
         if event_type == "response.reasoning_summary_text.delta":
             delta = event.get("delta")
