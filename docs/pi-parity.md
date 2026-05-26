@@ -52,28 +52,48 @@ Status labels are intentionally coarse:
 | Custom slash commands | Discovery implemented | `pipy_harness.native.custom_commands` discovers workspace/global `.pipy/commands/*.md` resources with the same byte caps, metadata projection, and symlink containment as skills/templates. Dispatcher wiring for invoking `/<name>` remains deferred. |
 | Themes | Registry implemented | `pipy_harness.native.themes` defines `default`, `quiet`, and plain `mono` themes as pure data. `resolve_theme(..., tty=False)` returns `mono` so captured streams stay plain. Runtime startup-chrome integration remains deferred. |
 | Streaming provider output | Implemented | The [Streaming Output Parity Track](#streaming-output-parity-track) closed parity-criterion row C14. `ProviderPort.complete(..., stream_sink=...)` exposes an optional synchronous chunk sink; `OpenAICodexResponsesProvider` forwards each parsed `response.output_text.delta` event through it; `pipy run --stream` routes those chunks to stdout (text mode) or stderr (`--native-output json`). Other providers stay buffered. |
+| Image/binary attachment loading | Loader implemented | `pipy_harness.native.image_attachment` ships an `ImageAttachment` value object (workspace-relative path, sha256, byte length, MIME type) plus a bounded `load_image_attachment(...)` factory and a `read_image_attachment_bytes(...)` helper. `ProviderRequest` carries an optional `image_attachments` tuple. Live provider-side serialization to a real vision adapter is a follow-up; the helper closes parity-criterion row D8. |
+| Session compaction | Helper implemented | `pipy_harness.native.session_compaction.compact_loop_messages(...)` runs one bounded provider call to summarize older `LoopMessage` turns into a single synthetic `AssistantMessage`, returns a `CompactionResult` with archive-safe counters only, and is an identity check below the configurable threshold. Runtime wiring into the tool-loop session remains a follow-up; the helper closes parity-criterion row E2. |
+| Session branching/forking | Helper implemented | `pipy_harness.native.session_branching.branch_from(...)` (and the `fork_from(...)` alias) returns a `SessionBranchReference` carrying only safe parent identifiers plus a freshly minted child id. No conversation body is copied. Recorder integration that writes a `session.branched_from` lifecycle event remains a follow-up; the helper closes parity-criterion row E3. |
+| SDK / RPC embedding | SDK module implemented | `pipy_harness.sdk` exposes `make_native_run_request(...)`, `run_native(...)`, and the public value objects (`RunRequest`, `RunResult`, `HarnessStatus`, `CapturePolicy`, `HarnessRunner`, `ProviderPort`, `StreamChunkSink`) for in-process embedding. RPC/network transports remain explicitly deferred; the SDK module closes parity-criterion row E7. |
 
 ## Still To Slopfork
 
-The main missing Pi-class surfaces are intentionally deferred until the current
-metadata and boundary invariants are stable:
+The locked 50-feature parity criterion (see `docs/parity-criterion.md`) is now
+49/50 with 9 big features green; the only red row is B7 (`bash`), which is
+deliberately deferred behind a real process/filesystem sandbox. The
+boundaries below remain Pi-class surfaces that pipy has not yet closed, in
+many cases because the helper landed but the runtime wiring is intentionally
+the next slice rather than this one:
 
+- A real production-registered `bash` tool. The standalone
+  `pipy_harness.native.tools.bash.BashTool` helper exists with bounded output,
+  a timeout, a minimal environment, and `.git` preflight checks, but it is
+  NOT in `production_tool_registry()`. Registering it requires a real
+  process/filesystem sandbox that preserves secret isolation and `.git`
+  default-deny against shell-quoting, glob, and command-substitution
+  bypasses. See `docs/parity-criterion.md` for the documented bar.
+- Live runtime wiring for the helpers that closed C14, D8, E2, E3, and E7
+  (streaming in `--repl-mode no-tool` and `--repl-mode tool-loop`, real
+  vision-provider serialization for `image_attachments`, tool-loop session
+  invocation of `compact_loop_messages`, recorder integration that writes
+  `session.branched_from` lifecycle events). The value-object boundaries
+  ship today; the live wiring is the next named track.
 - Full interactive terminal UI with editor, persistent footer,
   model/status controls, overlays, selectors, and resize handling beyond the
   implemented narrow prompt-toolkit input-adapter, slash-command completion,
   explicit file/path completion, and multiline entry boundaries.
 - Automatic file-content reads from `@file` references, pasted images,
   persistent history, and broader keyboard shortcut handling.
-- Multiple file/context reads per session and broader context/resource loading.
+- Multiple file/context reads per session and broader context/resource
+  loading.
 - Richer resource loading beyond AGENTS/CLAUDE-style instruction
   discovery and the current skills, prompt-template, and custom-command
   discovery helpers (extensions, package loading, and runtime slash-command
-  loading).
-  The instruction-discovery slice itself shipped through the
-  [Workspace Context Loading Parity Track](#workspace-context-loading-parity-track);
-  these other resource types remain deferred for later parity work.
-- Live session resume, branch/tree navigation, fork, compaction, and share.
-- RPC mode and SDK embedding surfaces.
+  loading for skills/templates/custom commands).
+- Network-transported RPC (the in-process Python SDK at
+  `pipy_harness.sdk` closes parity-criterion row E7; a long-running daemon,
+  socket transport, or wire protocol remains explicitly deferred).
 - Provider registry and broad provider/model catalog.
 - Cost/context/token footer behavior beyond safe usage counters.
 - Non-allowlisted verification.

@@ -773,11 +773,11 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Choose the next pipy-native direction after the Streaming Output Parity Track"
+        "### Choose the next pipy-native direction after the 49/50 parity closure"
         in next_slice
     )
     assert (
-        "pick the next reviewable boundary now that the"
+        "pick the next reviewable boundary now that the locked"
         in compact_next_slice
     )
     assert (
@@ -788,6 +788,8 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         "are all complete"
         in compact_next_slice
     )
+    assert "B7" in next_slice
+    assert "shell-sandbox investigation" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

@@ -2113,42 +2113,61 @@ it lands. They are not later slices of this track:
 
 ## Next Slice
 
-### Choose the next pipy-native direction after the Streaming Output Parity Track
+### Choose the next pipy-native direction after the 49/50 parity closure
 
-Goal: pick the next reviewable boundary now that the
-[Streaming Output Parity Track](#streaming-output-parity-track)
-has shipped end-to-end. Slice 4 closed parity-criterion row C14
-(`✅`) and raised the score to 45/50 (90%) with 8 "big" features
-green. The remaining unchecked rows are D8 image attachments, E2
-session compaction, E3 session branching, E7 RPC/SDK, and B7 bash
-(deferred behind a real shell sandbox). The implementation track
-for the next slice is intentionally not selected here; the goal is
-to use summary-safe session reflection and the current parity gaps
-to choose the next small `pipy-native` boundary.
+Goal: pick the next reviewable boundary now that the locked
+50-feature criterion in `docs/parity-criterion.md` is 49/50 with 9
+"big" features green. Five rows landed in the closure push: C14
+(streaming output, via the
+[Streaming Output Parity Track](#streaming-output-parity-track)),
+D8 (image attachment loader and `ProviderRequest` plumbing), E2
+(`compact_loop_messages` helper), E3 (`branch_from` /
+`fork_from` helpers), and E7 (`pipy_harness.sdk` SDK module). The
+only remaining ❌ is B7 (`bash`), which is deliberately deferred
+behind a real process/filesystem sandbox per
+`docs/parity-criterion.md`. The implementation track for the next
+slice is intentionally not selected here; the goal is to use
+summary-safe session reflection and the current state of the new
+helpers to choose the next small `pipy-native` boundary.
 
 Implementation focus:
 
 - inspect summary-safe archive signals with
   `pipy-session reflect --json` and targeted `pipy-session search`
   queries before picking a direction
-- compare next-boundary candidates against the remaining parity
-  rows: D8 image attachments, E2 session compaction, E3 session
-  branching, E7 RPC/SDK
+- compare next-boundary candidates against the now-landed value
+  objects whose live runtime wiring is the natural follow-up:
+  - streaming text deltas in `--repl-mode no-tool` and
+    `--repl-mode tool-loop` (today `--stream` is wired only for
+    `pipy run`)
+  - real vision-provider serialization for
+    `ProviderRequest.image_attachments` through one tool-capable
+    adapter (today the loader exists but no provider sends bytes)
+  - tool-loop invocation of `compact_loop_messages` when the
+    `LoopMessage` envelope grows past a configurable threshold
+  - recorder integration that writes a `session.branched_from`
+    lifecycle event from `branch_from(...)`
+  - the B7 `bash` shell-sandbox investigation (the only remaining
+    red row in the locked criterion; production registration
+    stays blocked until the sandbox lands with safety tests and
+    docs)
 - document the selected next slice in this backlog and, when
   architectural behavior changes, in `docs/harness-spec.md`
 - keep metadata-first archive contracts, `.git` default-deny
   posture, `/verify just-check` scope, the no-tool REPL, the
   tool-loop REPL, the opt-in `--archive-transcript` sidecar, the
   existing slash commands, the workspace-context system-prompt
-  wiring, and the newly added `--stream` boundary unchanged in
-  this planning slice
+  wiring, the `--stream` flag, the image-attachment loader, the
+  compaction helper, the branching helper, and the SDK module
+  unchanged in this planning slice
 
 The Tool-Loop Parity Track, the OpenAI Responses + OpenAI Codex
 Tool-Call Parity Track, the Workspace Context Loading Parity
-Track, and the Streaming Output Parity Track are all complete;
-subsequent slices may extend streaming to the REPL modes, broaden
-multimodal input support, add session compaction, or branch into
-other parity work.
+Track, and the Streaming Output Parity Track are all complete.
+The remaining parity surface is live runtime wiring for the
+helpers above, plus the deferred shell-sandbox investigation; the
+named track for the next slice is intentionally chosen by the
+review/reflection step, not pre-committed here.
 
 ## Near Term
 

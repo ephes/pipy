@@ -3296,9 +3296,16 @@ after it lands. They are not later slices of this track:
   exists, but production model-loop registration is deferred until a real shell
   sandbox preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
-- Live session resume, branch/fork navigation, and compaction. A metadata-only
-  resume reader shipped later.
-- RPC mode and SDK embedding.
+- Live session resume, branch/fork navigation, and compaction. A
+  metadata-only resume reader, a metadata-only branching helper
+  (`session_branching.branch_from`), and an LLM-summarize compaction
+  helper (`session_compaction.compact_loop_messages`) all shipped
+  later; live runtime wiring for resume prompt seeding, recorder
+  `session.branched_from` events, and tool-loop invocation of the
+  compaction pass remain follow-up slices.
+- RPC mode and SDK embedding. The in-process Python SDK at
+  `pipy_harness.sdk` shipped later (closing parity-criterion row
+  E7); a network/wire-protocol RPC daemon remains deferred.
 - Extensions, package loading, theme integration, and slash-command loading for
   skills and prompt templates. Skills, prompt-template discovery, custom-command
   discovery, and a pure theme registry shipped later.
@@ -3512,7 +3519,11 @@ after it lands. They are not later slices of this track:
   resource type introduced by this track; skills, prompt-template discovery,
   custom-command discovery, and a pure theme registry shipped later.
 - Live session resume, branch/fork navigation, compaction, and share. A
-  metadata-only resume reader and metadata-only export shipped later.
+  metadata-only resume reader, a metadata-only branching helper, an
+  LLM-summarize compaction helper, and a metadata-only export shipped
+  later; live runtime wiring for resume prompt seeding, recorder
+  `session.branched_from` events, and tool-loop invocation of the
+  compaction pass remain follow-up slices.
 - Full TUI, persistent history, and resize handling.
 - Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a
@@ -3628,11 +3639,24 @@ For the current task-slice backlog and next-step ordering, see
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search.
 - Repo maps or workspace summaries.
-- Permission policy and sandbox profiles.
+- Permission policy and sandbox profiles. A real process/filesystem
+  sandbox is the prerequisite for production registration of
+  `pipy_harness.native.tools.bash.BashTool` — until that lands, the
+  standalone helper remains unregistered and parity-criterion row B7
+  stays red.
 - Interactive TUI.
-- RPC mode.
+- Network/wire-protocol RPC daemon. The in-process Python SDK at
+  `pipy_harness.sdk` closes parity-criterion row E7; a long-running
+  server, socket transport, or external RPC contract remains
+  deferred.
 - Multi-agent task delegation.
 - Long-running dev server.
+- Live runtime wiring for the helpers that landed in the 49/50 parity
+  closure: streaming text deltas in `--repl-mode no-tool` and
+  `--repl-mode tool-loop`, real vision-provider serialization for
+  `ProviderRequest.image_attachments`, tool-loop invocation of
+  `compact_loop_messages`, and recorder integration that writes a
+  `session.branched_from` lifecycle event from `branch_from(...)`.
 
 ## Open Questions
 
