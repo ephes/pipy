@@ -61,8 +61,8 @@ from pathlib import Path
 INSTRUCTION_CANDIDATE_FILENAMES: tuple[str, ...] = (
     "AGENTS.md",
     "AGENTS.MD",
-    "CLAUDE.md",
-    "CLAUDE.MD",
+    "pipy.md",
+    "PIPY.md",
 )
 
 DEFAULT_PER_FILE_BYTE_CAP: int = 64 * 1024

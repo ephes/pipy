@@ -110,7 +110,7 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
     """
 
     (tmp_path / "AGENTS.md").write_text("safe\n", encoding="utf-8")
-    skills_root = tmp_path / ".claude" / "skills"
+    skills_root = tmp_path / ".pipy" / "skills"
     (skills_root / "my-skill").mkdir(parents=True)
     captured = _decode_capture(
         _run_pty(

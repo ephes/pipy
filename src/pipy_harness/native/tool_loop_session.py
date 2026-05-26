@@ -468,7 +468,11 @@ class NativeToolReplSession:
                 usage_accumulator=usage_accumulator,
             )
             try:
-                line = repl_input.read_line("> ", footer=footer_text)
+                # Pi's input cursor has no leading `> ` glyph; the
+                # separator pair above and below the input area is the
+                # visual frame instead. Pass an empty prompt so the
+                # readline / slash-menu adapter renders just the cursor.
+                line = repl_input.read_line("", footer=footer_text)
             except KeyboardInterrupt:
                 print(file=error_stream)
                 break

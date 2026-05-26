@@ -71,11 +71,11 @@ def _discover(
 # -- candidate precedence ----------------------------------------------------
 
 
-def test_per_directory_precedence_AGENTS_md_wins_over_CLAUDE_md(
+def test_per_directory_precedence_AGENTS_md_wins_over_pipy_md(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "AGENTS.md").write_text("from-AGENTS.md\n", encoding="utf-8")
-    (tmp_path / "CLAUDE.md").write_text("from-CLAUDE.md\n", encoding="utf-8")
+    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
 
     result = _discover(tmp_path)
 
@@ -83,7 +83,7 @@ def test_per_directory_precedence_AGENTS_md_wins_over_CLAUDE_md(
     only = result.instructions[0]
     assert only.path_label == "AGENTS.md"
     assert "from-AGENTS.md" in only.content
-    assert "from-CLAUDE.md" not in only.content
+    assert "from-pipy.md" not in only.content
 
 
 def test_per_directory_precedence_case_variants_when_filesystem_is_case_sensitive(
@@ -92,8 +92,8 @@ def test_per_directory_precedence_case_variants_when_filesystem_is_case_sensitiv
     _case_sensitive_only(tmp_path)
     (tmp_path / "AGENTS.md").write_text("from-AGENTS.md\n", encoding="utf-8")
     (tmp_path / "AGENTS.MD").write_text("from-AGENTS.MD\n", encoding="utf-8")
-    (tmp_path / "CLAUDE.md").write_text("from-CLAUDE.md\n", encoding="utf-8")
-    (tmp_path / "CLAUDE.MD").write_text("from-CLAUDE.MD\n", encoding="utf-8")
+    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
+    (tmp_path / "PIPY.md").write_text("from-PIPY.md\n", encoding="utf-8")
 
     result = _discover(tmp_path)
 
@@ -102,7 +102,7 @@ def test_per_directory_precedence_case_variants_when_filesystem_is_case_sensitiv
     assert only.path_label == "AGENTS.md"
     assert "from-AGENTS.md" in only.content
     assert "from-AGENTS.MD" not in only.content
-    assert "from-CLAUDE.md" not in only.content
+    assert "from-pipy.md" not in only.content
 
 
 def test_per_directory_precedence_falls_through_in_declared_order(
@@ -112,14 +112,14 @@ def test_per_directory_precedence_falls_through_in_declared_order(
     expected_payloads = {
         "AGENTS.md": "from-AGENTS.md\n",
         "AGENTS.MD": "from-AGENTS.MD\n",
-        "CLAUDE.md": "from-CLAUDE.md\n",
-        "CLAUDE.MD": "from-CLAUDE.MD\n",
+        "pipy.md": "from-pipy.md\n",
+        "PIPY.md": "from-PIPY.md\n",
     }
     assert INSTRUCTION_CANDIDATE_FILENAMES == (
         "AGENTS.md",
         "AGENTS.MD",
-        "CLAUDE.md",
-        "CLAUDE.MD",
+        "pipy.md",
+        "PIPY.md",
     )
 
     for index, candidate in enumerate(INSTRUCTION_CANDIDATE_FILENAMES):
@@ -132,14 +132,26 @@ def test_per_directory_precedence_falls_through_in_declared_order(
             (tmp_path / present).unlink()
 
 
-def test_per_directory_falls_through_AGENTS_to_CLAUDE_on_any_filesystem(
+def test_per_directory_falls_through_AGENTS_to_pipy_md_on_any_filesystem(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "CLAUDE.md").write_text("from-CLAUDE.md\n", encoding="utf-8")
+    (tmp_path / "pipy.md").write_text("from-pipy.md\n", encoding="utf-8")
     result = _discover(tmp_path)
     assert len(result.instructions) == 1
-    assert result.instructions[0].path_label == "CLAUDE.md"
-    assert "from-CLAUDE.md" in result.instructions[0].content
+    assert result.instructions[0].path_label == "pipy.md"
+    assert "from-pipy.md" in result.instructions[0].content
+
+
+def test_claude_md_is_ignored_so_pipy_does_not_leak_neighbor_config(
+    tmp_path: Path,
+) -> None:
+    """Pipy must not load Claude Code's CLAUDE.md into its system prompt."""
+
+    (tmp_path / "CLAUDE.md").write_text("claude-only\n", encoding="utf-8")
+    result = _discover(tmp_path)
+    labels = [entry.path_label for entry in result.instructions]
+    assert "CLAUDE.md" not in labels
+    assert "claude-only" not in "".join(entry.content for entry in result.instructions)
 
 
 # -- parent walk ordering ----------------------------------------------------
@@ -248,11 +260,11 @@ def test_symlink_falls_through_to_next_safe_candidate(tmp_path: Path) -> None:
     secret = outside / "secrets.md"
     secret.write_text("never load me\n", encoding="utf-8")
     (workspace / "AGENTS.md").symlink_to(secret)
-    (workspace / "CLAUDE.md").write_text("legitimate\n", encoding="utf-8")
+    (workspace / "pipy.md").write_text("legitimate\n", encoding="utf-8")
 
     result = _discover(workspace)
     workspace_entry = next(
-        entry for entry in result.instructions if entry.path_label == "CLAUDE.md"
+        entry for entry in result.instructions if entry.path_label == "pipy.md"
     )
     assert workspace_entry.content.strip() == "legitimate"
     assert all(
@@ -448,13 +460,13 @@ def test_path_label_ancestor_dotdot_relative(tmp_path: Path) -> None:
     parent = tmp_path / "parent"
     workspace = parent / "ws"
     workspace.mkdir(parents=True)
-    (parent / "CLAUDE.md").write_text("parent-claude\n", encoding="utf-8")
+    (parent / "pipy.md").write_text("parent-pipy\n", encoding="utf-8")
 
     result = _discover(workspace)
     parent_entry = next(
-        e for e in result.instructions if e.content.strip() == "parent-claude"
+        e for e in result.instructions if e.content.strip() == "parent-pipy"
     )
-    assert parent_entry.path_label == "../CLAUDE.md"
+    assert parent_entry.path_label == "../pipy.md"
 
 
 def test_path_label_global_prefix(tmp_path: Path) -> None:

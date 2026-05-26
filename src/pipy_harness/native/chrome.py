@@ -25,16 +25,21 @@ from pathlib import Path
 from typing import Iterable, TextIO
 
 _STARTUP_CHROME_WIDTH_FALLBACK = 88
+# Pipy is a separate product from Claude Code, Codex, and the other agent
+# CLIs the workspace may also be set up for. The chrome listing only shows
+# files pipy actually loads (workspace `AGENTS.md` + pipy-owned home),
+# never `~/.claude/CLAUDE.md` or `~/.codex/...` which would conflate
+# pipy's product surface with neighbor tools' configs.
 _STARTUP_CHROME_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
-    "context": ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"),
-    "skills": (".claude/skills", ".codex/skills", ".agents/skills"),
-    "prompts": (".claude/commands", "prompts", ".agents/prompts"),
-    "extensions": (".claude/extensions", ".agents/plugins", ".codex/plugins"),
+    "context": ("AGENTS.md", "pipy.md", ".pipy/AGENTS.md"),
+    "skills": (".pipy/skills",),
+    "prompts": (".pipy/commands",),
+    "extensions": (".pipy/plugins",),
 }
 _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
-    "context": ("~/.claude/CLAUDE.md", "~/AGENTS.md", "~/.pipy/AGENTS.md"),
-    "skills": ("~/.claude/skills", "~/.codex/skills", "~/.pipy/skills"),
-    "prompts": ("~/.claude/commands", "~/.pipy/commands"),
+    "context": ("~/.pipy/AGENTS.md", "~/AGENTS.md"),
+    "skills": ("~/.pipy/skills",),
+    "prompts": ("~/.pipy/commands",),
     "extensions": ("~/.pipy/plugins",),
 }
 

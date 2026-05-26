@@ -105,14 +105,14 @@ def test_discover_loaded_resource_names_returns_local_and_global(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
-    local_skill = workspace / ".claude" / "skills" / "lint-fix"
+    local_skill = workspace / ".pipy" / "skills" / "lint-fix"
     local_skill.mkdir(parents=True)
 
     fake_home = tmp_path / "home"
-    global_skill = fake_home / ".claude" / "skills" / "review-handoff"
+    global_skill = fake_home / ".pipy" / "skills" / "review-handoff"
     global_skill.mkdir(parents=True)
     # Hidden dotfile dirs must be filtered out.
-    (fake_home / ".claude" / "skills" / ".system").mkdir(parents=True)
+    (fake_home / ".pipy" / "skills" / ".system").mkdir(parents=True)
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
     context_names = chrome.discover_loaded_resource_names(workspace, "context")
@@ -124,11 +124,36 @@ def test_discover_loaded_resource_names_returns_local_and_global(
     assert ".system" not in skill_names
 
 
+def test_discover_does_not_leak_neighbor_tool_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pipy is a separate product — Claude/Codex/Pi configs must not leak."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "CLAUDE.md").write_text("claude-only", encoding="utf-8")
+    (workspace / ".claude" / "skills" / "claude-skill").mkdir(parents=True)
+    (workspace / ".codex" / "skills" / "codex-skill").mkdir(parents=True)
+
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude" / "CLAUDE.md").parent.mkdir(parents=True)
+    (fake_home / ".claude" / "CLAUDE.md").write_text("claude-home", encoding="utf-8")
+    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+
+    context_names = chrome.discover_loaded_resource_names(workspace, "context")
+    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
+
+    assert "CLAUDE.md" not in context_names
+    assert "~/.claude/CLAUDE.md" not in context_names
+    assert "claude-skill" not in skill_names
+    assert "codex-skill" not in skill_names
+
+
 def test_print_startup_chrome_renders_context_and_skills(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_home = tmp_path / "home"
-    (fake_home / ".claude" / "skills" / "alpha").mkdir(parents=True)
+    (fake_home / ".pipy" / "skills" / "alpha").mkdir(parents=True)
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
     workspace = tmp_path / "workspace"
@@ -140,7 +165,6 @@ def test_print_startup_chrome_renders_context_and_skills(
     output = stream.getvalue()
 
     assert "pipy v" in output
-    assert "escape interrupt" in output
     assert "escape interrupt" in output
     assert "[Context]" in output
     assert "AGENTS.md" in output
