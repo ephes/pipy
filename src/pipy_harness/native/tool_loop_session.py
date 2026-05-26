@@ -943,13 +943,16 @@ class _ToolLoopRenderer:
     _ANSI_RED = "\x1b[31m"
     _ANSI_CYAN = "\x1b[36m"
     _ANSI_RESET = "\x1b[0m"
-    # Pi's `toolPendingBg` theme uses a muted dark-green panel behind
-    # each tool block. We render the same intent through a 256-color
-    # background (color index 22 ≈ dark green) plus `\x1b[K` to fill
-    # the rest of the row with the same background. Truecolor terminals
-    # could pin an exact RGB, but the 256-color fallback is portable
-    # and reproduces Pi's look closely enough in real terminals.
-    _ANSI_BG_TOOL_PANEL = "\x1b[48;5;22m"
+    # Pi's `toolPendingBg` theme uses a *very* muted dark-olive panel
+    # behind each tool block — almost a gray with a hint of green, not
+    # a saturated forest green. We pin the same intent with a truecolor
+    # RGB triplet (`\x1b[48;2;28;42;30m`) on terminals that advertise
+    # 24-bit color, falling back to 256-color index 235 (a near-black
+    # gray) when truecolor is unavailable. `\x1b[K` fills the rest of
+    # the row with the same background so each panel row reads as a
+    # contiguous strip.
+    _ANSI_BG_TOOL_PANEL_TRUECOLOR = "\x1b[48;2;28;42;30m"
+    _ANSI_BG_TOOL_PANEL_256 = "\x1b[48;5;235m"
     _ANSI_CLEAR_EOL = "\x1b[K"
 
     _RESULT_LINE_PREVIEW_MAX_LENGTH = 12
@@ -964,6 +967,11 @@ class _ToolLoopRenderer:
         self._output_stream = output_stream
         self._error_stream = error_stream
         self._enabled = self._compute_enabled(error_stream)
+        self._tool_panel_bg = (
+            self._ANSI_BG_TOOL_PANEL_TRUECOLOR
+            if self._supports_truecolor()
+            else self._ANSI_BG_TOOL_PANEL_256
+        )
         self._stream_active = False
         self._stream_emitted_any = False
         self._streamed_any = False
@@ -981,6 +989,24 @@ class _ToolLoopRenderer:
         if term == "dumb":
             return False
         return bool(getattr(stream, "isatty", lambda: False)())
+
+    @staticmethod
+    def _supports_truecolor() -> bool:
+        """Return True when the active terminal advertises 24-bit color.
+
+        Truecolor lets us pin Pi's exact muted-olive panel RGB. Falls
+        back to a 256-color near-black on TERM strings that only carry
+        eight or sixteen color slots. We treat `xterm-256color` and any
+        explicit `COLORTERM=truecolor`/`24bit` as truecolor-capable.
+        """
+
+        colorterm = os.environ.get("COLORTERM", "").lower()
+        if colorterm in {"truecolor", "24bit"}:
+            return True
+        term = os.environ.get("TERM", "").lower()
+        if "256color" in term or "direct" in term:
+            return True
+        return False
 
     @property
     def streamed_any(self) -> bool:
@@ -1214,13 +1240,19 @@ class _ToolLoopRenderer:
                     style=self._ANSI_RED + self._ANSI_DIM,
                 )
             )
-        # The panel ends here; `Took {n}s` lives outside the green
-        # background so the timing reads as a footer caption.
+        # Pi keeps the `Took {n}s` caption inside the panel so the
+        # block reads as one contiguous strip. Emit a blank panel row
+        # for breathing room, then the duration, then a final blank
+        # panel row before the next block starts.
         if duration_seconds is not None:
-            took = self._style(
-                f" Took {duration_seconds:.1f}s", self._ANSI_DIM
+            self._error_stream.write(self._tool_panel_blank_line())
+            self._error_stream.write(
+                self._tool_panel_line(
+                    f"Took {duration_seconds:.1f}s",
+                    style=self._ANSI_DIM,
+                )
             )
-            self._error_stream.write("\n" + took + "\n")
+        self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
     def _tool_panel_line(
@@ -1242,7 +1274,7 @@ class _ToolLoopRenderer:
 
         if not self._enabled:
             return f" {text}\n"
-        prefix = self._ANSI_BG_TOOL_PANEL
+        prefix = self._tool_panel_bg
         weight = self._ANSI_BOLD if bold else ""
         return f"{prefix}{weight}{style} {text}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
 
@@ -1251,7 +1283,7 @@ class _ToolLoopRenderer:
 
         if not self._enabled:
             return "\n"
-        return f"{self._ANSI_BG_TOOL_PANEL}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
+        return f"{self._tool_panel_bg}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
 
     @staticmethod
     def _read_range_label(data: Mapping[str, Any]) -> str:
