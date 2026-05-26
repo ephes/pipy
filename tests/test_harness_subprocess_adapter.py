@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.adapters.subprocess import SubprocessAdapter
-from pipy_harness.capture import CapturePolicy, collect_changed_file_paths
+from pipy_harness.capture import CapturePolicy, collect_changed_file_paths, redacted_argv
 from pipy_harness.models import RunRequest
 
 
@@ -72,6 +72,30 @@ def test_collect_changed_file_paths_reads_git_porcelain_paths_only(tmp_path):
     changed.write_text("content\n", encoding="utf-8")
 
     assert collect_changed_file_paths(tmp_path) == ("changed.txt",)
+
+
+def test_collect_changed_file_paths_redacts_path_embedded_secret_values(tmp_path):
+    _run_git(tmp_path, "init")
+    safe = tmp_path / "auth_token.py"
+    secret = tmp_path / "password=hunter2.txt"
+    safe.write_text("content\n", encoding="utf-8")
+    secret.write_text("content\n", encoding="utf-8")
+
+    assert collect_changed_file_paths(tmp_path) == ("[REDACTED]", "auth_token.py")
+
+
+def test_redacted_argv_redacts_hyphenated_api_key() -> None:
+    assert redacted_argv(["tool", "--api-key", "sk-test", "--model", "gpt-5"]) == [
+        "tool",
+        "--api-key",
+        "[REDACTED]",
+        "--model",
+        "gpt-5",
+    ]
+    assert redacted_argv(["tool", "--api-key=sk-test"]) == [
+        "tool",
+        "--api-key=[REDACTED]",
+    ]
 
 
 def test_subprocess_adapter_terminates_child_on_keyboard_interrupt(tmp_path, monkeypatch):

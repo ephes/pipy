@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import stat
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,32 @@ def test_transcript_sink_writes_jsonl_lines_with_sensitive_marker(tmp_path):
     assert first["type"] == "user"
     assert first["sensitive_marker"] == SENSITIVE_MARKER
     assert first["payload"]["content"] == "hello"
+    mode = stat.S_IMODE(sink.path.stat().st_mode)
+    assert mode == 0o600
+
+
+def test_transcript_sink_rejects_path_traversal_transcript_id(tmp_path):
+    sink = TranscriptSink(directory=tmp_path, transcript_id="../outside")
+
+    with pytest.raises(ValueError, match="filename-safe"):
+        _ = sink.path
+
+
+def test_transcript_sink_refuses_preexisting_symlink(tmp_path):
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("", encoding="utf-8")
+    link = tmp_path / "fixed.jsonl"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    sink = TranscriptSink(directory=tmp_path, transcript_id="fixed")
+
+    with pytest.raises(FileExistsError):
+        sink.append("session", {"x": 1})
+
+    assert outside.read_text(encoding="utf-8") == ""
 
 
 def test_transcript_sink_rejects_unknown_event_type(tmp_path):

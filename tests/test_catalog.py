@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from pipy_session import (
     SessionReflectionItem,
     append_event,
@@ -395,6 +397,60 @@ def test_list_finalized_sessions_returns_archive_records_newest_first(tmp_path):
     assert records[1].capture == "complete"
     assert records[1].markdown_path == older.markdown_path
     assert records[1].has_summary is True
+
+
+def test_list_search_inspect_ignore_symlinked_markdown_summary(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="symlink-summary",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    record = finalize_session(active, root=tmp_path)
+    outside_summary = tmp_path / "outside-summary.md"
+    outside_summary.write_text("# Summary\n\noutside-secret-token\n", encoding="utf-8")
+    summary_link = record.jsonl_path.with_suffix(".md")
+    try:
+        summary_link.symlink_to(outside_summary)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    records = list_finalized_sessions(root=tmp_path)
+    inspection = inspect_finalized_session(record.jsonl_path, root=tmp_path)
+    search_results = search_finalized_sessions("outside-secret-token", root=tmp_path)
+    verification = verify_session_archive(root=tmp_path)
+
+    assert len(records) == 1
+    assert records[0].markdown_path is None
+    assert records[0].has_summary is False
+    assert inspection.markdown_path is None
+    assert inspection.summary_text is None
+    assert search_results == []
+    issue = issue_by_path_and_kind(verification.issues, summary_link, "archive-symlink")
+    assert issue.severity == "error"
+
+
+def test_list_finalized_sessions_ignores_symlinked_jsonl_records(tmp_path):
+    archive = tmp_path / "pipy" / "2026" / "04"
+    archive.mkdir(parents=True)
+    outside_record = tmp_path / "outside.jsonl"
+    outside_record.write_text(
+        '{"agent":"codex","machine":"studio","slug":"outside","type":"session.started"}\n',
+        encoding="utf-8",
+    )
+    record_link = archive / "2026-04-30T133000Z-studio-codex-outside.jsonl"
+    try:
+        record_link.symlink_to(outside_record)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    records = list_finalized_sessions(root=tmp_path)
+    verification = verify_session_archive(root=tmp_path)
+
+    assert records == []
+    issue = issue_by_path_and_kind(verification.issues, record_link, "archive-symlink")
+    assert issue.severity == "error"
 
 
 def test_list_finalized_sessions_sorts_by_filename_stamp_when_timestamp_is_missing(tmp_path):

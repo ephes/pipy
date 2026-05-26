@@ -278,6 +278,29 @@ def test_resolve_active_path_rejects_absolute_non_active_path(tmp_path):
         resolve_active_path(outside, root=tmp_path)
 
 
+def test_resolve_active_path_rejects_symlinked_active_record(tmp_path):
+    active = init_session(
+        agent="codex",
+        slug="symlink-active",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+    link = active.with_name("2026-04-30T133001Z-studio-codex-symlink-link.jsonl")
+    try:
+        link.symlink_to(active)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(FinalizedRecordError, match="symlinked active session"):
+        resolve_active_path(link, root=tmp_path)
+    with pytest.raises(FinalizedRecordError, match="symlinked active session"):
+        finalize_session(link, root=tmp_path)
+
+    assert active.exists()
+    assert link.is_symlink()
+
+
 def test_finalize_rejects_malformed_active_filename(tmp_path):
     active_dir = tmp_path / ".in-progress" / "pipy"
     active_dir.mkdir(parents=True)

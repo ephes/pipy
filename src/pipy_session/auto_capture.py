@@ -301,7 +301,11 @@ def stop_auto_capture(
     record = finalize_session(
         active_path,
         root=root,
-        summary_text=summary if summary is not None else _default_summary(event_agent, metadata),
+        summary_text=(
+            _sanitize_summary_lines(summary)
+            if summary is not None
+            else _default_summary(event_agent, metadata)
+        ),
     )
     if state_path is not None and state_path.exists():
         state_path.unlink()
@@ -623,7 +627,11 @@ def _sanitize_value(value: Any) -> Any:
 
 def _looks_sensitive(value: str) -> bool:
     lowered = value.lower()
-    return any(marker in lowered for marker in ("api_key", "apikey", "secret", "token", "password", "credential"))
+    normalized = lowered.replace("-", "_")
+    return any(
+        marker in normalized
+        for marker in ("api_key", "apikey", "secret", "token", "password", "credential")
+    )
 
 
 def _redacted_argv(command: Sequence[str]) -> list[str]:
@@ -661,7 +669,8 @@ def _default_summary(agent: str | None, metadata: Mapping[str, Any] | None = Non
     agent_name = agent or "agent"
     reason = ""
     if metadata and metadata.get("reason"):
-        reason = f"\n\nEnd reason: {metadata['reason']}."
+        safe_reason = str(_sanitize_value(str(metadata["reason"])))
+        reason = f"\n\nEnd reason: {safe_reason}."
     return (
         "# Summary\n\n"
         f"Automatic {agent_name} capture finalized.\n\n"

@@ -86,6 +86,52 @@ def test_auto_capture_start_event_stop_finalizes_partial_record_and_removes_stat
     assert "partial" in record.markdown_path.read_text(encoding="utf-8")
 
 
+def test_auto_capture_default_summary_redacts_sensitive_reason(tmp_path):
+    start_auto_capture(
+        agent="codex",
+        slug="auto-reason",
+        platform_session_id="codex-secret-reason",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    record = stop_auto_capture(
+        root=tmp_path,
+        agent="codex",
+        platform_session_id="codex-secret-reason",
+        metadata={"reason": "failed with password=hunter2"},
+        now=FIXED_NOW,
+    )
+
+    markdown_text = record.markdown_path.read_text(encoding="utf-8")
+    assert "End reason: [REDACTED]." in markdown_text
+    assert "hunter2" not in markdown_text
+
+
+def test_auto_capture_explicit_summary_redacts_sensitive_lines(tmp_path):
+    start_auto_capture(
+        agent="codex",
+        slug="auto-summary",
+        platform_session_id="codex-secret-summary",
+        root=tmp_path,
+        machine="studio",
+        now=FIXED_NOW,
+    )
+
+    record = stop_auto_capture(
+        root=tmp_path,
+        agent="codex",
+        platform_session_id="codex-secret-summary",
+        summary="Line 1\nLine 2 with token=SECRET123\nLine 3",
+        now=FIXED_NOW,
+    )
+
+    markdown_text = record.markdown_path.read_text(encoding="utf-8")
+    assert "Line 1\n[REDACTED]\nLine 3" in markdown_text
+    assert "SECRET123" not in markdown_text
+
+
 def test_auto_capture_reuses_live_state_for_repeated_start(tmp_path):
     first = start_auto_capture(
         agent="claude",
@@ -506,6 +552,17 @@ def test_redacted_argv_preserves_command_names_and_redacts_secret_values():
         "codex",
         "--password=[REDACTED]",
         "API_TOKEN=[REDACTED]",
+    ]
+    assert _redacted_argv(["codex", "--api-key", "sk-test", "--model", "gpt-5"]) == [
+        "codex",
+        "--api-key",
+        "[REDACTED]",
+        "--model",
+        "gpt-5",
+    ]
+    assert _redacted_argv(["codex", "--api-key=sk-test"]) == [
+        "codex",
+        "--api-key=[REDACTED]",
     ]
 
 

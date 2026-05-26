@@ -345,7 +345,7 @@ def list_finalized_sessions(root: str | Path | None = None) -> list[FinalizedSes
 
     records: list[FinalizedSessionListing] = []
     for path in archive_dir.glob("*/*/*.jsonl"):
-        if not path.is_file() or path.name.endswith(".partial"):
+        if path.is_symlink() or not path.is_file() or path.name.endswith(".partial"):
             continue
         record = _read_finalized_listing(path)
         if record is not None:
@@ -591,6 +591,16 @@ def verify_session_archive(root: str | Path | None = None) -> SessionArchiveVeri
     finalized_jsonl_paths: list[Path] = []
     if archive_dir.exists():
         for path in sorted(archive_dir.rglob("*")):
+            if path.is_symlink():
+                issues.append(
+                    VerificationIssue(
+                        severity="error",
+                        kind="archive-symlink",
+                        path=path,
+                        detail="finalized archive entries must be regular files, not symlinks",
+                    )
+                )
+                continue
             if not path.is_file() or path.name.endswith(".partial"):
                 continue
 
@@ -743,6 +753,8 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
     match = FILENAME_RE.match(path.name)
     if match is None:
         return None
+    if path.is_symlink():
+        return None
 
     try:
         with path.open(encoding="utf-8") as handle:
@@ -758,7 +770,6 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
     if not isinstance(first_event, dict) or first_event.get("type") != "session.started":
         return None
 
-    markdown = path.with_suffix(".md")
     return FinalizedSessionListing(
         started=str(first_event.get("timestamp") or match.group("stamp")),
         machine=str(first_event.get("machine") or match.group("machine")),
@@ -766,7 +777,7 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
         slug=str(first_event.get("slug") or match.group("slug")),
         partial=bool(first_event.get("partial", False)),
         jsonl_path=path,
-        markdown_path=markdown if markdown.exists() else None,
+        markdown_path=_safe_markdown_sibling(path),
     )
 
 
@@ -989,6 +1000,8 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
     match = FILENAME_RE.match(path.name)
     if match is None:
         raise ValueError(f"finalized session filename is malformed: {path.name}")
+    if path.is_symlink():
+        raise ValueError(f"finalized session record must not be a symlink: {path}")
 
     event_types: Counter[str] = Counter()
     first_event: dict[str, Any] | None = None
@@ -1011,7 +1024,6 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
     if first_event.get("type") != "session.started":
         raise ValueError(f"malformed finalized session record: first event is not session.started: {path}")
 
-    markdown = path.with_suffix(".md")
     listing = FinalizedSessionListing(
         started=str(first_event.get("timestamp") or match.group("stamp")),
         machine=str(first_event.get("machine") or match.group("machine")),
@@ -1019,9 +1031,19 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
         slug=str(first_event.get("slug") or match.group("slug")),
         partial=bool(first_event.get("partial", False)),
         jsonl_path=path,
-        markdown_path=markdown if markdown.exists() else None,
+        markdown_path=_safe_markdown_sibling(path),
     )
     return listing, sum(event_types.values()), dict(sorted(event_types.items()))
+
+
+def _safe_markdown_sibling(record_path: Path) -> Path | None:
+    markdown = record_path.with_suffix(".md")
+    try:
+        if markdown.is_symlink() or not markdown.is_file():
+            return None
+    except OSError:
+        return None
+    return markdown
 
 
 def _is_finalized_archive_jsonl(path: Path, root: Path) -> bool:

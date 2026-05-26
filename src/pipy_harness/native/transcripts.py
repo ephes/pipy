@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from typing import Any, ClassVar
 TRANSCRIPT_DIR_ENV = "PIPY_TRANSCRIPT_DIR"
 DEFAULT_TRANSCRIPT_DIR = Path("~/.local/state/pipy/transcripts")
 SENSITIVE_MARKER = "pipy-transcript-sidecar"
+_SAFE_TRANSCRIPT_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def default_transcript_dir() -> Path:
@@ -50,6 +52,7 @@ class TranscriptSink:
     directory: Path = field(default_factory=default_transcript_dir)
     _handle: Any = field(default=None, init=False, repr=False)
     _path: Path | None = field(default=None, init=False, repr=False)
+    _created: bool = field(default=False, init=False, repr=False)
 
     SUPPORTED_EVENT_TYPES: ClassVar[frozenset[str]] = frozenset(
         {"user", "assistant", "tool_result", "diff", "session"}
@@ -58,7 +61,7 @@ class TranscriptSink:
     @property
     def path(self) -> Path:
         if self._path is None:
-            self._path = self.directory / f"{self.transcript_id}.jsonl"
+            self._path = self.directory / _safe_transcript_filename(self.transcript_id)
         return self._path
 
     def append(self, event_type: str, payload: dict[str, Any]) -> None:
@@ -88,7 +91,23 @@ class TranscriptSink:
         if self._handle is not None:
             return
         self.directory.mkdir(parents=True, exist_ok=True)
-        self._handle = self.path.open("a", encoding="utf-8")
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+        if not self._created:
+            flags |= os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self.path, flags, 0o600)
+        self._created = True
+        self._handle = os.fdopen(fd, "a", encoding="utf-8")
+
+
+def _safe_transcript_filename(transcript_id: str) -> str:
+    if (
+        not transcript_id
+        or transcript_id in {".", ".."}
+        or not _SAFE_TRANSCRIPT_ID_RE.fullmatch(transcript_id)
+    ):
+        raise ValueError("transcript_id must be a filename-safe identifier")
+    return f"{transcript_id}.jsonl"
 
 
 __all__ = [

@@ -129,7 +129,8 @@ def test_runner_record_files_is_opt_in_and_records_paths_only(tmp_path):
                     "from pathlib import Path; "
                     "Path('recorded.txt').write_text('x'); "
                     "Path('secret_config.py').write_text('x'); "
-                    "Path('auth_token.py').write_text('x')"
+                    "Path('auth_token.py').write_text('x'); "
+                    "Path('password=hunter2.txt').write_text('x')"
                 ),
             ],
             cwd=repo,
@@ -144,7 +145,8 @@ def test_runner_record_files_is_opt_in_and_records_paths_only(tmp_path):
     assert "recorded.txt" in payload["paths"]
     assert "secret_config.py" in payload["paths"]
     assert "auth_token.py" in payload["paths"]
-    assert "[REDACTED]" not in payload["paths"]
+    assert "[REDACTED]" in payload["paths"]
+    assert "hunter2" not in recorded_result.record.jsonl_path.read_text(encoding="utf-8")
     assert payload["diffs_stored"] is False
     assert payload["file_contents_stored"] is False
     assert "write_text('x')" not in recorded_result.record.jsonl_path.read_text(encoding="utf-8")

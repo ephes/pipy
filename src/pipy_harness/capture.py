@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+_SENSITIVE_PATH_VALUE_RE = re.compile(
+    r"(?i)(api[_-]?key|secret|token|password|credential)\s*[=:]\s*[^/\\]+"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,9 +93,12 @@ def sanitize_text(value: str) -> str:
 
 
 def sanitize_path(value: str) -> str:
-    """Collapse control whitespace in an explicitly recorded path."""
+    """Collapse control whitespace and redact path-embedded secret assignments."""
 
-    return " ".join(value.split())
+    cleaned = " ".join(value.split())
+    if _SENSITIVE_PATH_VALUE_RE.search(cleaned):
+        return "[REDACTED]"
+    return cleaned
 
 
 def redacted_argv(command: Sequence[str]) -> list[str]:
@@ -159,8 +167,9 @@ def _safe_relative_path(raw_path: bytes) -> str:
 
 def looks_sensitive(value: str) -> bool:
     lowered = value.lower()
+    normalized = lowered.replace("-", "_")
     return any(
-        marker in lowered
+        marker in normalized
         for marker in ("api_key", "apikey", "secret", "token", "password", "credential")
     )
 

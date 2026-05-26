@@ -243,6 +243,8 @@ def resolve_active_path(active: str | Path, *, root: str | Path | None = None) -
     existing: Path | None = None
     for possible in candidates:
         if possible.exists():
+            if possible.is_symlink():
+                raise FinalizedRecordError(f"refusing to modify symlinked active session record: {possible}")
             existing = possible
             resolved = possible.resolve()
             break
