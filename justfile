@@ -21,6 +21,10 @@ typecheck:
 # Run all local verification checks.
 check: lint typecheck test
 
+# Score pipy against docs/parity-criterion.md (pi-mono parity, locked 2026-05-25).
+parity-score:
+    bash scripts/parity_score.sh
+
 # Count repository lines with language, area, and directory summaries.
 loc:
     uv run --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .

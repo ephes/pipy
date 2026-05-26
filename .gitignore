@@ -1,5 +1,6 @@
 .pipy/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 .envrc
 .direnv/
 .venv/
