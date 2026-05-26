@@ -112,17 +112,22 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | E4 | Session export/share | ✅ | `uv run pipy-session export --help 2>/dev/null \|\| grep -rq 'def export' src/pipy_session/` |
 | E5 | Dynamic provider/model swap mid-session | ✅ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` |
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
-| E7 | RPC mode / SDK embedding | ❌ | `test -f src/pipy_harness/rpc.py \|\| test -f src/pipy_harness/sdk.py` |
+| E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
 ## Scoring
 
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after branching helper): 48
+current ✅ count (2026-05-26, after SDK module landed): 49
 target  ✅ count for 80% parity:                        40
-delta beyond 80% target:                                +8
+delta beyond 80% target:                                +9
 ```
+
+The only remaining ❌ is B7 `bash`, which is deliberately deferred
+from the production model-loop registry pending a real shell
+sandbox; see the row notes above. All other rows in the locked
+50-feature criterion are green.
 
 ## How To Verify
 
