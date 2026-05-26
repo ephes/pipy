@@ -2150,6 +2150,60 @@ it lands. They are not later slices of this track:
 
 ## Next Slice
 
+### Default `pipy` invocation answers the parity prompt (landed 2026-05-26)
+
+Goal: prove the *truly default* `pipy` invocation (zero flags) answers
+the canonical "where are we regarding feature parity compared to
+`~/src/pi-mono`?" prompt with live streaming, tool blocks, and a
+useful 49/50 answer. Earlier captures had used
+`pipy repl --agent pipy-native --tool-budget 25`; this slice closes
+the gap so the actual default works.
+
+Implemented:
+
+- Per-turn `tool_budget` default raised from 10 to 50 (cap raised
+  from 25 to 200). The model needs more than ten reads on a fresh
+  workspace to inspect both pipy and `~/src/pi-mono` and compose a
+  useful parity answer; 50 is what the codex+gpt-5.5 stack typically
+  needs without budget-exhaustion noise. The `--tool-budget` CLI flag
+  is unchanged otherwise, so existing automation passing explicit
+  values keeps working.
+- `OpenAICodexResponsesProvider` now wraps the SSE `post_sse` call in
+  `retry_with_backoff` (default policy: 4 attempts, initial delay
+  1.0 s, max delay 8.0 s, statuses 408/425/429/500/502/503/504). A
+  single 503 from the codex endpoint used to surface as
+  `OpenAICodexHTTPStatusError` and end the REPL turn; the wrapped
+  call recovers from transient failures before the loop sees them.
+- `NativeToolReplSession` no longer terminates the whole session on
+  a provider failure that the retry helper exhausts. Instead it
+  prints `pipy: provider failure during turn: …` on stderr, redraws
+  the bottom-status footer, and breaks out of the inner tool loop
+  while keeping the REPL alive for the next user prompt.
+- Two new tests in `tests/test_openai_codex_retry.py` pin the retry
+  behavior end-to-end (success on third attempt; deterministic
+  failure after `max_attempts`).
+- `tests/test_tool_loop_provider_failure.py` was updated to reflect
+  the new soft-fail invariant (REPL stays alive; diagnostic visible
+  on stderr).
+
+Captured evidence:
+
+- `docs/audit/2026-05-26/pipy-default-bare.cmd` — exact command used
+  (`pipy`, zero flags).
+- `docs/audit/2026-05-26/pipy-default-bare.log` /
+  `pipy-default-bare.txt` — full tmux capture (200x50, 50-line
+  scrollback) of the default invocation; bottom status shows
+  `↑225.1k ↓1.7k R266 $0.301 (sub) 11.8%/272k (auto) (openai-codex)
+  gpt-5.5 • high`. Context-window meter (`%/272k`) confirms no
+  `--tool-budget` override.
+- `docs/audit/2026-05-26/tmux/pipy-default-bare.png` — Pi-shape
+  screenshot with the dark-olive tool panel, animated spinner, and
+  streaming reasoning visible.
+
+The earlier `--tool-budget 25` captures were renamed
+`pipy-tool-budget-25-after*.log` to keep the filenames honest about
+the flag they used.
+
 ### Pi-shape live REPL: streaming, tool blocks, cross-repo inspection (landed 2026-05-26)
 
 Goal: bring the bounded `pipy repl --repl-mode tool-loop` surface to

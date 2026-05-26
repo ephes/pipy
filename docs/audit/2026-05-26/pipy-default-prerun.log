@@ -1,0 +1,813 @@
+
+ [1m[38;2;138;190;183mpipy v0.1.0[0m
+[38;2;128;128;128m escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more[39m
+[38;2;128;128;128m Press ctrl+o to show full startup help and loaded resources.[39m
+
+[38;2;128;128;128m Pipy can explain its own features and look up its docs. Ask it how to use or extend pipy.[39m
+
+
+[1m[38;2;240;198;116m[Context][0m
+[38;2;128;128;128m  AGENTS.md, ~/.claude/CLAUDE.md[39m
+
+[1m[38;2;240;198;116m[Skills][0m
+[38;2;128;128;128m  goal-handoff, handoff-impl, handoff-review, mermaid-marked2-markdown, summarize-youtube, commit-workflow, implement-handoff, local-dev-orchestration, review-handoff[39m
+
+
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m>  where are we regarding feature parity compared to ~/src/pi-mono?
+
+[2m [0m
+
+[1;2;3mInspecting documents[0m
+
+[2;3mI need to inspect some documents and compare them with the backlog. It seems important to create a list of what's relevant so I can keep things organized. By referencing these materials, I'll better u
+nderstand what needs to be addressed. I want to make sure I don't miss anything critical while juggling the details. Let’s keep everything clear and ensure nothing falls through the cracks![0m
+[48;2;28;42;30m
+ [1mls[0m[48;2;28;42;30m .
+
+[2m ... (2 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m file .envrc.example[0m[48;2;28;42;30m
+[2m file .gitignore[0m[48;2;28;42;30m
+[2m file AGENTS.md[0m[48;2;28;42;30m
+[2m file LICENSE[0m[48;2;28;42;30m
+[2m file README.md[0m[48;2;28;42;30m
+[2m directory docs[0m[48;2;28;42;30m
+[2m file justfile[0m[48;2;28;42;30m
+[2m file pyproject.toml[0m[48;2;28;42;30m
+[2m directory scripts[0m[48;2;28;42;30m
+[2m directory src[0m[48;2;28;42;30m
+[2m directory tests[0m[48;2;28;42;30m
+[2m file zensical.toml[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mls[0m[48;2;28;42;30m /Users/jochen/src/pi-mono
+
+[2m ... (10 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m file pi-mono/biome.json[0m[48;2;28;42;30m
+[2m file pi-mono/justfile[0m[48;2;28;42;30m
+[2m file pi-mono/package-lock.json[0m[48;2;28;42;30m
+[2m file pi-mono/package.json[0m[48;2;28;42;30m
+[2m directory pi-mono/packages[0m[48;2;28;42;30m
+[2m file pi-mono/pi-test.bat[0m[48;2;28;42;30m
+[2m file pi-mono/pi-test.ps1[0m[48;2;28;42;30m
+[2m file pi-mono/pi-test.sh[0m[48;2;28;42;30m
+[2m directory pi-mono/scripts[0m[48;2;28;42;30m
+[2m file pi-mono/test.sh[0m[48;2;28;42;30m
+[2m file pi-mono/tsconfig.base.json[0m[48;2;28;42;30m
+[2m file pi-mono/tsconfig.json[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/backlog.md[33m:1-200[39m
+
+[2m ... (120 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m   the first prompt so the real provider/model surfaces immediately on[0m[48;2;28;42;30m
+[2m   immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it[0m[48;2;28;42;30m
+[2m   stays visible while the user types when that adapter is selected. Chrome[0m[48;2;28;42;30m
+[2m   rendering is shared between the no-tool and bounded tool-loop sessions[0m[48;2;28;42;30m
+[2m   through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery[0m[48;2;28;42;30m
+[2m   covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,[0m[48;2;28;42;30m
+[2m   `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals[0m[48;2;28;42;30m
+[2m   (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,[0m[48;2;28;42;30m
+[2m   `~/.pipy/skills`) so the section listing matches what Pi shows when global[0m[48;2;28;42;30m
+[2m   resources are present; hidden dotfile directories are filtered out. The[0m[48;2;28;42;30m
+[2m   default provider/model selector auto-picks an available real provider[0m[48;2;28;42;30m
+[2m   (openai-codex OAuth, then keyed providers in priority[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/harness-spec.md[33m:1-200[39m
+
+[2m ... (165 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m ### Web Research[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m Relevant external patterns:[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m - Codex CLI is a local coding agent that can read, edit, and run code in the[0m[48;2;28;42;30m
+[2m   selected directory. It has non-interactive `codex exec` and JSONL output where[0m[48;2;28;42;30m
+[2m   stdout becomes a stream of events such as `thread.started`, `turn.started`,[0m[48;2;28;42;30m
+[2m   `turn.completed`, `turn.failed`, `item.*`, and `error`.[0m[48;2;28;42;30m
+[2m   Sources: <https://developers.openai.com/codex/cli>,[0m[48;2;28;42;30m
+[2m   <https://developers.openai.com/codex/noninteractive>.[0m[48;2;28;42;30m
+[2m - Codex hooks receive JSON hook payloads with shared fields such as[0m[48;2;28;42;30m
+[2m   `session_id`, `transcript_path[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Pi Parity Roadmap" docs/backlog.md
+
+[2m docs/backlog.md:95:## Pi Parity Roadmap[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Current state:" docs/backlog.md
+
+[2m docs/backlog.md:108:  Current state: Pi-shape compact startup chrome (sage truecolor title with a[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Deferred" docs/backlog.md
+
+[2m docs/backlog.md:53:- `Deferred` and `Explicitly Not Now` define boundaries that should not be[0m[48;2;28;42;30m
+[2m docs/backlog.md:472:   remove the "Still To Slopfork" / "Deferred" wording for[0m[48;2;28;42;30m
+[2m docs/backlog.md:2570:## Deferred[0m[48;2;28;42;30m
+[2m docs/backlog.md:2572:### Deferred For Self-Bootstrap[0m[48;2;28;42;30m
+[2m docs/backlog.md:2595:### Deferred For Product Maturity[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mfind[0m[48;2;28;42;30m "**/*.md" /Users/jochen/src/pi-mono
+
+[2m ... (66 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/name-mismatch/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/nested/child-skill/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/no-frontmatter/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/root-skill-preferred/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/root-skill-preferred/nested-child/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/unknown-field/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills/valid-skill/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills-collision/first/calendar/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/fixtures/skills-collision/second/calendar/SKILL.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/test/suite/README.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/tui/CHANGELOG.md[0m[48;2;28;42;30m
+[2m pi-mono/packages/tui/README.md[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mfind[0m[48;2;28;42;30m "packages/*/src/**" /Users/jochen/src/pi-mono
+
+[2m ... (189 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/custom-message.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/daxnuts.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/diff.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/dynamic-border.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/earendil-announcement.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/extension-editor.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/extension-input.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/extension-selector.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/footer.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/index.ts[0m[48;2;28;42;30m
+[2m pi-mono/packages/coding-agent/src/modes/interactive/components/keybinding-hints.ts[0m[48;2;28;42;30m
+[2m ... (truncated)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+[2m[49m [0m
+
+[1;2;3mInspecting parity sections[0m
+
+[2;3mI need to find out where we stand with parity and inspect specific document sections. Should I examine the entire backlog, or will reading up to a certain point suffice? It looks like I can read up to
+ the end of section 108 without going too far. Perhaps using grep patterns could help me locate key sections or bullet points about Pi parity effectively. I want to ensure I'm not missing anything imp
+ortant in the details![0m
+[48;2;28;42;30m
+ [1mgrep[0m[48;2;28;42;30m "Still To Slopfork" docs/backlog.md
+
+[2m docs/backlog.md:472:   remove the "Still To Slopfork" / "Deferred" wording for[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Current state: implemented for" docs/backlog.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Current state: missing" docs/backlog.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Current state: not started" docs/backlog.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Current state: deferred" docs/backlog.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "Still to slopfork" docs/backlog.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/backlog.md[33m:1-200[39m
+
+[2m ... (120 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m   the first prompt so the real provider/model surfaces immediately on[0m[48;2;28;42;30m
+[2m   immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it[0m[48;2;28;42;30m
+[2m   stays visible while the user types when that adapter is selected. Chrome[0m[48;2;28;42;30m
+[2m   rendering is shared between the no-tool and bounded tool-loop sessions[0m[48;2;28;42;30m
+[2m   through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery[0m[48;2;28;42;30m
+[2m   covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,[0m[48;2;28;42;30m
+[2m   `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals[0m[48;2;28;42;30m
+[2m   (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,[0m[48;2;28;42;30m
+[2m   `~/.pipy/skills`) so the section listing matches what Pi shows when global[0m[48;2;28;42;30m
+[2m   resources are present; hidden dotfile directories are filtered out. The[0m[48;2;28;42;30m
+[2m   default provider/model selector auto-picks an available real provider[0m[48;2;28;42;30m
+[2m   (openai-codex OAuth, then keyed providers in priority[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+[2m[49m [0m
+
+[1;2;3mExploring bounded text[0m
+
+[2;3mI realize I need to address the bounded starting points and ensure I include the rest of the content. I'm considering using grep for bullet headings, possibly looking for items that start with "^- ".
+It feels like a straightforward approach to categorize things effectively. I want to make sure everything is clear and organized. Let's try to implement that method, so I can present the information m
+ore effectively.[0m
+[48;2;28;42;30m
+ [1mgrep[0m[48;2;28;42;30m "- " docs/backlog.md
+
+[2m ... (89 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m docs/backlog.md:665:- `pipy-session` recorder, catalog, search, inspect, reflect, verify, sync, and[0m[48;2;28;42;30m
+[2m docs/backlog.md:667:- `pipy run` subprocess harness with lifecycle recording, conservative privacy[0m[48;2;28;42;30m
+[2m docs/backlog.md:669:- Native pipy runtime bootstrap behind `--agent pipy-native` with a minimal[0m[48;2;28;42;30m
+[2m docs/backlog.md:672:- Native OpenAI Responses provider behind `ProviderPort`, selected with[0m[48;2;28;42;30m
+[2m docs/backlog.md:676:- Native tool boundary with explicit request/result/status, approval policy, and[0m[48;2;28;42;30m
+[2m docs/backlog.md:679:- Native loop planning documented: future provider output becomes a sanitized[0m[48;2;28;42;30m
+[2m docs/backlog.md:684:- Native fake tool-intent path: fake providers can deterministically expose one[0m[48;2;28;42;30m
+[2m docs/backlog.md:690:- Native provider usage metadata normalization: native archives allow only[0m[48;2;28;42;30m
+[2m docs/backlog.md:695:- Native final text stdout mode decision: successful native provider final text[0m[48;2;28;42;30m
+[2m docs/backlog.md:701:- Native post-tool provider turn decision: the current native fake intent path[0m[48;2;28;42;30m
+[2m docs/backlog.md:706:- Native structured stdout flag contract decision: current `pipy-native`[0m[48;2;28;42;30m
+[2m ... (truncated)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/parity-criterion.md[33m:1-200[39m
+
+[2m ... (117 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m ```[0m[48;2;28;42;30m
+[2m ✅ count / 50 = parity %[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m current ✅ count (2026-05-26, after SDK module landed): 49[0m[48;2;28;42;30m
+[2m target  ✅ count for 80% parity:                        40[0m[48;2;28;42;30m
+[2m delta beyond 80% target:                                +9[0m[48;2;28;42;30m
+[2m ```[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m The only remaining ❌ is B7 `bash`, which is deliberately deferred[0m[48;2;28;42;30m
+[2m from the production model-loop registry pending a real shell[0m[48;2;28;42;30m
+[2m sandbox; see the [0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/parity-criterion.md[33m:1-200[39m
+
+[2m ... (117 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m ```[0m[48;2;28;42;30m
+[2m ✅ count / 50 = parity %[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m current ✅ count (2026-05-26, after SDK module landed): 49[0m[48;2;28;42;30m
+[2m target  ✅ count for 80% parity:                        40[0m[48;2;28;42;30m
+[2m delta beyond 80% target:                                +9[0m[48;2;28;42;30m
+[2m ```[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m The only remaining ❌ is B7 `bash`, which is deliberately deferred[0m[48;2;28;42;30m
+[2m from the production model-loop registry pending a real shell[0m[48;2;28;42;30m
+[2m sandbox; see the [0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "current ✅ count" docs/parity-criterion.md
+
+[2m docs/parity-criterion.md:122:current ✅ count (2026-05-26, after SDK module landed): 49[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "The only remaining" docs/parity-criterion.md
+
+[2m docs/parity-criterion.md:127:The only remaining ❌ is B7 `bash`, which is deliberately deferred[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mfind[0m[48;2;28;42;30m "src/pipy_harness/native/*provider.py" .
+
+[2m ... (1 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/azure_openai_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/bedrock_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/cloudflare_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/dynamic_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/google_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/google_vertex_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/mistral_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/openai_codex_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/openai_completions_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/openai_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/openrouter_provider.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/provider.py[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mfind[0m[48;2;28;42;30m "src/pipy_harness/native/tools/*.py" .
+
+[2m src/pipy_harness/native/tools/__init__.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/base.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/bash.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/edit.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/edit_diff.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/find.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/grep.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/ls.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/messages.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/read.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/truncate.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tools/write.py[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mfind[0m[48;2;28;42;30m "src/pipy_harness/native/*.py" .
+
+[2m ... (28 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/session.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/session_branching.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/session_compaction.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/session_resume.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/skills.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/themes.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tool.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tool_loop_session.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/transcripts.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/usage.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/verification.py[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/workspace_context.py[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tool_loop_session.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m @dataclass(frozen=True, slots=True)[0m[48;2;28;42;30m
+[2m class _ContextBudget:[0m[48;2;28;42;30m
+[2m     """Approximate provider/model context-window budget for the meter.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     ``token_budget`` is the absolute denominator; ``budget_label`` is the[0m[48;2;28;42;30m
+[2m     short label rendered into the bottom status (e.g. ``272k`` for the[0m[48;2;28;42;30m
+[2m     272 000-token GPT-5.5 context).[0m[48;2;28;42;30m
+[2m     """[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     token_budget: int[0m[48;2;28;42;30m
+[2m     budget_label: str[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tools/bash.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m             is_error=completed.timed_out or completed.exit_code != 0,[0m[48;2;28;42;30m
+[2m             provider_correlation_id=request.provider_correlation_id,[0m[48;2;28;42;30m
+[2m         )[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     def _run_bounded([0m[48;2;28;42;30m
+[2m         self,[0m[48;2;28;42;30m
+[2m         *,[0m[48;2;28;42;30m
+[2m         command: str,[0m[48;2;28;42;30m
+[2m         workspace,[0m[48;2;28;42;30m
+[2m         timeout_seconds: float,[0m[48;2;28;42;30m
+[2m     ) -> "_BoundedProcessResult":[0m[48;2;28;42;30m
+[2m         process = subprocess.Popen(  # noqa: S602 - shell=True is the bash tool point[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m README.md[33m:1-200[39m
+
+[2m ... (187 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m text is printed to stdout by the CLI contract only when the native run[0m[48;2;28;42;30m
+[2m succeeds, but the pipy archive still stores only lifecycle metadata.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m OpenRouter remains usable for real-provider smoke testing:[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m ```sh[0m[48;2;28;42;30m
+[2m uv run pipy repl --agent pipy-native --slug openrouter-smoke \[0m[48;2;28;42;30m
+[2m   --native-provider openrouter \[0m[48;2;28;42;30m
+[2m   --native-model openai/gpt-5.1-codex[0m[48;2;28;42;30m
+[2m ```[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m Se[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread resource[0m[48;2;28;42;30m /Users/jochen/src/pi-mono/packages/coding-agent/README.md[33m:1-200[39m
+
+[2m ... (187 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m | `/compact [prompt]` | Manually compact context, optional custom instructions |[0m[48;2;28;42;30m
+[2m | `/copy` | Copy last assistant message to clipboard |[0m[48;2;28;42;30m
+[2m | `/export [file]` | Export session to HTML file |[0m[48;2;28;42;30m
+[2m | `/share` | Upload as private GitHub gist with shareable HTML link |[0m[48;2;28;42;30m
+[2m | `/reload` | Reload keybindings, extensions, skills, prompts, and context files (themes hot-reload automatically) |[0m[48;2;28;42;30m
+[2m | `/hotkeys` | Show all keyboard shortcuts |[0m[48;2;28;42;30m
+[2m | `/changelog` | Display version history |[0m[48;2;28;42;30m
+[2m | `/quit` | Quit pi |[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m ### Keyboard Shortcuts[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m See `/hotkeys` for the fu[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+[2m[49m [0m
+
+[1;2;3mEvaluating feature parity[0m
+
+[2;3mI need to find out where we stand with feature parity compared to /src/pi-mono. I should keep it concise and reference the inspected documentation and the pi README. It mentions a parity-criterion wit
+h claims of 49 out of 50, but that seems to get cut off after "see the." Perhaps I should check the end of the document? However, tools typically read a limited amount. I might need to grep for the sc
+ore lines and look into docs/pi-parity.md for clarity.[0m
+[48;2;28;42;30m
+ [1mread[0m[48;2;28;42;30m docs/pi-parity.md[33m:1-200[39m
+
+[2m ... (32 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes
+ that context as JSON. Runtime prompt seeding for a resumed live session remains a follow-up. |[0m[48;2;28;42;30m
+[2m | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring ca
+n reuse current availability gates and non-secret defaults. It does not call providers or run tools. |[0m[48;2;28;42;30m
+[2m | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth s
+hape, and does not read Pi credentials. |[0m[48;2;28;42;30m
+[2m | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or ar
+chive auth material. `/settings` prints provider/model labels and availability reasons only. |[0m[48;2;28;42;30m
+[2m | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line
+dim controls strip (`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`
+/`[Extensions]` sections in yellow. Context and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-hom
+e globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is sha
+red between the no-tool and bounded tool-loop sessions through `pipy_harness.native.chrome`. |[0m[48;2;28;42;30m
+[2m | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row
+one is the workspace cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` fo
+r openai-codex OAuth and `api` for keyed providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-stat
+e signals are appended after the effort label so they stay visible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfa
+ces `(provider) model • effort` rather than `fake/fake-native-bootstrap` whenever credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live inpu
+t area so the user sees the status line directly below the prompt while typing. |[0m[48;2;28;42;30m
+[2m | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popu
+p command menu beneath the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to
+ close. The next fall-throughs are optional prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference l
+abels, and multiline entry; then the stdlib `readline` adapter for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-res
+ilient TUI, mouse selection) remains deferred. |[0m[48;2;28;42;30m
+[2m | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather tha
+n visible approval prompts. |[0m[48;2;28;42;30m
+[2m | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` t
+ool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |[0m[48;2;28;42;30m
+[2m | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL
+budget. |[0m[48;2;28;42;30m
+[2m | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposa
+l draft. |[0m[48;2;28;42;30m
+[2m | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/pi-parity.md[33m:1-200[39m
+
+[2m ... (32 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes
+ that context as JSON. Runtime prompt seeding for a resumed live session remains a follow-up. |[0m[48;2;28;42;30m
+[2m | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring ca
+n reuse current availability gates and non-secret defaults. It does not call providers or run tools. |[0m[48;2;28;42;30m
+[2m | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth s
+hape, and does not read Pi credentials. |[0m[48;2;28;42;30m
+[2m | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or ar
+chive auth material. `/settings` prints provider/model labels and availability reasons only. |[0m[48;2;28;42;30m
+[2m | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line
+dim controls strip (`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`
+/`[Extensions]` sections in yellow. Context and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-hom
+e globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is sha
+red between the no-tool and bounded tool-loop sessions through `pipy_harness.native.chrome`. |[0m[48;2;28;42;30m
+[2m | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row
+one is the workspace cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` fo
+r openai-codex OAuth and `api` for keyed providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-stat
+e signals are appended after the effort label so they stay visible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfa
+ces `(provider) model • effort` rather than `fake/fake-native-bootstrap` whenever credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live inpu
+t area so the user sees the status line directly below the prompt while typing. |[0m[48;2;28;42;30m
+[2m | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popu
+p command menu beneath the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to
+ close. The next fall-throughs are optional prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference l
+abels, and multiline entry; then the stdlib `readline` adapter for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-res
+ilient TUI, mouse selection) remains deferred. |[0m[48;2;28;42;30m
+[2m | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather tha
+n visible approval prompts. |[0m[48;2;28;42;30m
+[2m | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` t
+ool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |[0m[48;2;28;42;30m
+[2m | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL
+budget. |[0m[48;2;28;42;30m
+[2m | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposa
+l draft. |[0m[48;2;28;42;30m
+[2m | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "| Write/edit capability" docs/pi-parity.md
+
+[2m docs/pi-parity.md:44:| Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`.
+The model-driven tool loop now also exposes bounded `write`, `edit`, and `edit_diff` tools. |[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "| Bash command UX" docs/pi-parity.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "| Full TUI" docs/pi-parity.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "| Extensions" docs/pi-parity.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "| RPC" docs/pi-parity.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "## Current Gaps" docs/pi-parity.md
+
+[2m (no matches)[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/pi-parity.md[33m:1-200[39m
+
+[2m ... (32 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes
+ that context as JSON. Runtime prompt seeding for a resumed live session remains a follow-up. |[0m[48;2;28;42;30m
+[2m | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring ca
+n reuse current availability gates and non-secret defaults. It does not call providers or run tools. |[0m[48;2;28;42;30m
+[2m | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth s
+hape, and does not read Pi credentials. |[0m[48;2;28;42;30m
+[2m | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or ar
+chive auth material. `/settings` prints provider/model labels and availability reasons only. |[0m[48;2;28;42;30m
+[2m | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line
+dim controls strip (`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`
+/`[Extensions]` sections in yellow. Context and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-hom
+e globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is sha
+red between the no-tool and bounded tool-loop sessions through `pipy_harness.native.chrome`. |[0m[48;2;28;42;30m
+[2m | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row
+one is the workspace cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` fo
+r openai-codex OAuth and `api` for keyed providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-stat
+e signals are appended after the effort label so they stay visible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfa
+ces `(provider) model • effort` rather than `fake/fake-native-bootstrap` whenever credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live inpu
+t area so the user sees the status line directly below the prompt while typing. |[0m[48;2;28;42;30m
+[2m | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popu
+p command menu beneath the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to
+ close. The next fall-throughs are optional prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference l
+abels, and multiline entry; then the stdlib `readline` adapter for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-res
+ilient TUI, mouse selection) remains deferred. |[0m[48;2;28;42;30m
+[2m | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather tha
+n visible approval prompts. |[0m[48;2;28;42;30m
+[2m | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` t
+ool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |[0m[48;2;28;42;30m
+[2m | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL
+budget. |[0m[48;2;28;42;30m
+[2m | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposa
+l draft. |[0m[48;2;28;42;30m
+[2m | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+[2m[49m [0m
+
+[1;2;3mConsidering file inspection limitations[0m
+
+[2;3mI’m thinking about the challenges with file reading and how it sometimes truncates when the start is the same. I might need a smaller file, but outputs stop at specific lines. Grep would be enough to
+pull what I need. However, since I can’t run commands, I can’t verify this fully—just inspecting files instead. I’m also curious if the production registry confirms that bash was excluded. I'll check
+that production_tool_registry next.[0m
+[48;2;28;42;30m
+ [1mgrep[0m[48;2;28;42;30m "def production_tool_registry" src/pipy_harness/native/tool_loop_session.py
+
+[2m src/pipy_harness/native/tool_loop_session.py:284:def production_tool_registry() -> dict[str, ToolPort]:[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tool_loop_session.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m @dataclass(frozen=True, slots=True)[0m[48;2;28;42;30m
+[2m class _ContextBudget:[0m[48;2;28;42;30m
+[2m     """Approximate provider/model context-window budget for the meter.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     ``token_budget`` is the absolute denominator; ``budget_label`` is the[0m[48;2;28;42;30m
+[2m     short label rendered into the bottom status (e.g. ``272k`` for the[0m[48;2;28;42;30m
+[2m     272 000-token GPT-5.5 context).[0m[48;2;28;42;30m
+[2m     """[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     token_budget: int[0m[48;2;28;42;30m
+[2m     budget_label: str[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "ReadTool" src/pipy_harness/native/tool_loop_session.py
+
+[2m src/pipy_harness/native/tool_loop_session.py:297:    from pipy_harness.native.tools.read import ReadTool[0m[48;2;28;42;30m
+[2m src/pipy_harness/native/tool_loop_session.py:302:        "read": ReadTool(),[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tool_loop_session.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m @dataclass(frozen=True, slots=True)[0m[48;2;28;42;30m
+[2m class _ContextBudget:[0m[48;2;28;42;30m
+[2m     """Approximate provider/model context-window budget for the meter.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     ``token_budget`` is the absolute denominator; ``budget_label`` is the[0m[48;2;28;42;30m
+[2m     short label rendered into the bottom status (e.g. ``272k`` for the[0m[48;2;28;42;30m
+[2m     272 000-token GPT-5.5 context).[0m[48;2;28;42;30m
+[2m     """[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     token_budget: int[0m[48;2;28;42;30m
+[2m     budget_label: str[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "bash" src/pipy_harness/native/tool_loop_session.py
+
+[2m src/pipy_harness/native/tool_loop_session.py:287:    `bash` is intentionally not registered here. A shell tool needs a real[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tool_loop_session.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m @dataclass(frozen=True, slots=True)[0m[48;2;28;42;30m
+[2m class _ContextBudget:[0m[48;2;28;42;30m
+[2m     """Approximate provider/model context-window budget for the meter.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     ``token_budget`` is the absolute denominator; ``budget_label`` is the[0m[48;2;28;42;30m
+[2m     short label rendered into the bottom status (e.g. ``272k`` for the[0m[48;2;28;42;30m
+[2m     272 000-token GPT-5.5 context).[0m[48;2;28;42;30m
+[2m     """[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     token_budget: int[0m[48;2;28;42;30m
+[2m     budget_label: str[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mgrep[0m[48;2;28;42;30m "def production_tool_registry" src/pipy_harness/native/tool_loop_session.py
+
+[2m src/pipy_harness/native/tool_loop_session.py:284:def production_tool_registry() -> dict[str, ToolPort]:[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m src/pipy_harness/native/tool_loop_session.py[33m:1-200[39m
+
+[2m ... (188 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m @dataclass(frozen=True, slots=True)[0m[48;2;28;42;30m
+[2m class _ContextBudget:[0m[48;2;28;42;30m
+[2m     """Approximate provider/model context-window budget for the meter.[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     ``token_budget`` is the absolute denominator; ``budget_label`` is the[0m[48;2;28;42;30m
+[2m     short label rendered into the bottom status (e.g. ``272k`` for the[0m[48;2;28;42;30m
+[2m     272 000-token GPT-5.5 context).[0m[48;2;28;42;30m
+[2m     """[0m[48;2;28;42;30m
+[2m [0m[48;2;28;42;30m
+[2m     token_budget: int[0m[48;2;28;42;30m
+[2m     budget_label: str[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+ [1mread[0m[48;2;28;42;30m docs/backlog.md[33m:1-200[39m
+
+[2m ... (120 earlier lines, ctrl+o to expand)[0m[48;2;28;42;30m
+[2m   the first prompt so the real provider/model surfaces immediately on[0m[48;2;28;42;30m
+[2m   immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it[0m[48;2;28;42;30m
+[2m   stays visible while the user types when that adapter is selected. Chrome[0m[48;2;28;42;30m
+[2m   rendering is shared between the no-tool and bounded tool-loop sessions[0m[48;2;28;42;30m
+[2m   through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery[0m[48;2;28;42;30m
+[2m   covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,[0m[48;2;28;42;30m
+[2m   `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals[0m[48;2;28;42;30m
+[2m   (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,[0m[48;2;28;42;30m
+[2m   `~/.pipy/skills`) so the section listing matches what Pi shows when global[0m[48;2;28;42;30m
+[2m   resources are present; hidden dotfile directories are filtered out. The[0m[48;2;28;42;30m
+[2m   default provider/model selector auto-picks an available real provider[0m[48;2;28;42;30m
+[2m   (openai-codex OAuth, then keyed providers in priority[0m[48;2;28;42;30m
+
+[2m Took 0.0s[0m[48;2;28;42;30m
+
+
+[49mFeature-parity status vs `~/src/pi-mono` is **very high by the project’s locked criterion: 49/50 = 98%**.
+
+I checked:
+
+- `docs/parity-criterion.md`
+- `docs/pi-parity.md`
+- `docs/backlog.md`
+- `README.md`
+- Pi reference docs/source under `/Users/jochen/src/pi-mono`
+
+## Objective parity score
+
+`docs/parity-criterion.md` locks a 50-feature comparison against pi-mono. Current score:
+
+```text
+49 / 50 done
+target for 80% parity: 40 / 50
+delta beyond target: +9
+```
+
+The only remaining red item in that locked list is:
+
+- **B7: production `bash` tool registration**
+  - Pipy has `src/pipy_harness/native/tools/bash.py`
+  - But it is intentionally **not registered** in `production_tool_registry()`
+  - Reason: needs a real shell sandbox before model-visible arbitrary shell execution is considered safe
+
+## What is already parity-green
+
+Broadly implemented:
+
+- **Providers:** fake, OpenAI Responses, OpenAI Codex subscription, OpenAI Chat Completions, OpenRouter bonus, Anthropic, Google, Google Vertex, Mistral, Bedrock, Azure OpenAI, Cloudflare.
+- **Filesystem tools:** `read`, `ls`, `grep`, `find`, `write`, `edit`, `edit-diff`, `truncate`.
+- **Core runtime:** CLI, one-shot `run`, interactive `repl`, provider port, tool port/registry, tool loop, context loading, system prompt composition, transcript sidecar, JSON output, streaming output
+, retry/backoff.
+- **Resources/context:** AGENTS/CLAUDE parent-walk, global config root, skills, prompt templates, user/custom commands, themes, image attachment hooks.
+- **Sessions:** persistence, catalog/search/inspect, metadata resume reader, compaction module, branching module, export/share-style metadata export, dynamic provider/model swap helper, SDK/RPC-ish em
+bedding surface.
+- **Pi-like shell UX:** startup chrome, resource labels, `/` menu, bottom status, prompt state, provider/model/auth commands.
+
+## Important qualitative caveat
+
+The 49/50 score is **feature-surface parity**, not “Pi is fully cloned.”
+
+Pipy is intentionally not a literal TypeScript/`pi-tui` port. Remaining practical differences from Pi include:
+
+- **No production arbitrary shell tool yet** — biggest real gap.
+- **No full Pi TUI** — pipy is still line-oriented with Pi-shaped chrome/input, not Pi’s complete terminal UI.
+- **Some advanced features are narrow/foundation slices** rather than as rich as Pi:
+  - session resume is metadata-reader oriented; live prompt seeding is a follow-up
+  - settings are narrow/local inspection, not Pi’s full settings panel
+  - extension/package ecosystem exists as parity surfaces but not Pi’s full TypeScript extension runtime
+- **Pipy’s archive policy is stricter/privacy-first**, so it deliberately avoids copying Pi’s raw transcript/session model wholesale.
+
+## Bottom line
+
+We are **past the old 80% parity target** and sitting at **49/50 objective parity**. The one deliberately deferred blocker for “complete” locked parity is **safe production `bash`**. After that, the m
+ain work is less about checklist parity and more about **maturing UX depth**: richer TUI/editor behavior, safer shell sandboxing, more complete live session workflows, and extension/package polish.
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;128;128;128m~/projects/pipy (main)[39m
+[38;2;128;128;128m↑617.3k ↓2.7k R693 $0.805 (sub) 16.0%/272k (auto)                                                                                                                          (openai-codex) gpt-5.5 • high
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m>
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;128;128;128m~/projects/pipy (main)[39m
+[38;2;128;128;128m↑617.3k ↓2.7k R693 $0.805 (sub) 16.0%/272k (auto)                                                                                                                          (openai-codex) gpt-5.5 • high

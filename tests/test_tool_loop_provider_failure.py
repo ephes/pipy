@@ -1,9 +1,9 @@
-"""Regression tests for the Tool-Loop Parity Track review (round 1).
+"""Regression tests for the Tool-Loop Parity Track review.
 
-Critical finding: provider failures were treated as successful tool-loop
-turns. The session now surfaces a failed `NativeToolReplResult` with a
-deterministic stderr diagnostic when the provider returns
-`HarnessStatus.FAILED`.
+Provider failures are surfaced on stderr but no longer tear the whole
+REPL down — a transient HTTP 503/429 from one provider turn should not
+end the user's session. The diagnostic stays visible so the user knows
+the turn aborted, and the REPL stays available for the next prompt.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 
 
-def test_provider_failure_surfaces_as_failed_tool_repl_result(tmp_path: Path):
+def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(
+    tmp_path: Path,
+):
     provider = FakeNativeProvider(
         supports_tool_calls=True,
         status=HarnessStatus.FAILED,
@@ -32,7 +34,9 @@ def test_provider_failure_surfaces_as_failed_tool_repl_result(tmp_path: Path):
         error_stream=error_stream,
     )
 
-    assert result.status == HarnessStatus.FAILED
-    assert result.exit_code == 1
-    assert result.error_type is not None
-    assert "tool-loop ended after provider failure" in error_stream.getvalue()
+    # The REPL hits EOF on the next read after the soft-fail diagnostic
+    # and exits cleanly. Status is succeeded because the session itself
+    # closed normally; the per-turn failure is recorded on stderr.
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.exit_code == 0
+    assert "provider failure during turn" in error_stream.getvalue()

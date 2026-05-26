@@ -6,8 +6,17 @@ Target prompt: `where are we regarding feature parity compared to ~/src/pi-mono?
 
 ## Captures (this directory)
 
-- `pipy-default-before.log` — default `pipy` (no args) with the target prompt on stdin.
+- `pipy-default-before.log` — default `pipy` (no args) with the target
+  prompt, captured *before* this slice (refuses to inspect, no streaming,
+  no tool blocks).
 - `pi-print-before.log` — default `pi -p` (print mode) with the same prompt.
+- `pipy-default-bare.log` / `pipy-default-bare.txt` /
+  `pipy-default-bare.cmd` — the canonical default capture *after* the
+  slice. Command: `pipy` (zero flags). Bottom status shows
+  `%/272k (auto)`, confirming no `--tool-budget` override.
+- `pipy-tool-budget-25-after*.log` — earlier `--tool-budget 25`
+  captures retained for diff reference; renamed from `pipy-default-after*`
+  so the filenames are honest about the non-default flag they used.
 
 ## Side-by-side summary
 

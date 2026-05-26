@@ -551,37 +551,33 @@ class NativeToolReplSession:
                     has_tool_calls=bool(provider_result.tool_calls),
                 )
                 if provider_result.status != HarnessStatus.SUCCEEDED:
-                    ended_at = datetime.now(UTC)
                     error_type = provider_result.error_type or "ProviderFailed"
                     error_message = (
                         provider_result.error_message
                         or f"provider {effective_provider_name!r} returned status "
                         f"{provider_result.status.value!r} without a final response"
                     )
+                    # Surface the failure on the error stream but keep the
+                    # REPL alive: a transient HTTP error from a single
+                    # provider turn (e.g. a 503 the retry helper exhausted
+                    # against, or a brief network hiccup) should not tear
+                    # the whole session down. The user can ask again at
+                    # the next prompt.
                     print(
-                        f"pipy: tool-loop ended after provider failure: "
+                        f"pipy: provider failure during turn: "
                         f"{error_type}: {error_message}",
                         file=error_stream,
                     )
-                    try:
-                        repl_input.close()
-                    except Exception:
-                        pass
-                    return NativeToolReplResult(
-                        status=HarnessStatus.FAILED,
-                        exit_code=1,
-                        started_at=started_at,
-                        ended_at=ended_at,
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
                         provider_name=effective_provider_name,
                         model_id=effective_model_id,
                         user_turn_count=user_turn_count,
                         tool_invocation_count=tool_invocation_count,
-                        malformed_argument_count=malformed_argument_count,
-                        consecutive_malformed_streak=consecutive_malformed_streak,
-                        budget_exhausted_count=budget_exhausted_count,
-                        error_type=error_type,
-                        error_message=error_message,
+                        usage_accumulator=usage_accumulator,
                     )
+                    break
                 tool_calls = tuple(provider_result.tool_calls)
                 messages.append(
                     AssistantMessage(

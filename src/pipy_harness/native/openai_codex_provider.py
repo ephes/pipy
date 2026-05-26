@@ -25,6 +25,7 @@ from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.retry import RetryPolicy, retry_with_backoff
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
@@ -461,6 +462,13 @@ class OpenAICodexResponsesProvider:
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    retry_policy: "RetryPolicy" = field(
+        default_factory=lambda: RetryPolicy(
+            max_attempts=4,
+            initial_delay_seconds=1.0,
+            max_delay_seconds=8.0,
+        )
+    )
 
     @property
     def name(self) -> str:
@@ -533,18 +541,22 @@ class OpenAICodexResponsesProvider:
             "User-Agent": "pipy",
         }
 
-        try:
-            response = self.http_client.post_sse(
+        def _post() -> SseResponse:
+            resp = self.http_client.post_sse(
                 self.endpoint,
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
             )
-            if response.status_code < 200 or response.status_code >= 300:
+            if resp.status_code < 200 or resp.status_code >= 300:
                 raise OpenAICodexHTTPStatusError(
-                    f"OpenAI Codex request failed with HTTP status {response.status_code}.",
-                    metadata={"http_status": response.status_code},
+                    f"OpenAI Codex request failed with HTTP status {resp.status_code}.",
+                    metadata={"http_status": resp.status_code},
                 )
+            return resp
+
+        try:
+            response = retry_with_backoff(_post, policy=self.retry_policy)
             result = _parse_sse_response(
                 response.body,
                 stream_sink=stream_sink,
