@@ -91,9 +91,9 @@ def discover_workspace_custom_commands(
     is resolved through `PIPY_CONFIG_HOME` then
     `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the
     `commands` subdir is appended. Files are deduplicated by canonical
-    path. Missing dirs and files never raise. Symlinks must stay inside the
-    workspace root for workspace commands and inside the global resource root
-    for global commands.
+    path. Missing dirs and files never raise. Resource directories must not
+    be symlinks, and resource-file symlinks must stay inside the concrete
+    `commands` directory they were found in.
 
     Returns `(commands, total_byte_cap_reached)`. Commands are listed
     workspace-first, then global, in sorted-name order within each

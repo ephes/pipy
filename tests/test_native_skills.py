@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native._resource_files import (
     PIPY_CONFIG_DIR_NAME,
     PIPY_CONFIG_HOME_ENV,
@@ -217,6 +219,59 @@ def test_refuses_symlink_outside_workspace(tmp_path: Path) -> None:
     assert all(skill.name != "leak" for skill in skills)
     assert all("never load me" not in skill.body for skill in skills)
     assert any(skill.name == "legitimate" for skill in skills)
+
+
+def test_refuses_symlink_inside_workspace_but_outside_resource_dir(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    secret = workspace / "secret.md"
+    secret.write_text(
+        "---\nname: leak\ndescription: outside resource dir\n---\nnever load me\n",
+        encoding="utf-8",
+    )
+
+    skills_dir = workspace / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True)
+    try:
+        (skills_dir / "leak.md").symlink_to(secret)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    _write_skill(
+        skills_dir,
+        filename="legitimate.md",
+        name="legitimate",
+        description="real",
+        body="real body\n",
+    )
+
+    skills, _ = _discover(workspace)
+
+    assert all(skill.name != "leak" for skill in skills)
+    assert all("never load me" not in skill.body for skill in skills)
+    assert [skill.name for skill in skills] == ["legitimate"]
+
+
+def test_refuses_global_symlink_inside_root_but_outside_resource_dir(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    global_root = tmp_path / "global-pipy"
+    secret = global_root / "secret.md"
+    secret.parent.mkdir()
+    secret.write_text(
+        "---\nname: leak\ndescription: outside resource dir\n---\nnever load me\n",
+        encoding="utf-8",
+    )
+
+    skills_dir = global_root / "skills"
+    skills_dir.mkdir()
+    try:
+        (skills_dir / "leak.md").symlink_to(secret)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    env = {PIPY_CONFIG_HOME_ENV: str(global_root)}
+    skills, _ = _discover(workspace, env=env, home_dir=tmp_path)
+
+    assert skills == []
 
 
 def test_per_file_byte_cap_truncates_with_marker(tmp_path: Path) -> None:

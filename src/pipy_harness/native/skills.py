@@ -87,8 +87,8 @@ def discover_workspace_skills(
     resolved through `PIPY_CONFIG_HOME` then `${XDG_CONFIG_HOME}/pipy`
     then `~/.config/pipy`, and the `skills` subdir is appended. Files
     are deduplicated by canonical path. Missing dirs and files never
-    raise. Symlinks must stay inside the workspace root for workspace skills
-    and inside the global resource root for global skills.
+    raise. Resource directories must not be symlinks, and resource-file
+    symlinks must stay inside the concrete `skills` directory they were found in.
 
     Returns `(skills, total_byte_cap_reached)`. Skills are listed
     workspace-first, then global, in sorted-name order within each

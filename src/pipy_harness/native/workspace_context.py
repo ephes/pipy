@@ -32,11 +32,11 @@ Discovery rules (pinned by `tests/test_native_workspace_context.py`):
   through to the next candidate name for the same directory. This
   closes the `AGENTS.md -> /etc/secrets`-style escape vector without
   blocking a legitimate `CLAUDE.md` from the same directory.
-- Each file is read at most `per_file_byte_cap` bytes. If the file is
-  longer, the loader returns the truncated bytes with a deterministic
-  marker appended and `truncated=True`. `byte_length` and `sha256`
-  always describe the file as it exists on disk so callers can detect
-  changes between runs.
+- Each file loads at most `per_file_byte_cap` bytes into the prompt. If
+  the file is longer, the loader returns the truncated bytes with a
+  deterministic marker appended and `truncated=True`. `byte_length` and
+  `sha256` always describe the file as it exists on disk, with hashing
+  streamed in bounded chunks so callers can detect changes between runs.
 - The total bytes loaded across all included files is bounded by
   `total_byte_cap`. Once including the next file would exceed the cap,
   the loader stops and appends a deterministic synthetic
@@ -67,6 +67,7 @@ INSTRUCTION_CANDIDATE_FILENAMES: tuple[str, ...] = (
 
 DEFAULT_PER_FILE_BYTE_CAP: int = 64 * 1024
 DEFAULT_TOTAL_BYTE_CAP: int = 256 * 1024
+_HASH_CHUNK_SIZE: int = 1024 * 1024
 
 GLOBAL_PATH_LABEL_PREFIX: str = "<global>/"
 TOTAL_BYTE_CAP_MARKER_PATH_LABEL: str = "<workspace-context: total byte cap reached>"
@@ -276,28 +277,50 @@ def _load_first_candidate(
         if resolved_candidate in seen_paths:
             return None
         try:
-            raw = candidate.read_bytes()
+            head, byte_length, sha256 = _read_capped_bytes(
+                resolved_candidate,
+                per_file_byte_cap=per_file_byte_cap,
+            )
         except OSError:
             continue
         seen_paths.add(resolved_candidate)
-        truncated = len(raw) > per_file_byte_cap
+        truncated = byte_length > per_file_byte_cap
         if truncated:
-            head = raw[:per_file_byte_cap]
             content = head.decode("utf-8", errors="replace") + (
                 PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
             )
         else:
-            content = raw.decode("utf-8", errors="replace")
-        sha256 = hashlib.sha256(raw).hexdigest()
+            content = head.decode("utf-8", errors="replace")
         path_label = path_label_for(candidate_name)
         return WorkspaceInstructionFile(
             path_label=path_label,
             sha256=sha256,
-            byte_length=len(raw),
+            byte_length=byte_length,
             content=content,
             truncated=truncated,
         )
     return None
+
+
+def _read_capped_bytes(
+    path: Path,
+    *,
+    per_file_byte_cap: int,
+) -> tuple[bytes, int, str]:
+    hasher = hashlib.sha256()
+    byte_length = 0
+    with path.open("rb") as handle:
+        first_chunk = handle.read(per_file_byte_cap + 1)
+        byte_length += len(first_chunk)
+        hasher.update(first_chunk)
+        head = first_chunk[:per_file_byte_cap]
+        while True:
+            chunk = handle.read(_HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            byte_length += len(chunk)
+            hasher.update(chunk)
+    return head, byte_length, hasher.hexdigest()
 
 
 def _global_path_label(filename: str) -> str:

@@ -11,9 +11,10 @@ plus its own composition / lookup surface.
 
 The helpers mirror the conventions pinned by
 `pipy_harness.native.workspace_context`: stdlib only, no pydantic,
-missing files never raise, symlinks must resolve inside the
-containing directory, per-file reads are bounded with a deterministic
-marker, and the global root resolves through `PIPY_CONFIG_HOME` then
+missing files never raise, resource directories must not be symlinks,
+resource-file symlinks must resolve inside the containing directory,
+per-file body loads are bounded with a deterministic marker, and the
+global root resolves through `PIPY_CONFIG_HOME` then
 `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`.
 
 No body content is intended to leave the in-process discovery layer.
@@ -44,6 +45,7 @@ PER_FILE_TRUNCATION_MARKER_TEMPLATE: str = (
 
 DEFAULT_PER_FILE_BYTE_CAP: int = 64 * 1024
 DEFAULT_TOTAL_BYTE_CAP: int = 256 * 1024
+_HASH_CHUNK_SIZE: int = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,13 +118,12 @@ def discover_resource_files(
       name so the result is deterministic.
     - Results are deduplicated by canonical (`Path.resolve()`) path.
       The first occurrence wins.
-    - Each file is read at most `per_file_byte_cap` bytes; a longer
-      file is truncated with a deterministic marker and
+    - Each file loads at most `per_file_byte_cap` bytes into its body;
+      a longer file is truncated with a deterministic marker and
       `truncated=True`. `byte_length` and `sha256` always describe the
-      on-disk file.
-    - Symlinks must resolve inside their authority root: workspace files under
-      the resolved workspace, and global files under the resolved global
-      resource root. A symlink that escapes is skipped silently.
+      on-disk file, with hashing streamed in bounded chunks.
+    - Symlinks must resolve inside the source directory they were found in.
+      A symlink that escapes is skipped silently.
     - Total bytes loaded across all files is bounded by
       `total_byte_cap`. Once the next file would push the running
       total past the cap, the loader stops and returns
@@ -152,14 +153,20 @@ def discover_resource_files(
     total_loaded = 0
     cap_reached = False
 
-    sources: list[tuple[Path, str, Path]] = [
-        (workspace_dir, "workspace", resolved_workspace),
-        (global_dir, "global", global_root.expanduser().resolve()),
+    sources: list[tuple[Path, str]] = [
+        (workspace_dir, "workspace"),
+        (global_dir, "global"),
     ]
 
-    for source_dir, source_kind, containment_root in sources:
+    for source_dir, source_kind in sources:
         if cap_reached:
             break
+        try:
+            if source_dir.is_symlink():
+                continue
+            containment_root = source_dir.expanduser().resolve()
+        except OSError:
+            continue
         for candidate in _iter_md_files(source_dir):
             try:
                 resolved_candidate = candidate.resolve()
@@ -172,26 +179,33 @@ def discover_resource_files(
             if resolved_candidate in seen_paths:
                 continue
             try:
-                raw = candidate.read_bytes()
+                byte_length = resolved_candidate.stat().st_size
             except OSError:
                 continue
-            byte_length = len(raw)
             if total_loaded + byte_length > total_byte_cap and raw_files:
                 cap_reached = True
                 break
             if total_loaded + byte_length > total_byte_cap:
                 cap_reached = True
                 break
+            try:
+                head, byte_length, sha256 = _read_capped_bytes(
+                    resolved_candidate,
+                    per_file_byte_cap=per_file_byte_cap,
+                )
+            except OSError:
+                continue
+            if total_loaded + byte_length > total_byte_cap:
+                cap_reached = True
+                break
             seen_paths.add(resolved_candidate)
             truncated = byte_length > per_file_byte_cap
             if truncated:
-                head = raw[:per_file_byte_cap]
                 content = head.decode("utf-8", errors="replace") + (
                     PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
                 )
             else:
-                content = raw.decode("utf-8", errors="replace")
-            sha256 = hashlib.sha256(raw).hexdigest()
+                content = head.decode("utf-8", errors="replace")
             name, description, body = _parse_frontmatter(content, fallback_name=candidate.stem)
             path_label = _path_label_for(
                 candidate=candidate,
@@ -212,6 +226,27 @@ def discover_resource_files(
             total_loaded += byte_length
 
     return raw_files, cap_reached
+
+
+def _read_capped_bytes(
+    path: Path,
+    *,
+    per_file_byte_cap: int,
+) -> tuple[bytes, int, str]:
+    hasher = hashlib.sha256()
+    byte_length = 0
+    with path.open("rb") as handle:
+        first_chunk = handle.read(per_file_byte_cap + 1)
+        byte_length += len(first_chunk)
+        hasher.update(first_chunk)
+        head = first_chunk[:per_file_byte_cap]
+        while True:
+            chunk = handle.read(_HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            byte_length += len(chunk)
+            hasher.update(chunk)
+    return head, byte_length, hasher.hexdigest()
 
 
 def _iter_md_files(directory: Path) -> list[Path]:
