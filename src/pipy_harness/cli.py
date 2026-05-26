@@ -77,7 +77,20 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=["fake", "openai", "openai-codex", "openrouter"],
+        choices=[
+            "fake",
+            "openai",
+            "openai-completions",
+            "openai-codex",
+            "openrouter",
+            "anthropic",
+            "google",
+            "google-vertex",
+            "mistral",
+            "amazon-bedrock",
+            "azure-openai",
+            "cloudflare",
+        ],
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -132,7 +145,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repl_parser.add_argument(
         "--native-provider",
-        choices=["fake", "openai", "openai-codex", "openrouter"],
+        choices=[
+            "fake",
+            "openai",
+            "openai-completions",
+            "openai-codex",
+            "openrouter",
+            "anthropic",
+            "google",
+            "google-vertex",
+            "mistral",
+            "amazon-bedrock",
+            "azure-openai",
+            "cloudflare",
+        ],
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -399,27 +425,31 @@ def _adapter_for(
     native_model: str | None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
-        if native_provider not in (None, "fake", "openai", "openai-codex", "openrouter"):
+        if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
             raise ValueError(f"unsupported native provider: {native_provider}")
-        if native_provider == "openai":
+        if native_provider in {
+            "openai",
+            "openai-completions",
+            "openai-codex",
+            "openrouter",
+            "anthropic",
+            "google",
+            "google-vertex",
+            "mistral",
+            "amazon-bedrock",
+            "azure-openai",
+            "cloudflare",
+        }:
             if not native_model:
-                raise ValueError("--native-model is required for --native-provider openai")
+                raise ValueError(
+                    f"--native-model is required for --native-provider {native_provider}"
+                )
             return PipyNativeAdapter(
-                provider=OpenAIResponsesProvider(model_id=native_model),
-                instruction_loader=default_workspace_instruction_loader,
-            )
-        if native_provider == "openai-codex":
-            if not native_model:
-                raise ValueError("--native-model is required for --native-provider openai-codex")
-            return PipyNativeAdapter(
-                provider=OpenAICodexResponsesProvider(model_id=native_model),
-                instruction_loader=default_workspace_instruction_loader,
-            )
-        if native_provider == "openrouter":
-            if not native_model:
-                raise ValueError("--native-model is required for --native-provider openrouter")
-            return PipyNativeAdapter(
-                provider=OpenRouterChatCompletionsProvider(model_id=native_model),
+                provider=_native_provider_for_selection(
+                    NativeModelSelection(
+                        provider_name=native_provider, model_id=native_model
+                    )
+                ),
                 instruction_loader=default_workspace_instruction_loader,
             )
         return PipyNativeAdapter(
@@ -540,10 +570,48 @@ def _tool_repl_adapter_for(
 def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:
     if selection.provider_name == "openai":
         return OpenAIResponsesProvider(model_id=selection.model_id)
+    if selection.provider_name == "openai-completions":
+        from pipy_harness.native.openai_completions_provider import (
+            OpenAIChatCompletionsProvider,
+        )
+
+        return OpenAIChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-codex":
         return OpenAICodexResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "openrouter":
         return OpenRouterChatCompletionsProvider(model_id=selection.model_id)
+    if selection.provider_name == "anthropic":
+        from pipy_harness.native.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider(model_id=selection.model_id)
+    if selection.provider_name == "google":
+        from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
+
+        return GoogleGenerativeAIProvider(model_id=selection.model_id)
+    if selection.provider_name == "google-vertex":
+        from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+        return GoogleVertexProvider(model_id=selection.model_id)
+    if selection.provider_name == "mistral":
+        from pipy_harness.native.mistral_provider import MistralProvider
+
+        return MistralProvider(model_id=selection.model_id)
+    if selection.provider_name == "amazon-bedrock":
+        from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+        return AmazonBedrockProvider(model_id=selection.model_id)
+    if selection.provider_name == "azure-openai":
+        from pipy_harness.native.azure_openai_provider import (
+            AzureOpenAIResponsesProvider,
+        )
+
+        return AzureOpenAIResponsesProvider(model_id=selection.model_id)
+    if selection.provider_name == "cloudflare":
+        from pipy_harness.native.cloudflare_provider import (
+            CloudflareWorkersAIProvider,
+        )
+
+        return CloudflareWorkersAIProvider(model_id=selection.model_id)
     if selection.provider_name == "fake":
         return FakeNativeProvider(model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"])
     raise ValueError(f"unsupported native provider: {selection.provider_name}")

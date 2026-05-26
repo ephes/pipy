@@ -545,8 +545,7 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
         return [
             {
                 "type": "function_call_output",
-                "call_id": envelope.provider_correlation_id
-                or envelope.tool_request_id,
+                "call_id": _require_provider_correlation_id(envelope),
                 "output": envelope.output_text,
             }
         ]
@@ -570,6 +569,14 @@ def _serialize_tool_for_openai_codex(tool: Any) -> dict[str, Any]:
         "description": tool.description,
         "parameters": dict(tool.input_schema),
     }
+
+
+def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
+    if envelope.provider_correlation_id:
+        return envelope.provider_correlation_id
+    raise OpenAICodexProviderError(
+        "ToolResultMessage is missing provider_correlation_id."
+    )
 
 
 @dataclass(frozen=True, slots=True)

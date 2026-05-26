@@ -1,4 +1,13 @@
-"""OpenAI Responses API provider for the native pipy runtime."""
+"""Azure OpenAI Responses API provider for the native pipy runtime.
+
+Azure OpenAI exposes the same Responses-style request/response shape as
+OpenAI's first-party endpoint, but reaches it through a per-deployment URL
+and authenticates with an ``api-key`` header instead of a bearer token.
+
+This adapter intentionally duplicates the parsing helpers from
+``openai_provider`` so the two providers remain decoupled and can drift
+independently.
+"""
 
 from __future__ import annotations
 
@@ -21,8 +30,8 @@ from pipy_harness.native.tools.messages import (
 )
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
+DEFAULT_AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
@@ -52,7 +61,7 @@ class JsonHTTPClient(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class UrllibJsonHTTPClient:
-    """Standard-library JSON client for OpenAI Responses calls."""
+    """Standard-library JSON client for Azure OpenAI Responses calls."""
 
     def post_json(
         self,
@@ -74,36 +83,50 @@ class UrllibJsonHTTPClient:
                 payload = response.read()
                 status_code = response.getcode()
         except urllib.error.HTTPError as exc:
-            raise OpenAIHTTPStatusError.from_http_error(exc) from exc
+            raise AzureOpenAIHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenAITransportError(f"OpenAI API request failed: {reason}") from exc
+            reason = (
+                sanitize_text(str(exc.reason))
+                if getattr(exc, "reason", None)
+                else "request failed"
+            )
+            raise AzureOpenAITransportError(
+                f"Azure OpenAI API request failed: {reason}"
+            ) from exc
 
         return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
 
 
 @dataclass(frozen=True, slots=True)
-class OpenAIResponsesProvider:
-    """OpenAI Responses API provider behind ProviderPort.
+class AzureOpenAIResponsesProvider:
+    """Azure OpenAI Responses API provider behind ProviderPort.
 
-    Real adapter with `supports_tool_calls=True`. When
-    `ProviderRequest.messages` is non-empty the provider serializes them
-    into the Responses API `input` list (with `function_call` and
-    `function_call_output` items) and declares `tools` from
-    `available_tools`. Legacy single-turn callers leave `messages` empty
-    and keep the previous string/list `input` body builder.
+    ``model_id`` doubles as the Azure deployment name unless ``deployment``
+    is set explicitly. The endpoint URL is composed as
+    ``{endpoint_url}/openai/deployments/{deployment}/responses?api-version={api_version}``.
+    Authentication uses the ``api-key`` header (Azure's convention), not
+    ``Authorization: Bearer``.
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY"))
+    endpoint_url: str | None = field(
+        default_factory=lambda: os.environ.get("AZURE_OPENAI_ENDPOINT")
+    )
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY")
+    )
+    api_version: str = field(
+        default_factory=lambda: os.environ.get("AZURE_OPENAI_API_VERSION")
+        or DEFAULT_AZURE_OPENAI_API_VERSION
+    )
+    deployment: str | None = None
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
-    endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
 
     @property
     def name(self) -> str:
-        return "openai"
+        return "azure-openai"
 
     def complete(self, request: ProviderRequest) -> ProviderResult:
         started_at = _utc_now()
@@ -112,17 +135,40 @@ class OpenAIResponsesProvider:
                 request,
                 provider_name=self.name,
                 started_at=started_at,
-                error_type="OpenAIConfigurationError",
-                error_message="--native-model is required for native provider openai.",
+                error_type="AzureOpenAIConfigurationError",
+                error_message=(
+                    "--native-model is required for native provider azure-openai."
+                ),
+            )
+        if not self.endpoint_url:
+            return _failed_result(
+                request,
+                provider_name=self.name,
+                started_at=started_at,
+                error_type="AzureOpenAIConfigurationError",
+                error_message=(
+                    "Azure OpenAI endpoint URL is required in the environment "
+                    "for native provider azure-openai."
+                ),
             )
         if not self.api_key:
             return _failed_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
-                error_type="OpenAIAuthError",
-                error_message="OpenAI API key is required in the environment for native provider openai.",
+                error_type="AzureOpenAIAuthError",
+                error_message=(
+                    "Azure OpenAI API key is required in the environment "
+                    "for native provider azure-openai."
+                ),
             )
+
+        deployment = self.deployment or self.model_id
+        normalized_endpoint = self.endpoint_url.rstrip("/")
+        url = (
+            f"{normalized_endpoint}/openai/deployments/{deployment}/responses"
+            f"?api-version={self.api_version}"
+        )
 
         body: dict[str, Any] = {
             "model": self.model_id,
@@ -132,28 +178,29 @@ class OpenAIResponsesProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_openai_responses(tool)
+                _serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "api-key": self.api_key,
             "Content-Type": "application/json",
         }
 
         try:
             response = self.http_client.post_json(
-                self.endpoint,
+                url,
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
             )
             if response.status_code < 200 or response.status_code >= 300:
-                raise OpenAIHTTPStatusError(
-                    f"OpenAI API request failed with HTTP status {response.status_code}.",
+                raise AzureOpenAIHTTPStatusError(
+                    "Azure OpenAI API request failed with HTTP status "
+                    f"{response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
             result = _parse_response(response.body)
-        except OpenAIProviderError as exc:
+        except AzureOpenAIProviderError as exc:
             return _failed_result(
                 request,
                 provider_name=self.name,
@@ -185,7 +232,10 @@ def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
         return items
-    if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
+    if (
+        request.no_tool_repl_context is None
+        or not request.no_tool_repl_context.exchanges
+    ):
         return request.user_prompt
     messages: list[dict[str, object]] = []
     for exchange in request.no_tool_repl_context.exchanges:
@@ -198,7 +248,9 @@ def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
         messages.append(
             {
                 "role": "assistant",
-                "content": [{"type": "output_text", "text": exchange.provider_final_text}],
+                "content": [
+                    {"type": "output_text", "text": exchange.provider_final_text}
+                ],
             }
         )
     messages.append(
@@ -226,9 +278,7 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
             items.append(
                 {
                     "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": envelope.content}
-                    ],
+                    "content": [{"type": "output_text", "text": envelope.content}],
                 }
             )
         for call in envelope.tool_calls:
@@ -249,18 +299,13 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
                 "output": envelope.output_text,
             }
         ]
-    raise OpenAIResponseParseError(
+    raise AzureOpenAIResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
 
 
-def _serialize_tool_for_openai_responses(tool: Any) -> dict[str, Any]:
-    """Translate a `ToolDefinition` into the Responses API tool shape.
-
-    The Responses API takes function tools as a flat object with
-    `type`/`name`/`description`/`parameters` (no nested `function:`
-    wrapper, unlike Chat Completions).
-    """
+def _serialize_tool_for_responses(tool: Any) -> dict[str, Any]:
+    """Translate a ``ToolDefinition`` into the Responses API tool shape."""
 
     return {
         "type": "function",
@@ -273,36 +318,43 @@ def _serialize_tool_for_openai_responses(tool: Any) -> dict[str, Any]:
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
-    raise OpenAIResponseParseError(
+    raise AzureOpenAIResponseParseError(
         "ToolResultMessage is missing provider_correlation_id."
     )
 
 
 @dataclass(frozen=True, slots=True)
-class ParsedOpenAIResponse:
+class ParsedAzureOpenAIResponse:
     final_text: str | None
     usage: dict[str, int | float]
     response_status: str
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class OpenAIProviderError(Exception):
-    """Base class for sanitized OpenAI provider errors."""
+class AzureOpenAIProviderError(Exception):
+    """Base class for sanitized Azure OpenAI provider errors."""
 
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(sanitize_text(message))
         self.metadata = dict(metadata or {})
 
 
-class OpenAIHTTPStatusError(OpenAIProviderError):
-    """Raised when OpenAI returns a non-success HTTP status."""
+class AzureOpenAIHTTPStatusError(AzureOpenAIProviderError):
+    """Raised when Azure OpenAI returns a non-success HTTP status."""
 
     @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenAIHTTPStatusError:
+    def from_http_error(
+        cls, exc: urllib.error.HTTPError
+    ) -> AzureOpenAIHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
             body = _decode_json_object(exc.read())
-        except OpenAIResponseParseError:
+        except AzureOpenAIResponseParseError:
             body = {}
         error = body.get("error")
         if isinstance(error, Mapping):
@@ -312,23 +364,28 @@ class OpenAIHTTPStatusError(OpenAIProviderError):
                 metadata["api_error_type"] = error_type
             if isinstance(error_code, str):
                 metadata["api_error_code"] = error_code
-        return cls(f"OpenAI API request failed with HTTP status {exc.code}.", metadata=metadata)
+        return cls(
+            f"Azure OpenAI API request failed with HTTP status {exc.code}.",
+            metadata=metadata,
+        )
 
 
-class OpenAITransportError(OpenAIProviderError):
-    """Raised when the HTTP request cannot reach OpenAI."""
+class AzureOpenAITransportError(AzureOpenAIProviderError):
+    """Raised when the HTTP request cannot reach Azure OpenAI."""
 
 
-class OpenAIResponseParseError(OpenAIProviderError):
-    """Raised when the OpenAI response shape is unsupported."""
+class AzureOpenAIResponseParseError(AzureOpenAIProviderError):
+    """Raised when the Azure OpenAI response shape is unsupported."""
 
 
-def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
+def _parse_response(body: Mapping[str, Any]) -> ParsedAzureOpenAIResponse:
     status = body.get("status")
-    response_status = sanitize_text(status) if isinstance(status, str) else "unknown"
+    response_status = (
+        sanitize_text(status) if isinstance(status, str) else "unknown"
+    )
     if response_status and response_status != "completed":
-        raise OpenAIResponseParseError(
-            f"OpenAI response status was {response_status}.",
+        raise AzureOpenAIResponseParseError(
+            f"Azure OpenAI response status was {response_status}.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
@@ -338,15 +395,15 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
     final_text = _extract_final_text(body)
     tool_calls = _extract_tool_calls(body.get("output"))
     if not final_text and not tool_calls:
-        raise OpenAIResponseParseError(
-            "OpenAI response did not include final output text or tool calls.",
+        raise AzureOpenAIResponseParseError(
+            "Azure OpenAI response did not include final output text or tool calls.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
             },
         )
 
-    return ParsedOpenAIResponse(
+    return ParsedAzureOpenAIResponse(
         final_text=final_text,
         usage=_extract_usage(body.get("usage")),
         response_status=response_status,
@@ -375,7 +432,9 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
         for content_item in content:
             if not isinstance(content_item, Mapping):
                 continue
-            if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
+            if content_item.get("type") == "output_text" and isinstance(
+                content_item.get("text"), str
+            ):
                 chunks.append(content_item["text"])
     if not chunks:
         return None
@@ -383,7 +442,7 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
 
 
 def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
-    """Parse Responses-API `output` items of type `function_call`."""
+    """Parse Responses-API ``output`` items of type ``function_call``."""
 
     if not isinstance(value, list):
         return ()
@@ -398,14 +457,18 @@ def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
         call_id = item.get("call_id")
         if not isinstance(call_id, str) or not call_id:
             candidate_id = item.get("id")
-            call_id = candidate_id if isinstance(candidate_id, str) and candidate_id else None
+            call_id = (
+                candidate_id
+                if isinstance(candidate_id, str) and candidate_id
+                else None
+            )
         if not isinstance(name, str) or not name:
             continue
         if isinstance(arguments, Mapping):
             arguments = json.dumps(arguments, sort_keys=True)
         if not isinstance(arguments, str):
             arguments = ""
-        correlation = call_id if call_id else f"openai-tool-{index}"
+        correlation = call_id if call_id else f"azure-openai-tool-{index}"
         try:
             calls.append(
                 ProviderToolCall(
@@ -430,7 +493,7 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
     for key in NORMALIZED_PROVIDER_USAGE_KEYS:
         usage[key] = value.get(key)
 
-    for details_key, usage_key in OPENAI_NESTED_USAGE_FIELDS:
+    for details_key, usage_key in AZURE_OPENAI_NESTED_USAGE_FIELDS:
         details = value.get(details_key)
         if isinstance(details, Mapping) and usage_key in details:
             usage[usage_key] = details[usage_key]
@@ -442,9 +505,13 @@ def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
     try:
         decoded = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpenAIResponseParseError("OpenAI API returned non-JSON response metadata.") from exc
+        raise AzureOpenAIResponseParseError(
+            "Azure OpenAI API returned non-JSON response metadata."
+        ) from exc
     if not isinstance(decoded, Mapping):
-        raise OpenAIResponseParseError("OpenAI API returned unsupported JSON response metadata.")
+        raise AzureOpenAIResponseParseError(
+            "Azure OpenAI API returned unsupported JSON response metadata."
+        )
     return decoded
 
 

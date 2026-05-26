@@ -1,4 +1,4 @@
-"""OpenRouter Chat Completions provider for the native pipy runtime."""
+"""Mistral Chat Completions provider for the native pipy runtime."""
 
 from __future__ import annotations
 
@@ -21,13 +21,11 @@ from pipy_harness.native.tools.messages import (
 )
 from pipy_harness.native.usage import normalize_provider_usage
 
-OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
+MISTRAL_CHAT_COMPLETIONS_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("prompt_tokens", "input_tokens"),
     ("completion_tokens", "output_tokens"),
     ("total_tokens", "total_tokens"),
-    ("cached_tokens", "cached_tokens"),
-    ("reasoning_tokens", "reasoning_tokens"),
 )
 
 
@@ -55,7 +53,7 @@ class JsonHTTPClient(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class UrllibJsonHTTPClient:
-    """Standard-library JSON client for OpenRouter Chat Completions calls."""
+    """Standard-library JSON client for Mistral Chat Completions calls."""
 
     def post_json(
         self,
@@ -77,35 +75,35 @@ class UrllibJsonHTTPClient:
                 payload = response.read()
                 status_code = response.getcode()
         except urllib.error.HTTPError as exc:
-            raise OpenRouterHTTPStatusError.from_http_error(exc) from exc
+            raise MistralHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
             reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenRouterTransportError(f"OpenRouter API request failed: {reason}") from exc
+            raise MistralTransportError(f"Mistral API request failed: {reason}") from exc
 
         return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
 
 
 @dataclass(frozen=True, slots=True)
-class OpenRouterChatCompletionsProvider:
-    """OpenRouter Chat Completions provider behind ProviderPort.
+class MistralProvider:
+    """Mistral Chat Completions provider behind ProviderPort.
 
-    OpenRouter is the first real provider with `supports_tool_calls=True`.
-    When `ProviderRequest.messages` is non-empty the provider serializes
-    them in the OpenAI chat completions format (with `tool_calls` and
-    `tool` roles); otherwise it falls back to the legacy single-turn
-    payload built from `system_prompt`/`user_prompt`.
+    Mistral exposes an OpenAI-compatible Chat Completions API. When
+    `ProviderRequest.messages` is non-empty the provider serializes them in the
+    OpenAI chat completions format (with `tool_calls` and `tool` roles);
+    otherwise it falls back to the legacy single-turn payload built from
+    `system_prompt`/`user_prompt`.
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY"))
+    api_key: str | None = field(default_factory=lambda: os.environ.get("MISTRAL_API_KEY"))
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
-    endpoint: str = OPENROUTER_CHAT_COMPLETIONS_URL
+    endpoint: str = MISTRAL_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
 
     @property
     def name(self) -> str:
-        return "openrouter"
+        return "mistral"
 
     def complete(self, request: ProviderRequest) -> ProviderResult:
         started_at = _utc_now()
@@ -114,8 +112,8 @@ class OpenRouterChatCompletionsProvider:
                 request,
                 provider_name=self.name,
                 started_at=started_at,
-                error_type="OpenRouterConfigurationError",
-                error_message="--native-model is required for native provider openrouter.",
+                error_type="MistralConfigurationError",
+                error_message="--native-model is required for native provider mistral.",
             )
         api_key = self.api_key.strip() if self.api_key is not None else ""
         if not api_key:
@@ -123,20 +121,19 @@ class OpenRouterChatCompletionsProvider:
                 request,
                 provider_name=self.name,
                 started_at=started_at,
-                error_type="OpenRouterAuthError",
+                error_type="MistralAuthError",
                 error_message=(
-                    "OpenRouter API key is required in the environment for native provider openrouter."
+                    "Mistral API key is required in the environment for native provider mistral."
                 ),
             )
 
         body: dict[str, Any] = {
             "model": self.model_id,
             "messages": _chat_messages(request),
-            "stream": False,
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_openai(tool) for tool in request.available_tools
+                _serialize_tool_for_mistral(tool) for tool in request.available_tools
             ]
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -151,12 +148,12 @@ class OpenRouterChatCompletionsProvider:
                 timeout_seconds=self.timeout_seconds,
             )
             if response.status_code < 200 or response.status_code >= 300:
-                raise OpenRouterHTTPStatusError(
-                    f"OpenRouter API request failed with HTTP status {response.status_code}.",
+                raise MistralHTTPStatusError(
+                    f"Mistral API request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
             result = _parse_response(response.body)
-        except OpenRouterProviderError as exc:
+        except MistralProviderError as exc:
             return _failed_result(
                 request,
                 provider_name=self.name,
@@ -184,7 +181,7 @@ class OpenRouterChatCompletionsProvider:
 
 
 @dataclass(frozen=True, slots=True)
-class ParsedOpenRouterResponse:
+class ParsedMistralResponse:
     final_text: str | None
     usage: dict[str, int | float]
     response_object: str
@@ -192,54 +189,54 @@ class ParsedOpenRouterResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class OpenRouterProviderError(Exception):
-    """Base class for sanitized OpenRouter provider errors."""
+class MistralProviderError(Exception):
+    """Base class for sanitized Mistral provider errors."""
 
     def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
         super().__init__(sanitize_text(message))
         self.metadata = dict(metadata or {})
 
 
-class OpenRouterHTTPStatusError(OpenRouterProviderError):
-    """Raised when OpenRouter returns a non-success HTTP status."""
+class MistralHTTPStatusError(MistralProviderError):
+    """Raised when Mistral returns a non-success HTTP status."""
 
     @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenRouterHTTPStatusError:
+    def from_http_error(cls, exc: urllib.error.HTTPError) -> MistralHTTPStatusError:
         metadata = _safe_error_metadata(exc.code)
         try:
             body = _decode_json_object(exc.read())
-        except OpenRouterResponseParseError:
+        except MistralResponseParseError:
             body = {}
         error = body.get("error")
         if isinstance(error, Mapping):
             error_code = error.get("code")
             if isinstance(error_code, str | int):
                 metadata["api_error_code"] = sanitize_text(str(error_code))
-        return cls(f"OpenRouter API request failed with HTTP status {exc.code}.", metadata=metadata)
+        return cls(f"Mistral API request failed with HTTP status {exc.code}.", metadata=metadata)
 
 
-class OpenRouterTransportError(OpenRouterProviderError):
-    """Raised when the HTTP request cannot reach OpenRouter."""
+class MistralTransportError(MistralProviderError):
+    """Raised when the HTTP request cannot reach Mistral."""
 
 
-class OpenRouterResponseParseError(OpenRouterProviderError):
-    """Raised when the OpenRouter response shape is unsupported."""
+class MistralResponseParseError(MistralProviderError):
+    """Raised when the Mistral response shape is unsupported."""
 
 
-def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
+def _parse_response(body: Mapping[str, Any]) -> ParsedMistralResponse:
     error = body.get("error")
     if isinstance(error, Mapping):
         error_code = error.get("code")
         metadata: dict[str, Any] = {"provider_response_store_requested": False}
         if isinstance(error_code, str | int):
             metadata["api_error_code"] = sanitize_text(str(error_code))
-        raise OpenRouterResponseParseError("OpenRouter response included an error.", metadata=metadata)
+        raise MistralResponseParseError("Mistral response included an error.", metadata=metadata)
 
     response_object = _safe_response_label(body.get("object"), default="unknown")
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise OpenRouterResponseParseError(
-            "OpenRouter response did not include a completion choice.",
+        raise MistralResponseParseError(
+            "Mistral response did not include a completion choice.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_object": response_object,
@@ -248,8 +245,8 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
 
     first_choice = choices[0]
     if not isinstance(first_choice, Mapping):
-        raise OpenRouterResponseParseError(
-            "OpenRouter response included an unsupported completion choice.",
+        raise MistralResponseParseError(
+            "Mistral response included an unsupported completion choice.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_object": response_object,
@@ -263,8 +260,8 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
         message.get("tool_calls") if isinstance(message, Mapping) else None
     )
     if not final_text and not tool_calls:
-        raise OpenRouterResponseParseError(
-            "OpenRouter response did not include final message content or tool calls.",
+        raise MistralResponseParseError(
+            "Mistral response did not include final message content or tool calls.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_object": response_object,
@@ -272,7 +269,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenRouterResponse:
             },
         )
 
-    return ParsedOpenRouterResponse(
+    return ParsedMistralResponse(
         final_text=final_text,
         usage=_extract_usage(body.get("usage")),
         response_object=response_object,
@@ -305,7 +302,7 @@ def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
         correlation = (
             identifier
             if isinstance(identifier, str) and identifier
-            else f"openrouter-tool-{index}"
+            else f"mistral-tool-{index}"
         )
         try:
             calls.append(
@@ -368,12 +365,12 @@ def _envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
             "tool_call_id": _require_provider_correlation_id(envelope),
             "content": envelope.output_text,
         }
-    raise OpenRouterResponseParseError(
+    raise MistralResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
 
 
-def _serialize_tool_for_openai(tool: Any) -> dict[str, Any]:
+def _serialize_tool_for_mistral(tool: Any) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
@@ -387,7 +384,7 @@ def _serialize_tool_for_openai(tool: Any) -> dict[str, Any]:
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
-    raise OpenRouterResponseParseError(
+    raise MistralResponseParseError(
         "ToolResultMessage is missing provider_correlation_id."
     )
 
@@ -413,7 +410,7 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
     if not isinstance(value, Mapping):
         return {}
     usage: dict[str, Any] = {}
-    for provider_key, normalized_key in OPENROUTER_USAGE_FIELDS:
+    for provider_key, normalized_key in MISTRAL_USAGE_FIELDS:
         usage[normalized_key] = value.get(provider_key)
     return normalize_provider_usage(usage)
 
@@ -422,9 +419,9 @@ def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
     try:
         decoded = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpenRouterResponseParseError("OpenRouter API returned non-JSON response metadata.") from exc
+        raise MistralResponseParseError("Mistral API returned non-JSON response metadata.") from exc
     if not isinstance(decoded, Mapping):
-        raise OpenRouterResponseParseError("OpenRouter API returned unsupported JSON response metadata.")
+        raise MistralResponseParseError("Mistral API returned unsupported JSON response metadata.")
     return decoded
 
 

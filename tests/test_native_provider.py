@@ -13,6 +13,19 @@ from pipy_harness.native import (
 )
 
 
+PROVIDER_MODULES = (
+    "anthropic_provider.py",
+    "azure_openai_provider.py",
+    "bedrock_provider.py",
+    "cloudflare_provider.py",
+    "mistral_provider.py",
+    "openai_codex_provider.py",
+    "openai_completions_provider.py",
+    "openai_provider.py",
+    "openrouter_provider.py",
+)
+
+
 def test_fake_native_provider_is_deterministic_without_echoing_prompt(tmp_path):
     provider = FakeNativeProvider()
     request = ProviderRequest(
@@ -33,6 +46,14 @@ def test_fake_native_provider_is_deterministic_without_echoing_prompt(tmp_path):
     assert "USER_PROMPT" not in result.final_text
     assert result.usage == {}
     assert result.metadata is None
+
+
+def test_provider_serializers_do_not_fallback_to_pipy_tool_ids() -> None:
+    native_dir = Path(__file__).parents[1] / "src" / "pipy_harness" / "native"
+
+    for filename in PROVIDER_MODULES:
+        source = (native_dir / filename).read_text(encoding="utf-8")
+        assert "or envelope.tool_request_id" not in source
 
 
 def test_fake_native_provider_uses_explicit_tool_intent_fixture(tmp_path):

@@ -83,6 +83,10 @@ from pipy_harness.native.openai_codex_provider import (
     default_openai_codex_auth_path,
     parse_authorization_input,
 )
+from pipy_harness.native.anthropic_provider import AnthropicProvider
+from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
+from pipy_harness.native.mistral_provider import MistralProvider
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
 from pipy_harness.native.openrouter_provider import OpenRouterChatCompletionsProvider
 from pipy_harness.native.patch_apply import (
@@ -243,6 +247,10 @@ __all__ = [
     "OpenAICodexCredentials",
     "OpenAICodexProviderError",
     "OpenAICodexResponsesProvider",
+    "AnthropicProvider",
+    "AmazonBedrockProvider",
+    "GoogleGenerativeAIProvider",
+    "MistralProvider",
     "OpenAIResponsesProvider",
     "OpenRouterChatCompletionsProvider",
     "PROVIDER_PATCH_PROPOSAL_METADATA_KEY",

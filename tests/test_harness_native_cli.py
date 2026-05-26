@@ -1003,7 +1003,7 @@ def test_cli_native_repl_model_resolution_rejects_unavailable_ambiguous_and_unkn
     monkeypatch.setattr(
         sys,
         "stdin",
-        StringIO("/model gpt-5.4\n/model missing-model\n/model openrouter/example\n/exit\n"),
+        StringIO("/model gpt-5.5\n/model missing-model\n/model openrouter/example\n/exit\n"),
     )
 
     exit_code = main(

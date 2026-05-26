@@ -16,12 +16,35 @@ from pipy_harness.native.openai_codex_provider import (
 )
 from pipy_harness.native.provider import ProviderPort
 
-SUPPORTED_NATIVE_PROVIDERS = frozenset({"fake", "openai", "openai-codex", "openrouter"})
+SUPPORTED_NATIVE_PROVIDERS = frozenset(
+    {
+        "fake",
+        "openai",
+        "openai-completions",
+        "openai-codex",
+        "openrouter",
+        "anthropic",
+        "google",
+        "google-vertex",
+        "mistral",
+        "amazon-bedrock",
+        "azure-openai",
+        "cloudflare",
+    }
+)
 DEFAULT_NATIVE_MODELS = {
     "fake": "fake-native-bootstrap",
-    "openai": "gpt-5.4",
-    "openai-codex": "gpt-5.4",
+    "openai": "gpt-5.5",
+    "openai-completions": "gpt-4o-mini",
+    "openai-codex": "gpt-5.5",
     "openrouter": "openai/gpt-5.1-codex",
+    "anthropic": "claude-3-5-sonnet-20241022",
+    "google": "gemini-2.0-flash-exp",
+    "google-vertex": "gemini-2.0-flash-001",
+    "mistral": "mistral-large-latest",
+    "amazon-bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "azure-openai": "gpt-4o",
+    "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
 }
 
 
@@ -139,6 +162,93 @@ class NativeReplProviderState:
                 available=bool(self._env().get("OPENROUTER_API_KEY")),
                 reason=None if self._env().get("OPENROUTER_API_KEY") else "env-missing",
             ),
+            NativeModelOption(
+                NativeModelSelection("anthropic", DEFAULT_NATIVE_MODELS["anthropic"]),
+                available=bool(self._env().get("ANTHROPIC_API_KEY")),
+                reason=None if self._env().get("ANTHROPIC_API_KEY") else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection("google", DEFAULT_NATIVE_MODELS["google"]),
+                available=bool(
+                    self._env().get("GOOGLE_API_KEY")
+                    or self._env().get("GEMINI_API_KEY")
+                ),
+                reason=None
+                if self._env().get("GOOGLE_API_KEY")
+                or self._env().get("GEMINI_API_KEY")
+                else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection("mistral", DEFAULT_NATIVE_MODELS["mistral"]),
+                available=bool(self._env().get("MISTRAL_API_KEY")),
+                reason=None if self._env().get("MISTRAL_API_KEY") else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection(
+                    "amazon-bedrock", DEFAULT_NATIVE_MODELS["amazon-bedrock"]
+                ),
+                available=bool(
+                    self._env().get("AWS_ACCESS_KEY_ID")
+                    and self._env().get("AWS_SECRET_ACCESS_KEY")
+                ),
+                reason=None
+                if self._env().get("AWS_ACCESS_KEY_ID")
+                and self._env().get("AWS_SECRET_ACCESS_KEY")
+                else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection(
+                    "openai-completions",
+                    DEFAULT_NATIVE_MODELS["openai-completions"],
+                ),
+                available=bool(self._env().get("OPENAI_API_KEY")),
+                reason=None if self._env().get("OPENAI_API_KEY") else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection(
+                    "azure-openai", DEFAULT_NATIVE_MODELS["azure-openai"]
+                ),
+                available=bool(
+                    self._env().get("AZURE_OPENAI_ENDPOINT")
+                    and self._env().get("AZURE_OPENAI_API_KEY")
+                ),
+                reason=None
+                if self._env().get("AZURE_OPENAI_ENDPOINT")
+                and self._env().get("AZURE_OPENAI_API_KEY")
+                else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection(
+                    "cloudflare", DEFAULT_NATIVE_MODELS["cloudflare"]
+                ),
+                available=bool(
+                    self._env().get("CLOUDFLARE_ACCOUNT_ID")
+                    and self._env().get("CLOUDFLARE_API_TOKEN")
+                ),
+                reason=None
+                if self._env().get("CLOUDFLARE_ACCOUNT_ID")
+                and self._env().get("CLOUDFLARE_API_TOKEN")
+                else "env-missing",
+            ),
+            NativeModelOption(
+                NativeModelSelection(
+                    "google-vertex", DEFAULT_NATIVE_MODELS["google-vertex"]
+                ),
+                available=bool(
+                    self._env().get("GOOGLE_ACCESS_TOKEN")
+                    and (
+                        self._env().get("GOOGLE_CLOUD_PROJECT")
+                        or self._env().get("GOOGLE_PROJECT_ID")
+                    )
+                ),
+                reason=None
+                if self._env().get("GOOGLE_ACCESS_TOKEN")
+                and (
+                    self._env().get("GOOGLE_CLOUD_PROJECT")
+                    or self._env().get("GOOGLE_PROJECT_ID")
+                )
+                else "env-missing",
+            ),
         ]
 
     def select_model(self, reference: str) -> tuple[bool, str]:
@@ -208,6 +318,40 @@ class NativeReplProviderState:
             return bool(self._env().get("OPENAI_API_KEY"))
         if provider_name == "openrouter":
             return bool(self._env().get("OPENROUTER_API_KEY"))
+        if provider_name == "anthropic":
+            return bool(self._env().get("ANTHROPIC_API_KEY"))
+        if provider_name == "google":
+            return bool(
+                self._env().get("GOOGLE_API_KEY")
+                or self._env().get("GEMINI_API_KEY")
+            )
+        if provider_name == "mistral":
+            return bool(self._env().get("MISTRAL_API_KEY"))
+        if provider_name == "openai-completions":
+            return bool(self._env().get("OPENAI_API_KEY"))
+        if provider_name == "amazon-bedrock":
+            return bool(
+                self._env().get("AWS_ACCESS_KEY_ID")
+                and self._env().get("AWS_SECRET_ACCESS_KEY")
+            )
+        if provider_name == "azure-openai":
+            return bool(
+                self._env().get("AZURE_OPENAI_ENDPOINT")
+                and self._env().get("AZURE_OPENAI_API_KEY")
+            )
+        if provider_name == "cloudflare":
+            return bool(
+                self._env().get("CLOUDFLARE_ACCOUNT_ID")
+                and self._env().get("CLOUDFLARE_API_TOKEN")
+            )
+        if provider_name == "google-vertex":
+            return bool(
+                self._env().get("GOOGLE_ACCESS_TOKEN")
+                and (
+                    self._env().get("GOOGLE_CLOUD_PROJECT")
+                    or self._env().get("GOOGLE_PROJECT_ID")
+                )
+            )
         return False
 
     def _provider_unavailable_message(self, provider_name: str) -> str:
@@ -217,6 +361,22 @@ class NativeReplProviderState:
             return "pipy: openai is unavailable because OPENAI_API_KEY is not set."
         if provider_name == "openrouter":
             return "pipy: openrouter is unavailable because OPENROUTER_API_KEY is not set."
+        if provider_name == "anthropic":
+            return "pipy: anthropic is unavailable because ANTHROPIC_API_KEY is not set."
+        if provider_name == "google":
+            return "pipy: google is unavailable because GOOGLE_API_KEY or GEMINI_API_KEY is not set."
+        if provider_name == "mistral":
+            return "pipy: mistral is unavailable because MISTRAL_API_KEY is not set."
+        if provider_name == "openai-completions":
+            return "pipy: openai-completions is unavailable because OPENAI_API_KEY is not set."
+        if provider_name == "amazon-bedrock":
+            return "pipy: amazon-bedrock is unavailable because AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY is not set."
+        if provider_name == "azure-openai":
+            return "pipy: azure-openai is unavailable because AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY is not set."
+        if provider_name == "cloudflare":
+            return "pipy: cloudflare is unavailable because CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN is not set."
+        if provider_name == "google-vertex":
+            return "pipy: google-vertex is unavailable because GOOGLE_ACCESS_TOKEN or GOOGLE_CLOUD_PROJECT is not set."
         return "pipy: unsupported native provider."
 
     def _save_default(self, selection: NativeModelSelection) -> None:
