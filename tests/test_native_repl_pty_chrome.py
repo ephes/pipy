@@ -105,9 +105,13 @@ def pipy_cli() -> list[str]:
 
 
 def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
-    """Startup chrome must be compact: title, controls strip, [Section] resources, framed prompt."""
+    """Startup chrome must be Pi-shape: title, controls strip, [Section] listings,
+    separator-framed prompt, and persistent bottom status block (cwd + status line).
+    """
 
     (tmp_path / "AGENTS.md").write_text("safe\n", encoding="utf-8")
+    skills_root = tmp_path / ".claude" / "skills"
+    (skills_root / "my-skill").mkdir(parents=True)
     captured = _decode_capture(
         _run_pty(
             pipy_cli + ["--cwd", str(tmp_path), "--root", str(tmp_path / "sessions")],
@@ -120,15 +124,31 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
 
     assert "pipy v" in captured
     assert "native shell" in captured
-    assert "Ctrl-C interrupt · /exit quit · / commands" in captured
+    # Controls strip uses Pi-style lowercase shortcuts and middot separators.
+    assert "ctrl+c interrupt" in captured
+    assert "/ commands" in captured
     assert "Type / to open the command menu" in captured
     assert "[Context]" in captured
-    assert "AGENTS.md labels-only" in captured
-    # Compact chrome must NOT have the old verbose label rows.
-    assert "Resources" not in captured.split("[Context]")[0] or True  # may appear elsewhere
-    assert "interrupt  Ctrl-C" not in captured
+    # Context lists the project-local AGENTS.md source by name.
+    assert "AGENTS.md" in captured.split("[Context]")[1].split("[")[0]
+    # Skills section must surface a project-local skill the workspace provides.
+    assert "[Skills]" in captured
+    assert "my-skill" in captured.split("[Skills]")[1]
     # The bordered separator above the prompt must be present.
     assert "─" * 10 in captured
+    # The persistent bottom status block (cwd + status line) must render below
+    # the prompt area, not above it. The status line must include cost,
+    # plan/subscription tag, context meter, provider, model, and effort label.
+    assert "$0.000" in captured
+    assert "(sub)" in captured or "(api)" in captured
+    # Provider/model appear in parenthesized form `(provider) model`. The
+    # exact provider id depends on credentials available to the subprocess.
+    import re
+
+    provider_match = re.search(r"\(([\w\-]+)\)\s+\S+\s+•\s+\w+", captured)
+    assert provider_match, (
+        f"expected '(provider) model • effort' status segment; output={captured!r}"
+    )
     # Prompt must be the simple `>` leader, not the bracketed verbose label.
     assert "pipy-native [" not in captured
 
@@ -201,13 +221,19 @@ def test_live_repl_slash_keystroke_opens_command_menu_with_descriptions(
         )
     )
 
-    # The `/` keystroke alone should list all available slash commands. Tab
-    # is not required.
-    expected_names = ("/help", "/clear", "/status", "/model", "/exit")
+    # The `/` keystroke alone should surface the top slash commands. Tab
+    # is not required. The menu caps the visible row count to keep the
+    # popup compact (matching Pi); long lists overflow to a "… N more"
+    # tail handled by the editor.
+    expected_names = ("/help", "/clear", "/status", "/model")
     found_names = [name for name in expected_names if name in captured]
     assert len(found_names) == len(expected_names), (
         f"missing slash commands in `/` menu: have {found_names}; "
         f"output={captured!r}"
+    )
+    # The overflow tail must indicate that there are additional commands.
+    assert "… " in captured and " more" in captured, (
+        f"expected '… N more' overflow tail; output={captured!r}"
     )
     # The menu must include descriptive metadata next to at least one name,
     # not just the bare list (this is what distinguishes the Pi-style
@@ -217,6 +243,13 @@ def test_live_repl_slash_keystroke_opens_command_menu_with_descriptions(
     ), (
         "slash menu must render command descriptions, not bare names; "
         f"output={captured!r}"
+    )
+    # The slash menu must include a Pi-style position indicator like (1/N)
+    # on the highlighted row so the user knows the menu offset.
+    import re
+
+    assert re.search(r"\(1/\d+\)", captured), (
+        f"slash menu must show (selected/total) counter; output={captured!r}"
     )
 
 

@@ -1,0 +1,114 @@
+"""Unit tests for the Pi-parity terminal chrome helpers.
+
+These cover the deterministic pieces of the native REPL chrome rendering
+that do not require a live pty: bottom status line layout, resource
+discovery (project-local plus user-home globals), and startup chrome
+content. The pty-based behavioural tests live in
+``tests/test_native_repl_pty_chrome.py``.
+"""
+
+from __future__ import annotations
+
+import io
+from pathlib import Path
+
+import pytest
+
+from pipy_harness.native import chrome
+
+
+def test_format_bottom_status_line_aligns_left_and_right() -> None:
+    fields = chrome.BottomStatusFields(
+        cwd_label="",
+        cost_label="$0.000",
+        plan_label="sub",
+        context_used_pct=0.0,
+        context_budget_label="272k",
+        context_budget_suffix="auto",
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        effort_label="high",
+    )
+    line = chrome.format_bottom_status_line(80, fields)
+    assert line.startswith("$0.000 (sub) 0.0%/272k (auto)")
+    assert line.endswith("(openai-codex) gpt-5.5 • high")
+    assert len(line) == 80
+
+
+def test_format_bottom_status_line_emits_token_arrows_after_a_turn() -> None:
+    fields = chrome.BottomStatusFields(
+        cwd_label="",
+        cost_label="$0.012",
+        plan_label="sub",
+        context_used_pct=0.6,
+        context_budget_label="272k",
+        context_budget_suffix="auto",
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        effort_label="high",
+        tokens_in=1700,
+        tokens_out=35,
+    )
+    line = chrome.format_bottom_status_line(100, fields)
+    assert line.startswith("↑1.7k ↓35")
+    assert "$0.012 (sub) 0.6%/272k (auto)" in line
+    assert line.endswith("(openai-codex) gpt-5.5 • high")
+
+
+def test_discover_loaded_resource_names_returns_local_and_global(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
+    local_skill = workspace / ".claude" / "skills" / "lint-fix"
+    local_skill.mkdir(parents=True)
+
+    fake_home = tmp_path / "home"
+    global_skill = fake_home / ".claude" / "skills" / "review-handoff"
+    global_skill.mkdir(parents=True)
+    # Hidden dotfile dirs must be filtered out.
+    (fake_home / ".claude" / "skills" / ".system").mkdir(parents=True)
+    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+
+    context_names = chrome.discover_loaded_resource_names(workspace, "context")
+    assert "AGENTS.md" in context_names
+
+    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
+    assert "lint-fix" in skill_names
+    assert "review-handoff" in skill_names
+    assert ".system" not in skill_names
+
+
+def test_print_startup_chrome_renders_context_and_skills(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    (fake_home / ".claude" / "skills" / "alpha").mkdir(parents=True)
+    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
+
+    stream = io.StringIO()
+    chrome.print_startup_chrome(stream, cwd=workspace)
+    output = stream.getvalue()
+
+    assert "pipy v" in output
+    assert "native shell" in output
+    assert "ctrl+c interrupt" in output
+    assert "[Context]" in output
+    assert "AGENTS.md" in output
+    assert "[Skills]" in output
+    assert "alpha" in output
+
+
+def test_print_bottom_status_block_emits_two_dim_rows() -> None:
+    stream = io.StringIO()
+    chrome.print_bottom_status_block(
+        stream, cwd_label="/tmp/foo", status_line="$0.000 (sub) ..."
+    )
+    output = stream.getvalue()
+    rows = [row for row in output.splitlines() if row.strip()]
+    assert rows == ["/tmp/foo", "$0.000 (sub) ..."]

@@ -96,29 +96,38 @@ Markdown, catalog output, and structured native JSON output by default.
 
 ## Current Feature Surface
 
-The native shell is line-oriented and bounded. It is intentionally not a full
-Pi-style TUI yet, but the terminal product experience now mirrors Pi's:
-compact startup chrome with sage `pipy v… native shell` title, yellow
-`[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections rendered only
-when loaded, a one-line dim controls strip, a simple `>` prompt leader
-framed by a purple separator, and a two-line dim footer (workspace path
-plus `(provider) model · turns N · …` summary) below the input area. REPL
-input now goes through a small adapter: captured and non-TTY streams keep
-the plain stdin/stderr behavior; real TTY sessions default to a
-stdlib-only `slash-menu` raw-mode line editor that opens a Pi-like
-popup command menu when the user types `/` (with names, descriptions, and
-a reverse-video selection highlight) and accepts the highlighted entry on
-Enter or Tab; optional prompt-toolkit input is still available when the
-package is installed or explicitly selected, and a stdlib `readline`
-adapter remains the next fall-through for Tab-driven discovery without a
-runtime dependency. All adapters share the same slash-command set,
-descriptions, and read/apply gates. The default provider/model selection
-auto-picks an available real provider (openai-codex OAuth, then keyed
-providers in priority order) so the footer surfaces a real
-`(provider) model` rather than the deterministic fake bootstrap whenever
-credentials are configured. Chrome rendering, the input separator, and
-the footer dim/section/title color palette are shared between the no-tool
-and bounded tool-loop sessions through `pipy_harness.native.chrome`.
+The native shell is line-oriented and bounded. It is intentionally not a
+full Pi-style TUI yet, but the terminal product experience now mirrors
+Pi's: a compact startup chrome with sage `pipy v… native shell` title
+(single-space indent), yellow `[Context]`/`[Skills]`/`[Prompts]`/
+`[Extensions]` sections rendered only when loaded, a one-line dim
+controls strip (`ctrl+c interrupt · ctrl+d exit · / commands · /help
+reference · ! bash deferred`), a simple `>` prompt leader framed by a
+purple separator above and below the input row, and a persistent two-row
+bottom status block (workspace cwd + Pi-shape status line: `$cost (plan)
+used%/budget (suffix) … (provider) model • effort`, with `↑in ↓out`
+token arrows added after a turn and `· proposal ready` / `· verify
+ready` user-state signals appended when applicable). The bottom block is
+also drawn live by the slash-menu input adapter so users see the status
+row directly below the prompt while typing. REPL input goes through a
+small adapter: captured and non-TTY streams keep the plain stdin/stderr
+behavior; real TTY sessions default to a stdlib-only `slash-menu`
+raw-mode line editor that opens a Pi-like popup command menu when the
+user types `/` (with names, descriptions, reverse-video selection
+highlight, and a Pi-shape `(N/M)` counter on the selected row) and
+accepts the highlighted entry on Enter or Tab; optional prompt-toolkit
+input is still available when the package is installed or explicitly
+selected, and a stdlib `readline` adapter remains the next fall-through
+for Tab-driven discovery without a runtime dependency. All adapters
+share the same slash-command set, descriptions, and read/apply gates.
+The chrome's `[Context]` and `[Skills]` discovery covers both
+project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills`,
+`.codex/skills`, `.agents/skills`) and user-home globals
+(`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,
+`~/.pipy/skills`) so the section listing matches what Pi shows when
+global resources are present. Chrome rendering, the input separator,
+and the bottom status block are shared between the no-tool and bounded
+tool-loop sessions through `pipy_harness.native.chrome`.
 
 Available now:
 

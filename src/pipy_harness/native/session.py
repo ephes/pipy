@@ -14,11 +14,13 @@ from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.chrome import (
+    BottomStatusFields,
     ChromeStyle,
     chrome_style_for,
     chrome_width,
+    format_bottom_status_line,
     format_provider_model,
-    print_footer_lines,
+    print_bottom_status_block,
     print_input_separator,
     print_startup_chrome,
 )
@@ -911,19 +913,26 @@ class NativeNoToolReplSession:
             pending_apply_draft=pending_apply_draft,
             verify_after_apply_available=verify_after_apply_available,
         )
-        # Pi-parity: surface the workspace cwd + status footer once before the
-        # first prompt so the user sees the current state at the same place Pi
-        # would render it. Subsequent footers are emitted after each submission.
-        _print_repl_footer(
-            error_stream,
-            provider_state=provider_state,
-            run_input=current_run_input,
-            conversation_state=conversation_state,
-            read_budgets=read_budgets,
-            no_tool_context=no_tool_context,
-            pending_apply_draft=pending_apply_draft,
-            verify_after_apply_available=verify_after_apply_available,
-        )
+        # Pi-parity: the slash-menu input adapter draws the persistent bottom
+        # status block (cwd + status line) live below the input area, so for
+        # interactive TTY sessions the loop does not need a pre-loop frame.
+        # Non-slash-menu runtimes (captured streams in tests/scripts, plain
+        # stdin/stderr, readline, prompt-toolkit) cannot draw a frame around
+        # the input row, so we emit the bottom status block once before the
+        # first prompt to make sure the user sees provider/model state even
+        # if they EOF without typing anything; it is re-emitted after each
+        # submission via ``_print_repl_footer`` in the loop body.
+        if repl_input.runtime_label != "slash-menu":
+            _print_repl_footer(
+                error_stream,
+                provider_state=provider_state,
+                run_input=current_run_input,
+                conversation_state=conversation_state,
+                read_budgets=read_budgets,
+                no_tool_context=no_tool_context,
+                pending_apply_draft=pending_apply_draft,
+                verify_after_apply_available=verify_after_apply_available,
+            )
 
         while conversation_state.turn_count < self.max_turns:
             _print_repl_input_separator(error_stream)
@@ -1697,8 +1706,9 @@ def _repl_footer_text(
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
+    error_stream: TextIO | None = None,
 ) -> str:
-    """Two-line dim footer rendered alongside each prompt."""
+    """Pi-parity two-row bottom block: cwd line then status line."""
 
     state = _repl_display_state(
         provider_state,
@@ -1710,18 +1720,52 @@ def _repl_footer_text(
         verify_after_apply_available=verify_after_apply_available,
     )
     cwd_label = sanitize_text(str(run_input.cwd))
-    model_reference = _repl_model_reference_label(state)
-    read_label = _read_budget_label(state)
-    summary = (
-        f"{state.workspace_label} · {model_reference} · "
-        f"turns {state.provider_turn_count}/{state.max_turns} · "
-        f"read {read_label}"
-    )
+    fields = _repl_bottom_status_fields(state)
+    width = chrome_width(error_stream) if error_stream is not None else 88
+    status_line = format_bottom_status_line(width, fields)
+    return f"{cwd_label}\n{status_line}"
+
+
+def _repl_bottom_status_fields(state: _ReplDisplayState) -> BottomStatusFields:
+    cost_label = "$0.000"
+    plan_label = _repl_plan_label(state.provider_name)
+    used_pct = 0.0
+    if state.no_tool_context_max_bytes > 0:
+        used_pct = (
+            100.0
+            * float(state.no_tool_context_byte_count)
+            / float(state.no_tool_context_max_bytes)
+        )
+    budget_kb = max(1, state.no_tool_context_max_bytes // 1024)
+    budget_label = f"{budget_kb}k"
+    attention_signals: list[str] = []
     if state.pending_proposal_available:
-        summary += " · proposal ready"
+        attention_signals.append("proposal ready")
     if state.verification_available:
-        summary += " · verify ready"
-    return f"{cwd_label}\n{summary}"
+        attention_signals.append("verify ready")
+    return BottomStatusFields(
+        cwd_label="",
+        cost_label=cost_label,
+        plan_label=plan_label,
+        context_used_pct=used_pct,
+        context_budget_label=budget_label,
+        context_budget_suffix=f"bytes · turns {state.provider_turn_count}/{state.max_turns}",
+        provider_name=state.provider_name,
+        model_id=state.model_id,
+        effort_label=_repl_effort_label(state),
+        attention=" · ".join(attention_signals),
+    )
+
+
+def _repl_plan_label(provider_name: str) -> str:
+    if provider_name == "openai-codex":
+        return "sub"
+    return "api"
+
+
+def _repl_effort_label(state: _ReplDisplayState) -> str:
+    del state
+    return "default"
 
 
 def _print_repl_footer(
@@ -1743,8 +1787,12 @@ def _print_repl_footer(
         no_tool_context=no_tool_context,
         pending_apply_draft=pending_apply_draft,
         verify_after_apply_available=verify_after_apply_available,
+        error_stream=error_stream,
     )
-    print_footer_lines(error_stream, footer.splitlines())
+    cwd_label, _, status_line = footer.partition("\n")
+    print_bottom_status_block(
+        error_stream, cwd_label=cwd_label, status_line=status_line
+    )
 
 
 def _print_repl_input_separator(error_stream: TextIO) -> None:

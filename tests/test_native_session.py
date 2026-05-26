@@ -625,12 +625,18 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     stderr = error_stream.getvalue()
     assert "pipy v" in stderr
     assert "native shell" in stderr
-    assert "Ctrl-C interrupt" in stderr
-    assert "/exit quit" in stderr
+    assert "ctrl+c interrupt" in stderr
+    assert "ctrl+d exit" in stderr
     assert "/ commands" in stderr
     assert "Type / to open the command menu" in stderr
     assert "[Context]" not in stderr  # AGENTS.md not present in tmp_path
-    assert "(capturing-fake) capturing-model · turns 0/4 · read 2/2" in stderr
+    # Pi-shape bottom status line: cost placeholder, plan tag, context
+    # meter, then `(provider) model • effort` with turn budget surfaced
+    # via the suffix and turn counter.
+    assert "$0.000" in stderr
+    assert "(api)" in stderr
+    assert "(capturing-fake) capturing-model" in stderr
+    assert "turns 0/4" in stderr
     assert "\x1b[" not in stderr
     assert stderr.count("pipy v") == 1
     assert "> " in stderr
@@ -667,8 +673,11 @@ def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
             return True
 
     (tmp_path / "AGENTS.md").write_text("SECRET instruction contents\n", encoding="utf-8")
-    (tmp_path / ".claude" / "commands").mkdir(parents=True)
-    (tmp_path / ".agents" / "plugins").mkdir(parents=True)
+    # A loaded prompt template lives as a subdirectory under .claude/commands.
+    (tmp_path / ".claude" / "commands" / "ship-it").mkdir(parents=True)
+    # An extension lives as a subdirectory under .claude/extensions (one of the
+    # known per-project extension roots scanned by the chrome).
+    (tmp_path / ".claude" / "extensions" / "demo-ext").mkdir(parents=True)
     provider = SequentialCapturingProvider(results=[])
     sink = RecordingSink()
     error_stream = TtyStringIO()
@@ -693,11 +702,13 @@ def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
     stderr = error_stream.getvalue()
     assert "\x1b[" in stderr
     assert "[Context]" in stderr
-    assert "AGENTS.md labels-only, .claude labels-only" in stderr
+    # The Pi-shape compact list names the loaded sources by short label.
+    assert "AGENTS.md" in stderr.split("[Context]")[1]
     assert "[Prompts]" in stderr
-    assert ".claude/commands labels-only" in stderr
+    assert "ship-it" in stderr.split("[Prompts]")[1]
     assert "[Extensions]" in stderr
-    assert ".agents/plugins labels-only" in stderr
+    assert "demo-ext" in stderr.split("[Extensions]")[1]
+    # The instruction file contents must never leak into the chrome.
     assert "SECRET" not in stderr
 
 
@@ -796,8 +807,11 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     assert captured_requests[1].no_tool_repl_context is not None
     assert captured_requests[1].no_tool_repl_context.exchanges == ()
     stderr = error_stream.getvalue()
-    assert "(fake) before-model · turns 0/4 · read 2/2" in stderr
-    assert "(fake) after-model · turns 1/4 · read 2/2" in stderr
+    assert "(fake) before-model" in stderr
+    assert "(fake) after-model" in stderr
+    # After /model the turn counter should reset its context window.
+    assert "turns 0/4" in stderr
+    assert "turns 1/4" in stderr
 
 
 def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):

@@ -666,17 +666,25 @@ class _SlashMenuLineEditor:
         matches = self._filtered_commands()
         if self._menu_open and matches:
             visible = matches[:_SLASH_MENU_MAX_ITEMS]
+            total = len(matches)
             for idx, name in enumerate(visible):
                 description = self.command_descriptions.get(name, "")
+                position = f"({idx + 1}/{total})" if idx == self._menu_selection else ""
                 line = f"  {name:<16} {description}"
+                if position:
+                    pad = max(1, 60 - len(line))
+                    line = f"{line}{' ' * pad}{position}"
                 if idx == self._menu_selection:
                     line = f"\x1b[7m{line}\x1b[0m"
                 out.write("\r\n" + line)
                 rows_below += 1
-            if len(matches) > len(visible):
-                more = f"  … {len(matches) - len(visible)} more"
+            if total > len(visible):
+                more = f"  … {total - len(visible)} more"
                 out.write("\r\n" + f"\x1b[2m{more}\x1b[0m")
                 rows_below += 1
+        if self.footer:
+            footer_rows = self._render_bottom_frame(out)
+            rows_below += footer_rows
         if rows_below > 0:
             out.write(f"\x1b[{rows_below}A")
         out.write("\r")
@@ -684,6 +692,28 @@ class _SlashMenuLineEditor:
         out.write(f"\x1b[{target_col}G")
         out.flush()
         self._last_drawn_rows = rows_below
+
+    def _render_bottom_frame(self, out: TextIO) -> int:
+        """Render separator + cwd + status line below the prompt area.
+
+        Returns the number of rows printed. Cursor is left on the last
+        printed row; the caller moves it back up to the prompt input.
+        """
+
+        if not self.footer:
+            return 0
+        from pipy_harness.native.chrome import chrome_style_for, chrome_width
+
+        style = chrome_style_for(out)
+        width = chrome_width(out)
+        rows = 0
+        separator = "─" * width
+        out.write("\r\n" + style.separator(separator))
+        rows += 1
+        for line in self.footer.splitlines():
+            out.write("\r\n" + style.dim(line))
+            rows += 1
+        return rows
 
     def _finalize_and_print_buffer(self, *, submitted: bool) -> None:
         del submitted

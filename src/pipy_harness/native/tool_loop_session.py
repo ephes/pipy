@@ -40,8 +40,10 @@ from typing import ClassVar, TextIO
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.chrome import (
-    format_provider_model,
-    print_footer_lines,
+    BottomStatusFields,
+    chrome_width,
+    format_bottom_status_line,
+    print_bottom_status_block,
     print_input_separator,
     print_startup_chrome,
 )
@@ -219,19 +221,21 @@ class NativeToolReplSession:
             workspace=cwd,
         )
         print_startup_chrome(error_stream, cwd=cwd)
-        # Pi-parity: surface the workspace + provider/model footer once before
-        # the first prompt so users see the real provider/model state without
-        # having to submit a turn first.
-        print_footer_lines(
-            error_stream,
-            self._footer_text(
+        # Pi-parity: the slash-menu input adapter draws the bottom status
+        # block (cwd + status line) live below the input area, so we only
+        # emit a pre-loop frame for non-slash-menu runtimes. This avoids a
+        # duplicate cwd/status row above the prompt area in TTY sessions,
+        # while keeping the captured-stream/plain case visible on immediate
+        # EOF. `_print_footer` re-emits it after each submission.
+        if repl_input.runtime_label != "slash-menu":
+            self._print_footer(
+                error_stream,
                 cwd=cwd,
                 provider_name=effective_provider_name,
                 model_id=effective_model_id,
                 user_turn_count=user_turn_count,
                 tool_invocation_count=tool_invocation_count,
-            ).splitlines(),
-        )
+            )
 
         while True:
             print_input_separator(error_stream)
@@ -495,14 +499,26 @@ class NativeToolReplSession:
         user_turn_count: int,
         tool_invocation_count: int,
     ) -> str:
-        provider_label = format_provider_model(provider_name, model_id)
-        workspace_label = cwd.name or str(cwd)
-        return (
-            f"{cwd}\n"
-            f"{workspace_label} · {provider_label} · "
-            f"turns {user_turn_count} · tools {tool_invocation_count} "
-            f"(budget {self.tool_budget}/turn)"
+        plan_label = "sub" if provider_name == "openai-codex" else "api"
+        used_pct = 0.0
+        if self.tool_budget > 0:
+            used_pct = (
+                100.0 * float(tool_invocation_count) / float(self.tool_budget)
+            )
+            used_pct = min(used_pct, 999.9)
+        fields = BottomStatusFields(
+            cwd_label="",
+            cost_label="$0.000",
+            plan_label=plan_label,
+            context_used_pct=used_pct,
+            context_budget_label=f"{max(1, self.tool_budget)}",
+            context_budget_suffix=f"tools · turn {user_turn_count}",
+            provider_name=provider_name,
+            model_id=model_id,
+            effort_label="default",
         )
+        status_line = format_bottom_status_line(chrome_width(None), fields)
+        return f"{cwd}\n{status_line}"
 
     def _print_footer(
         self,
@@ -515,15 +531,16 @@ class NativeToolReplSession:
         tool_invocation_count: int,
     ) -> None:
         print_input_separator(error_stream)
-        print_footer_lines(
-            error_stream,
-            self._footer_text(
-                cwd=cwd,
-                provider_name=provider_name,
-                model_id=model_id,
-                user_turn_count=user_turn_count,
-                tool_invocation_count=tool_invocation_count,
-            ).splitlines(),
+        footer = self._footer_text(
+            cwd=cwd,
+            provider_name=provider_name,
+            model_id=model_id,
+            user_turn_count=user_turn_count,
+            tool_invocation_count=tool_invocation_count,
+        )
+        cwd_label, _, status_line = footer.partition("\n")
+        print_bottom_status_block(
+            error_stream, cwd_label=cwd_label, status_line=status_line
         )
 
     def _print_help(self, error_stream: TextIO) -> None:

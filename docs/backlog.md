@@ -105,20 +105,33 @@ discipline:
 
 - Shell chrome and orientation: startup header, safe loaded-resource labels,
   compact command affordances, and status/footer-style state presentation.
-  Current state: Pi-like compact startup chrome (sage truecolor title, dim
-  controls strip referencing `/ commands`, `Type /` affordance, loaded-only
-  `[Section]` resource listings in yellow), a simple `> ` prompt leader
-  framed by a purple input separator, and a two-line dim footer (workspace
-  cwd plus `<workspace> · (provider) model · turns · read` summary) are
-  implemented and verified by pseudo-TTY smoke tests. The footer is also
-  printed once before the first prompt so the real provider/model surfaces
-  immediately, and is forwarded to prompt-toolkit's `bottom_toolbar` so it
+  Current state: Pi-shape compact startup chrome (sage truecolor title with a
+  single-space indent, dim controls strip with the same `ctrl+c interrupt ·
+  ctrl+d exit · / commands · /help reference · ! bash deferred` shape Pi uses,
+  `Type /` affordance, loaded-only `[Context]`/`[Skills]`/`[Prompts]`/
+  `[Extensions]` resource listings in yellow), a simple `> ` prompt leader
+  framed above and below by purple input separators, and a persistent two-row
+  bottom status block (workspace cwd plus Pi-shape status line `$cost (plan)
+  used%/budget (suffix) … (provider) model • effort`, with `↑in ↓out` arrows
+  added after a turn and `· proposal ready` / `· verify ready` user-state
+  signals appended when applicable) are implemented and verified by pseudo-TTY
+  smoke tests plus unit tests. The slash-menu input adapter additionally
+  renders the bottom status block live below the input row, so the user sees
+  cwd and status while typing. The bottom block is also emitted once before
+  the first prompt so the real provider/model surfaces immediately on
+  immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it
   stays visible while the user types when that adapter is selected. Chrome
   rendering is shared between the no-tool and bounded tool-loop sessions
-  through `pipy_harness.native.chrome`. The default provider/model selector
-  auto-picks an available real provider (openai-codex OAuth, then keyed
-  providers in priority order) so the footer no longer surfaces
-  `fake/fake-native-bootstrap` when credentials are configured.
+  through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery
+  covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,
+  `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals
+  (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,
+  `~/.pipy/skills`) so the section listing matches what Pi shows when global
+  resources are present; hidden dotfile directories are filtered out. The
+  default provider/model selector auto-picks an available real provider
+  (openai-codex OAuth, then keyed providers in priority order) so the bottom
+  status no longer surfaces `fake/fake-native-bootstrap` when credentials are
+  configured.
 - Interactive input ergonomics: the input-adapter boundary preserves plain
   captured-stream fallback, defaults to a stdlib-only `slash-menu` raw-mode
   line editor on real TTY streams (Pi-style `/` keystroke opens a popup
