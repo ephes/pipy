@@ -193,7 +193,7 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -306,7 +306,7 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("provider should not be called on immediate EOF")
@@ -438,7 +438,7 @@ def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, mon
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -498,7 +498,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("help command should not call provider")
@@ -576,7 +576,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("status command should not call provider")
@@ -652,7 +652,7 @@ def test_cli_native_repl_model_status_prints_to_stderr_without_provider_or_read_
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("model status should not call provider")
@@ -712,7 +712,7 @@ def test_cli_native_repl_model_selection_late_binds_subsequent_provider_turn_and
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -779,7 +779,7 @@ def test_cli_native_repl_clear_clears_context_without_resetting_model_or_turn_in
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -873,7 +873,7 @@ def test_cli_native_repl_login_invokes_openai_codex_auth_manager_without_provide
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("login command should not call provider")
@@ -934,7 +934,7 @@ def test_cli_native_repl_login_logout_reject_unsupported_provider_without_side_e
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("unsupported auth commands should not call provider")
@@ -992,7 +992,7 @@ def test_cli_native_repl_model_resolution_rejects_unavailable_ambiguous_and_unkn
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("model diagnostics should not call provider")
@@ -1053,7 +1053,7 @@ def test_cli_native_repl_model_bare_single_match_and_unavailable_provider_gate(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1168,7 +1168,7 @@ def test_cli_native_repl_logout_removes_openai_codex_credentials_and_resets_sele
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -1222,7 +1222,7 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("help command should not call provider")
@@ -1268,7 +1268,7 @@ def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed help command should not call provider")
@@ -1327,7 +1327,7 @@ def test_cli_native_repl_discovery_diagnostics_do_not_consume_read_limit(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("discovery commands and later read should not call provider")
@@ -1406,7 +1406,7 @@ def test_cli_native_repl_malformed_clear_prints_usage_without_provider_or_tools(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed clear command should not call provider")
@@ -1465,7 +1465,7 @@ def test_cli_native_repl_read_command_prints_excerpt_without_approval_prompt(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("read command should not call provider")
@@ -1537,7 +1537,7 @@ def test_cli_native_repl_malformed_read_prints_usage_without_consuming_read_limi
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed read and later read should not call provider")
@@ -1602,7 +1602,7 @@ def test_cli_native_repl_ask_file_sends_excerpt_to_provider_without_approval_pro
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1701,7 +1701,7 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1770,7 +1770,7 @@ def test_cli_native_repl_propose_file_records_metadata_only_proposal(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1887,7 +1887,7 @@ def test_cli_native_repl_propose_file_accepts_whitespace_delimited_separator(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1954,7 +1954,7 @@ def test_cli_native_repl_malformed_propose_file_does_not_consume_read_limit(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed propose-file and later read should not call provider")
@@ -2023,7 +2023,7 @@ def test_cli_native_repl_propose_file_rejects_unsafe_target_before_provider(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("unsafe propose-file target should not call provider")
@@ -2082,7 +2082,7 @@ def test_cli_native_repl_read_command_rejects_unsafe_target_before_read(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("unsafe read target should not call provider")
@@ -2143,7 +2143,7 @@ def test_cli_native_repl_unsafe_read_target_preserves_successful_read_budget(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("read commands should not call provider")
@@ -2207,7 +2207,7 @@ def test_cli_native_repl_ask_file_failed_read_preserves_later_read_budget(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("failed ask-file and later read should not call provider")
@@ -2278,7 +2278,7 @@ def test_cli_native_repl_propose_file_skipped_read_preserves_later_success_budge
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -2359,7 +2359,7 @@ def test_cli_native_repl_two_failed_read_attempts_exhaust_recovery_before_later_
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("failed reads should not call provider")
@@ -2430,7 +2430,7 @@ def test_cli_native_repl_interleaved_success_failure_success_blocks_later_read(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -2534,7 +2534,7 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("local commands and display reads should not call provider")
@@ -2633,7 +2633,7 @@ def test_cli_native_repl_read_command_is_limited_to_two_successful_excerpts(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("read command limit should not call provider")
@@ -2707,7 +2707,7 @@ def test_cli_native_repl_two_read_commands_block_later_ask_file(tmp_path, capfd,
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("second ask-file command should be blocked before provider")
@@ -2769,7 +2769,7 @@ def test_cli_native_repl_ask_file_and_read_exhaust_successful_read_budget(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -2855,7 +2855,7 @@ def test_cli_native_repl_read_and_ask_file_block_later_propose_file_before_read_
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             # Sentinel: the budget guard should block the third /propose-file before
@@ -2954,7 +2954,7 @@ def test_cli_native_repl_malformed_ask_file_after_read_limit_prints_usage(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed ask-file after read should not call provider")
@@ -3021,7 +3021,7 @@ def test_cli_native_repl_malformed_propose_file_after_read_limit_prints_usage(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed propose-file after read should not call provider")
@@ -3091,7 +3091,7 @@ def test_cli_native_repl_two_read_commands_block_later_propose_file(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("propose-file command should be blocked before provider")
@@ -3156,7 +3156,7 @@ def test_cli_native_repl_ask_file_and_propose_file_exhaust_successful_read_budge
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -3231,7 +3231,7 @@ def test_cli_native_repl_propose_file_and_read_block_later_ask_file(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -3312,7 +3312,7 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_two_successful_exce
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -3385,7 +3385,7 @@ def test_cli_native_repl_propose_file_unsafe_proposal_metadata_is_skipped_metada
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -3470,7 +3470,7 @@ def test_cli_native_repl_malformed_apply_proposal_does_not_call_provider_or_muta
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed apply-proposal should not call provider")
@@ -3522,7 +3522,7 @@ def test_cli_native_repl_apply_proposal_without_pending_fails_closed_without_mut
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("apply-proposal without pending proposal should not call provider")
@@ -3577,7 +3577,7 @@ def test_cli_native_repl_apply_proposal_mismatched_path_fails_closed_without_mut
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -3646,7 +3646,7 @@ def test_cli_native_repl_apply_proposal_mutates_one_file_and_archives_metadata_o
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -3748,7 +3748,7 @@ def test_cli_native_repl_verify_requires_successful_apply_without_provider_or_to
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("verify without apply should not call provider")
@@ -3810,7 +3810,7 @@ def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -3903,7 +3903,7 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -4041,7 +4041,7 @@ def test_cli_native_repl_clear_preserves_verify_after_apply_availability(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -4146,7 +4146,7 @@ def test_cli_native_repl_failed_second_apply_does_not_relock_verification(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -4230,7 +4230,7 @@ def test_cli_native_repl_failed_verify_after_apply_fails_run_with_metadata_only_
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -4328,7 +4328,7 @@ def test_cli_native_repl_visible_apply_draft_without_metadata_does_not_synthesiz
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -4396,7 +4396,7 @@ def test_cli_native_repl_local_command_clears_pending_apply_proposal(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             return ProviderResult(
@@ -4466,7 +4466,7 @@ def test_cli_native_repl_apply_proposal_stale_hash_fails_closed_without_mutation
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             now = datetime.now(UTC)
             result = ProviderResult(
@@ -4547,7 +4547,7 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("malformed ask-file and later read should not call provider")
@@ -4612,7 +4612,7 @@ def test_cli_native_repl_unsupported_slash_command_prints_usage_without_provider
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             nonlocal provider_calls
             provider_calls += 1
             raise AssertionError("unsupported slash command should not call provider")
@@ -4666,7 +4666,7 @@ def test_cli_native_repl_provider_failure_stops_without_printing_final_text(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,
@@ -4845,7 +4845,7 @@ def test_cli_native_json_mode_omits_patch_proposal_raw_content(tmp_path, capfd, 
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             if request.provider_turn_index == 0:
                 metadata = {
@@ -4990,7 +4990,7 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5063,7 +5063,7 @@ def test_cli_native_openai_provider_json_mode_omits_provider_final_text(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5129,7 +5129,7 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5213,7 +5213,7 @@ def test_cli_native_openrouter_provider_json_mode_omits_provider_final_text(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5282,7 +5282,7 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5360,7 +5360,7 @@ def test_cli_native_openai_codex_provider_json_mode_omits_provider_final_text(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5423,7 +5423,7 @@ def test_cli_native_repl_openai_codex_provider_is_selectable(tmp_path, capfd, mo
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -5481,7 +5481,7 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,
@@ -5549,7 +5549,7 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,
@@ -5622,7 +5622,7 @@ def test_cli_native_provider_failure_json_mode_emits_metadata_only_json(
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,

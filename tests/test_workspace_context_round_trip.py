@@ -68,7 +68,7 @@ class _CapturingFakeProvider:
         self.captured_requests: list[ProviderRequest] = []
         self.supports_tool_calls = False
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.captured_requests.append(request)
         now = datetime.now(UTC)
         return ProviderResult(
@@ -101,7 +101,7 @@ class _ShortMarkerLeakingProvider:
         self.captured_requests: list[ProviderRequest] = []
         self.supports_tool_calls = False
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.captured_requests.append(request)
         now = datetime.now(UTC)
         return ProviderResult(
@@ -135,7 +135,7 @@ class _EchoingFakeProvider:
         self.captured_requests: list[ProviderRequest] = []
         self.supports_tool_calls = False
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.captured_requests.append(request)
         now = datetime.now(UTC)
         leaky_metadata = {
@@ -204,7 +204,7 @@ class _CapturingToolFakeProvider:
         self.captured_requests: list[ProviderRequest] = []
         self.supports_tool_calls = True
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.captured_requests.append(request)
         now = datetime.now(UTC)
         return ProviderResult(

@@ -95,7 +95,7 @@ class CapturingProvider:
     def supports_tool_calls(self) -> bool:
         return False
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.complete_calls += 1
         self.captured_request = request
         now = datetime(2026, 5, 3, 12, 0, tzinfo=UTC)
@@ -128,7 +128,7 @@ class SequentialCapturingProvider:
     def supports_tool_calls(self) -> bool:
         return False
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         if self.captured_requests is None:
             self.captured_requests = []
         self.captured_requests.append(request)
@@ -141,7 +141,7 @@ class ExplodingProvider:
     name = "exploding-fake"
     model_id = "exploding-model"
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         time.sleep(0.001)
         raise RuntimeError("provider exploded")
 
@@ -159,7 +159,7 @@ class FollowUpExplodingProvider:
     def model_id(self) -> str:
         return "exploding-follow-up-model"
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         if self.captured_requests is None:
             self.captured_requests = []
         self.captured_requests.append(request)
@@ -763,7 +763,7 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             return provider_result(final_text=f"MODEL={self.model_id}")
 
@@ -823,7 +823,7 @@ def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):
         def __init__(self, model_id: str) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest) -> ProviderResult:
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             captured_requests.append(request)
             return provider_result(final_text=f"MODEL={self.model_id}:{len(captured_requests)}")
 

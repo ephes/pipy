@@ -19,6 +19,7 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
+from pipy_harness.native.provider import StreamChunkSink
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,16 +45,37 @@ class FakeNativeProvider:
     patch_proposal: dict[str, Any] | None = None
     supports_tool_calls: bool = False
     programmable_tool_calls: tuple[tuple[ProviderToolCall, ...], ...] = ()
+    programmable_text_chunks: tuple[str, ...] = ()
     _call_counter: list[int] = field(default_factory=lambda: [0])
 
     @property
     def name(self) -> str:
         return "fake"
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:
         started_at = datetime.now(UTC)
+        if (
+            stream_sink is not None
+            and self.programmable_text_chunks
+            and self.status == HarnessStatus.SUCCEEDED
+        ):
+            streamed = True
+            for chunk in self.programmable_text_chunks:
+                stream_sink(chunk)
+        else:
+            streamed = False
         ended_at = datetime.now(UTC)
-        final_text = self.final_text if self.status == HarnessStatus.SUCCEEDED else None
+        if self.status != HarnessStatus.SUCCEEDED:
+            final_text = None
+        elif streamed:
+            final_text = "".join(self.programmable_text_chunks)
+        else:
+            final_text = self.final_text
         metadata = dict(self.metadata or {})
         if self.tool_intent is not None:
             metadata[PROVIDER_TOOL_INTENT_METADATA_KEY] = dict(self.tool_intent)

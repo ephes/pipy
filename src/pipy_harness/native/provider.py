@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+
+
+StreamChunkSink = Callable[[str], None]
+"""Synchronous text chunk sink used by the Streaming Output Parity Track.
+
+Real adapters that advertise streaming push provider-emitted assistant
+text deltas through this callable as they arrive, before the final
+buffered `ProviderResult` is returned. The sink owns its own
+backpressure, encoding, and buffering; the provider is only responsible
+for forwarding the delta string. See `docs/pi-parity.md`
+(`Streaming Output Parity Track`) for the parity bar and the
+opt-in/opt-out semantics.
+"""
 
 
 @runtime_checkable
@@ -29,5 +43,17 @@ class ProviderPort(Protocol):
         slices flip this per adapter as the matching response parser lands.
         """
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
-        """Complete one native turn."""
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:
+        """Complete one native turn.
+
+        When `stream_sink` is supplied and the provider has flipped on
+        streaming, the provider invokes it once per emitted text delta
+        before returning the buffered `ProviderResult`. Providers that
+        have not yet wired streaming accept the keyword and ignore it;
+        their existing buffered behavior is unchanged.
+        """

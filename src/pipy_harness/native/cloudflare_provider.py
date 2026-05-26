@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
@@ -115,7 +116,13 @@ class CloudflareWorkersAIProvider:
     def name(self) -> str:
         return "cloudflare"
 
-    def complete(self, request: ProviderRequest) -> ProviderResult:
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:
+        del stream_sink
         started_at = _utc_now()
         if not self.model_id or not self.model_id.strip():
             return _failed_result(
