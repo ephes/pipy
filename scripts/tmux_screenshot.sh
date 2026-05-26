@@ -25,7 +25,7 @@ ANSI="$TMP_DIR/pane.ansi"
 HTML="$TMP_DIR/pane.html"
 WRAPPED="$TMP_DIR/pane-wrapped.html"
 
-tmux capture-pane -t "$SESSION" -p -e -S -200 > "$ANSI"
+tmux capture-pane -t "$SESSION" -p -e -S -500 > "$ANSI"
 aha --black --no-header < "$ANSI" > "$HTML"
 
 python3 - "$HTML" "$WRAPPED" <<'PY'
@@ -38,21 +38,27 @@ inner = match.group("inner") if match else body
 
 # Restore the tool-panel "fill to end of row" effect that real
 # terminals implement via `\x1b[K`. aha emits each colored span as
-# its own element; we expand every span whose background matches the
-# pipy tool-panel hex (truecolor `\x1b[48;2;28;42;30m` -> #1c2a1e,
-# 256-color `\x1b[48;5;235m` -> #202020) into a row-spanning block
-# so the panel reads as a contiguous strip in the screenshot.
+# its own element and embeds newlines inside the span, so a single
+# `display:inline-block;width:100%` wrapper would leave subsequent
+# lines unstyled. Split every panel-bg-bearing span by `\n` and
+# re-wrap each line in its own row-spanning span so every panel row
+# reads as a contiguous strip in the screenshot.
 panel_bgs = ("#1c2a1e", "#202020")
 def _expand(match: re.Match) -> str:
-    style_attr = match.group(1).lower()
-    if not any(bg_hex in style_attr for bg_hex in panel_bgs):
+    style_attr = match.group(1).strip(";")
+    body = match.group(2)
+    if not any(bg_hex in style_attr.lower() for bg_hex in panel_bgs):
         return match.group(0)
-    return (
-        f'<span style="{match.group(1)};display:inline-block;width:100%">'
-        f'{match.group(2)}</span>'
-    )
+    pieces: list[str] = []
+    for index, line in enumerate(body.split("\n")):
+        prefix = "\n" if index > 0 else ""
+        pieces.append(
+            f'{prefix}<span style="{style_attr};display:inline-block;width:100%">'
+            f'{line}</span>'
+        )
+    return "".join(pieces)
 inner = re.sub(
-    r'<span style="([^"]*background-color:[^"]*)">([^<]*)</span>',
+    r'<span style="([^"]*background-color:[^"]*)">((?:[^<]|<(?!/span))*)</span>',
     _expand,
     inner,
 )

@@ -242,7 +242,8 @@ def test_renderer_renders_read_resource_for_absolute_path():
     )
 
     rendered = err.getvalue()
-    assert "read resource /Users/x/src/pi-mono/AGENTS.md:1-200 (ctrl+o to expand)" in rendered
+    assert "read resource /Users/x/src/pi-mono/AGENTS.md:1-200" in rendered
+    assert "(ctrl+o to expand)" not in rendered.split("read resource")[1].splitlines()[0]
 
 
 def test_renderer_renders_read_relative_without_resource_prefix():
@@ -259,7 +260,7 @@ def test_renderer_renders_read_relative_without_resource_prefix():
     )
 
     rendered = err.getvalue()
-    assert "read docs/backlog.md:1-200 (ctrl+o to expand)" in rendered
+    assert "read docs/backlog.md:1-200" in rendered
     assert "read resource" not in rendered
 
 

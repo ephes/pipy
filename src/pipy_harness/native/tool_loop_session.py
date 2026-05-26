@@ -942,6 +942,7 @@ class _ToolLoopRenderer:
     _ANSI_GREEN = "\x1b[32m"
     _ANSI_RED = "\x1b[31m"
     _ANSI_CYAN = "\x1b[36m"
+    _ANSI_YELLOW = "\x1b[33m"
     _ANSI_RESET = "\x1b[0m"
     # Pi's `toolPendingBg` theme uses a *very* muted dark-olive panel
     # behind each tool block — almost a gray with a hint of green, not
@@ -1195,17 +1196,11 @@ class _ToolLoopRenderer:
     def render_tool_call(self, call: ProviderToolCall) -> None:
         self._clear_working()
         self._close_reasoning()
-        header = self._format_pi_call_header(
+        self._error_stream.write(self._tool_panel_blank_line())
+        rendered = self._format_pi_call_header_rich(
             call.tool_name, call.arguments_json
         )
-        self._error_stream.write(self._tool_panel_blank_line())
-        self._error_stream.write(
-            self._tool_panel_line(
-                header,
-                style=self._ANSI_BOLD,
-                bold=True,
-            )
-        )
+        self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
@@ -1285,6 +1280,35 @@ class _ToolLoopRenderer:
             return "\n"
         return f"{self._tool_panel_bg}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
 
+    def _tool_panel_rich_line(
+        self, segments: list[tuple[str, str]]
+    ) -> str:
+        """Render a multi-style row inside the dark-green panel.
+
+        ``segments`` is an ordered sequence of ``(text, ansi_style)``
+        pairs. Each segment is wrapped with its own ANSI weight/color
+        on top of the panel background. The trailing `\\x1b[K` fills
+        the rest of the row so the panel reads as a contiguous strip.
+        On non-TTY streams the helper concatenates the text segments
+        plain (no escapes) so captured logs stay readable.
+        """
+
+        if not self._enabled:
+            return " " + "".join(text for text, _ in segments) + "\n"
+        parts = [self._tool_panel_bg, " "]
+        for text, style in segments:
+            if style:
+                parts.append(style)
+                parts.append(text)
+                parts.append(self._ANSI_RESET)
+                parts.append(self._tool_panel_bg)
+            else:
+                parts.append(text)
+        parts.append(self._ANSI_CLEAR_EOL)
+        parts.append(self._ANSI_RESET)
+        parts.append("\n")
+        return "".join(parts)
+
     @staticmethod
     def _read_range_label(data: Mapping[str, Any]) -> str:
         """Format the ``:start-end`` line range for a ``read`` header.
@@ -1309,6 +1333,72 @@ class _ToolLoopRenderer:
         else:
             end_line = start_line + 199
         return f":{start_line}-{end_line}"
+
+    def _format_pi_call_header_rich(
+        self, tool_name: str, arguments_json: str
+    ) -> list[tuple[str, str]]:
+        """Return a list of (text, style) segments for a tool-call header.
+
+        Pi styles the header per-segment: the verb (e.g. `read`,
+        `ls`, `grep`) is bold white, the operand (path/pattern) is
+        plain dim white, and the line range (`:1-200`) is yellow.
+        We reproduce that by emitting separate text+style pairs,
+        which `_tool_panel_rich_line` joins back into one panel row
+        with each segment carrying its own ANSI weight/color while
+        sharing the panel background.
+        """
+
+        try:
+            data = json.loads(arguments_json)
+        except (json.JSONDecodeError, ValueError):
+            data = None
+        if not isinstance(data, dict):
+            data = {}
+        bold = self._ANSI_BOLD
+        plain = ""
+        yellow = self._ANSI_YELLOW
+        if tool_name == "read":
+            path = str(data.get("path", ""))
+            verb = "read resource" if path.startswith("/") else "read"
+            range_label = self._read_range_label(data)
+            return [
+                (verb, bold),
+                (" ", plain),
+                (path, plain),
+                (range_label, yellow),
+            ]
+        if tool_name == "ls":
+            return [
+                ("ls", bold),
+                (" ", plain),
+                (str(data.get("path", ".")), plain),
+            ]
+        if tool_name == "grep":
+            return [
+                ("grep", bold),
+                (" ", plain),
+                (f'"{data.get("pattern", "")}"', plain),
+                (" ", plain),
+                (str(data.get("path", ".")), plain),
+            ]
+        if tool_name == "find":
+            return [
+                ("find", bold),
+                (" ", plain),
+                (f'"{data.get("pattern", "")}"', plain),
+                (" ", plain),
+                (str(data.get("path", ".")), plain),
+            ]
+        if tool_name in {"write", "edit", "edit_diff"}:
+            return [
+                (tool_name, bold),
+                (" ", plain),
+                (str(data.get("path", "")), plain),
+            ]
+        if tool_name == "truncate":
+            return [("truncate", bold)]
+        preview = self._argument_preview(arguments_json)
+        return [(f"{tool_name}({preview})", bold)]
 
     def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
         """Render a Pi-shape one-line tool header.
