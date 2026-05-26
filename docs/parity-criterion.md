@@ -108,7 +108,7 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | - | ------- | ----------- | -------------- |
 | E1 | Session resume (replay from record) | ✅ | `test -f src/pipy_harness/native/session_resume.py \|\| grep -rq 'def resume' src/pipy_harness/native/` |
 | E2 | Session compaction (LLM-summarize transcript) | ✅ | `test -f src/pipy_harness/native/session_compaction.py` |
-| E3 | Session branching/forking | ❌ | `grep -rq 'branch\|fork' src/pipy_harness/native/session.py` |
+| E3 | Session branching/forking | ✅ | `test -f src/pipy_harness/native/session_branching.py` |
 | E4 | Session export/share | ✅ | `uv run pipy-session export --help 2>/dev/null \|\| grep -rq 'def export' src/pipy_session/` |
 | E5 | Dynamic provider/model swap mid-session | ✅ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` |
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
@@ -119,9 +119,9 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after compaction helper): 47
-target  ✅ count for 80% parity:                         40
-delta beyond 80% target:                                 +7
+current ✅ count (2026-05-26, after branching helper): 48
+target  ✅ count for 80% parity:                        40
+delta beyond 80% target:                                +8
 ```
 
 ## How To Verify
