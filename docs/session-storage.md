@@ -132,6 +132,10 @@ This creates a JSONL file under:
 ${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/.in-progress/pipy/
 ```
 
+Active records must be regular `.jsonl` files directly under that directory.
+Recorder APIs reject symlinked active records instead of appending through them
+or finalizing them into the archive.
+
 Append structured events while the record is active:
 
 ```sh
@@ -243,9 +247,10 @@ uv run pipy-session search <query>
 uv run pipy-session search <query> --json
 ```
 
-`search` scans only finalized archive JSONL records directly under
-`pipy/YYYY/MM/` and sibling Markdown summaries when present. It does not search
-active records under `.in-progress/pipy/`, automatic state files under
+`search` scans only regular finalized archive JSONL records directly under
+`pipy/YYYY/MM/` and regular sibling Markdown summaries when present. It ignores
+symlinked archive entries instead of following them. It does not search active
+records under `.in-progress/pipy/`, automatic state files under
 `.in-progress/pipy/.state/`, `*.partial` staging files, unsupported archive
 files, or arbitrary files outside the finalized archive.
 
@@ -285,16 +290,16 @@ archive path, a finalized JSONL basename, or a finalized JSONL stem. Basename
 and stem resolution searches only finalized records under `pipy/*/*/` and fails
 instead of guessing when more than one record matches.
 
-`inspect` is read-only. It accepts only finalized `.jsonl` records directly
-under `${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/pipy/YYYY/MM/`. It
+`inspect` is read-only. It accepts only regular finalized `.jsonl` records
+directly under `${PIPY_SESSION_DIR:-~/.local/state/pipy/sessions}/pipy/YYYY/MM/`. It
 rejects active records under `.in-progress/pipy/`, automatic state files under
 `.in-progress/pipy/.state/`, `*.partial` staging files, arbitrary paths outside
-the finalized archive, and malformed archive records whose first line is
-missing, invalid JSON, or not a `session.started` event.
+the finalized archive, symlinked archive records, and malformed archive records
+whose first line is missing, invalid JSON, or not a `session.started` event.
 
 The human output reports the same metadata as `list`, plus total event count,
-event counts by type, and matching Markdown summary text when a `.md` sibling
-exists. The JSON output includes those fields as structured data, with
+event counts by type, and matching Markdown summary text when a regular `.md`
+sibling exists. The JSON output includes those fields as structured data, with
 `summary_text` set to the Markdown content or `null` when no summary exists.
 Neither output includes full JSONL events, payloads, prompt text, tool output,
 or other raw transcript content by default. Markdown summaries are shown
@@ -358,6 +363,8 @@ The archive verifier reports:
 - unreadable finalized JSONL files under `pipy/YYYY/MM/*.jsonl` when the
   verifier cannot open the file or read its first line
 - orphan Markdown summaries under `pipy/YYYY/MM/*.md` with no sibling JSONL
+- symlinked finalized archive entries, because archive JSONL and Markdown
+  summaries must be regular files
 - `*.partial` leftovers anywhere under the session root, including
   `.in-progress/`
 - unexpected files under `pipy/`, including files outside `YYYY/MM/`, files
@@ -386,7 +393,7 @@ If raw tool output contains sensitive data, store a summary instead of the raw o
 
 ### Opt-In Tool-Loop Transcript Sidecar
 
-The native tool-loop REPL (`pipy repl --agent pipy-native --repl-mode tool-loop`) supports an explicit `--archive-transcript` flag that writes raw loop turns - user messages, assistant messages with provider tool calls, tool result messages, unified `write`/`edit` diffs, and session metadata - to one JSONL line each at `~/.local/state/pipy/transcripts/<id>.jsonl` (overridable via the `PIPY_TRANSCRIPT_DIR` env var). The sidecar is treated as sensitive content. Each line carries a stable `type` field, a UTC `recorded_at`, the `pipy-transcript-sidecar` discriminator, and a `payload` dict.
+The native tool-loop REPL (`pipy repl --agent pipy-native --repl-mode tool-loop`) supports an explicit `--archive-transcript` flag that writes raw loop turns - user messages, assistant messages with provider tool calls, tool result messages, unified `write`/`edit` diffs, and session metadata - to one JSONL line each at `~/.local/state/pipy/transcripts/<id>.jsonl` (overridable via the `PIPY_TRANSCRIPT_DIR` env var). The sidecar is treated as sensitive content. The transcript id is filename-safe, and the sidecar is created as a regular owner-only file without following a preexisting symlink. Each line carries a stable `type` field, a UTC `recorded_at`, the `pipy-transcript-sidecar` discriminator, and a `payload` dict.
 
 The sidecar deliberately lives outside `PIPY_SESSION_DIR`:
 
@@ -449,10 +456,11 @@ lifecycle metadata such as:
 the harness runs `git status --porcelain` in the selected `--cwd` after the
 child exits and records relative changed file paths only. It does not store
 diffs or file contents. Non-git directories are handled without failing the
-run. Relative path strings are normalized to collapse control whitespace, but
-ordinary filenames such as `secret_config.py` or `auth_token.py` are preserved
-because path recording is already explicit opt-in. Without `--record-files`,
-changed paths are not recorded.
+run. Relative path strings are normalized to collapse control whitespace, and
+assignment-style secret values embedded in a path component are redacted.
+Ordinary filenames such as `secret_config.py` or `auth_token.py` are preserved
+because path recording is already explicit opt-in and those names do not carry
+a secret value. Without `--record-files`, changed paths are not recorded.
 
 The subprocess adapter inherits stdin from the parent process. This keeps
 generic commands and future agent CLIs usable when they intentionally read from
@@ -905,9 +913,11 @@ as redacted character counts. Tool payloads are represented by tool names, ids,
 and JSON key names when available.
 
 Metadata values and keys with sensitive markers such as `token`, `secret`,
-`password`, `credential`, or `api_key` are redacted before they are written.
+`password`, `credential`, `api_key`, or `api-key` are redacted before they are
+written.
 Platform session ids containing those markers use a stable redacted hash in
-state filenames and records.
+state filenames and records. Automatic-capture Markdown summaries apply the
+same line-level redaction to explicit summaries and end-reason text.
 
 Codex and Pi currently use wrapper-based or reference-based pipy capture unless
 a future adapter adds a verified lifecycle bridge:

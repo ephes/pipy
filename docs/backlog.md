@@ -36,8 +36,9 @@ The existing optional real-TTY prompt-toolkit input path is now hardened for
 cursor-position warning noise and LF-encoded Enter/Esc+Enter key sequences,
 and explicit file-context commands now share a two-successful-excerpt REPL
 budget. The bottom-toolbar status decision remains deferred. The public shell
-now has a bounded model/tool loop with provider-emitted tool calls and a
-bounded `bash` tool. It still cannot read multiple files in one no-tool
+now has a bounded model/tool loop with provider-emitted tool calls over
+filesystem tools, but production `bash` remains deferred pending a real shell
+sandbox. It still cannot read multiple files in one no-tool
 provider turn, run non-allowlisted verification commands, stream provider
 output, or provide a full TUI.
 
@@ -235,8 +236,9 @@ These hold throughout the track, not as later deferrals:
 These were explicitly deferred for the original tool-loop track; some have now
 shipped in later parity work:
 
-- A `bash` tool or any arbitrary shell execution tool. Shipped later as the
-  bounded model-loop `bash` tool.
+- A `bash` tool or any arbitrary shell execution tool. A standalone helper
+  exists, but production model-loop registration is deferred until a real shell
+  sandbox preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped later.
@@ -386,8 +388,8 @@ and the parity-map entry in `docs/pi-parity.md`
   fake provider.
 - Discovery rules are pinned by focused unit tests: per-directory
   candidate filename precedence, nested-workspace ordering, missing
-  files do not fail, symlinks must resolve inside the workspace, the
-  global root respects `PIPY_CONFIG_HOME`, then
+  files do not fail, symlinks must resolve inside the directory where
+  they are found, the global root respects `PIPY_CONFIG_HOME`, then
   `XDG_CONFIG_HOME/pipy`, then `~/.config/pipy`, and bounded
   per-file and total byte caps apply with deterministic truncation
   labels.
@@ -412,7 +414,7 @@ and the parity-map entry in `docs/pi-parity.md`
    first, the workspace itself last), the global root resolved
    through `PIPY_CONFIG_HOME` then `XDG_CONFIG_HOME/pipy` then
    `~/.config/pipy`, deduplication by canonical absolute path,
-   symlink resolution that stays inside the workspace, bounded
+   symlink resolution that stays inside the containing directory, bounded
    per-file and total byte caps with deterministic truncation
    labels, and "missing files do not fail" semantics. Focused unit
    tests pin every rule. No REPL or run wiring in this slice.
@@ -459,7 +461,7 @@ These hold throughout the track, not as later deferrals:
   composed; an over-cap file is included up to its slice with a
   deterministic truncation marker, and over-total reads stop at the
   total cap with a deterministic notice.
-- Symlinks that resolve outside the workspace are skipped; their
+- Symlinks that resolve outside the containing directory are skipped; their
   metadata is not recorded.
 - Each slice ships focused tests, a green `just check`, updated
   docs, a conventional commit, and stops for review.
@@ -481,9 +483,10 @@ it lands. They are not later slices of this track:
 
 ## Done
 
-- Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 6 of 6 required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `bash` tool, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. All landed under the existing architectural invariants (no new runtime deps, metadata-first archive, `.git` default-deny, no third-party schema validators). Score check: `just parity-score`.
-- Pi-mono 90%-parity increment (2026-05-26): raised pipy from 40/50 to 45/50
-  (90%) by adding metadata-only session resume context (`pipy-session
+- Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 5+ required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. Production `bash` registration was later removed pending a real shell sandbox. Score check: `just parity-score`.
+- Pi-mono 90%-parity increment (2026-05-26): raised pipy from 40/50 to 45/50,
+  then settled at 44/50 after disabling production `bash` for invariant
+  correctness, by adding metadata-only session resume context (`pipy-session
   resume-info`), dynamic provider/model swap helpers, custom slash-command
   discovery, a pure ANSI theme registry, and a read-only `/settings` REPL
   command. Runtime wiring for live resume prompt seeding and custom-command
@@ -678,9 +681,10 @@ it lands. They are not later slices of this track:
   policy. The first implementation supports bounded whole-file create, modify,
   delete, and rename operations, validates the full plan before mutation,
   rejects overlapping operation paths, requires expected file hashes for
-  existing files, rejects unsafe/generated targets and secret-looking
-  replacement text, truthfully records partial mutation if an unexpected write
-  error happens after at least one operation applies, emits one metadata-only
+  existing files after rejecting files above the apply byte cap, rejects
+  unsafe/generated targets and secret-looking replacement text, truthfully
+  records partial mutation if an unexpected write error happens after at least
+  one operation applies, emits one metadata-only
   `native.patch.apply.recorded` event, and preserves the default CLI behavior
   because normal fake/OpenAI/OpenRouter runs do not supply a patch apply
   request. Archives, Markdown, default stdout, and `--native-output json` still
@@ -1563,7 +1567,8 @@ it lands. They are not later slices of this track:
   `_is_relative_to`, control-character detection, and `looks_sensitive`
   from the existing `read_only_tool.py`; it returns provider-visible
   content through `ToolExecutionResult` with bounded byte and line
-  limits and deterministic error observations for missing, oversized,
+  limits; it stat-gates files above its hard content cap before reading
+  and returns deterministic error observations for missing, oversized,
   binary, or ignored paths. Absolute paths and parent traversal raise
   `ToolArgumentError(field_path=("path",))` so the loop reports them as
   argument errors rather than execution errors. `production_tool_registry()`
@@ -1579,8 +1584,9 @@ it lands. They are not later slices of this track:
   `ToolPort` and round-trips workspace-relative reads; `.git`/`.gitignore`
   paths return error observations; absolute paths and parent traversal
   raise `ToolArgumentError`; missing files, directory targets, and binary
-  content surface as error observations; byte and line limits truncate
-  output; `production_tool_registry()` exposes exactly `{"read"}`;
+  content surface as error observations; oversized files are refused before
+  content is loaded; byte and line limits truncate output;
+  `production_tool_registry()` exposes exactly `{"read"}`;
   `--repl-mode` defaults to `no-tool` and round-trips through `--tool-budget`;
   the adapter refuses tool-incapable providers; the adapter runs the loop
   with `FakeNativeProvider` scripted tool calls and emits only
@@ -1621,8 +1627,9 @@ it lands. They are not later slices of this track:
   "--with-filename", "--fixed-strings", "--", pattern, search_root],
   shell=False, cwd=workspace_root, capture_output=True, text=True,
   timeout=5s, check=False)`; when `rg` is unavailable, a stdlib `os.walk`
-  fallback iterates workspace files, skipping `.git`/`.gitignore`
-  matches, control-character content, and `looks_sensitive` content. Both
+  fallback iterates workspace files, skipping files above its per-file scan
+  cap, `.git`/`.gitignore` matches, control-character content, and
+  `looks_sensitive` content. Both
   paths normalize output to deterministic
   `"<relative-path>:<line-number>:<text>"` rows, cap rows at
   `max_results` (default 100, capped at 1000), cap output at
@@ -1637,8 +1644,9 @@ it lands. They are not later slices of this track:
   paths; `ToolArgumentError` on absolute paths and parent traversal;
   bounded result count with deterministic truncation marker; the
   stdlib fallback path used when `rg` is missing from `PATH` (via a
-  `monkeypatch` of `shutil.which`); the `(no matches)` output; and
-  `max_results`/`timeout_seconds` validation bounds. No archive event,
+  `monkeypatch` of `shutil.which`), including the per-file scan cap; the
+  `(no matches)` output; and `max_results`/`timeout_seconds`/scan-cap
+  validation bounds. No archive event,
   public CLI shape, no-tool REPL, slash command, or `/verify just-check`
   behavior changes in this slice.
 
@@ -1689,7 +1697,8 @@ it lands. They are not later slices of this track:
   replacing every occurrence. Path validation reuses the same helpers as
   `ReadTool` and refuses `.git`, ignored paths, parent traversal,
   absolute paths, missing files, directory targets, binary content, and
-  oversized files. Empty `old_string` and missing matches surface as
+  oversized files, with the size cap checked before loading content.
+  Empty `old_string` and missing matches surface as
   `ToolArgumentError`/error observations respectively. The tool computes
   a unified diff via `difflib.unified_diff` against the original file
   and streams it through `ToolContext.stderr_sink`. The archive
@@ -1701,18 +1710,20 @@ it lands. They are not later slices of this track:
   Tests cover the definition and schema, successful unique replace with
   the diff appearing on `stderr_sink`, `replace_all` success, rejection
   of duplicate matches without `replace_all`, rejection of empty
-  `old_string`, missing-file and `.git`/absolute-path refusals, no-match
-  observations, the archive-untouched sentinel, the no-`pipy_session`
+  `old_string`, missing-file, oversized-file, and `.git`/absolute-path
+  refusals, no-match observations, the archive-untouched sentinel, the no-`pipy_session`
   import invariant, and registry contents.
 
 - Native opt-in transcript sidecar (slice 11 of the Tool-Loop Parity
   Track): `pipy_harness.native.transcripts.TranscriptSink` writes raw
   loop turns (user, assistant, tool_result, diff, session) to one JSONL
   line each at `~/.local/state/pipy/transcripts/<id>.jsonl`; the path
-  can be overridden via the `PIPY_TRANSCRIPT_DIR` env var. The sink
-  opens lazily, so no file is created until the first `append`. Each
-  record carries a stable `type`, a UTC `recorded_at`, the
-  `SENSITIVE_MARKER` discriminator, and a `payload` dict. A new
+  can be overridden via the `PIPY_TRANSCRIPT_DIR` env var. Transcript
+  ids are filename-safe and the sink creates a regular owner-only file
+  without following a preexisting symlink. The sink opens lazily, so no
+  file is created until the first `append`. Each record carries a
+  stable `type`, a UTC `recorded_at`, the `SENSITIVE_MARKER`
+  discriminator, and a `payload` dict. A new
   `--archive-transcript` boolean CLI flag wires a sink into
   `PipyNativeToolReplAdapter`; the default is off. The
   `NativeToolReplSession` emits events into the sink when supplied,
@@ -1720,7 +1731,8 @@ it lands. They are not later slices of this track:
   `ToolContext.stderr_sink`. The pipy session archive
   (`PIPY_SESSION_DIR`) is untouched. Tests pin: default path lives
   under `.local/state/pipy/transcripts`; env override works; the sink
-  rejects unsupported event types and non-dict payloads; the file is
+  rejects unsupported event types, non-dict payloads, unsafe transcript
+  ids, and preexisting sidecar symlinks; the file is owner-only and is
   not created without an append; the `--archive-transcript` flag
   defaults to `False` and round-trips through the CLI; the adapter
   creates no sidecar when the flag is off; with the flag on, the

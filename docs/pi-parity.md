@@ -25,9 +25,9 @@ Status labels are intentionally coarse:
 | --- | --- | --- |
 | Local-first terminal coding agent | Partial | `pipy` and `pipy repl` start a native shell in the current workspace. It is still line-oriented, not a full TUI. |
 | Direct provider access | Implemented (11 providers) | `ProviderPort` now supports fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google (Gemini Generative AI), Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI Responses, and Cloudflare Workers AI. All are stdlib-only (urllib + JSON + hashlib/hmac for SigV4); the no-new-runtime-deps invariant is preserved. See `docs/parity-criterion.md` for the locked feature list. |
-| Arbitrary shell execution | Implemented as bounded `bash` tool | `pipy_harness.native.tools.bash.BashTool` runs one shell command per invocation via `subprocess.Popen(..., shell=True)` with a workspace-relative cwd, bounded stdout/stderr collection, bounded timeout, and a `.git`/`--git-dir` substring refusal. Registered in the production tool registry. Command text and capped output stay in memory; the metadata archive is untouched. |
+| Arbitrary shell execution | Deferred from production registry | `pipy_harness.native.tools.bash.BashTool` remains as a standalone hardened helper with bounded output, timeout, minimal environment, and conservative `.git` preflight checks, but it is not registered for model-loop use. A real shell sandbox is required before this can count as production parity. |
 | Retry/backoff for transient HTTP errors | Implemented as reusable `RetryPolicy` | `pipy_harness.native.retry.retry_with_backoff` wraps any provider call with exponential backoff + jitter for 429 and 5xx responses. Injectable sleep + jitter for hermetic tests. |
-| Unified-diff edit tool | Implemented as `edit-diff` | `pipy_harness.native.tools.edit_diff.EditDiffTool` parses and applies a unified-diff patch in pure stdlib (no shell-out to `patch(1)`), atomic temp-file rename, reuses the same `.git`/symlink/byte-cap defenses as `EditTool`. |
+| Unified-diff edit tool | Implemented as `edit-diff` | `pipy_harness.native.tools.edit_diff.EditDiffTool` parses and applies a unified-diff patch in pure stdlib (no shell-out to `patch(1)`), atomic temp-file rename, and reuses the same `.git`/symlink/pre-read byte-cap defenses as `EditTool`. |
 | Output-shrinking helper | Implemented as `truncate` tool | `pipy_harness.native.tools.truncate.TruncateTool` is a pure-transformation tool the model can use to fold an oversized previous tool result into a head+tail+deterministic-marker form. No I/O. |
 | Session export | Implemented | `pipy-session export <stem>` writes a metadata-only JSON portable summary to stdout. `--include-transcript` opts in to the sensitive sidecar at `~/.local/state/pipy/transcripts/<id>.jsonl`. Default export retains the metadata-first archive contract via an event-key allowlist. |
 | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSON. Runtime prompt seeding for a resumed live session remains a follow-up. |
@@ -38,7 +38,7 @@ Status labels are intentionally coarse:
 | Active prompt state | Implemented | The line-oriented prompt label reflects safe provider/model, turn, read, proposal, and verification state before each input. |
 | Terminal input runtime | Narrow first slice | A small input adapter preserves plain captured-stream fallback and can use optional prompt-toolkit line-editor input with slash-command completion, explicit file/path completion, completion-only `@file` reference labels, and multiline entry on real TTY streams. Richer editor behavior remains deferred. |
 | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval prompts. |
-| Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track) and is invoked from `--repl-mode tool-loop`. |
+| Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |
 | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
 | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
 | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`. The model-driven tool loop now also exposes bounded `write`, `edit`, and `edit_diff` tools. |
@@ -93,7 +93,7 @@ Each slice landed as a named conventional commit with focused tests,
 ### Goal
 
 - A real model-driven loop over tool-capable native providers with bounded
-  `read`, `write`, `edit`, `ls`, `grep`, `find`, `bash`, `edit_diff`, and
+  `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, and
   `truncate` tools, producing a useful end-to-end change against this repo
   with `just check` green.
 - Pi-shaped behavior: the model picks files, edits them directly, the resulting
@@ -168,8 +168,9 @@ Each slice landed as a named conventional commit with focused tests,
 These were explicitly deferred for the original tool-loop track and some have
 now shipped in later parity work:
 
-- A `bash` tool or any arbitrary shell execution tool. Shipped later as a
-  bounded model-loop `bash` tool.
+- A `bash` tool or any arbitrary shell execution tool. A standalone helper
+  exists, but production model-loop registration is deferred until a real shell
+  sandbox preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped later.
@@ -316,8 +317,9 @@ the backlog entry in `docs/backlog.md`
   A hermetic test pins the same against the fake provider.
 - Discovery rules are pinned by focused unit tests: per-directory
   candidate filename precedence, nested-workspace ordering, missing
-  files do not fail, symlinks must resolve inside the workspace, the
-  global root respects `PIPY_CONFIG_HOME`, then `XDG_CONFIG_HOME/pipy`,
+  files do not fail, symlinks must resolve inside the directory where
+  they are found, the global root respects `PIPY_CONFIG_HOME`, then
+  `XDG_CONFIG_HOME/pipy`,
   then `~/.config/pipy`, and bounded per-file and total byte caps
   apply with deterministic truncation labels.
 - `pipy-session` records only metadata about which instruction files
@@ -342,7 +344,7 @@ the backlog entry in `docs/backlog.md`
    the global root resolved through `PIPY_CONFIG_HOME` then
    `XDG_CONFIG_HOME/pipy` then `~/.config/pipy`, deduplication by
    canonical absolute path, symlink resolution that stays inside the
-   workspace, bounded per-file and total byte caps with deterministic
+   containing directory, bounded per-file and total byte caps with deterministic
    truncation labels, and "missing files do not fail" semantics.
    Focused unit tests pin every rule. No REPL or run wiring in this
    slice.
@@ -388,7 +390,7 @@ These hold throughout the track, not as later deferrals:
   composed; an over-cap file is included up to its slice with a
   deterministic truncation marker, and over-total reads stop at the
   total cap with a deterministic notice.
-- Symlinks that resolve outside the workspace are skipped; their
+- Symlinks that resolve outside the containing directory are skipped; their
   metadata is not recorded.
 - Each slice ships focused tests, a green `just check`, updated docs,
   a conventional commit, and stops for review.
@@ -471,7 +473,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
 | UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, `/settings`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; `pipy-session resume-info` can read metadata-only continuation context, but live resume wiring is still deferred. No raw transcript import by default. |
-| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `bash`, `edit_diff`, and `truncate` behind `pipy repl --repl-mode tool-loop`. See the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
+| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, and `truncate` behind `pipy repl --repl-mode tool-loop`; `bash` is deferred from the production registry pending a real shell sandbox. See the [Native Tool-Loop Parity Track](#native-tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve native provider selections behind `ProviderPort`: fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex OAuth, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, custom slash commands, and themes have narrow discovery/registry helpers; runtime slash commands, extensions, and package loading remain deferred. |

@@ -226,19 +226,22 @@ directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
 remains accepted. The REPL's `--repl-mode` flag defaults to `auto`: when the
 selected provider advertises `supports_tool_calls=True`, the shell launches
 the bounded model-driven tool loop (with `read`, `ls`, `grep`, `find`,
-`write`, `edit`, `bash` (bounded shell with workspace cwd, output caps,
-timeout, `.git` substring refusal), `edit_diff` (in-process unified-diff
-applier), and `truncate` from
+`write`, `edit`, `edit_diff` (in-process unified-diff applier), and `truncate` from
 `pipy_harness.native.tool_loop_session.production_tool_registry`)
-and `--tool-budget` (default 10, max 25) caps invocations per user turn;
-otherwise it falls back to the existing line-oriented REPL with the
+and `--tool-budget` (default 10, max 25) caps invocations per user turn.
+Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
+targets before loading file content.
+`bash` is intentionally not exposed in the production model loop until it has
+a real shell sandbox that preserves secret isolation and `.git` default-deny.
+Otherwise it falls back to the existing line-oriented REPL with the
 `/settings`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
 `/verify just-check` commands. Pass `--repl-mode no-tool` to force the
 line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
 opt-in `--archive-transcript` flag writes raw loop turns to
 `~/.local/state/pipy/transcripts/<id>.jsonl` outside the metadata-first
-pipy session archive; the sidecar is sensitive content and excluded from
-`pipy-session list/search/inspect`. All three real adapters
+pipy session archive; the sidecar is sensitive content, uses a filename-safe
+id and regular owner-only file, refuses preexisting symlinks, and is excluded
+from `pipy-session list/search/inspect`. All three real adapters
 (`openrouter`, `openai`, and `openai-codex`) advertise
 `supports_tool_calls=True` and drive the tool loop end-to-end, so
 `pipy repl --native-provider openrouter --native-model <vendor/model>`
@@ -368,8 +371,9 @@ no-op tool name/kind when invoked, approval and sandbox policy labels, and tool
 storage booleans. Injected verification records add only safe command labels,
 status, exit code, duration, reason/error labels, policy booleans, and false
 stdout/stderr/command-output storage booleans. `--record-files` records
-relative changed paths from `git status --porcelain`; without it, changed paths
-are not recorded.
+relative changed paths from `git status --porcelain` and redacts
+assignment-style secret values embedded in those paths; without it, changed
+paths are not recorded.
 Native provider usage is normalized to finite non-negative allowlisted token
 counters: `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`,
 and `reasoning_tokens`. Unknown provider-native usage fields and unavailable
@@ -394,8 +398,8 @@ the proposal-only `/propose-file` command, the same-session one-file
 `/apply-proposal` command, the post-apply `/verify just-check` command, and — in
 `--repl-mode tool-loop` (or `auto` against a provider that advertises
 `supports_tool_calls=True`) — the bounded model-driven loop with
-`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash`, `edit_diff`,
-and `truncate`. Native provider CLI runs still do not expose provider-side
+`read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate`.
+Native provider CLI runs still do not expose provider-side
 built-in tools (web search, file search, code interpreter, computer
 use), non-allowlisted verification commands, streaming provider output,
 a dynamic provider registry, or raw transcript import. Native OAuth belongs only to the distinct

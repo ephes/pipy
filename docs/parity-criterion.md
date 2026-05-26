@@ -58,7 +58,7 @@ Source of truth: every `.ts` file under
 | B4 | find | ✅ | `test -f src/pipy_harness/native/tools/find.py` |
 | B5 | write | ✅ | `test -f src/pipy_harness/native/tools/write.py` |
 | B6 | edit | ✅ | `test -f src/pipy_harness/native/tools/edit.py` |
-| B7 | bash | ✅ | `test -f src/pipy_harness/native/tools/bash.py` |
+| B7 | bash | ❌ | `uv run python -c "from pipy_harness.native.tool_loop_session import production_tool_registry; raise SystemExit(0 if 'bash' in production_tool_registry() else 1)"` |
 | B8 | edit-diff | ✅ | `test -f src/pipy_harness/native/tools/edit_diff.py` |
 | B9 | truncate | ✅ | `test -f src/pipy_harness/native/tools/truncate.py` |
 
@@ -119,9 +119,9 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after 90% increment): 45
+current ✅ count (2026-05-26, after bash hardening): 44
 target  ✅ count for 80% parity:                    40
-delta beyond 80% target:                            +5
+delta beyond 80% target:                            +4
 ```
 
 ## How To Verify
@@ -135,18 +135,25 @@ just parity-score
 The `just parity-score` recipe re-runs the per-row `Verify` commands and
 counts how many succeed. The pass bar is **40 ✅ out of 50** with the
 constraint that **at least 5 of the implementations must be
-"big" features** (one of: bash tool, anthropic provider, google provider,
-streaming output, session resume, session compaction, retry/backoff with real
-HTTP error injection tests, mistral provider, bedrock provider, dynamic
-provider swap). This anti-gaming rule prevents reaching 80% by only adding
-trivial helpers.
+"big" features** (one of: anthropic provider, google provider, streaming
+output, session resume, session compaction, retry/backoff with real HTTP
+error injection tests, mistral provider, bedrock provider, dynamic provider
+swap). This anti-gaming rule prevents reaching 80% by only adding trivial
+helpers.
+
+The `bash` tool (B7) was previously listed here as a candidate big feature.
+It is now deferred from the production model-loop registry pending a real
+process/filesystem sandbox that preserves secret isolation and `.git`
+default-deny against shell-quoting, glob, and command-substitution bypasses.
+The standalone `BashTool` class still exists for non-model use cases, but
+B7's Verify command now checks model-loop registration and therefore stays
+at ❌ until the sandbox lands. B7 does not count toward the big-feature
+bar in its current state.
 
 ## What Counts As "Big"
 
 For the anti-gaming bar:
 
-- **bash tool (B7)**: real subprocess execution with timeout, output capture,
-  archive-safe metadata, workspace-relative cwd. Not a stub.
 - **anthropic provider (A5)**: real Anthropic Messages API call wiring with
   tool-call support, hermetic stub-transport test that round-trips at least
   one tool call.

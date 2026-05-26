@@ -1057,8 +1057,10 @@ approval popup. Safety remains non-interactive and fail-closed:
   mutation allowed and shell/network access forbidden
 - validate workspace-relative targets, ignored/generated-file rejection, file
   type, UTF-8 replacement text bounds, and secret-looking replacement content
-- require expected SHA-256 hashes for existing files before modify, delete, or
-  rename operations, and distinguish missing, malformed, and mismatched hashes
+- reject existing files above the apply byte cap before reading them for hash
+  validation, require expected SHA-256 hashes for existing files before modify,
+  delete, or rename operations, and distinguish missing, malformed, and
+  mismatched hashes
 - reject provider-selected paths, multi-file plans, multiple operations,
   shell-looking data, network access, provider-side tools, and another provider
   turn
@@ -2489,7 +2491,8 @@ The request requires:
   paths
 - normalized workspace-relative targets validated to stay inside the workspace
   and outside ignored or generated files
-- expected SHA-256 hashes for existing files before modify, delete, or rename
+- expected SHA-256 hashes for existing files before modify, delete, or rename,
+  after rejecting files above the apply byte cap
 - bounded UTF-8 replacement text for create and modify operations
 - non-overlapping operation source and target paths
 
@@ -3273,8 +3276,10 @@ These hold throughout the track, not as later deferrals:
   single provider response. One successful invocation resets the streak.
 - The opt-in `TranscriptSink` writes raw turns to
   `~/.local/state/pipy/transcripts/<id>.jsonl` only when `--archive-transcript`
-  is supplied. The sidecar lives outside the pipy session archive and is
-  excluded from `pipy-session list`, `search`, and `inspect`.
+  is supplied. Transcript ids are filename-safe, and the sidecar is created as
+  a regular owner-only file without following a preexisting symlink. The
+  sidecar lives outside the pipy session archive and is excluded from
+  `pipy-session list`, `search`, and `inspect`.
 - The existing no-tool REPL stays available behind
   `--repl-mode no-tool` and the listed slash commands keep working in both
   modes.
@@ -3287,8 +3292,9 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly out of scope while the tool-loop track lands and
 after it lands. They are not later slices of this track:
 
-- A `bash` tool or any arbitrary shell execution tool. Shipped later as the
-  bounded model-loop `bash` tool.
+- A `bash` tool or any arbitrary shell execution tool. A standalone helper
+  exists, but production model-loop registration is deferred until a real shell
+  sandbox preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped later.
@@ -3398,7 +3404,7 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly out of scope while the track lands and after
 it lands. They are not later slices of this track:
 
-- A `bash` tool, generalizing `/verify` beyond `just check`, session
+- A production `bash` tool, generalizing `/verify` beyond `just check`, session
   resume/branch/compaction, RPC mode, SDK embedding, extensions,
   skills, prompt templates, theme/package loading, automatic `@file`
   content reads, persistent history, and a full TUI.
@@ -3449,8 +3455,8 @@ the track.
   fake provider.
 - Discovery rules are pinned by focused unit tests: per-directory
   candidate filename precedence, nested-workspace ordering, missing
-  files do not fail, symlinks must resolve inside the workspace,
-  the global root respects `PIPY_CONFIG_HOME`, then
+  files do not fail, symlinks must resolve inside the directory where
+  they are found, the global root respects `PIPY_CONFIG_HOME`, then
   `XDG_CONFIG_HOME/pipy`, then `~/.config/pipy`, and bounded
   per-file and total byte caps apply with deterministic truncation
   labels.
@@ -3470,9 +3476,9 @@ These hold throughout the track, not as later deferrals:
   slice; only safe per-file metadata (path label, sha256, byte
   length). Pinned by tests.
 - The opt-in `--archive-transcript` sidecar contracts (path,
-  exclusion from `pipy-session list/search/inspect`,
-  off-by-default) stay unchanged. Instruction bodies never reach
-  the sidecar.
+  filename-safe id, regular owner-only file, symlink refusal,
+  exclusion from `pipy-session list/search/inspect`, off-by-default)
+  stay unchanged. Instruction bodies never reach the sidecar.
 - `.git` default-deny posture and existing slash commands
   (`/read`, `/ask-file`, `/propose-file`, `/apply-proposal`,
   `/verify just-check`) keep working unchanged in both REPL modes.
