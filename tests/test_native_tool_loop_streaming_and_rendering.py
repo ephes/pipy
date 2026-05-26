@@ -114,7 +114,7 @@ def _run_loop(
 # ------------------------------ renderer unit ------------------------------
 
 
-def test_renderer_streams_chunks_to_output_stream_with_assistant_prefix():
+def test_renderer_streams_chunks_to_output_stream_without_label_prefix():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
     renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
@@ -125,8 +125,12 @@ def test_renderer_streams_chunks_to_output_stream_with_assistant_prefix():
     renderer.end_provider_turn(final_text="hello world", has_tool_calls=False)
 
     assert renderer.streamed_any is True
-    assert "assistant > " in out.getvalue()
+    # Pi prints the final answer with no `assistant > ` label; only the
+    # surrounding padding separates it from tool blocks. The leading
+    # newline ensures the answer never butts up against a tool result.
+    assert out.getvalue().startswith("\n")
     assert "hello world" in out.getvalue()
+    assert "assistant" not in out.getvalue()
     assert err.getvalue() == ""
 
 
@@ -362,7 +366,9 @@ def test_tool_loop_streams_provider_text_chunks_into_output_stream(
         tmp_path=tmp_path,
     )
 
-    assert "assistant > " in output
+    # Pi-shape rendering: no `assistant > ` label, just a leading
+    # newline separating tool blocks from the streamed answer.
+    assert "assistant" not in output
     # All chunks appear in order on the output stream.
     expected_text = "".join(text_chunks)
     assert expected_text in output

@@ -1078,8 +1078,12 @@ class _ToolLoopRenderer:
         self._clear_working()
         if not self._stream_active:
             self._stream_active = True
-            prefix = self._style("assistant > ", self._ANSI_DIM + self._ANSI_CYAN)
-            self._output_stream.write(prefix)
+            # Pi prints the final assistant answer without a "label" prefix —
+            # the surrounding blank-line padding from `end_provider_turn`
+            # is what separates the answer from the preceding tool blocks.
+            # Emit a leading newline so the answer never butts up against
+            # the last tool result line on the same column.
+            self._output_stream.write("\n")
         self._output_stream.write(chunk)
         self._output_stream.flush()
         self._stream_emitted_any = True
@@ -1198,6 +1202,31 @@ class _ToolLoopRenderer:
             self._error_stream.write("\n" + took + "\n")
         self._error_stream.flush()
 
+    @staticmethod
+    def _read_range_label(data: Mapping[str, Any]) -> str:
+        """Format the ``:start-end`` line range for a ``read`` header.
+
+        Pi's read tool natively exposes ``offset`` and ``limit`` style
+        arguments. Pipy's bounded `read` tool uses a fixed line cap, but
+        the codex provider may still emit the optional ``offset`` and
+        ``limit`` properties that other read tools advertise. When
+        present they shape the header label so the user sees the
+        actual requested range; otherwise the default ``:1-200``
+        matches the tool's hard-coded ``line_limit``.
+        """
+
+        start = data.get("offset")
+        limit = data.get("limit")
+        if isinstance(start, int) and start >= 0:
+            start_line = start + 1
+        else:
+            start_line = 1
+        if isinstance(limit, int) and limit > 0:
+            end_line = start_line + limit - 1
+        else:
+            end_line = start_line + 199
+        return f":{start_line}-{end_line}"
+
     def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
         """Render a Pi-shape one-line tool header.
 
@@ -1217,7 +1246,8 @@ class _ToolLoopRenderer:
         if tool_name == "read":
             path = data.get("path", "")
             prefix = "read resource" if str(path).startswith("/") else "read"
-            return f"{prefix} {path}:1-200 (ctrl+o to expand)"
+            range_label = self._read_range_label(data)
+            return f"{prefix} {path}{range_label} (ctrl+o to expand)"
         if tool_name == "ls":
             path = data.get("path", ".")
             return f"ls {path}"

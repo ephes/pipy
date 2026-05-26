@@ -1,0 +1,103 @@
+
+ [1m[38;2;138;190;183mpipy v0.1.0[0m
+[38;2;128;128;128m escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more[39m
+[38;2;128;128;128m Press ctrl+o to show full startup help and loaded resources.[39m
+
+[38;2;128;128;128m Pipy can explain its own features and look up its docs. Ask it how to use or extend pipy.[39m
+
+
+[1m[38;2;240;198;116m[Context][0m
+[38;2;128;128;128m  AGENTS.md, ~/.claude/CLAUDE.md[39m
+
+[1m[38;2;240;198;116m[Skills][0m
+[38;2;128;128;128m  goal-handoff, handoff-impl, handoff-review, mermaid-marked2-markdown, summarize-youtube, commit-workflow, implement-handoff, local-dev-orchestration, review-handoff[39m
+
+
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m>  ls docs and read its first 30 lines of backlog.md
+
+ [2m[36mls docs[0m
+
+[2m file docs/architecture.md[0m
+[2m directory docs/audit[0m
+[2m file docs/backlog.md[0m
+[2m file docs/harness-spec.md[0m
+[2m file docs/index.md[0m
+[2m file docs/parity-criterion.md[0m
+[2m file docs/pi-parity.md[0m
+[2m file docs/session-storage.md[0m
+[2m directory docs/superpowers[0m
+
+[2m Took 0.0s[0m
+
+ [2m[36mread docs/backlog.md:1-200 (ctrl+o to expand)[0m
+
+[2m ... (120 earlier lines, ctrl+o to expand)[0m
+[2m   the first prompt so the real provider/model surfaces immediately on[0m
+[2m   immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it[0m
+[2m   stays visible while the user types when that adapter is selected. Chrome[0m
+[2m   rendering is shared between the no-tool and bounded tool-loop sessions[0m
+[2m   through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery[0m
+[2m   covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,[0m
+[2m   `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals[0m
+[2m   (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,[0m
+[2m   `~/.pipy/skills`) so the section listing matches what Pi shows when global[0m
+[2m   resources are present; hidden dotfile directories are filtered out. The[0m
+[2m   default provider/model selector auto-picks an available real provider[0m
+[2m   (openai-codex OAuth, then keyed providers in priority[0m
+
+[2m Took 0.0s[0m
+[2m[36massistant > [0m`docs` contains:
+
+- `docs/architecture.md`
+- `docs/audit/`
+- `docs/backlog.md`
+- `docs/harness-spec.md`
+- `docs/index.md`
+- `docs/parity-criterion.md`
+- `docs/pi-parity.md`
+- `docs/session-storage.md`
+- `docs/superpowers/`
+
+First 30 lines of `docs/backlog.md`:
+
+```md
+# Pipy Backlog
+
+Status: planning index
+
+This backlog records the current implementation direction at a task-slice
+level. It is not a full issue tracker. Use it to choose the next small,
+reviewable change while keeping the source-of-truth design constraints in
+`docs/harness-spec.md` and `docs/session-storage.md`.
+
+## Current State
+
+Pipy has crossed from capture-only infrastructure into a small native product
+runtime. The current native shell can authenticate to the `openai-codex`
+provider, switch models, make ordinary no-tool provider turns, read explicit
+workspace-relative file excerpts, ask a provider about one excerpt,
+request a proposal-only change for that excerpt through `/propose-file`, and
+apply one same-session reviewed proposal through `/apply-proposal`, then run
+one post-apply allowlisted verification command through `/verify just-check`.
+It can also clear retained no-tool conversation context locally with `/clear`
+and inspect local shell state with `/status`; bare `pipy` and
+`pipy repl --agent pipy-native` now print styled, sectioned startup chrome with
+safe metadata-only resource labels before the first prompt, `/help` plus static
+usage diagnostics show grouped slash-command discovery, each REPL input prompt
+now carries safe state labels for provider/model, turns, read, proposal, and
+verification availability, and the REPL now reads input through a small adapter
+boundary with plain captured-stream fallback plus optional prompt-toolkit
+line-editor support, including leading slash-command name completion, when
+explicitly selected or auto-available on real TTY streams. The optional
+prompt-toolkit path now also suggests workspace-relative file/path labels while
+editing the path argument for explicit file commands, inserts completion-only
+```
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;128;128;128m~/projects/pipy (main)[39m
+[38;2;128;128;128m↑7.5k ↓499 $0.014 (sub) 1.9%/272k (auto)                                                                                                                                   (openai-codex) gpt-5.5 • high
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m>
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;128;128;128m~/projects/pipy (main)[39m
+[38;2;128;128;128m↑7.5k ↓499 $0.014 (sub) 1.9%/272k (auto)                                                                                                                                   (openai-codex) gpt-5.5 • high

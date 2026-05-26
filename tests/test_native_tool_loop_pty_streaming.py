@@ -149,20 +149,20 @@ def test_pty_tool_loop_streams_and_renders_tool_block(
     output_text = b"".join(output_chunks).decode("utf-8", errors="replace")
     error_text = b"".join(error_chunks).decode("utf-8", errors="replace")
 
-    # Streaming surface
-    assert "assistant > " in output_text
+    # Streaming surface — Pi-shape (no `assistant > ` label, leading
+    # newline separates the streamed answer from tool blocks).
     assert "Pi parity is " in output_text
     assert "49 out of 50." in output_text
+    assert "assistant" not in output_text
 
-    # The buffered final_text fallback never prints a second copy on the
-    # same turn (so users do not see the answer twice). Every occurrence
-    # of the streamed phrase is preceded by the `assistant >` prefix that
-    # only the renderer's stream sink emits.
-    assistant_count = output_text.count("assistant > ")
+    # The buffered final_text fallback never prints a second copy on
+    # the same turn (so users do not see the answer twice). The fake
+    # provider streams chunks on each of the two scripted turns, so
+    # the streamed phrase appears exactly twice — never four times.
     streamed_count = output_text.count("49 out of 50.")
-    assert streamed_count == assistant_count, (
+    assert streamed_count == 2, (
         f"buffered fallback duplicated streamed text "
-        f"(streamed={streamed_count}, assistant_prefixed={assistant_count})"
+        f"(streamed={streamed_count}, expected=2)"
     )
 
     # Tool block rendering surface
@@ -170,6 +170,7 @@ def test_pty_tool_loop_streams_and_renders_tool_block(
     assert "noop result" in error_text
     assert "Took" in error_text
 
-    # ANSI escapes present on the real PTY (so styles render in user terminals)
+    # ANSI escapes present on the real PTY error stream (tool blocks +
+    # spinner are the styled surfaces). Pi-shape streaming output stays
+    # plain text so terminal copy/paste does not pick up escape codes.
     assert "\x1b[" in error_text
-    assert "\x1b[" in output_text
