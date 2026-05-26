@@ -381,7 +381,6 @@ class OpenAICodexResponsesProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
-        del stream_sink
         started_at = _utc_now()
         if not self.model_id or not self.model_id.strip():
             return _failed_result(
@@ -453,7 +452,7 @@ class OpenAICodexResponsesProvider:
                     f"OpenAI Codex request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_sse_response(response.body)
+            result = _parse_sse_response(response.body, stream_sink=stream_sink)
         except OpenAICodexProviderError as exc:
             return _failed_result(
                 request,
@@ -754,7 +753,11 @@ class _StreamingFunctionCall:
         return "".join(self.argument_deltas)
 
 
-def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
+def _parse_sse_response(
+    body: str,
+    *,
+    stream_sink: StreamChunkSink | None = None,
+) -> ParsedOpenAICodexResponse:
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
     terminal_response: Mapping[str, Any] | None = None
@@ -787,6 +790,8 @@ def _parse_sse_response(body: str) -> ParsedOpenAICodexResponse:
             delta = event.get("delta")
             if isinstance(delta, str):
                 text_chunks.append(delta)
+                if stream_sink is not None and delta:
+                    stream_sink(delta)
             continue
         if event_type == "response.output_item.added":
             item = event.get("item")

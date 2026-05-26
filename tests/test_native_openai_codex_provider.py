@@ -537,3 +537,104 @@ def _base64url(value: Mapping[str, Any]) -> str:
 
 def sse_payload(events: list[Mapping[str, Any]]) -> str:
     return "".join(f"data: {json.dumps(event)}\n\n" for event in events)
+
+
+def _streaming_sse_events() -> list[Mapping[str, Any]]:
+    return [
+        {"type": "response.output_text.delta", "delta": "Hello"},
+        {"type": "response.output_text.delta", "delta": ", "},
+        {"type": "response.output_text.delta", "delta": "world"},
+        {"type": "response.output_text.delta", "delta": "!"},
+        {
+            "type": "response.completed",
+            "response": {"status": "completed", "usage": {"input_tokens": 1, "output_tokens": 4, "total_tokens": 5}},
+        },
+    ]
+
+
+def test_openai_codex_provider_streams_text_deltas_through_sink_in_source_order(tmp_path):
+    captured: list[str] = []
+    client = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(_streaming_sse_events()))
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request(tmp_path), stream_sink=captured.append)
+
+    assert captured == ["Hello", ", ", "world", "!"]
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "Hello, world!"
+    assert result.metadata == {
+        "provider_response_store_requested": False,
+        "response_status": "completed",
+    }
+
+
+def test_openai_codex_provider_complete_without_sink_matches_streaming_final_text(tmp_path):
+    no_sink_client = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(_streaming_sse_events()))
+    )
+    with_sink_client = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(_streaming_sse_events()))
+    )
+    provider_no_sink = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=no_sink_client,
+    )
+    provider_with_sink = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=with_sink_client,
+    )
+    captured: list[str] = []
+
+    no_sink_result = provider_no_sink.complete(provider_request(tmp_path))
+    with_sink_result = provider_with_sink.complete(
+        provider_request(tmp_path), stream_sink=captured.append
+    )
+
+    assert no_sink_result.final_text == with_sink_result.final_text
+    assert "".join(captured) == no_sink_result.final_text
+
+
+def test_openai_codex_provider_does_not_stream_when_sink_is_none(tmp_path):
+    client = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(_streaming_sse_events()))
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request(tmp_path), stream_sink=None)
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "Hello, world!"
+
+
+def test_openai_codex_provider_streaming_does_not_call_sink_for_empty_delta(tmp_path):
+    captured: list[str] = []
+    events = [
+        {"type": "response.output_text.delta", "delta": ""},
+        {"type": "response.output_text.delta", "delta": "ok"},
+        {"type": "response.completed", "response": {"status": "completed"}},
+    ]
+    client = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(events))
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request(tmp_path), stream_sink=captured.append)
+
+    assert captured == ["ok"]
+    assert result.final_text == "ok"
