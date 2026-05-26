@@ -347,11 +347,11 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     assert captured.out == ""
     assert provider_calls == 0
     assert "pipy v" in captured.err
-    assert "native shell" in captured.err
-    assert "ctrl+c interrupt" in captured.err
-    assert "ctrl+d exit" in captured.err
+    assert "escape interrupt" in captured.err
+    assert "escape interrupt" in captured.err
+    assert "ctrl+c/ctrl+d clear/exit" in captured.err
     assert "/ commands" in captured.err
-    assert "Type / to open the command menu" in captured.err
+    assert "Pipy can explain its own features" in captured.err
     assert "(fake) fake-native-bootstrap" in captured.err
     assert "\x1b[" not in captured.err
     assert captured.err.count("pipy v") == 1
@@ -646,7 +646,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
         encoding="utf-8"
     )
     assert "/status" not in combined
-    assert "ctrl+c interrupt" not in combined
+    assert "escape interrupt" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -1255,8 +1255,8 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
     assert provider_calls == 0
     assert captured.out == ""
     assert "pipy v" in captured.err
-    assert "ctrl+c interrupt" in captured.err
-    assert "Type / to open the command menu" in captured.err
+    assert "escape interrupt" in captured.err
+    assert "Pipy can explain its own features" in captured.err
     assert "(fake) fake-native-bootstrap" in captured.err
     assert captured.err.count("pipy v") == 1
     assert captured.err.index("pipy v") < captured.err.index("> ")

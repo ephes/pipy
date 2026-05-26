@@ -140,8 +140,8 @@ def test_print_startup_chrome_renders_context_and_skills(
     output = stream.getvalue()
 
     assert "pipy v" in output
-    assert "native shell" in output
-    assert "ctrl+c interrupt" in output
+    assert "escape interrupt" in output
+    assert "escape interrupt" in output
     assert "[Context]" in output
     assert "AGENTS.md" in output
     assert "[Skills]" in output

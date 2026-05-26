@@ -123,11 +123,11 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
     )
 
     assert "pipy v" in captured
-    assert "native shell" in captured
+    assert "escape interrupt" in captured
     # Controls strip uses Pi-style lowercase shortcuts and middot separators.
-    assert "ctrl+c interrupt" in captured
+    assert "escape interrupt" in captured
     assert "/ commands" in captured
-    assert "Type / to open the command menu" in captured
+    assert "Pipy can explain its own features" in captured
     assert "[Context]" in captured
     # Context lists the project-local AGENTS.md source by name.
     assert "AGENTS.md" in captured.split("[Context]")[1].split("[")[0]

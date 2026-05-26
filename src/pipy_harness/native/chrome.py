@@ -197,9 +197,11 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
     width = chrome_width(error_stream)
     resource_labels = _resource_labels(cwd)
 
+    # Pi opens with a blank line before the title so the chrome
+    # never butts up against the previous shell line.
+    print(file=error_stream)
     print(
-        f" {style.title(f'pipy v{pipy_version_label()}')}"
-        f"{style.dim('  native shell')}",
+        f" {style.title(f'pipy v{pipy_version_label()}')}",
         file=error_stream,
     )
     _print_wrapped(
@@ -207,11 +209,11 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
         " ",
         " · ".join(
             (
-                "ctrl+c interrupt",
-                "ctrl+d exit",
+                "escape interrupt",
+                "ctrl+c/ctrl+d clear/exit",
                 "/ commands",
-                "/help reference",
-                "! bash deferred",
+                "! bash",
+                "ctrl+o more",
             )
         ),
         width=width,
@@ -220,10 +222,19 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
     _print_wrapped(
         error_stream,
         " ",
-        "Type / to open the command menu; /help for the full reference.",
+        "Press ctrl+o to show full startup help and loaded resources.",
         width=width,
         style=style.dim,
     )
+    print(file=error_stream)
+    _print_wrapped(
+        error_stream,
+        " ",
+        "Pipy can explain its own features and look up its docs. Ask it how to use or extend pipy.",
+        width=width,
+        style=style.dim,
+    )
+    print(file=error_stream)
     print(file=error_stream)
     rendered_section = False
     for section_name, label in (
@@ -244,6 +255,10 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
         )
         print(file=error_stream)
         rendered_section = True
+    if rendered_section:
+        # Pi emits a second blank line after the last resource block so the
+        # input separator is visually distanced from the listing.
+        print(file=error_stream)
     if not rendered_section:
         # Keep one blank line after the chrome controls for spacing parity.
         return

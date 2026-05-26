@@ -386,7 +386,7 @@ def test_final_text_is_printed_when_no_tool_calls(tmp_path: Path):
     assert "hello world" in output_stream.getvalue()
     stderr = error_stream.getvalue()
     assert "pipy v" in stderr  # startup chrome rendered
-    assert "native shell" in stderr
+    assert "escape interrupt" in stderr
 
 
 # ---------------- session ends on EOF and stays archive-safe ---------------

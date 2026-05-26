@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -959,6 +960,8 @@ class _ToolLoopRenderer:
         self._stream_emitted_any = False
         self._streamed_any = False
         self._working_shown = False
+        self._stop_working_event: threading.Event | None = None
+        self._working_thread: threading.Thread | None = None
         self._reasoning_active = False
         self._reasoning_emitted_any = False
 
@@ -990,31 +993,71 @@ class _ToolLoopRenderer:
     def reasoning_sink(self) -> StreamChunkSink:
         return self.handle_reasoning_chunk
 
-    def show_working(self) -> None:
-        """Print a Pi-shape `⠋ Working...` line on the error stream.
+    _SPINNER_FRAMES: ClassVar[tuple[str, ...]] = (
+        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+    )
+    _SPINNER_INTERVAL_SECONDS: ClassVar[float] = 0.08
 
-        Pi animates this glyph between provider polls; pipy stays
-        single-line and prints the first frame as an immediate visual
-        cue without a separate animation thread. The line is cleared
-        before streaming text or the next render block appears so the
-        user does not see a stale marker. On non-TTY streams the line
-        is suppressed entirely so captured logs stay clean.
+    def show_working(self) -> None:
+        """Animate a Pi-shape `⠋ Working...` line on the error stream.
+
+        A background thread cycles through ``_SPINNER_FRAMES`` every
+        80 ms and rewrites the line in place (`\\r\\x1b[K`). The thread
+        is daemonized so it never blocks process exit, and stopped via
+        ``_stop_working_event`` before the next visible block (stream
+        text, tool block, or footer redraw) lands. On non-TTY streams
+        the line and animation are suppressed entirely so captured
+        logs stay deterministic.
         """
 
         if not self._enabled:
             self._working_shown = False
             return
-        marker = self._style("⠋ Working...", self._ANSI_DIM + self._ANSI_ITALIC)
-        self._error_stream.write(f" {marker}")
-        self._error_stream.flush()
+        self._stop_working_event = threading.Event()
         self._working_shown = True
+
+        def _animate(stop_event: threading.Event) -> None:
+            frame_index = 0
+            while not stop_event.is_set():
+                glyph = self._SPINNER_FRAMES[
+                    frame_index % len(self._SPINNER_FRAMES)
+                ]
+                marker = self._style(
+                    f"{glyph} Working...",
+                    self._ANSI_DIM + self._ANSI_ITALIC,
+                )
+                try:
+                    self._error_stream.write(f"\r\x1b[K {marker}")
+                    self._error_stream.flush()
+                except (ValueError, OSError):
+                    return
+                frame_index += 1
+                stop_event.wait(self._SPINNER_INTERVAL_SECONDS)
+
+        thread = threading.Thread(
+            target=_animate,
+            args=(self._stop_working_event,),
+            name="pipy-tool-loop-spinner",
+            daemon=True,
+        )
+        self._working_thread = thread
+        thread.start()
 
     def _clear_working(self) -> None:
         if not self._working_shown:
             return
+        if self._stop_working_event is not None:
+            self._stop_working_event.set()
+        if self._working_thread is not None:
+            self._working_thread.join(timeout=0.2)
+        self._stop_working_event = None
+        self._working_thread = None
         if self._enabled:
-            self._error_stream.write("\r\x1b[K")
-            self._error_stream.flush()
+            try:
+                self._error_stream.write("\r\x1b[K")
+                self._error_stream.flush()
+            except (ValueError, OSError):
+                pass
         self._working_shown = False
 
     def end_provider_turn(

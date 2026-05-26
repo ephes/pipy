@@ -624,11 +624,11 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     ]
     stderr = error_stream.getvalue()
     assert "pipy v" in stderr
-    assert "native shell" in stderr
-    assert "ctrl+c interrupt" in stderr
-    assert "ctrl+d exit" in stderr
+    assert "escape interrupt" in stderr
+    assert "escape interrupt" in stderr
+    assert "ctrl+c/ctrl+d clear/exit" in stderr
     assert "/ commands" in stderr
-    assert "Type / to open the command menu" in stderr
+    assert "Pipy can explain its own features" in stderr
     assert "[Context]" not in stderr  # AGENTS.md not present in tmp_path
     # Pi-shape bottom status line: cost placeholder, plan tag, context
     # meter, then `(provider) model • effort` with turn budget surfaced
