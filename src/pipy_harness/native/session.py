@@ -15,11 +15,8 @@ from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.chrome import (
     BottomStatusFields,
-    ChromeStyle,
-    chrome_style_for,
     chrome_width,
     format_bottom_status_line,
-    format_provider_model,
     print_bottom_status_block,
     print_input_separator,
     print_startup_chrome,
@@ -463,9 +460,6 @@ class _ReplDisplayState:
     read_recovery_used: bool
     pending_proposal_available: bool
     verification_available: bool
-
-
-_StartupChromeStyle = ChromeStyle
 
 
 @dataclass(slots=True)
@@ -1764,6 +1758,16 @@ def _repl_plan_label(provider_name: str) -> str:
 
 
 def _repl_effort_label(state: _ReplDisplayState) -> str:
+    """Reasoning-effort label rendered after the model id.
+
+    Pipy does not yet expose a per-session reasoning-effort knob (Pi's
+    bottom-row `medium`/`high` indicator). We surface a stable
+    ``default`` label so the Pi-shape `(provider) model • effort`
+    segment renders the right number of fields; when pipy grows an
+    effort selector this helper switches over without changing the
+    chrome layout.
+    """
+
     del state
     return "default"
 
@@ -1824,28 +1828,6 @@ def _repl_prompt_label_for(
 def _repl_prompt_label(state: _ReplDisplayState) -> str:
     del state
     return ">"
-
-
-def _repl_model_reference_label(state: _ReplDisplayState) -> str:
-    return format_provider_model(state.provider_name, state.model_id)
-
-
-def _ready_label(value: bool) -> str:
-    return "ready" if value else "unavailable"
-
-
-def _read_budget_label(state: _ReplDisplayState) -> str:
-    if not state.read_can_attempt:
-        return "unavailable"
-    return f"{state.read_successful_remaining}/{state.read_successful_limit}"
-
-
-def _startup_chrome_style(error_stream: TextIO) -> _StartupChromeStyle:
-    return chrome_style_for(error_stream)
-
-
-def _startup_chrome_width(error_stream: TextIO) -> int:
-    return chrome_width(error_stream)
 
 
 def _print_repl_status(

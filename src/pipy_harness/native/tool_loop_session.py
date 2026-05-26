@@ -245,6 +245,7 @@ class NativeToolReplSession:
                 model_id=effective_model_id,
                 user_turn_count=user_turn_count,
                 tool_invocation_count=tool_invocation_count,
+                error_stream=error_stream,
             )
             try:
                 line = repl_input.read_line("> ", footer=footer_text)
@@ -498,6 +499,7 @@ class NativeToolReplSession:
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
+        error_stream: TextIO | None = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
         used_pct = 0.0
@@ -517,7 +519,7 @@ class NativeToolReplSession:
             model_id=model_id,
             effort_label="default",
         )
-        status_line = format_bottom_status_line(chrome_width(None), fields)
+        status_line = format_bottom_status_line(chrome_width(error_stream), fields)
         return f"{cwd}\n{status_line}"
 
     def _print_footer(
@@ -537,6 +539,7 @@ class NativeToolReplSession:
             model_id=model_id,
             user_turn_count=user_turn_count,
             tool_invocation_count=tool_invocation_count,
+            error_stream=error_stream,
         )
         cwd_label, _, status_line = footer.partition("\n")
         print_bottom_status_block(

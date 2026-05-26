@@ -24,8 +24,6 @@ from importlib import metadata
 from pathlib import Path
 from typing import Iterable, TextIO
 
-from pipy_harness.capture import sanitize_text
-
 _STARTUP_CHROME_WIDTH_FALLBACK = 88
 _STARTUP_CHROME_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
     "context": ("AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"),
@@ -176,8 +174,6 @@ def _justify_status_line(left: str, right: str, width: int) -> str:
 
 
 def _short_token_count(value: int) -> str:
-    if value >= 10_000:
-        return f"{value / 1000:.1f}k"
     if value >= 1_000:
         return f"{value / 1000:.1f}k"
     return str(value)
@@ -270,12 +266,6 @@ def print_bottom_status_block(
     """Print the Pi-parity two-row bottom block: cwd, then status line."""
 
     print_footer_lines(error_stream, (cwd_label, status_line))
-
-
-def format_provider_model(provider_name: str, model_id: str) -> str:
-    """Format provider/model in the Pi parenthesized style `(provider) model`."""
-
-    return sanitize_text(f"({provider_name}) {model_id}")
 
 
 def discover_loaded_resource_names(

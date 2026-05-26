@@ -35,6 +35,50 @@ def test_format_bottom_status_line_aligns_left_and_right() -> None:
     assert len(line) == 80
 
 
+def test_format_bottom_status_line_appends_attention_after_effort() -> None:
+    fields = chrome.BottomStatusFields(
+        cwd_label="",
+        cost_label="$0.000",
+        plan_label="api",
+        context_used_pct=0.0,
+        context_budget_label="4k",
+        context_budget_suffix="bytes",
+        provider_name="fake",
+        model_id="fake-native-bootstrap",
+        effort_label="default",
+        attention="proposal ready · verify ready",
+    )
+    line = chrome.format_bottom_status_line(120, fields)
+    assert line.endswith(
+        "(fake) fake-native-bootstrap • default · proposal ready · verify ready"
+    )
+    assert "$0.000 (api) 0.0%/4k (bytes)" in line
+
+
+def test_format_bottom_status_line_width_matches_separator_at_terminal_width() -> None:
+    """Status-line length must equal the requested width so it aligns with
+    the purple separator drawn at the same width — regression for the
+    tool-loop footer once incorrectly fixed to the 88-col fallback.
+    """
+
+    fields = chrome.BottomStatusFields(
+        cwd_label="",
+        cost_label="$0.000",
+        plan_label="sub",
+        context_used_pct=0.0,
+        context_budget_label="10",
+        context_budget_suffix="tools",
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        effort_label="default",
+    )
+    for width in (80, 100, 120, 160):
+        line = chrome.format_bottom_status_line(width, fields)
+        assert len(line) == width, (
+            f"status line at width={width} returned {len(line)} chars: {line!r}"
+        )
+
+
 def test_format_bottom_status_line_emits_token_arrows_after_a_turn() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",
