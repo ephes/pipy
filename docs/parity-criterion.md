@@ -100,7 +100,7 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | D5 | Prompt templates | ✅ | `test -f src/pipy_harness/native/prompt_templates.py` |
 | D6 | Custom slash commands (user-defined) | ✅ | `grep -rq 'custom_commands\|user_commands' src/pipy_harness/native/` |
 | D7 | Themes / color schemes | ✅ | `test -f src/pipy_harness/native/themes.py` |
-| D8 | Image/binary attachment loading | ❌ | `grep -rq 'image_attachment\|load_image' src/pipy_harness/native/` |
+| D8 | Image/binary attachment loading | ✅ | `grep -rq 'image_attachment\|load_image' src/pipy_harness/native/` |
 
 ### E. Advanced session features (7 features)
 
@@ -119,9 +119,9 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after streaming track close): 45
-target  ✅ count for 80% parity:                            40
-delta beyond 80% target:                                    +5
+current ✅ count (2026-05-26, after image-attachment helper): 46
+target  ✅ count for 80% parity:                              40
+delta beyond 80% target:                                      +6
 ```
 
 ## How To Verify
