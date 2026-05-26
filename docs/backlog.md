@@ -481,6 +481,128 @@ it lands. They are not later slices of this track:
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
 
+## Streaming Output Parity Track
+
+The named Pi-parity track after the
+[Workspace Context Loading Parity Track](#workspace-context-loading-parity-track)
+closes parity-criterion row C14 ("streaming output
+(provider→stdout)"). Pi exposes provider chunks through
+`AssistantMessageEventStream` in
+`pi-mono/packages/ai/src/utils/event-stream.ts`; pipy slopforks the
+useful surface — incremental text deltas reaching a configurable sink
+during `pipy run` — through pipy-owned Python boundaries, not as a
+literal event-stream port. The track ships as four reviewed slices
+(docs-only opener, `ProviderPort` stream sink plus fake-provider
+wiring, first real-provider streaming on `OpenAICodexResponsesProvider`,
+and `pipy run --stream` plumbing plus the matching docs flip).
+
+Use this section together with the matching design notes in
+`docs/harness-spec.md` (`Streaming Output Parity Track`) and the
+parity-map entry in `docs/pi-parity.md`
+(`Streaming Output Parity Track`).
+
+### Goal
+
+- `pipy run --agent pipy-native --stream` routes provider-emitted
+  text deltas to a configurable chunk sink (stdout in plain text
+  mode, stderr in `--native-output json` mode) as they arrive, while
+  the final successful provider text and the metadata-first archive
+  records are unchanged.
+- One real provider (`openai-codex`, whose SSE parser already
+  iterates `response.output_text.delta` events) flips on streaming
+  first. Other tool-capable providers (`openai`, `openrouter`) stay
+  non-streaming for this track and remain functional on the existing
+  buffered path.
+- A hermetic streaming-stub test pins the chunk order and proves the
+  same final `ProviderResult` shape whether streaming is enabled or
+  not. The fake provider gains a `programmable_text_chunks` field
+  for unit-level coverage that does not depend on transport details.
+- `pipy run` without `--stream`, the no-tool REPL, the tool-loop
+  REPL, `/ask-file`, `/propose-file`, `/apply-proposal`, and
+  `/verify just-check` behave exactly as today; no path is forced
+  through streaming.
+
+### Planned Slices
+
+1. Docs only. Record the streaming parity goal, invariants, slice
+   plan, and deferred work in `docs/pi-parity.md`, `docs/backlog.md`,
+   and `docs/harness-spec.md`.
+2. `ProviderPort` stream sink. Add a `StreamChunkSink` callable
+   alias in `pipy_harness.native.provider`, extend `complete(...)`
+   with an optional keyword-only `stream_sink` parameter that
+   defaults to `None`, and let `FakeNativeProvider` push a new
+   `programmable_text_chunks` tuple through the sink when supplied.
+   Existing real-provider implementations accept the keyword and
+   ignore it; their existing buffered behavior is unchanged. Focused
+   contract tests pin: missing sink keeps current behavior
+   bit-for-bit; supplied sink receives chunks in order; the final
+   `ProviderResult.final_text` is the concatenation of the supplied
+   chunks.
+3. First real-provider streaming. Wire
+   `OpenAICodexResponsesProvider` to call the supplied sink for each
+   parsed `response.output_text.delta` event before returning the
+   buffered final text. A hermetic SSE-transport test injects a
+   multi-delta stream and asserts: chunks reach the sink in source
+   order, the final `ProviderResult.final_text` is byte-equivalent
+   to the non-streaming case, and the session archive records no
+   chunk bodies.
+4. `pipy run --stream` plumbing plus C14 close. Add the `--stream`
+   flag to `pipy run` (default off), route chunks to stdout in text
+   mode and stderr in JSON mode, fail closed with a metadata-only
+   stderr diagnostic when the active provider does not advertise
+   streaming, flip parity-criterion C14 to `✅`, refresh
+   `docs/pi-parity.md` (this section moves to the "What Has Been
+   Slopforked" table), add the matching Done entry below, and re-run
+   `just parity-score`.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly.
+  `pipy_session.recorder` records no streamed chunk bodies, deltas,
+  prompts, model text, tool payloads, file contents, or diffs in
+  any slice. Pinned by tests.
+- The opt-in `--archive-transcript` sidecar contracts (path,
+  filename-safe id, regular owner-only file, symlink refusal,
+  exclusion from `pipy-session list/search/inspect`, off-by-default)
+  stay unchanged. Streamed chunks never reach the sidecar.
+- `.git` default-deny posture and existing slash commands (`/read`,
+  `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`) keep working unchanged in both REPL modes.
+- No new runtime dependencies. Stdlib plus manual dict validation
+  only. No pydantic, jsonschema, attrs, anyio, or trio.
+- Reuse the existing `ProviderPort`, `ProviderRequest`, and
+  `ProviderResult` shapes. The streaming surface is an optional
+  keyword on `complete(...)`, not a new method or a new request
+  envelope.
+- Streaming is purely additive: a provider that does not implement
+  the keyword keeps working, a caller that does not supply a sink
+  keeps working, and `pipy run` without `--stream` keeps the
+  existing default-text stdout contract.
+- The internal pipy-owned `tool_request_id` and
+  `provider_correlation_id` boundaries are unaffected; streaming
+  carries no tool-call payloads in this track.
+- Each slice ships focused tests, a green `just check`, updated
+  docs, a conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the track lands and after
+it lands. They are not later slices of this track:
+
+- Streaming tool-call argument deltas; tool calls remain buffered.
+- Streaming thinking/reasoning deltas. Pipy stays metadata-only on
+  thinking content.
+- Streaming in `--repl-mode no-tool` and `--repl-mode tool-loop`;
+  the initial track wires `pipy run` only.
+- Streaming for providers other than `openai-codex`; the other
+  eleven adapters stay on their buffered paths in this track.
+- Image, binary, or multimodal chunks; the sink carries text only.
+- Cancellation, backpressure, and async streaming. The sink is a
+  synchronous callable invoked from the provider's existing
+  thread/transport.
+
 ## Done
 
 - Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 5+ required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. Production `bash` registration was later removed pending a real shell sandbox. Score check: `just parity-score`.
@@ -1980,39 +2102,46 @@ it lands. They are not later slices of this track:
 
 ## Next Slice
 
-### Choose the next pipy-native direction after the Workspace Context Loading Parity Track
+### Streaming Output Parity Track — slice 2 (ProviderPort stream sink)
 
-Goal: pick the next reviewable boundary now that the
-[Workspace Context Loading Parity Track](#workspace-context-loading-parity-track)
-has shipped end-to-end. The implementation track for the next slice
-is intentionally not selected here; the goal is to use summary-safe
-session reflection and the current parity gaps to choose the next
-small `pipy-native` boundary.
+Goal: implement slice 2 of the
+[Streaming Output Parity Track](#streaming-output-parity-track) now
+that slice 1 (docs-only opener) has shipped. The next reviewable
+boundary is the `ProviderPort` chunk sink plus fake-provider
+support, with no real-provider wiring and no CLI changes yet.
 
 Implementation focus:
 
-- inspect summary-safe archive signals with
-  `pipy-session reflect --json` and targeted `pipy-session search`
-  queries before picking a direction
-- compare next-boundary candidates against the Pi-parity ladder:
-  richer resource discovery (skills, prompts, themes, extensions,
-  package loading), session resume / search surfaces, persistent
-  input history, resilient TTY resize behavior, or provider-access
-  polish such as model-catalog discovery
-- document the selected next slice in this backlog and, when
-  architectural behavior changes, in `docs/harness-spec.md`
+- add a `StreamChunkSink` callable alias to
+  `pipy_harness.native.provider`
+- extend `ProviderPort.complete(...)` with an optional
+  keyword-only `stream_sink: StreamChunkSink | None = None`
+  parameter, accepted (and ignored) by every existing real
+  provider so the Protocol stays satisfied bit-for-bit
+- add a `programmable_text_chunks: tuple[str, ...]` field to
+  `FakeNativeProvider`; when supplied and a sink is provided, the
+  fake pushes the chunks through the sink in order before returning
+  the result, with `final_text` set to the concatenation of those
+  chunks (or `final_text` overridden, whichever is explicit)
+- pin behavior with focused contract tests in a new
+  `tests/test_native_provider_streaming.py` (sink missing keeps
+  identical behavior; sink supplied receives chunks in order; final
+  text equals the concatenation of chunks; archive privacy
+  unchanged)
 - keep metadata-first archive contracts, `.git` default-deny
   posture, `/verify just-check` scope, the no-tool REPL, the
   tool-loop REPL, the opt-in `--archive-transcript` sidecar, the
   existing slash commands, and the workspace-context system-prompt
-  wiring unchanged in this planning slice
+  wiring unchanged in this slice
+- no `pipy run` CLI changes; no real-provider behavior changes;
+  no new runtime dependencies
 
-The original Tool-Loop Parity Track, the OpenAI Responses + OpenAI
-Codex Tool-Call Parity Track, and the Workspace Context Loading
-Parity Track are all now complete; subsequent slices may extend the
-tool-loop surface (for example, additional tools or richer
-streaming), broaden resource discovery beyond AGENTS/CLAUDE-style
-instruction files, or branch into other parity work.
+The Tool-Loop Parity Track, the OpenAI Responses + OpenAI Codex
+Tool-Call Parity Track, and the Workspace Context Loading Parity
+Track are all complete; the Streaming Output Parity Track is now
+the active named track. Once slice 4 lands, the next named
+selection will pick from D8 image attachments, E2 session
+compaction, E3 session branching, or E7 RPC/SDK.
 
 ## Near Term
 

@@ -51,6 +51,7 @@ Status labels are intentionally coarse:
 | Workspace skills and prompt templates | Narrow discovery implemented | `pipy_harness.native.skills` and `pipy_harness.native.prompt_templates` discover workspace/global Markdown resources with byte caps, symlink containment, deterministic metadata, and no body text in archive-safe projections. Slash-command loading remains deferred. |
 | Custom slash commands | Discovery implemented | `pipy_harness.native.custom_commands` discovers workspace/global `.pipy/commands/*.md` resources with the same byte caps, metadata projection, and symlink containment as skills/templates. Dispatcher wiring for invoking `/<name>` remains deferred. |
 | Themes | Registry implemented | `pipy_harness.native.themes` defines `default`, `quiet`, and plain `mono` themes as pure data. `resolve_theme(..., tty=False)` returns `mono` so captured streams stay plain. Runtime startup-chrome integration remains deferred. |
+| Streaming provider output | In flight | The [Streaming Output Parity Track](#streaming-output-parity-track) opens the work that will close parity-criterion row C14. Slice 1 (docs-only) lands first; later slices add a `ProviderPort` chunk sink, wire `OpenAICodexResponsesProvider` to emit text deltas through it, and expose `pipy run --stream`. |
 
 ## Still To Slopfork
 
@@ -409,6 +410,131 @@ lands. They are not later slices of this track:
 - Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a session.
   The current track resolves instructions once per run.
+
+## Streaming Output Parity Track
+
+The named Pi-parity track after the
+[Workspace Context Loading Parity Track](#workspace-context-loading-parity-track)
+closes parity-criterion row C14 ("streaming output (provider→stdout)").
+Pi exposes provider chunks through `AssistantMessageEventStream` in
+`pi-mono/packages/ai/src/utils/event-stream.ts`; pipy slopforks the
+useful surface — incremental text deltas reaching a configurable sink
+during `pipy run` — through pipy-owned Python boundaries, not as a
+literal event-stream port. The track ships as four reviewed slices
+(docs-only opener, `ProviderPort` stream sink plus fake-provider
+wiring, first real-provider streaming, and `pipy run --stream`
+plumbing with the matching docs flip).
+
+Use this section together with the matching design notes in
+`docs/harness-spec.md` (`Streaming Output Parity Track`) and the
+backlog entry in `docs/backlog.md` (`Streaming Output Parity Track`).
+
+### Goal
+
+- `pipy run --agent pipy-native --stream` routes provider-emitted text
+  deltas to a configurable chunk sink (stdout by default in plain text
+  mode, stderr in `--native-output json` mode) as they arrive, while
+  the final successful provider text and the metadata-first archive
+  records are unchanged.
+- One real provider (`openai-codex`, whose SSE parser already iterates
+  `response.output_text.delta` events) flips on streaming first.
+  Other tool-capable providers (`openai`, `openrouter`) stay
+  non-streaming for this track and remain functional on the existing
+  buffered path.
+- A hermetic streaming-stub test pins the chunk order and proves the
+  same final `ProviderResult` shape whether streaming is enabled or
+  not. The fake provider gains a `programmable_text_chunks` field for
+  unit-level coverage that does not depend on transport details.
+- `pipy run` without `--stream`, the no-tool REPL, the tool-loop REPL,
+  `/ask-file`, `/propose-file`, `/apply-proposal`, and
+  `/verify just-check` behave exactly as today; no path is forced
+  through streaming.
+
+### Planned Slices
+
+1. Docs only. Record the streaming parity goal, invariants, slice plan,
+   and deferred work in `docs/pi-parity.md`, `docs/backlog.md`, and
+   `docs/harness-spec.md`.
+2. `ProviderPort` stream sink. Add a `StreamChunkSink` callable alias
+   in `pipy_harness.native.provider`, extend `complete(...)` with an
+   optional keyword-only `stream_sink` parameter that defaults to
+   `None`, and let `FakeNativeProvider` push a new
+   `programmable_text_chunks` tuple through the sink when supplied.
+   Existing real-provider implementations accept the keyword and
+   ignore it; their existing buffered behavior is unchanged. Focused
+   contract tests pin: missing sink keeps current behavior bit-for-bit;
+   supplied sink receives chunks in order; the final
+   `ProviderResult.final_text` is the concatenation of the supplied
+   chunks.
+3. First real-provider streaming. Wire `OpenAICodexResponsesProvider`
+   to call the supplied sink for each parsed
+   `response.output_text.delta` event before returning the buffered
+   final text. A hermetic SSE-transport test injects a multi-delta
+   stream and asserts: chunks reach the sink in source order, the
+   final `ProviderResult.final_text` is byte-equivalent to the
+   non-streaming case, and the session archive records no chunk
+   bodies.
+4. `pipy run --stream` plumbing plus C14 close. Add the `--stream`
+   flag to `pipy run` (default off), route chunks to stdout in text
+   mode and stderr in JSON mode, fail closed with a metadata-only
+   stderr diagnostic when the active provider does not advertise
+   streaming, flip parity-criterion C14 to `✅`, refresh
+   `docs/pi-parity.md` (this section moves to the "What Has Been
+   Slopforked" table), add the matching `Done` entry in
+   `docs/backlog.md`, and re-run `just parity-score`.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly.
+  `pipy_session.recorder` records no streamed chunk bodies, deltas,
+  prompts, model text, tool payloads, file contents, or diffs in any
+  slice. Pinned by tests.
+- The opt-in `--archive-transcript` sidecar contracts (path,
+  filename-safe id, regular owner-only file, symlink refusal,
+  exclusion from `pipy-session list/search/inspect`, off-by-default)
+  stay unchanged. Streamed chunks never reach the sidecar.
+- `.git` default-deny posture and existing slash commands (`/read`,
+  `/ask-file`, `/propose-file`, `/apply-proposal`,
+  `/verify just-check`) keep working unchanged in both REPL modes.
+- No new runtime dependencies. Stdlib plus manual dict validation
+  only. No pydantic, jsonschema, attrs, anyio, or trio.
+- Reuse the existing `ProviderPort`, `ProviderRequest`, and
+  `ProviderResult` shapes. The streaming surface is an optional
+  keyword on `complete(...)`, not a new method or a new request
+  envelope.
+- Streaming is purely additive: a provider that does not implement
+  the keyword keeps working, a caller that does not supply a sink
+  keeps working, and `pipy run` without `--stream` keeps the existing
+  default-text stdout contract.
+- The internal pipy-owned `tool_request_id` and
+  `provider_correlation_id` boundaries are unaffected; streaming
+  carries no tool-call payloads in this track.
+- Each slice ships focused tests, a green `just check`, updated docs,
+  a conventional commit, and stops for review.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred while the track lands and after it
+lands. They are not later slices of this track:
+
+- Streaming tool-call argument deltas. Tool calls remain buffered and
+  reach the loop only on `response.output_item.done`; only assistant
+  text deltas are surfaced.
+- Streaming thinking/reasoning deltas. Pi's stream emits
+  `thinking_delta`; pipy stays metadata-only on thinking content.
+- Streaming in `--repl-mode no-tool` and `--repl-mode tool-loop`. The
+  initial track wires `pipy run` only; REPL streaming follows in a
+  later track once the chunk-sink boundary has settled.
+- Streaming for providers other than `openai-codex`. `openai`,
+  `openrouter`, `anthropic`, `google`, `google-vertex`, `mistral`,
+  `bedrock`, `azure-openai`, `cloudflare`, and `openai-completions`
+  stay on their existing buffered paths in this track.
+- Image, binary, or multimodal chunks; the sink carries text only.
+- Cancellation, backpressure, and async streaming. The sink is a
+  synchronous callable invoked from the provider's existing
+  thread/transport.
 
 ## Architecture Differences From Pi
 

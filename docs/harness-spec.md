@@ -3521,6 +3521,101 @@ after it lands. They are not later slices of this track:
   rather than appending it to the system prompt; the system prompt
   is the supported surface.
 
+## Streaming Output Parity Track
+
+The named Pi-parity track after the
+[Workspace Context Loading Parity Track](#workspace-context-loading-parity-track)
+closes parity-criterion row C14 ("streaming output
+(provider→stdout)") by adding an optional, synchronous chunk-sink
+boundary on `ProviderPort` and wiring `pipy run --stream` to route
+provider-emitted text deltas to that sink while preserving the
+metadata-first archive contracts and the existing buffered
+`complete()` path. Pi exposes the equivalent surface through
+`AssistantMessageEventStream` in
+`pi-mono/packages/ai/src/utils/event-stream.ts`, with event types
+such as `text_start`, `text_delta`, and `text_end`. Pipy slopforks
+the useful subset — incremental assistant-text deltas reaching a
+configurable sink during `pipy run` — through pipy-owned Python
+boundaries, not as a literal event-stream port. The slice ordering
+and current state live in `docs/backlog.md`
+(`Streaming Output Parity Track`); the parity-map entry lives in
+`docs/pi-parity.md` (`Streaming Output Parity Track`). This section
+records the design-level goal, invariants, and deferred design
+choices of the track.
+
+### Goal
+
+- `pipy run --agent pipy-native --stream` routes provider-emitted
+  text deltas to a configurable chunk sink (stdout in plain text
+  mode, stderr in `--native-output json` mode) as they arrive,
+  while the final successful provider text and the metadata-first
+  archive records are unchanged from the non-streaming path.
+- One real provider (`openai-codex`, whose SSE parser already
+  iterates `response.output_text.delta` events) flips on streaming
+  first. Other tool-capable providers (`openai`, `openrouter`)
+  remain functional on the existing buffered path.
+- A hermetic streaming-stub test pins the chunk order and proves
+  the same final `ProviderResult` shape whether streaming is
+  enabled or not. The fake provider gains a
+  `programmable_text_chunks` field for unit-level coverage that
+  does not depend on transport details.
+- `pipy run` without `--stream`, the no-tool REPL, the tool-loop
+  REPL, and the existing slash commands (`/read`, `/ask-file`,
+  `/propose-file`, `/apply-proposal`, `/verify just-check`) behave
+  exactly as today.
+
+### Invariants
+
+These hold throughout the track, not as later deferrals:
+
+- Metadata-first archive privacy is preserved exactly.
+  `pipy_session.recorder` records no streamed chunk bodies,
+  deltas, prompts, model text, tool payloads, file contents, or
+  diffs in any slice. Pinned by tests.
+- The opt-in `--archive-transcript` sidecar contracts (path,
+  filename-safe id, regular owner-only file, symlink refusal,
+  exclusion from `pipy-session list/search/inspect`,
+  off-by-default) stay unchanged. Streamed chunks never reach the
+  sidecar.
+- `.git` default-deny posture and existing slash commands keep
+  working unchanged in both REPL modes.
+- No new runtime dependencies. Stdlib plus manual dict validation
+  only. No pydantic, jsonschema, attrs, anyio, or trio.
+- Reuse the existing `ProviderPort`, `ProviderRequest`, and
+  `ProviderResult` shapes. The streaming surface is an optional
+  keyword on `complete(...)`, not a new method or a new request
+  envelope.
+- Streaming is purely additive: a provider that does not implement
+  the keyword keeps working, a caller that does not supply a sink
+  keeps working, and `pipy run` without `--stream` keeps the
+  existing default-text stdout contract.
+- The internal pipy-owned `tool_request_id` and
+  `provider_correlation_id` boundaries are unaffected; streaming
+  carries no tool-call payloads in this track.
+- The sink is synchronous: a `Callable[[str], None]` invoked from
+  the provider's existing transport thread. The provider is
+  responsible only for forwarding text deltas; backpressure,
+  buffering, and downstream encoding are sink concerns.
+
+### Deferred Within The Track
+
+These remain explicitly out of scope while the track lands and
+after it lands. They are not later slices of this track:
+
+- Streaming tool-call argument deltas. Tool calls remain buffered
+  and reach the loop only on `response.output_item.done`; only
+  assistant text deltas are surfaced.
+- Streaming thinking/reasoning deltas. Pi's stream emits
+  `thinking_delta`; pipy stays metadata-only on thinking content.
+- Streaming in `--repl-mode no-tool` and `--repl-mode tool-loop`.
+  The initial track wires `pipy run` only.
+- Streaming for providers other than `openai-codex`; the other
+  eleven adapters stay on their buffered paths in this track.
+- Image, binary, or multimodal chunks; the sink carries text only.
+- Cancellation, backpressure, and async streaming. The sink is a
+  synchronous callable invoked from the provider's existing
+  thread/transport.
+
 ## Deferred Work
 
 For the current task-slice backlog and next-step ordering, see
