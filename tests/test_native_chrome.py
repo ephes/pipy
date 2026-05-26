@@ -105,23 +105,15 @@ def test_discover_loaded_resource_names_returns_local_and_global(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
-    local_skill = workspace / ".pipy" / "skills" / "lint-fix"
-    local_skill.mkdir(parents=True)
 
     fake_home = tmp_path / "home"
-    global_skill = fake_home / ".pipy" / "skills" / "review-handoff"
-    global_skill.mkdir(parents=True)
-    # Hidden dotfile dirs must be filtered out.
-    (fake_home / ".pipy" / "skills" / ".system").mkdir(parents=True)
+    (fake_home / ".pipy").mkdir(parents=True)
+    (fake_home / ".pipy" / "AGENTS.md").write_text("home", encoding="utf-8")
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
-    context_names = chrome.discover_loaded_resource_names(workspace, "context")
+    context_names = chrome.discover_loaded_resource_names(workspace)
     assert "AGENTS.md" in context_names
-
-    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
-    assert "lint-fix" in skill_names
-    assert "review-handoff" in skill_names
-    assert ".system" not in skill_names
+    assert "~/.pipy/AGENTS.md" in context_names
 
 
 def test_discover_does_not_leak_neighbor_tool_paths(
@@ -132,28 +124,23 @@ def test_discover_does_not_leak_neighbor_tool_paths(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "CLAUDE.md").write_text("claude-only", encoding="utf-8")
-    (workspace / ".claude" / "skills" / "claude-skill").mkdir(parents=True)
-    (workspace / ".codex" / "skills" / "codex-skill").mkdir(parents=True)
 
     fake_home = tmp_path / "home"
-    (fake_home / ".claude" / "CLAUDE.md").parent.mkdir(parents=True)
+    (fake_home / ".claude").mkdir(parents=True)
     (fake_home / ".claude" / "CLAUDE.md").write_text("claude-home", encoding="utf-8")
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
-    context_names = chrome.discover_loaded_resource_names(workspace, "context")
-    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
+    context_names = chrome.discover_loaded_resource_names(workspace)
 
     assert "CLAUDE.md" not in context_names
     assert "~/.claude/CLAUDE.md" not in context_names
-    assert "claude-skill" not in skill_names
-    assert "codex-skill" not in skill_names
 
 
-def test_print_startup_chrome_renders_context_and_skills(
+def test_print_startup_chrome_renders_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_home = tmp_path / "home"
-    (fake_home / ".pipy" / "skills" / "alpha").mkdir(parents=True)
+    fake_home.mkdir()
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
     workspace = tmp_path / "workspace"
@@ -168,8 +155,36 @@ def test_print_startup_chrome_renders_context_and_skills(
     assert "escape interrupt" in output
     assert "[Context]" in output
     assert "AGENTS.md" in output
+    # Skills/Prompts/Extensions sections only render when the
+    # corresponding `.pipy/skills` (etc.) store exists; this fixture
+    # leaves them empty so they must stay omitted.
+    assert "[Skills]" not in output
+    assert "[Prompts]" not in output
+    assert "[Extensions]" not in output
+
+
+def test_print_startup_chrome_renders_skills_when_store_populated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
+    skills_dir = workspace / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "commit-ready").mkdir()
+    (skills_dir / "review-handoff").mkdir()
+
+    stream = io.StringIO()
+    chrome.print_startup_chrome(stream, cwd=workspace)
+    output = stream.getvalue()
+
     assert "[Skills]" in output
-    assert "alpha" in output
+    assert "commit-ready" in output
+    assert "review-handoff" in output
 
 
 def test_print_bottom_status_block_emits_two_dim_rows() -> None:

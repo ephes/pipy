@@ -1,0 +1,673 @@
+Welcome to fish, the friendly interactive shell
+
+jochen in 🌐 studio in audit/2026-05-26/parity-prompt on  main [✘!?⇡] via 🐍 v3.14.5 (pipy)
+❯ cd /Users/jochen/projects/pipy
+uv run pipy repl --native-provider openai-codex --native-model gpt-5.5 --read-root /Users/jochen/src/pi-mono
+
+jochen in 🌐 studio in pipy on  main [✘!?⇡] is 📦 v0.1.0 via 🐍 v3.14.5 (pipy)
+❯ uv run pipy repl --native-provider openai-codex --native-model gpt-5.5 --read-root /Users/jochen/src/pi-mono
+
+ pipy v0.1.0
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pipy can explain its own features and look up its docs. Ask it how to use or extend pipy.
+
+
+[Context]
+  ~/.pipy/AGENTS.md, ~/projects/AGENTS.md, AGENTS.md
+
+[Skills]
+  commit-ready, commit-workflow, review-handoff
+
+
+
+ what are the differences between pipy and pi in ~/src/pi-mono?
+
+
+
+
+Inspecting workspace for answers
+
+I need to check my workspace and reference materials to find the answer. It seems I'll have to compare different repositories. I'll also need to create a list of what I'm looking at, so I can keep track of the relevant i
+nformation. This way, I can ensure I’m covering all bases and finding the best answer. Let's see how I can organize this effectively!
+
+ ls .
+
+ ... (2 earlier lines, ctrl+o to expand)
+ file .envrc.example
+ file .gitignore
+ file AGENTS.md
+ file LICENSE
+ file README.md
+ directory docs
+ file justfile
+ file pyproject.toml
+ directory scripts
+ directory src
+ directory tests
+ file zensical.toml
+
+ Took 0.0s
+
+
+ ls /Users/jochen/src/pi-mono
+
+ ... (10 earlier lines, ctrl+o to expand)
+ file pi-mono/biome.json
+ file pi-mono/justfile
+ file pi-mono/package-lock.json
+ file pi-mono/package.json
+ directory pi-mono/packages
+ file pi-mono/pi-test.bat
+ file pi-mono/pi-test.ps1
+ file pi-mono/pi-test.sh
+ directory pi-mono/scripts
+ file pi-mono/test.sh
+ file pi-mono/tsconfig.base.json
+ file pi-mono/tsconfig.json
+
+ Took 0.0s
+
+
+
+
+Comparing projects
+
+I need to compare the projects and take a closer look at the documentation for each one. There's probably a lot to dig into, and I’ll want to make sure I'm thorough in my examination. I’m curious about the details and ho
+w they stack up against each other. Let’s see what I can find that will help me assess their strengths and weaknesses effectively!
+
+ read README.md:1-200
+
+ ... (187 earlier lines, ctrl+o to expand)
+ text is printed to stdout by the CLI contract only when the native run
+ succeeds, but the pipy archive still stores only lifecycle metadata.
+
+ OpenRouter remains usable for real-provider smoke testing:
+
+ ```sh
+ uv run pipy repl --agent pipy-native --slug openrouter-smoke \
+   --native-provider openrouter \
+   --native-model openai/gpt-5.1-codex
+ ```
+
+ Se
+
+ Took 0.0s
+
+
+ read docs/backlog.md:1-200
+
+ ... (120 earlier lines, ctrl+o to expand)
+   the first prompt so the real provider/model surfaces immediately on
+   immediate EOF, and is forwarded to prompt-toolkit's `bottom_toolbar` so it
+   stays visible while the user types when that adapter is selected. Chrome
+   rendering is shared between the no-tool and bounded tool-loop sessions
+   through `pipy_harness.native.chrome`. `[Context]` and `[Skills]` discovery
+   covers both project-local sources (`AGENTS.md`, `CLAUDE.md`,
+   `.claude/skills`, `.codex/skills`, `.agents/skills`) and user-home globals
+   (`~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.codex/skills`,
+   `~/.pipy/skills`) so the section listing matches what Pi shows when global
+   resources are present; hidden dotfile directories are filtered out. The
+   default provider/model selector auto-picks an available real provider
+   (openai-codex OAuth, then keyed providers in priority
+
+ Took 0.0s
+
+
+ read docs/harness-spec.md:1-200
+
+ ... (165 earlier lines, ctrl+o to expand)
+ ### Web Research
+
+ Relevant external patterns:
+
+ - Codex CLI is a local coding agent that can read, edit, and run code in the
+   selected directory. It has non-interactive `codex exec` and JSONL output where
+   stdout becomes a stream of events such as `thread.started`, `turn.started`,
+   `turn.completed`, `turn.failed`, `item.*`, and `error`.
+   Sources: <https://developers.openai.com/codex/cli>,
+   <https://developers.openai.com/codex/noninteractive>.
+ - Codex hooks receive JSON hook payloads with shared fields such as
+   `session_id`, `transcript_path
+
+ Took 0.0s
+
+
+ read resource /Users/jochen/src/pi-mono/README.md:1-200
+
+ ... (77 earlier lines, ctrl+o to expand)
+ - `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
+ - `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
+ - `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
+ - The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
+ - Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before publishing.
+ - Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
+ - CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
+ - Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
+
+ ## License
+
+ MIT
+
+ Took 0.0s
+
+
+ read resource /Users/jochen/src/pi-mono/AGENTS.md:1-200
+
+ ... (126 earlier lines, ctrl+o to expand)
+    /tmp/pi-local-release/node/pi --list-models
+    /tmp/pi-local-release/node/pi -p "Say exactly: ok"
+    /tmp/pi-local-release/node/pi
+
+    # Bun binary smoke tests
+    /tmp/pi-local-release/bun/pi --help
+    /tmp/pi-local-release/bun/pi --version
+    /tmp/pi-local-release/bun/pi --list-models
+    /tmp/pi-local-release/bun/pi -p "Say exactly: ok"
+    /tmp/pi-local-release/bun/pi
+    ```
+    Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/pi-local-release/node/pi` and `/tmp/pi-local-rele
+ase/bun/pi` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before
+
+ Took 0.0s
+
+
+ ls src
+
+ directory src/pipy_harness
+ directory src/pipy_session
+
+ Took 0.0s
+
+
+ ls /Users/jochen/src/pi-mono/packages
+
+ directory pi-mono/packages/agent
+ directory pi-mono/packages/ai
+ directory pi-mono/packages/coding-agent
+ directory pi-mono/packages/tui
+
+ Took 0.0s
+
+
+
+
+Inspecting package structures
+
+I need to answer questions about differences in some package structures. I should take a look at the documentation and any relevant packages, maybe checking things like the pi-parity to understand the specifics. It’s ess
+ential to get this right, as the distinctions could be quite important for clarity. I’ll gather that information to present a thorough response and ensure everything is well-explained. Let's see what I find!
+
+ read docs/pi-parity.md:1-200
+
+ ... (32 earlier lines, ctrl+o to expand)
+ | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSO
+N. Runtime prompt seeding for a resumed live session remains a follow-up. |
+ | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring can reuse current avai
+lability gates and non-secret defaults. It does not call providers or run tools. |
+ | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not r
+ead Pi credentials. |
+ | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or archive auth material.
+ `/settings` prints provider/model labels and availability reasons only. |
+ | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line dim controls strip (
+`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections in yellow. Cont
+ext and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-home globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.
+codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is shared between the no-tool and bounded tool-loop sessions through `pipy_harness.nat
+ive.chrome`. |
+ | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row one is the workspace
+ cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` for openai-codex OAuth and `api` for keyed
+ providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-state signals are appended after the effort label so they stay v
+isible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfaces `(provider) model • effort` rather than `fake/fake-native-bootstrap` wheneve
+r credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live input area so the user sees the status line directly below the prompt while typing. |
+ | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popup command menu benea
+th the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to close. The next fall-throughs are optio
+nal prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference labels, and multiline entry; then the stdlib `readline` adapt
+er for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-resilient TUI, mouse selection) remains deferred. |
+ | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval p
+rompts. |
+ | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through th
+e [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |
+ | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
+ | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
+ | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa
+
+ Took 0.0s
+
+
+ find "**/*.py" src/pipy_harness
+
+ ... (40 earlier lines, ctrl+o to expand)
+ src/pipy_harness/native/tools/grep.py
+ src/pipy_harness/native/tools/ls.py
+ src/pipy_harness/native/tools/messages.py
+ src/pipy_harness/native/tools/read.py
+ src/pipy_harness/native/tools/truncate.py
+ src/pipy_harness/native/tools/write.py
+ src/pipy_harness/native/transcripts.py
+ src/pipy_harness/native/usage.py
+ src/pipy_harness/native/verification.py
+ src/pipy_harness/native/workspace_context.py
+ src/pipy_harness/runner.py
+ src/pipy_harness/sdk.py
+
+ Took 0.0s
+
+
+ find "**/*.ts" /Users/jochen/src/pi-mono/packages/coding-agent/src
+
+ ... (132 earlier lines, ctrl+o to expand)
+ pi-mono/packages/coding-agent/src/utils/image-resize-worker.ts
+ pi-mono/packages/coding-agent/src/utils/image-resize.ts
+ pi-mono/packages/coding-agent/src/utils/mime.ts
+ pi-mono/packages/coding-agent/src/utils/paths.ts
+ pi-mono/packages/coding-agent/src/utils/photon.ts
+ pi-mono/packages/coding-agent/src/utils/pi-user-agent.ts
+ pi-mono/packages/coding-agent/src/utils/shell.ts
+ pi-mono/packages/coding-agent/src/utils/sleep.ts
+ pi-mono/packages/coding-agent/src/utils/syntax-highlight.ts
+ pi-mono/packages/coding-agent/src/utils/tools-manager.ts
+ pi-mono/packages/coding-agent/src/utils/version-check.ts
+ pi-mono/packages/coding-agent/src/utils/windows-self-update.ts
+
+ Took 0.0s
+
+
+ find "**/*.ts" /Users/jochen/src/pi-mono/packages/agent/src
+
+ ... (13 earlier lines, ctrl+o to expand)
+ pi-mono/packages/agent/src/harness/session/repo-utils.ts
+ pi-mono/packages/agent/src/harness/session/session.ts
+ pi-mono/packages/agent/src/harness/session/uuid.ts
+ pi-mono/packages/agent/src/harness/skills.ts
+ pi-mono/packages/agent/src/harness/system-prompt.ts
+ pi-mono/packages/agent/src/harness/types.ts
+ pi-mono/packages/agent/src/harness/utils/shell-output.ts
+ pi-mono/packages/agent/src/harness/utils/truncate.ts
+ pi-mono/packages/agent/src/index.ts
+ pi-mono/packages/agent/src/node.ts
+ pi-mono/packages/agent/src/proxy.ts
+ pi-mono/packages/agent/src/types.ts
+
+ Took 0.0s
+
+
+
+
+Evaluating reading needs
+
+I need to determine the differences we’re discussing, and it seems I might have to read the rest of the relevant sections about pi-parity. Is there a chance that the text is truncated? I want to be sure I read enough of
+the bounded material, but I’ll also consider if there are specific sections that are still pending. Should I read more to fill in those gaps?
+
+ grep "## Still Missing" docs/pi-parity.md
+
+ (no matches)
+
+ Took 0.0s
+
+
+ truncate
+
+ -
+
+ Took 0.0s
+
+
+ read docs/pi-parity.md:1-200
+
+ ... (32 earlier lines, ctrl+o to expand)
+ | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSO
+N. Runtime prompt seeding for a resumed live session remains a follow-up. |
+ | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring can reuse current avai
+lability gates and non-secret defaults. It does not call providers or run tools. |
+ | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not r
+ead Pi credentials. |
+ | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or archive auth material.
+ `/settings` prints provider/model labels and availability reasons only. |
+ | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line dim controls strip (
+`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections in yellow. Cont
+ext and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-home globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.
+codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is shared between the no-tool and bounded tool-loop sessions through `pipy_harness.nat
+ive.chrome`. |
+ | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row one is the workspace
+ cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` for openai-codex OAuth and `api` for keyed
+ providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-state signals are appended after the effort label so they stay v
+isible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfaces `(provider) model • effort` rather than `fake/fake-native-bootstrap` wheneve
+r credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live input area so the user sees the status line directly below the prompt while typing. |
+ | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popup command menu benea
+th the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to close. The next fall-throughs are optio
+nal prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference labels, and multiline entry; then the stdlib `readline` adapt
+er for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-resilient TUI, mouse selection) remains deferred. |
+ | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval p
+rompts. |
+ | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through th
+e [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |
+ | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
+ | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
+ | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa
+
+ Took 0.0s
+
+
+ grep "## " docs/pi-parity.md
+
+ ... (15 earlier lines, ctrl+o to expand)
+ docs/pi-parity.md:394:### Invariants
+ docs/pi-parity.md:421:### Out Of Scope For This Track
+ docs/pi-parity.md:436:## Streaming Output Parity Track
+ docs/pi-parity.md:454:### Goal
+ docs/pi-parity.md:475:### Planned Slices
+ docs/pi-parity.md:508:### Invariants
+ docs/pi-parity.md:539:### Out Of Scope For This Track
+ docs/pi-parity.md:561:## Architecture Differences From Pi
+ docs/pi-parity.md:616:## Key Design Differences
+ docs/pi-parity.md:637:## Pipy Layering Compared With Pi
+ docs/pi-parity.md:660:## Compatibility Rules
+ docs/pi-parity.md:674:## Reading The Current Roadmap
+
+ Took 0.0s
+
+
+ read docs/pi-parity.md:1-200
+
+ ... (32 earlier lines, ctrl+o to expand)
+ | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSO
+N. Runtime prompt seeding for a resumed live session remains a follow-up. |
+ | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring can reuse current avai
+lability gates and non-secret defaults. It does not call providers or run tools. |
+ | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not r
+ead Pi credentials. |
+ | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or archive auth material.
+ `/settings` prints provider/model labels and availability reasons only. |
+ | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line dim controls strip (
+`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections in yellow. Cont
+ext and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-home globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.
+codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is shared between the no-tool and bounded tool-loop sessions through `pipy_harness.nat
+ive.chrome`. |
+ | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row one is the workspace
+ cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` for openai-codex OAuth and `api` for keyed
+ providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-state signals are appended after the effort label so they stay v
+isible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfaces `(provider) model • effort` rather than `fake/fake-native-bootstrap` wheneve
+r credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live input area so the user sees the status line directly below the prompt while typing. |
+ | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popup command menu benea
+th the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to close. The next fall-throughs are optio
+nal prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference labels, and multiline entry; then the stdlib `readline` adapt
+er for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-resilient TUI, mouse selection) remains deferred. |
+ | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval p
+rompts. |
+ | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through th
+e [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |
+ | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
+ | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
+ | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa
+
+ Took 0.0s
+
+
+ grep "|" docs/pi-parity.md
+
+ ... (38 earlier lines, ctrl+o to expand)
+ docs/pi-parity.md:619:| --- | --- | --- |
+ docs/pi-parity.md:620:| Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
+ docs/pi-parity.md:621:| Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
+ docs/pi-parity.md:622:| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Line-oriented REPL with compact startup chrome, grouped help, `/status`, `/settings`, a state-aware prompt label, and a
+n optional prompt-toolkit input adapter with command/path completion, completion-only `@file` reference labels, and multiline entry; richer editor behavior remains deferred. |
+ docs/pi-parity.md:623:| Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`; `pipy-ses
+sion resume-info` can read metadata-only continuation context, but live resume wiring is still deferred. No raw transcript import by default. |
+ docs/pi-parity.md:624:| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read
+`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, and `truncate` behind `pipy repl --repl-mode tool-loop`; `bash` is deferred from the production registry pending a real shell sandbox. See the [Native Tool-Loop Pari
+ty Track](#native-tool-loop-parity-track). |
+ docs/pi-parity.md:625:| Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and aut
+hority data. |
+ docs/pi-parity.md:626:| Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve native provider selections behind `ProviderPort`: fake, OpenAI Response
+s, OpenAI Chat Completions, OpenAI Codex OAuth, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. |
+ docs/pi-parity.md:627:| Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, custom slash commands, and themes have narrow discovery/reg
+istry helpers; runtime slash commands, extensions, and package loading remain deferred. |
+ docs/pi-parity.md:628:| Privacy posture | Full Pi sessions are native product transcripts. | Pipy archive is metadata-first and excludes prompts, model output, provider payloads, file contents, command output, and auth
+material by default. |
+ docs/pi-parity.md:629:| External agent wrapping | Pi is itself the product. | Pipy can wrap external CLIs for conservative capture, but external wrappers are not the product runtime. |
+ docs/pi-parity.md:630:| Verification | Pi exposes broad bash/tool capability. | Pipy exposes only `/verify just-check` after successful same-session apply. |
+
+ Took 0.0s
+
+
+ grep "Pipy intentionally" docs/pi-parity.md
+
+ (no matches)
+
+ Took 0.0s
+
+
+ grep "Pi remains ahead" docs/pi-parity.md
+
+ (no matches)
+
+ Took 0.0s
+
+
+ grep "Different" docs/pi-parity.md
+
+ docs/pi-parity.md:19:- Different foundation: pipy solves the same product need through a deliberately
+ docs/pi-parity.md:46:| Session records | Different foundation implemented | Pipy writes metadata-first JSONL plus optional Markdown under `~/.local/state/pipy/sessions`; Pi stores full tree sessions under its own agent
+state. |
+
+ Took 0.0s
+
+
+ read docs/pi-parity.md:1-200
+
+ ... (32 earlier lines, ctrl+o to expand)
+ | Session resume | Metadata reader implemented | `pipy_harness.native.session_resume` resolves finalized records and returns a metadata-only `ResumeContext`; `pipy-session resume-info <stem>` exposes that context as JSO
+N. Runtime prompt seeding for a resumed live session remains a follow-up. |
+ | Dynamic provider/model swap | Helper implemented | `pipy_harness.native.dynamic_provider` wraps the existing `NativeReplProviderState.select_model` path so future `/provider` and `/model` wiring can reuse current avai
+lability gates and non-secret defaults. It does not call providers or run tools. |
+ | OpenAI Codex subscription auth | Implemented as separate provider | Pipy uses its own OAuth state under `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`, modeled on Pi's Codex OAuth shape, and does not r
+ead Pi credentials. |
+ | `/login`, `/logout`, `/model`, `/settings` | Implemented narrow shell commands | Commands are local, late-bind provider selection or inspect safe local state, and do not create provider turns or archive auth material.
+ `/settings` prints provider/model labels and availability reasons only. |
+ | Startup orientation | Implemented Pi-parity pass | The shell prints Pi-shape compact startup chrome on stderr: title in sage truecolor with a single-space indent (with 16-color fallback), one-line dim controls strip (
+`ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred`), `Type / to open the command menu` affordance, and loaded-only `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]` sections in yellow. Cont
+ext and skills are discovered from both project-local sources (`AGENTS.md`, `CLAUDE.md`, `.claude/skills/*`, `.codex/skills/*`, `.agents/skills/*`) and user-home globals (`~/.claude/CLAUDE.md`, `~/.claude/skills/*`, `~/.
+codex/skills/*`, `~/.pipy/skills/*`) so the section listing matches what Pi shows when global resources are present. Chrome rendering is shared between the no-tool and bounded tool-loop sessions through `pipy_harness.nat
+ive.chrome`. |
+ | Active prompt state | Implemented | The prompt is a simple `> ` leader framed by horizontal purple separator lines, with a persistent two-row bottom status block rendered below the input area: row one is the workspace
+ cwd, row two is the Pi-shape status line `$cost (plan) used%/budget (suffix) … (provider) model • effort` (with `↑in ↓out` token arrows prepended after a turn). `plan` is `sub` for openai-codex OAuth and `api` for keyed
+ providers; `effort` is the configured reasoning effort label (`default` until per-model effort selection is wired). `proposal ready` / `verify ready` user-state signals are appended after the effort label so they stay v
+isible without breaking the Pi-shape layout. The default `pipy` invocation auto-picks an available real provider, so the bottom status surfaces `(provider) model • effort` rather than `fake/fake-native-bootstrap` wheneve
+r credentials are configured. The slash-menu input adapter additionally draws this same bottom block below the live input area so the user sees the status line directly below the prompt while typing. |
+ | Terminal input runtime | Pi-parity `/` menu + Tab discovery | The default `auto` runtime selects a stdlib-only `slash-menu` raw-mode line editor on real TTY streams: typing `/` opens a Pi-like popup command menu benea
+th the input with names, dim descriptions, reverse-video selection highlight, Up/Down navigation, Enter to submit the selected command, Tab to accept without submitting, and Esc to close. The next fall-throughs are optio
+nal prompt-toolkit input with slash-command completion (descriptions through `display_meta`), explicit file/path completion, completion-only `@file` reference labels, and multiline entry; then the stdlib `readline` adapt
+er for Tab discovery without a runtime dependency; then plain stdin/stderr for captured streams. Richer editor behavior (history, resize-resilient TUI, mouse selection) remains deferred. |
+ | No approval popups for normal interactive read/context commands | Implemented | Explicit user-entered `/read`, `/ask-file`, and `/propose-file` commands use non-interactive safety checks rather than visible approval p
+rompts. |
+ | Read tool | Implemented in two flavors | `/read <path>` keeps the explicit, bounded, UTF-8 workspace-relative excerpt within the shared two-successful-excerpt REPL budget. The model-driven `read` tool ships through th
+e [Native Tool-Loop Parity Track](#native-tool-loop-parity-track), stat-gates oversized files before loading content, and is invoked from `--repl-mode tool-loop`. |
+ | Provider-visible file context | Partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. |
+ | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
+ | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one sa
+
+ Took 0.0s
+
+
+
+
+Analyzing reading parameters
+
+I need to ensure that I'm reading the same excerpt consistently each time. It seems I should use grep to find enough lines that show the differences I need. Additionally, it would be a good idea to inspect the package.js
+on file to see any relevant information about the architecture. Understanding these details will help me clarify any variations and get a clearer picture of what I'm working with.
+
+ read pyproject.toml:1-200
+
+ ... (18 earlier lines, ctrl+o to expand)
+     "zensical>=0.0.41,<0.1",
+ ]
+
+ [build-system]
+ requires = ["hatchling"]
+ build-backend = "hatchling.build"
+
+ [tool.hatch.build.targets.wheel]
+ packages = ["src/pipy_session", "src/pipy_harness"]
+
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+
+ Took 0.0s
+
+
+ read resource /Users/jochen/src/pi-mono/package.json:1-200
+
+ ... (47 earlier lines, ctrl+o to expand)
+ 	},
+ 	"engines": {
+ 		"node": ">=22.19.0"
+ 	},
+ 	"version": "0.0.3",
+ 	"overrides": {
+ 		"rimraf": "6.1.2",
+ 		"gaxios": {
+ 			"rimraf": "6.1.2"
+ 		}
+ 	}
+ }
+
+ Took 0.0s
+
+
+ read resource /Users/jochen/src/pi-mono/packages/agent/src/agent.ts:1-200
+
+ read error: secret-looking content detected
+ [error] tool reported a failure
+
+ Took 0.0s
+
+
+ read resource /Users/jochen/src/pi-mono/packages/coding-agent/src/core/agent-session.ts:1-200
+
+ read error: secret-looking content detected
+ [error] tool reported a failure
+
+ Took 0.0s
+
+
+ read src/pipy_harness/runner.py:1-200
+
+ ... (188 earlier lines, ctrl+o to expand)
+             )
+         except Exception as exc:
+             status = HarnessStatus.FAILED
+             exit_code = 1
+             error_type = type(exc).__name__
+             error_message = _error_message(exc)
+             sink.emit(
+                 "harness.run.failed",
+                 summary="Harness run failed before a native process result was available.",
+                 payload={
+                     **_base_payload(request, self.adapter.name, workspace, status),
+                     "exit_code": exit_code,
+
+ Took 0.0s
+
+
+ read src/pipy_harness/native/session.py:1-200
+
+ ... (188 earlier lines, ctrl+o to expand)
+ _SAFE_PROVIDER_METADATA_HTTP_STATUS_MIN = 100
+ _SAFE_PROVIDER_METADATA_HTTP_STATUS_MAX = 599
+ _GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
+     "tool_intent_metadata_present",
+     "tool_observation_fixture_metadata_present",
+     "read_only_tool_fixture_metadata_present",
+     "patch_proposal_metadata_present",
+ }
+
+ # Closed enum sets for the three string-shaped allowlisted provider-metadata
+ # fields. Real adapters constrain their own outputs through
+ # `_safe_response_label` (see `openrouter_provider.py` /
+
+ Took 0.0s
+
+
+
+
+Clarifying document discrepancies
+
+I need to keep my answer concise while mentioning the inspected documents and files. It's essential to note the inconsistency between the 11 and 12 providers, highlighting their differences. I’ll make sure to use specifi
+c paths to illustrate these points clearly. This way, the user can understand the context without extra fluff. My focus should be on delivering precise information without confusion.
+ I inspected `README.md`, `docs/pi-parity.md`, `docs/backlog.md`, `docs/harness-spec.md`, and the Pi reference root at `/Users/jochen/src/pi-mono` (`README.md`, `AGENTS.md`, package layout). Summary:
+
+ ## Big picture
+
+ `pipy` is a Python slopfork/reimplementation inspired by Pi, not a literal port.
+
+ - **Pi** (`~/src/pi-mono`) is the mature TypeScript/Node monorepo.
+ - **pipy** is the Python native runtime being built locally, with conservative metadata-first session capture and smaller explicit boundaries.
+
+ ## Main differences
+
+ | Area | Pi in `~/src/pi-mono` | pipy |
+ | --- | --- | --- |
+ | Language / repo shape | TypeScript monorepo: `packages/ai`, `packages/agent`, `packages/coding-agent`, `packages/tui` | Python package: `src/pipy_harness`, `src/pipy_session` |
+ | Product center | `AgentSession` + `pi-agent-core` + `pi-ai` | `HarnessRunner` plus native session/tool/provider ports |
+ | UI | Rich TUI with editor, footer, selectors, overlays, extension UI | Line-oriented REPL with Pi-like chrome, slash menu, prompt/status block, optional prompt-toolkit/readline paths |
+ | Session storage | Full native product transcript/tree sessions, branching, compaction, resume workflows | Metadata-first immutable JSONL + Markdown summaries under `~/.local/state/pipy/sessions`; raw prompts/output/to
+ol payloads excluded by default |
+ | Privacy posture | Full Pi sessions are the native working record | pipy deliberately avoids storing prompts, model output, provider payloads, file contents, command output, and auth material by default |
+ | Providers | Broad provider/model registry through Pi’s AI package | Native `ProviderPort` implementations; docs list fake, OpenAI, OpenAI Codex OAuth, OpenRouter, Anthropic, Google, Vertex, Mistral, Bedrock, Azure Ope
+nAI, Cloudflare, etc. |
+ | Auth | Pi-owned auth/state | pipy-owned auth state, e.g. `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; explicitly does **not** copy Pi’s `~/.pi/agent/auth.json` |
+ | Tools | Model-visible read/write/edit/bash tools are core defaults | Bounded model tool loop has read/write/edit/ls/grep/find/edit-diff/truncate; production `bash` is still deferred pending sandboxing |
+ | Verification | Broad shell/tool capability via bash | Only `/verify just-check` after a successful same-session apply |
+ | Extensions | First-class extensions, skills, prompt templates, themes, custom commands, UI hooks | Discovery/registry helpers exist for skills/templates/custom commands/themes; runtime extension system remains deferre
+d |
+ | Session resume/branch/compaction | Product workflows | Helpers or metadata readers exist, but live runtime wiring is incomplete/deferred |
+ | External wrapping | Pi is itself the product | pipy can wrap `codex`, `claude`, `pi`, or custom subprocesses for conservative capture, but that is a support path, not the product runtime |
+
+ ## What pipy has already slopforked from Pi
+
+ From `docs/pi-parity.md`, pipy already has:
+
+ - native `pipy` / `pipy repl` shell
+ - direct provider boundary
+ - OpenAI Codex subscription auth path
+ - Pi-like startup chrome and bottom status
+ - slash-command/menu-oriented input runtime
+ - explicit `/read`, `/ask-file`, `/propose-file`
+ - one-file apply via `/apply-proposal`
+ - bounded model-driven tool loop
+ - metadata-only session archive/search/inspect/reflect/export
+ - workspace instruction discovery from `AGENTS.md` / `CLAUDE.md`
+ - skills/prompt-template/custom-command discovery helpers
+ - streaming output for capable providers
+ - cross-repo read-only reference roots
+ - image attachment helper
+ - compaction/branching helpers
+ - SDK module for in-process embedding
+
+ ## What Pi still has that pipy does not fully match
+
+ The biggest missing/different pieces are:
+
+ - full rich TUI/editor experience
+ - production-safe arbitrary bash tool
+ - first-class extension runtime and UI hooks
+ - full session tree UX: branch, resume, compaction as normal product flows
+ - broad interactive selectors/settings/theme/model UX
+ - mature package/release surface
+ - Pi’s full transcript/session model
+ - mature RPC/JSONL process integration
+
+ ## Important design difference
+
+ pipy is intentionally not trying to become “Pi in Python” byte-for-byte. The stated direction is:
+
+ > Pi-class local coding-agent usefulness through pipy-owned Python boundaries, not a literal port of Pi’s TypeScript packages, terminal UI, storage model, extension system, or command names.
+
+ So the main difference is philosophical as much as technical: Pi is a full-featured product harness; pipy is a privacy-conservative Python native harness moving toward Pi parity in small reviewed slices.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/projects/pipy (main)
+↑215.5k ↓2.0k R217 $0.292 (sub) 12.1%/272k (auto)                                                                                                                                              (openai-codex) gpt-5.5 • high
+

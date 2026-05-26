@@ -1,0 +1,60 @@
+Welcome to fish, the friendly interactive shell
+
+jochen in 🌐 studio in pipy on  main [✘!?⇡] is 📦 v0.1.0 via 🐍 v3.14.5 (pipy)
+❯ cd /Users/jochen/projects/pipy
+uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+
+jochen in 🌐 studio in pipy on  main [✘!?⇡] is 📦 v0.1.0 via 🐍 v3.14.5 (pipy)
+❯ uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+
+ pipy v0.1.0
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pipy can explain its own features and look up its docs. Ask it how to use or extend pipy.
+
+
+[Context]
+  ~/.pipy/AGENTS.md, ~/projects/AGENTS.md, AGENTS.md
+
+[Skills]
+  commit-ready, commit-workflow, review-handoff
+
+
+
+ hello world!
+
+
+ Hello! How can I help?
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/projects/pipy (main)
+↑3.0k ↓11 $0.004 (sub) 1.1%/272k (auto)                                                                                                                                                        (openai-codex) gpt-5.5 • high
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

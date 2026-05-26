@@ -10,13 +10,20 @@ the output into the existing native adapters.
 Discovery rules (pinned by `tests/test_native_workspace_context.py`):
 
 - Per-directory candidate precedence (highest first):
-  `AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD`. The first existing
-  candidate per directory wins; the others are not considered for that
-  directory.
+  `AGENTS.md > AGENTS.MD > pipy.md > PIPY.md`
+  (sourced from `INSTRUCTION_CANDIDATE_FILENAMES`; the chrome listing
+  imports the same tuple so the two never drift). The first existing
+  candidate per directory wins; the others are not considered for
+  that directory. Neighbour-tool config (e.g. Claude Code's
+  `CLAUDE.md`, Codex's `.codex/...`) is intentionally not in this
+  list — pipy is a separate product and must not silently compose
+  another agent's prompts into its own system prompt.
 - The global root is resolved through `PIPY_CONFIG_HOME`, then
-  `${XDG_CONFIG_HOME}/pipy`, then `~/.config/pipy`. The first existing
-  candidate file in the global root is returned with a `<global>/<name>`
-  path label.
+  `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` (when present, mirroring
+  the chezmoi-managed pipy-owned home the startup chrome lists),
+  then `~/.config/pipy` as the XDG default. The first existing
+  candidate file in the global root is returned with a
+  `<global>/<name>` path label.
 - The workspace and each parent directory is searched after the global
   root. The returned tuple lists the root-most ancestor first and the
   workspace itself last, so more-specific instructions appear later in
@@ -136,7 +143,9 @@ def resolve_global_instruction_root(
 
     1. `PIPY_CONFIG_HOME` (taken verbatim, then `~` expanded).
     2. `${XDG_CONFIG_HOME}/pipy`.
-    3. `~/.config/pipy`.
+    3. `~/.pipy` when present (chezmoi-managed pipy-owned home, mirrors
+       what the startup chrome lists).
+    4. `~/.config/pipy` (XDG default).
     """
 
     env_map = env if env is not None else os.environ
@@ -147,6 +156,9 @@ def resolve_global_instruction_root(
     if xdg:
         return Path(xdg).expanduser() / PIPY_CONFIG_DIR_NAME
     home = (home_dir or Path.home()).expanduser()
+    pipy_home = home / ".pipy"
+    if pipy_home.is_dir():
+        return pipy_home
     return home / ".config" / PIPY_CONFIG_DIR_NAME
 
 

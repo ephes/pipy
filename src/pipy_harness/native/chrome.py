@@ -3,8 +3,9 @@
 Both the bounded no-tool REPL (`NativeNoToolReplSession`) and the
 bounded tool-loop REPL (`NativeToolReplSession`) render the same
 visual frame: title with a single-space indent, dim controls strip,
-loaded `[Context]`/`[Skills]` listings, separator-framed prompt area,
-and a two-row persistent bottom status block (cwd + status line).
+loaded `[Context]` listing (workspace + ancestor + global
+``AGENTS.md`` discovery), separator-framed prompt area, and a two-row
+persistent bottom status block (cwd + status line).
 
 This module owns the helpers so the same rendering ships from both
 REPL surfaces. The styles fall back to plain text when the output
@@ -24,23 +25,46 @@ from importlib import metadata
 from pathlib import Path
 from typing import Iterable, TextIO
 
+from pipy_harness.native.workspace_context import (
+    INSTRUCTION_CANDIDATE_FILENAMES,
+    resolve_global_instruction_root,
+)
+
 _STARTUP_CHROME_WIDTH_FALLBACK = 88
 # Pipy is a separate product from Claude Code, Codex, and the other agent
 # CLIs the workspace may also be set up for. The chrome listing only shows
-# files pipy actually loads (workspace `AGENTS.md` + pipy-owned home),
-# never `~/.claude/CLAUDE.md` or `~/.codex/...` which would conflate
-# pipy's product surface with neighbor tools' configs.
+# files/directories pipy actually owns (workspace `AGENTS.md` +
+# pipy-owned `.pipy/` and `~/.pipy/`), never `~/.claude/`, `~/.codex/`,
+# or `~/.pi/` which would conflate pipy's product surface with neighbour
+# tools' configs.
 _STARTUP_CHROME_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
-    "context": ("AGENTS.md", "pipy.md", ".pipy/AGENTS.md"),
+    # Workspace context candidates mirror
+    # `workspace_context.INSTRUCTION_CANDIDATE_FILENAMES` exactly so
+    # the chrome listing never advertises a file the loader would not
+    # actually compose into the system prompt, and never silently
+    # drops a file the loader would. Sourced from the loader's tuple
+    # directly so the two cannot drift on case-sensitive filesystems
+    # where e.g. `AGENTS.MD` or `PIPY.md` matter. `.pipy/AGENTS.md`
+    # is intentionally NOT listed here even though it is a pipy-owned
+    # path, because `discover_workspace_instructions` only inspects
+    # the workspace itself (and its ancestors) for the canonical
+    # filenames, not a nested `.pipy/` directory.
+    "context": INSTRUCTION_CANDIDATE_FILENAMES,
     "skills": (".pipy/skills",),
-    "prompts": (".pipy/commands",),
-    "extensions": (".pipy/plugins",),
 }
 _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
-    "context": ("~/.pipy/AGENTS.md", "~/AGENTS.md"),
+    # Global context candidates are NOT a hardcoded list of paths —
+    # the loader picks the first matching candidate from
+    # `INSTRUCTION_CANDIDATE_FILENAMES` inside the resolved global
+    # root (`resolve_global_instruction_root()`), so e.g.
+    # `~/.pipy/pipy.md` is composed when `~/.pipy/AGENTS.md` is
+    # absent. Chrome mirrors that at runtime in
+    # `discover_loaded_resource_names` rather than via this dict.
+    # Only directory-style categories (skills, prompts, extensions)
+    # are listed statically here. The `~/AGENTS.md` parent-file case
+    # is still surfaced — but through `_ancestor_context_labels`,
+    # which already walks `cwd.parent` up to filesystem root.
     "skills": ("~/.pipy/skills",),
-    "prompts": ("~/.pipy/commands",),
-    "extensions": ("~/.pipy/plugins",),
 }
 
 _PI_TITLE_TRUECOLOR = "1;38;2;138;190;183"
@@ -192,10 +216,10 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
     """Render the Pi-parity compact startup chrome on `error_stream`.
 
     Layout: ` pipy v…` title row (one-space indent), dim controls
-    strip, blank line, then `[Context]`/`[Skills]`/`[Prompts]`/
-    `[Extensions]` listings populated from project-local sources
-    under ``cwd`` and global user-home sources (``~/.claude``,
-    ``~/.codex``, ``~/.pipy``). Sections with no candidates are omitted.
+    strip, blank line, then a ``[Context]`` listing populated from
+    ``AGENTS.md`` files discovered in the workspace, its ancestors,
+    and ``~/.pipy/AGENTS.md``. The section is omitted when no
+    candidates are found.
     """
 
     style = chrome_style_for(error_stream)
@@ -241,32 +265,29 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
     )
     print(file=error_stream)
     print(file=error_stream)
-    rendered_section = False
-    for section_name, label in (
-        ("Context", resource_labels.get("context", "")),
-        ("Skills", resource_labels.get("skills", "")),
-        ("Prompts", resource_labels.get("prompts", "")),
-        ("Extensions", resource_labels.get("extensions", "")),
-    ):
-        if not label:
+    section_order = (("Context", "context"), ("Skills", "skills"))
+    rendered_any = False
+    for label, key in section_order:
+        text = resource_labels.get(key, "")
+        if not text:
             continue
-        print(style.section_label(f"[{section_name}]"), file=error_stream)
+        if rendered_any:
+            # Single blank line between rendered sections, matching pi.
+            print(file=error_stream)
+        print(style.section_label(f"[{label}]"), file=error_stream)
         _print_wrapped(
             error_stream,
             "  ",
-            label,
+            text,
             width=width,
             style=style.dim,
         )
+        rendered_any = True
+    if rendered_any:
         print(file=error_stream)
-        rendered_section = True
-    if rendered_section:
-        # Pi emits a second blank line after the last resource block so the
-        # input separator is visually distanced from the listing.
+        # Pi emits a second blank line after the last resource block so
+        # the input separator is visually distanced from the listing.
         print(file=error_stream)
-    if not rendered_section:
-        # Keep one blank line after the chrome controls for spacing parity.
-        return
 
 
 def print_input_separator(error_stream: TextIO) -> None:
@@ -294,16 +315,19 @@ def print_bottom_status_block(
 
 def discover_loaded_resource_names(
     cwd: Path,
-    category: str,
+    category: str = "context",
     *,
     max_items: int = 32,
 ) -> tuple[str, ...]:
-    """Return the short names of the loaded resources for ``category``.
+    """Return the source labels for the requested ``category``.
 
-    Skills/prompts/extensions resolve to the child directory names under
-    each candidate root (matching Pi's compact list rendering). Context
-    resolves to the source label (e.g. ``AGENTS.md``,
-    ``~/.claude/CLAUDE.md``).
+    For ``"context"`` (workspace + ancestor + global AGENTS.md files),
+    this mirrors `workspace_context.discover_workspace_instructions`
+    order: global root first, then ancestor directories root-most
+    first, then the workspace itself last. For ``"skills"``, the
+    function lists the immediate subdirectory names under each known
+    `.pipy/skills` (workspace) and `~/.pipy/skills` (global) store,
+    matching pi's compact `[Skills]` rendering.
     """
 
     names: list[str] = []
@@ -314,46 +338,182 @@ def discover_loaded_resource_names(
             seen.add(name)
             names.append(name)
 
-    for candidate in _STARTUP_CHROME_RESOURCE_SOURCES.get(category, ()):
-        path = cwd / candidate
-        for name in _names_for_candidate(path, candidate, category):
-            add(name)
+    home = Path.home()
+    global_sources = _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES.get(category, ())
+    workspace_sources = _STARTUP_CHROME_RESOURCE_SOURCES.get(category, ())
+
+    if category == "context":
+        # The loader takes only the first matching candidate per
+        # directory (see `workspace_context.discover_workspace_instructions`
+        # / `_load_first_candidate`). Chrome mirrors that — without
+        # this, a case-insensitive filesystem would surface both
+        # `AGENTS.md` and `AGENTS.MD` even though they resolve to the
+        # same file and the loader only composes one of them.
+        global_label = _global_context_label(home)
+        if global_label is not None:
+            add(global_label)
+        for display in _ancestor_context_labels(cwd):
+            add(display)
             if len(names) >= max_items:
                 return tuple(names)
-    home = Path.home()
-    for candidate in _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES.get(category, ()):
-        if candidate.startswith("~/"):
-            path = home / candidate[2:]
-            display = candidate
-        else:
-            path = Path(candidate)
-            display = candidate
-        for name in _names_for_candidate(path, display, category):
-            add(name)
+        for candidate_name in workspace_sources:
+            candidate = cwd / candidate_name
+            if not _candidate_resolves_inside(cwd, candidate):
+                continue
+            add(candidate_name)
+            break
+        return tuple(names)
+
+    # Directory-style categories (skills, prompts, extensions): list the
+    # immediate child directory names found under each known store.
+    for source in global_sources:
+        global_dir, _display = _global_candidate_path(source, home)
+        for entry_name in _directory_entry_names(global_dir):
+            add(entry_name)
+            if len(names) >= max_items:
+                return tuple(names)
+    for source in workspace_sources:
+        workspace_dir = cwd / source
+        for entry_name in _directory_entry_names(workspace_dir):
+            add(entry_name)
             if len(names) >= max_items:
                 return tuple(names)
     return tuple(names)
 
 
-def _names_for_candidate(path: Path, display: str, category: str) -> Iterable[str]:
+def _directory_entry_names(path: Path) -> Iterable[str]:
     try:
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return ()
     except OSError:
         return ()
-    if category == "context":
-        return (display,)
-    if path.is_dir():
-        try:
-            entries = sorted(
+    try:
+        return tuple(
+            sorted(
                 child.name
                 for child in path.iterdir()
-                if child.is_dir() and not child.name.startswith(".")
+                if not child.name.startswith(".")
             )
-        except OSError:
-            return ()
-        return tuple(entries)
-    return ()
+        )
+    except OSError:
+        return ()
+
+
+def _global_candidate_path(candidate: str, home: Path) -> tuple[Path, str]:
+    if candidate.startswith("~/"):
+        return home / candidate[2:], candidate
+    return Path(candidate), candidate
+
+
+def _global_context_label(home: Path) -> str | None:
+    """Return the display label for the loader's global instruction file.
+
+    Mirrors `workspace_context.discover_workspace_instructions`'s
+    `_load_first_candidate(global_root, ...)` step exactly: resolves
+    the same global root via `resolve_global_instruction_root()` and
+    picks the first matching candidate from
+    `INSTRUCTION_CANDIDATE_FILENAMES` whose resolved path stays
+    inside that root (i.e. symlinks pointing outside are skipped,
+    matching the loader's escape-vector defense). The returned
+    label uses ``~/...`` notation for paths under ``$HOME`` so the
+    chrome listing reads like pi's, and is ``None`` when no
+    candidate exists under the global root.
+    """
+
+    try:
+        global_root = resolve_global_instruction_root(home_dir=home)
+    except OSError:
+        return None
+    for candidate_name in INSTRUCTION_CANDIDATE_FILENAMES:
+        candidate = global_root / candidate_name
+        if not _candidate_resolves_inside(global_root, candidate):
+            continue
+        try:
+            relative = candidate.relative_to(home)
+            return f"~/{relative.as_posix()}"
+        except ValueError:
+            return str(candidate)
+    return None
+
+
+def _candidate_resolves_inside(directory: Path, candidate: Path) -> bool:
+    """Return True iff ``candidate`` is a file whose resolved path stays
+    inside ``directory``.
+
+    Mirrors the symlink-escape defense in
+    `workspace_context._load_first_candidate`: a candidate that
+    points outside its containing directory (e.g.
+    ``AGENTS.md -> /etc/secrets``) is skipped by the loader and
+    must also be skipped by chrome so the chrome listing never
+    advertises a file the loader would silently drop.
+    """
+
+    try:
+        if not candidate.is_file():
+            return False
+    except OSError:
+        return False
+    try:
+        resolved_dir = directory.resolve()
+    except OSError:
+        return False
+    try:
+        resolved_candidate = candidate.resolve()
+    except OSError:
+        return False
+    try:
+        resolved_candidate.relative_to(resolved_dir)
+    except ValueError:
+        return False
+    return True
+
+
+def _path_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _ancestor_context_labels(cwd: Path) -> list[str]:
+    """Return display labels for ancestor instruction files.
+
+    Walks from ``cwd.parent`` up to the filesystem root collecting the
+    first-matching candidate filename per directory whose resolved
+    path stays inside that directory (matching the loader's
+    symlink-escape defense), then returns the list in
+    **root-most-first** order to match
+    `workspace_context.discover_workspace_instructions`. Uses
+    ``~/...`` notation for paths under ``$HOME`` to match Pi's compact
+    rendering.
+    """
+
+    try:
+        workspace = cwd.expanduser().resolve()
+    except OSError:
+        return []
+    home = Path.home()
+    labels_near_first: list[str] = []
+    current = workspace.parent
+    while True:
+        if current == workspace:
+            break
+        for candidate_name in INSTRUCTION_CANDIDATE_FILENAMES:
+            candidate = current / candidate_name
+            if not _candidate_resolves_inside(current, candidate):
+                continue
+            try:
+                relative = candidate.relative_to(home)
+                labels_near_first.append(f"~/{relative.as_posix()}")
+            except ValueError:
+                labels_near_first.append(str(candidate))
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    labels_near_first.reverse()
+    return labels_near_first
 
 
 def _resource_labels(cwd: Path) -> dict[str, str]:

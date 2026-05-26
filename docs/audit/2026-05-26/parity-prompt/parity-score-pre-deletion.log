@@ -1,0 +1,64 @@
+bash scripts/parity_score.sh
+── Providers (A1–A11) ──────────────────────────────
+  ✅  A1    faux/fake
+  ✅  A2    openai-responses
+  ✅  A3    openai-codex-responses
+  ✅  A4    openai-completions
+  ✅  A5    anthropic
+  ✅  A6    google (Gemini)
+  ✅  A7    google-vertex
+  ✅  A8    mistral
+  ✅  A9    amazon-bedrock
+  ✅  A10   azure-openai
+  ✅  A11   cloudflare
+
+── Tools (B1–B9) ───────────────────────────────────
+  ✅  B1    read
+  ✅  B2    ls
+  ✅  B3    grep
+  ✅  B4    find
+  ✅  B5    write
+  ✅  B6    edit
+  ❌  B7    bash
+  ✅  B8    edit-diff
+  ✅  B9    truncate
+
+── Core subsystems (C1–C15) ────────────────────────
+  ✅  C1    CLI entry
+  ✅  C2    run mode
+  ✅  C3    REPL mode
+  ✅  C4    Session persistence
+  ✅  C5    Session catalog
+  ✅  C6    Provider port
+  ✅  C7    Tool registry
+  ✅  C8    Workspace context
+  ✅  C9    System prompt
+  ✅  C10   Tool budget
+  ✅  C11   .git default-deny
+  ✅  C12   Transcript sidecar
+  ✅  C13   JSON output mode
+  ✅  C14   Streaming output
+  ✅  C15   Retry/backoff
+
+── Workspace context + resource loading (D1–D8) ────
+  ✅  D1    Parent-walk
+  ✅  D2    Byte caps
+  ✅  D3    PIPY_CONFIG_HOME
+  ✅  D4    Skills loading
+  ✅  D5    Prompt templates
+  ✅  D6    Custom slash commands
+  ✅  D7    Themes
+  ✅  D8    Image attachments
+
+── Advanced session features (E1–E7) ───────────────
+  ✅  E1    Session resume
+  ✅  E2    Session compaction
+  ✅  E3    Session branching
+  ✅  E4    Session export
+  ✅  E5    Dynamic provider swap
+  ✅  E6    Settings panel
+  ✅  E7    RPC / SDK
+
+─────────────────────────────────────────────────────
+Score: 49 / 50  (big features passed: 9)
+Status: ✅ PASS (≥40 features AND ≥5 big features)
