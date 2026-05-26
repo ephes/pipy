@@ -18,13 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.read_only_tool import (
     _CONTROL_CHARS,
     _is_ignored_or_generated,
-    _is_relative_to,
-    _resolved_relative_label,
-    _validate_workspace_relative_path,
+    has_secret_shaped_content,
+    resolve_tool_path,
 )
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
@@ -73,9 +71,12 @@ class ReadTool:
         return ToolDefinition(
             name="read",
             description=(
-                "Read a workspace-relative UTF-8 file and return a bounded "
-                "excerpt. Paths under .git or matching .gitignore are "
-                "refused; absolute paths and parent traversal are refused."
+                "Read a UTF-8 file and return a bounded excerpt. Paths may be "
+                "workspace-relative POSIX paths, or absolute paths that lie "
+                "under the workspace or a configured reference root (such as "
+                "a sibling project added with --read-root). Paths under .git "
+                "or matching .gitignore are refused; parent traversal is "
+                "refused."
             ),
             input_schema={
                 "type": "object",
@@ -85,7 +86,9 @@ class ReadTool:
                         "minLength": 1,
                         "maxLength": 1024,
                         "description": (
-                            "Workspace-relative POSIX path to the file to read."
+                            "Workspace-relative POSIX path or absolute path "
+                            "under the workspace or a configured reference "
+                            "root."
                         ),
                     },
                 },
@@ -99,22 +102,20 @@ class ReadTool:
     ) -> ToolExecutionResult:
         path_arg = request.arguments["path"]
         try:
-            _validate_workspace_relative_path(path_arg)
+            resolved = resolve_tool_path(
+                path_arg,
+                workspace_root=context.workspace_root,
+                reference_roots=context.reference_roots,
+            )
         except ValueError as exc:
             raise ToolArgumentError(
                 "read", str(exc), field_path=("path",)
             ) from None
 
-        workspace = context.workspace_root.resolve()
-        candidate = (workspace / path_arg).resolve()
-        if not _is_relative_to(candidate, workspace):
-            return self._error(request, "path escapes the workspace")
-        resolved_label = _resolved_relative_label(candidate, workspace)
-        if resolved_label is None:
-            return self._error(request, "path escapes the workspace")
+        candidate = resolved.resolved
         if _is_ignored_or_generated(
-            path_arg, workspace
-        ) or _is_ignored_or_generated(resolved_label, workspace):
+            resolved.relative_label, resolved.root
+        ):
             return self._error(
                 request,
                 "path is ignored or under .git/generated directories",
@@ -140,7 +141,7 @@ class ReadTool:
             return self._error(request, "non-UTF-8 content")
         if any(char in _CONTROL_CHARS for char in text):
             return self._error(request, "binary content detected")
-        if looks_sensitive(text):
+        if has_secret_shaped_content(text):
             return self._error(request, "secret-looking content detected")
 
         lines = text.splitlines(keepends=True)

@@ -1,0 +1,29 @@
+Current worktree status: **49/50 locked pi-mono parity features are green**.
+
+Verified just now:
+
+- `just parity-score` → **49 / 50**, **9 big features passed**
+- `just check` → **1085 passed, 2 skipped**
+- Caveat: this is for the **current uncommitted worktree**; there are modified docs/source files plus untracked tests.
+
+What’s green vs `~/src/pi-mono`:
+
+- **Providers:** all 11 locked pi-mono providers are present: OpenAI, OpenAI Codex, OpenAI completions, Anthropic, Google, Vertex, Mistral, Bedrock, Azure OpenAI, Cloudflare, faux. Plus bonus OpenRouter.
+- **Tools:** read, ls, grep, find, write, edit, edit-diff, truncate are implemented and in the bounded tool loop.
+- **Core runtime:** CLI, `run`, REPL, provider/tool ports, tool budget/recovery, `.git` deny + symlink checks, transcript sidecar, JSON output, retry/backoff, workspace context, streaming output.
+- **Resources/session:** AGENTS/CLAUDE discovery, skills/templates/custom command discovery, themes, image attachment loader, session resume metadata, compaction helper, branching helper, export, dynamic provider/model helper, `/settings`, Python SDK.
+- Recent parity polish in the worktree includes **REPL streaming/tool rendering** and **read-only reference roots** for inspecting `~/src/pi-mono`-style sibling checkouts without allowing mutations outside the workspace.
+
+Only locked red item:
+
+- **B7 bash**. `BashTool` exists, but it is **intentionally not registered** in `production_tool_registry()` until there is a real shell/process/filesystem sandbox that preserves secret isolation and `.git` default-deny against shell tricks.
+
+Important non-parity / still-partial surfaces:
+
+- Pipy is still **line-oriented**, not Pi’s full TUI.
+- Sessions are **metadata-first**, not full Pi transcript trees.
+- Some helpers exist but are not fully wired into live runtime yet: live resume prompt seeding, compaction in tool-loop, branch recorder events, vision-provider serialization, runtime custom command dispatch, broader resource loading, network RPC/daemon.
+- Verification is still only `/verify just-check`.
+- No automatic `@file` content reads or production bash.
+
+So: **feature-parity target is effectively achieved at 98% of the locked criterion; the last 2% is deliberately blocked on a real bash sandbox, not a small missing port.**

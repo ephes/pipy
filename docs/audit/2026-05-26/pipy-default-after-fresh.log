@@ -1,0 +1,402 @@
+ pipy v0.1.0  native shell
+ ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred
+ Type / to open the command menu; /help for the full reference.
+
+[Context]
+  AGENTS.md, ~/.claude/CLAUDE.md
+
+[Skills]
+  goal-handoff, handoff-impl, handoff-review, mermaid-marked2-markdown,
+  summarize-youtube, commit-workflow, implement-handoff, local-dev-orchestration,
+  review-handoff
+
+────────────────────────────────────────────────────────────────────────────────────────
+/Users/jochen/projects/pipy
+$0.000 (sub) 0.0%/25 (tools · turn 0)                   (openai-codex) gpt-5.5 • default
+────────────────────────────────────────────────────────────────────────────────────────
+>  → ls(path=".")
+↳   directory .cache
+    directory .claude
+    file .envrc.example
+    file .gitignore
+    file AGENTS.md
+    file LICENSE
+    file README.md
+    directory docs
+    file justfile
+    file pyproject.toml
+    directory scripts
+    directory src
+    … (+2 more line(s))
+→ ls(path="/Users/jochen/src/pi-mono")
+↳   file pi-mono/.gitattributes
+    directory pi-mono/.github
+    file pi-mono/.gitignore
+    directory pi-mono/.husky
+    file pi-mono/.npmrc
+    directory pi-mono/.pi
+    file pi-mono/AGENTS.md
+    file pi-mono/CONTRIBUTING.md
+    file pi-mono/LICENSE
+    file pi-mono/README.md
+    file pi-mono/biome.json
+    file pi-mono/justfile
+    … (+10 more line(s))
+→ read(path="docs/backlog.md")
+↳   # Pipy Backlog
+    
+    Status: planning index
+    
+    This backlog records the current implementation direction at a task-slice
+    level. It is not a full issue tracker. Use it to choose the next small,
+    reviewable change while keeping the source-of-truth design constraints in
+    `docs/harness-spec.md` and `docs/session-storage.md`.
+    
+    ## Current State
+    
+    Pipy has crossed from capture-only infrastructure into a small native product
+    … (+120 more line(s))
+→ read(path="docs/harness-spec.md")
+↳   # Coding-Agent Harness Spec
+    
+    Status: current native shell supports styled startup chrome, grouped
+    slash-command discovery, bounded read/context, proposal, same-session apply,
+    post-apply `just-check` verification, a line-oriented state-aware prompt label,
+    and a small REPL input-adapter boundary with plain captured-stream fallback plus
+    optional prompt-toolkit line-editor input and leading slash-command completion,
+    workspace-relative path completion for explicit file commands, completion-only
+    `@file` references in ordinary prompts and supported command free-text,
+    multiline entry on real TTY streams, and a two-successful-excerpt budget for
+    explicit REPL file-context commands. The bottom-toolbar status decision
+    deferred footer behavior, and the real-TTY prompt-toolkit input path is now
+    … (+165 more line(s))
+→ grep(pattern="Next Slice", path="docs/backlog.md")
+↳   docs/backlog.md:50:- `Next Slice` is the only current implementation target.
+    docs/backlog.md:2003:  updated to pin the new `Next Slice` heading. No code or runtime
+    docs/backlog.md:2080:  assertions tracking the `Near Term` and `Next Slice` paragraphs
+    docs/backlog.md:2151:## Next Slice
+    docs/backlog.md:2633:- Move completed slices from `Next Slice` or `Near Term` to `Done` in the same
+→ grep(pattern="Pi Parity", path="docs/backlog.md")
+↳   docs/backlog.md:95:## Pi Parity Roadmap
+    docs/backlog.md:473:   AGENTS/CLAUDE-style context discovery, refresh the Pi Parity
+→ read(path="/Users/jochen/src/pi-mono/README.md")
+↳   <p align="center">
+      <a href="https://pi.dev">
+        <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
+      </a>
+    </p>
+    <p align="center">
+      <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
+    </p>
+    <p align="center">
+      <a href="https://pi.dev">pi.dev</a> domain graciously donated by
+      <br /><br />
+      <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
+    … (+77 more line(s))
+→ find(pattern="packages/*/src/**/*.ts", path="/Users/jochen/src/pi-mono")
+↳   pi-mono/packages/agent/src/agent-loop.ts
+    pi-mono/packages/agent/src/agent.ts
+    pi-mono/packages/agent/src/harness/agent-harness.ts
+    pi-mono/packages/agent/src/harness/compaction/branch-summarization.ts
+    pi-mono/packages/agent/src/harness/compaction/compaction.ts
+    pi-mono/packages/agent/src/harness/compaction/utils.ts
+    pi-mono/packages/agent/src/harness/env/nodejs.ts
+    pi-mono/packages/agent/src/harness/messages.ts
+    pi-mono/packages/agent/src/harness/prompt-templates.ts
+    pi-mono/packages/agent/src/harness/session/jsonl-repo.ts
+    pi-mono/packages/agent/src/harness/session/jsonl-storage.ts
+    pi-mono/packages/agent/src/harness/session/memory-repo.ts
+    … (+189 more line(s))
+→ read(path="docs/backlog.md")
+↳   # Pipy Backlog
+    
+    Status: planning index
+    
+    This backlog records the current implementation direction at a task-slice
+    level. It is not a full issue tracker. Use it to choose the next small,
+    reviewable change while keeping the source-of-truth design constraints in
+    `docs/harness-spec.md` and `docs/session-storage.md`.
+    
+    ## Current State
+    
+    Pipy has crossed from capture-only infrastructure into a small native product
+    … (+120 more line(s))
+→ find(pattern="src/**/*.py", path=".")
+↳   src/pipy_harness/__init__.py
+    src/pipy_harness/adapters/__init__.py
+    src/pipy_harness/adapters/base.py
+    src/pipy_harness/adapters/native.py
+    src/pipy_harness/adapters/subprocess.py
+    src/pipy_harness/capture.py
+    src/pipy_harness/cli.py
+    src/pipy_harness/models.py
+    src/pipy_harness/native/__init__.py
+    src/pipy_harness/native/_resource_files.py
+    src/pipy_harness/native/anthropic_provider.py
+    src/pipy_harness/native/approval_prompt.py
+    … (+56 more line(s))
+→ read(path="README.md")
+↳   # pipy
+    
+    Python slop fork experiments for a coding-agent harness inspired by Pi and clean architecture.
+    
+    The repository currently contains the first project infrastructure slices:
+    durable session-storage policy, a small local session-recorder CLI, an initial
+    `pipy run` subprocess harness, a native pipy runtime bootstrap, and explicit
+    sync between the `studio` and `atlas` development machines.
+    
+    Product direction: `pipy-native` is the agent runtime. It should talk directly
+    to model providers through pipy's own provider ports, prompt construction, tool
+    boundary, and session semantics. Mentions of Codex, Claude Code, or Pi below
+    … (+187 more line(s))
+→ find(pattern="tests/**/*.py", path=".")
+↳   tests/conftest.py
+    tests/test_auto_capture.py
+    tests/test_catalog.py
+    tests/test_cli_reference_roots.py
+    tests/test_harness_cli.py
+    tests/test_harness_native_cli.py
+    tests/test_harness_runner.py
+    tests/test_harness_subprocess_adapter.py
+    tests/test_native_anthropic_provider.py
+    tests/test_native_approval_prompt.py
+    tests/test_native_approval_sandbox_policy.py
+    tests/test_native_azure_openai_provider.py
+    … (+64 more line(s))
+→ read(path="docs/pi-parity.md")
+↳   # Pi Parity And Differences
+    
+    Status: current slopfork map for the Python `pipy` runtime compared with the
+    local Pi reference in `/Users/jochen/src/pi-mono`.
+    
+    Pipy is a Python slopfork inspired by Pi. The goal is Pi-class local
+    coding-agent usefulness through pipy-owned Python boundaries, not a literal
+    port of Pi's TypeScript packages, terminal UI, storage model, extension system,
+    or command names.
+    
+    ## What Has Been Slopforked
+    
+    … (+32 more line(s))
+→ read(path="docs/parity-criterion.md")
+↳   # Pi-Mono Parity Criterion (Locked 2026-05-25)
+    
+    This document **locks in the hard, objective criterion** used to measure pipy's
+    feature parity against `~/src/pi-mono` for the 80%-parity goal. It is
+    deliberately reproducible: any reviewer or independent agent can re-run the
+    verification commands and arrive at the same score.
+    
+    The denominator is grounded in pi-mono's actual on-disk structure (its provider
+    files, tool files, and documented subsystems) — not subjective rubrics.
+    
+    ## Locked Feature List (50 features)
+    
+    … (+117 more line(s))
+→ read(path="docs/backlog.md")
+↳   # Pipy Backlog
+    
+    Status: planning index
+    
+    This backlog records the current implementation direction at a task-slice
+    level. It is not a full issue tracker. Use it to choose the next small,
+    reviewable change while keeping the source-of-truth design constraints in
+    `docs/harness-spec.md` and `docs/session-storage.md`.
+    
+    ## Current State
+    
+    Pipy has crossed from capture-only infrastructure into a small native product
+    … (+120 more line(s))
+→ read(path="/Users/jochen/src/pi-mono/packages/coding-agent/src/core/tools/index.ts")
+↳   export {
+    	type BashOperations,
+    	type BashSpawnContext,
+    	type BashSpawnHook,
+    	type BashToolDetails,
+    	type BashToolInput,
+    	type BashToolOptions,
+    	createBashTool,
+    	createBashToolDefinition,
+    	createLocalBashOperations,
+    } from "./bash.ts";
+    export {
+    … (+184 more line(s))
+→ grep(pattern="current ✅ count", path="docs/parity-criterion.md")
+↳   docs/parity-criterion.md:122:current ✅ count (2026-05-26, after SDK module landed): 49
+→ grep(pattern="## Next Slice", path="docs/backlog.md")
+↳   docs/backlog.md:2151:## Next Slice
+→ grep(pattern="## Near Term", path="docs/backlog.md")
+↳   docs/backlog.md:2286:## Near Term
+→ grep(pattern="## Deferred", path="docs/backlog.md")
+↳   docs/backlog.md:2570:## Deferred
+    docs/backlog.md:2572:### Deferred For Self-Bootstrap
+    docs/backlog.md:2595:### Deferred For Product Maturity
+→ grep(pattern="## Explicitly Not Now", path="docs/backlog.md")
+↳   docs/backlog.md:2614:## Explicitly Not Now
+→ grep(pattern="Remaining gaps", path="docs/pi-parity.md")
+↳   (no matches)
+→ read(path="docs/parity-criterion.md")
+↳   # Pi-Mono Parity Criterion (Locked 2026-05-25)
+    
+    This document **locks in the hard, objective criterion** used to measure pipy's
+    feature parity against `~/src/pi-mono` for the 80%-parity goal. It is
+    deliberately reproducible: any reviewer or independent agent can re-run the
+    verification commands and arrive at the same score.
+    
+    The denominator is grounded in pi-mono's actual on-disk structure (its provider
+    files, tool files, and documented subsystems) — not subjective rubrics.
+    
+    ## Locked Feature List (50 features)
+    
+    … (+117 more line(s))
+→ grep(pattern="B7", path="docs/backlog.md")
+↳   docs/backlog.md:2240:only remaining ❌ is B7 (`bash`), which is deliberately deferred
+    docs/backlog.md:2264:  - the B7 `bash` shell-sandbox investigation (the only remaining
+→ grep(pattern="bash", path="docs/backlog.md")
+↳   docs/backlog.md:40:filesystem tools, but production `bash` remains deferred pending a real shell
+    docs/backlog.md:110:  ctrl+d exit · / commands · /help reference · ! bash deferred` shape Pi uses,
+    docs/backlog.md:162:- Tool parity: read, edit/write, bash/shell, verification, and follow-up tool
+    docs/backlog.md:276:- A `bash` tool or any arbitrary shell execution tool. A standalone helper
+    docs/backlog.md:656:- Pi-mono 80%-parity push (2026-05-25): raised pipy from 23/50 to 40/50 (80%) of the locked feature criterion in `docs/parity-criterion.md` with 5+ required "big" features green. Added 8 new providers (anthropic, google, google-vertex, mistral, amazon-bedrock, azure-openai, cloudflare, openai-completions) all stdlib-only, the `edit-diff` and `truncate` helper tools, the `RetryPolicy` HTTP backoff helper, workspace skill and prompt-template discovery, and a metadata-first `pipy-session export <id>` subcommand. Production `bash` registration was later removed pending a real shell sandbox. Score check: `just parity-score`.
+    docs/backlog.md:658:  then settled at 44/50 after disabling production `bash` for invariant
+    docs/backlog.md:1648:  slash-command parity), and the out-of-scope items (no `bash` tool, no
+    docs/backlog.md:2213:- `production_tool_registry()` still excludes `bash`; the
+    docs/backlog.md:2240:only remaining ❌ is B7 (`bash`), which is deliberately deferred
+    docs/backlog.md:2264:  - the B7 `bash` shell-sandbox investigation (the only remaining
+    docs/backlog.md:2580:- A model-driven `bash` tool or any arbitrary-shell tool. The
+→ grep(pattern="sandbox", path="docs/backlog.md")
+↳ [error]   tool budget exhausted (limit 25)
+→ grep(pattern="49", path="docs/backlog.md")
+↳ [error]   tool budget exhausted (limit 25)
+→ grep(pattern="80%", path="docs/backlog.md")
+↳ [error]   tool budget exhausted (limit 25)
+→ read(path="docs/backlog.md")
+↳ [error]   tool budget exhausted (limit 25)
+assistant > Feature-parity status vs `~/src/pi-mono`: **we are effectively past the 80% parity goal and at 49/50 on the locked criterion**.
+
+Inspected:
+- `docs/parity-criterion.md`
+- `docs/pi-parity.md`
+- `docs/backlog.md`
+- `~/src/pi-mono/README.md`
+- `~/src/pi-mono/packages/coding-agent/src/core/tools/index.ts`
+
+## Headline
+
+`docs/parity-criterion.md` records:
+
+```text
+current ✅ count: 49 / 50
+target for 80% parity: 40 / 50
+delta beyond 80% target: +9
+```
+
+So by the repo’s objective locked scoring, pipy is at **98% of the 50-feature Pi parity criterion**.
+
+## What is green
+
+### Providers: 11/11
+
+Pipy has native provider implementations corresponding to Pi’s provider set:
+
+- fake/faux
+- OpenAI Responses
+- OpenAI Codex subscription
+- OpenAI Chat Completions
+- Anthropic
+- Google Gemini
+- Google Vertex
+- Mistral
+- Amazon Bedrock
+- Azure OpenAI Responses
+- Cloudflare Workers AI
+
+Plus **OpenRouter as a bonus** not counted in the denominator.
+
+### Tools: 8/9
+
+Implemented:
+
+- `read`
+- `ls`
+- `grep`
+- `find`
+- `write`
+- `edit`
+- `edit-diff`
+- `truncate`
+
+Missing from production parity:
+
+- `bash`
+
+There is a `BashTool` helper in the tree, but it is intentionally **not registered in the production model-loop registry**.
+
+### Core/runtime: 15/15
+
+The locked criterion marks these as done:
+
+- CLI entry point
+- one-shot `run`
+- interactive `repl`
+- session persistence/catalog
+- provider abstraction
+- tool registry
+- workspace context
+- system prompt composition
+- tool budget/malformed recovery
+- `.git` default-deny/symlink defenses
+- opt-in transcript sidecar
+- JSON output
+- provider streaming
+- retry/backoff
+
+### Resource loading: 8/8
+
+Marked done:
+
+- parent-walk context loading
+- byte caps
+- `PIPY_CONFIG_HOME`
+- skills
+- prompt templates
+- custom slash commands
+- themes
+- image/binary attachment loading
+
+### Advanced session features: 7/7
+
+Marked done:
+
+- session resume metadata reader
+- compaction
+- branching/forking
+- export/share
+- dynamic provider/model swap
+- settings/config panel
+- SDK/RPC-ish embedding surface
+
+## The only objective gap
+
+The single remaining red feature is:
+
+> **B7: production `bash` tool**
+
+This is deliberately deferred until there is a real shell sandbox. That matches `docs/backlog.md`, which repeatedly says production arbitrary shell execution remains out of bounds for now.
+
+## Practical/product caveat
+
+Even though the locked parity score is **49/50**, pipy is not trying to become a literal TypeScript Pi clone. The docs still call out product-maturity gaps/differences:
+
+- no Pi `pi-tui` clone / full alternate-screen TUI
+- no production arbitrary shell tool yet
+- some Pi surfaces are implemented through different Python-native boundaries
+- privacy-first metadata/session policy differs from Pi’s native transcript model
+- command names and internal architecture intentionally differ
+
+## Bottom line
+
+We are **beyond the original Pi parity target**. The remaining meaningful parity blocker is **safe production shell execution**. Everything else in the locked 50-feature criterion is currently recorded as done.
+────────────────────────────────────────────────────────────────────────────────────────
+/Users/jochen/projects/pipy
+$0.000 (sub) 100.0%/25 (tools · turn 1)                 (openai-codex) gpt-5.5 • default
+────────────────────────────────────────────────────────────────────────────────────────
+>  pipy: session finalized at /Users/jochen/.local/state/pipy/sessions/pipy/2026/05/2026-05-26T150604Z-studio-pipy-native-native-repl.jsonl

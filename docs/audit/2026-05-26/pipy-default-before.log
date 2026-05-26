@@ -1,0 +1,41 @@
+ pipy v0.1.0  native shell
+ ctrl+c interrupt · ctrl+d exit · / commands · /help reference · ! bash deferred
+ Type / to open the command menu; /help for the full reference.
+
+[Context]
+  ~/.claude/CLAUDE.md
+
+[Skills]
+  goal-handoff, handoff-impl, handoff-review, mermaid-marked2-markdown,
+  summarize-youtube, commit-workflow, implement-handoff, local-dev-orchestration,
+  review-handoff
+
+────────────────────────────────────────────────────────────────────────────────────────
+/Users/jochen/projects/pipy/docs/audit/2026-05-26
+$0.000 (sub) 0.0%/10 (tools · turn 0)                   (openai-codex) gpt-5.5 • default
+────────────────────────────────────────────────────────────────────────────────────────
+>  ────────────────────────────────────────────────────────────────────────────────────────
+/Users/jochen/projects/pipy/docs/audit/2026-05-26
+$0.000 (sub) 0.0%/10 (tools · turn 1)                   (openai-codex) gpt-5.5 • default
+────────────────────────────────────────────────────────────────────────────────────────
+>  pipy: session finalized at /Users/jochen/.local/state/pipy/sessions/pipy/2026/05/2026-05-26T143753Z-studio-pipy-native-native-repl.jsonl
+I don’t have enough inspected state in this bootstrap turn to answer accurately.
+
+Given the workspace guidance, the right way to answer “where are we regarding feature parity compared to `~/src/pi-mono`?” is to inspect summary-safe project planning/session surfaces first, especially:
+
+- `docs/backlog.md` — current task-slice index and deferred boundaries
+- `docs/harness-spec.md` — native runtime direction and adapter boundaries
+- session reflection/search, e.g.:
+  - `uv run pipy-session reflect --json`
+  - targeted `uv run pipy-session search "pi-mono" --json`
+  - targeted searches for “feature parity”, “parity”, “native runtime”, and related adapter/runtime terms
+
+From the instructions alone, I can only say:
+
+- `pipy-native` is the intended product runtime direction.
+- Codex/Claude/Pi or CLI wrapping may be used for capture/reference work, but should not become the main product execution path unless direction explicitly changes.
+- `docs/backlog.md` is the canonical current task-slice index.
+- `docs/harness-spec.md` likely defines what parity means and what remains deferred.
+- Any parity answer should avoid relying on raw transcript bodies unless explicitly needed and privacy-reviewed.
+
+If you want, ask me again in a normal tool-enabled turn and I can compare the repo state against `~/src/pi-mono` and summarize the parity gaps.

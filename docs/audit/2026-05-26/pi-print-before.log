@@ -1,0 +1,30 @@
+We’re at **49/50 on the locked `~/src/pi-mono` parity criterion**.
+
+I checked the current docs and reran:
+
+```sh
+just parity-score
+```
+
+Result:
+
+- **Providers:** 11/11 ✅
+- **Tools:** 8/9 ✅
+- **Core subsystems:** 15/15 ✅
+- **Workspace/resource loading:** 8/8 ✅
+- **Advanced session features:** 7/7 ✅
+- **Big features:** 9 passed
+- **Overall:** **49/50**, passing the 80% target by a wide margin.
+
+The **only remaining red row is B7: production-registered `bash`**. There is already a standalone hardened `BashTool`, but it is intentionally **not in the model-loop production registry** until a real process/filesystem sandbox exists.
+
+Important caveat: this is parity against the project’s **locked objective 50-feature rubric**, not “Pi is fully cloned.” Pipy still intentionally lacks or defers:
+
+- full Pi TUI / alternate-screen UI
+- production `bash`
+- runtime wiring for some helpers: REPL streaming, vision-provider serialization, compaction in live tool loop, branch recorder events
+- extension/package loading and custom-command dispatch
+- persistent history / richer keyboard handling
+- network RPC daemon; only in-process Python SDK exists
+
+Current backlog next step is **not preselected implementation**: choose the next pipy-native direction after the 49/50 closure, likely among helper runtime wiring or the bash sandbox investigation.

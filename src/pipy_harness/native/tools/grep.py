@@ -22,13 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.read_only_tool import (
     _CONTROL_CHARS,
     _is_ignored_or_generated,
-    _is_relative_to,
     _resolved_relative_label,
-    _validate_workspace_relative_path,
+    has_secret_shaped_content,
+    resolve_tool_path,
 )
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
@@ -100,10 +99,13 @@ class GrepTool:
         return ToolDefinition(
             name="grep",
             description=(
-                "Search for a literal (non-regex) string across workspace "
-                "files. Paths under .git or matching .gitignore are refused; "
-                "absolute paths and parent traversal are refused. Use '.' to "
-                "search the whole workspace."
+                "Search for a literal (non-regex) string across files. "
+                "Paths may be workspace-relative POSIX paths, '.' for the "
+                "workspace root, or absolute paths that lie under the "
+                "workspace or a configured reference root (such as a "
+                "sibling project added with --read-root). Paths under .git "
+                "or matching .gitignore are refused; parent traversal is "
+                "refused."
             ),
             input_schema={
                 "type": "object",
@@ -121,8 +123,9 @@ class GrepTool:
                         "minLength": 1,
                         "maxLength": 1024,
                         "description": (
-                            "Workspace-relative POSIX path to search; use "
-                            "'.' for the workspace root."
+                            "Workspace-relative POSIX path, '.' for the "
+                            "workspace root, or absolute path under the "
+                            "workspace or a configured reference root."
                         ),
                     },
                 },
@@ -143,47 +146,56 @@ class GrepTool:
                 field_path=("pattern",),
             )
 
-        workspace = context.workspace_root.resolve()
         if path_arg == ".":
+            workspace = context.workspace_root.resolve()
+            root = workspace
             search_root = workspace
             relative_root = ""
+            display_prefix = ""
         else:
             try:
-                _validate_workspace_relative_path(path_arg)
+                resolved = resolve_tool_path(
+                    path_arg,
+                    workspace_root=context.workspace_root,
+                    reference_roots=context.reference_roots,
+                )
             except ValueError as exc:
                 raise ToolArgumentError(
                     "grep", str(exc), field_path=("path",)
                 ) from None
-            search_root = (workspace / path_arg).resolve()
-            relative_root = path_arg
-            if not _is_relative_to(search_root, workspace):
-                return self._error(request, "path escapes the workspace")
-            resolved_root_label = _resolved_relative_label(search_root, workspace)
-            if resolved_root_label is None:
-                return self._error(request, "path escapes the workspace")
+            root = resolved.root
+            search_root = resolved.resolved
+            relative_root = resolved.relative_label if resolved.relative_label != "." else ""
             if _is_ignored_or_generated(
-                path_arg, workspace
-            ) or _is_ignored_or_generated(resolved_root_label, workspace):
+                resolved.relative_label, root
+            ):
                 return self._error(
                     request,
                     "path is ignored or under .git/generated directories",
                 )
             if not search_root.exists():
                 return self._error(request, "path does not exist")
+            if resolved.is_workspace:
+                display_prefix = ""
+            else:
+                root_label = root.name or "reference-root"
+                display_prefix = root_label + "/"
 
         if shutil.which("rg") is not None:
             output, truncated = self._search_with_rg(
                 pattern=pattern,
                 search_root=search_root,
-                workspace=workspace,
+                root=root,
                 relative_root=relative_root,
+                display_prefix=display_prefix,
             )
         else:
             output, truncated = self._search_with_stdlib(
                 pattern=pattern,
                 search_root=search_root,
-                workspace=workspace,
+                root=root,
                 relative_root=relative_root,
+                display_prefix=display_prefix,
             )
 
         if truncated:
@@ -205,8 +217,9 @@ class GrepTool:
         *,
         pattern: str,
         search_root: Path,
-        workspace: Path,
+        root: Path,
         relative_root: str,
+        display_prefix: str,
     ) -> tuple[str, bool]:
         argv = [
             "rg",
@@ -222,7 +235,7 @@ class GrepTool:
         try:
             completed = subprocess.run(  # noqa: S603 - argv is fixed, shell=False
                 argv,
-                cwd=str(workspace),
+                cwd=str(root),
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
@@ -242,7 +255,10 @@ class GrepTool:
                 truncated = True
                 break
             normalized = self._normalize_rg_row(
-                raw_line, workspace=workspace, relative_root=relative_root
+                raw_line,
+                root=root,
+                relative_root=relative_root,
+                display_prefix=display_prefix,
             )
             if normalized is None:
                 continue
@@ -256,7 +272,11 @@ class GrepTool:
 
     @staticmethod
     def _normalize_rg_row(
-        raw_line: str, *, workspace: Path, relative_root: str
+        raw_line: str,
+        *,
+        root: Path,
+        relative_root: str,
+        display_prefix: str,
     ) -> str | None:
         parts = raw_line.split(":", 2)
         if len(parts) < 3:
@@ -264,35 +284,37 @@ class GrepTool:
         path_text, line_text, body = parts
         candidate = Path(path_text)
         try:
-            relative = candidate.resolve().relative_to(workspace)
+            relative = candidate.resolve().relative_to(root)
         except (ValueError, OSError):
             return None
         relative_label = relative.as_posix()
-        if _is_ignored_or_generated(relative_label, workspace):
+        if _is_ignored_or_generated(relative_label, root):
             return None
         if relative_root and not (
             relative_label == relative_root
             or relative_label.startswith(relative_root.rstrip("/") + "/")
         ):
             return None
-        return f"{relative_label}:{line_text}:{body}"
+        display_label = display_prefix + relative_label
+        return f"{display_label}:{line_text}:{body}"
 
     def _search_with_stdlib(
         self,
         *,
         pattern: str,
         search_root: Path,
-        workspace: Path,
+        root: Path,
         relative_root: str,
+        display_prefix: str,
     ) -> tuple[str, bool]:
         rows: list[str] = []
         truncated = False
         cumulative_bytes = 0
-        for relative_label in self._walk(search_root, workspace):
+        for relative_label in self._walk(search_root, root):
             if len(rows) >= self.max_results:
                 truncated = True
                 break
-            candidate = workspace / relative_label
+            candidate = root / relative_label
             try:
                 if candidate.stat().st_size > self.max_scan_file_bytes:
                     continue
@@ -306,14 +328,15 @@ class GrepTool:
                 continue
             if any(char in _CONTROL_CHARS for char in text):
                 continue
-            if looks_sensitive(text):
+            if has_secret_shaped_content(text):
                 continue
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if pattern in line:
                     if len(rows) >= self.max_results:
                         truncated = True
                         break
-                    row = f"{relative_label}:{line_number}:{line}"
+                    display_label = display_prefix + relative_label
+                    row = f"{display_label}:{line_number}:{line}"
                     row_bytes = len(row.encode("utf-8")) + 1
                     if cumulative_bytes + row_bytes > self.max_output_bytes:
                         truncated = True
@@ -326,7 +349,7 @@ class GrepTool:
         return ("\n".join(rows), truncated)
 
     @staticmethod
-    def _walk(search_root: Path, workspace: Path) -> Iterable[str]:
+    def _walk(search_root: Path, root: Path) -> Iterable[str]:
         for dirpath, dirnames, filenames in os.walk(search_root):
             kept_dirs: list[str] = []
             for name in dirnames:
@@ -334,10 +357,10 @@ class GrepTool:
                     resolved = (Path(dirpath) / name).resolve()
                 except OSError:
                     continue
-                resolved_label = _resolved_relative_label(resolved, workspace)
+                resolved_label = _resolved_relative_label(resolved, root)
                 if resolved_label is None:
                     continue
-                if _is_ignored_or_generated(resolved_label, workspace):
+                if _is_ignored_or_generated(resolved_label, root):
                     continue
                 kept_dirs.append(name)
             dirnames[:] = kept_dirs
@@ -346,10 +369,10 @@ class GrepTool:
                     resolved = (Path(dirpath) / filename).resolve()
                 except OSError:
                     continue
-                relative = _resolved_relative_label(resolved, workspace)
+                relative = _resolved_relative_label(resolved, root)
                 if relative is None:
                     continue
-                if _is_ignored_or_generated(relative, workspace):
+                if _is_ignored_or_generated(relative, root):
                     continue
                 yield relative
 

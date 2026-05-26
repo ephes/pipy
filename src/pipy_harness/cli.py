@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -237,6 +238,18 @@ def build_parser() -> argparse.ArgumentParser:
             "pipy-session list/search/inspect. Off by default."
         ),
     )
+    repl_parser.add_argument(
+        "--read-root",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Additional read-only directory the model-driven read/ls/grep/find "
+            "tools may resolve absolute paths against. May be repeated. The "
+            "PIPY_READ_ROOTS environment variable (':'-separated) acts as the "
+            "default. Mutation tools always stay inside the workspace."
+        ),
+    )
 
     return parser
 
@@ -331,12 +344,17 @@ def main(argv: list[str] | None = None) -> int:
                         "--tool-budget must be in [1, 25]; got "
                         f"{args.tool_budget}"
                     )
+                reference_roots = _resolve_reference_roots(
+                    args.read_root,
+                    cwd=args.cwd.expanduser().resolve(),
+                )
                 repl_adapter = _tool_repl_adapter_for(
                     args.native_provider,
                     args.native_model,
                     tool_budget=args.tool_budget,
                     archive_transcript=args.archive_transcript,
                     input_runtime=args.input_runtime,
+                    reference_roots=reference_roots,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -622,6 +640,7 @@ def _tool_repl_adapter_for(
     tool_budget: int,
     archive_transcript: bool = False,
     input_runtime: str = "auto",
+    reference_roots: tuple[Path, ...] = (),
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -656,7 +675,128 @@ def _tool_repl_adapter_for(
         transcript_sink=transcript_sink,
         instruction_loader=default_workspace_instruction_loader,
         input_runtime=input_runtime,
+        reference_roots=reference_roots,
     )
+
+
+PIPY_READ_ROOTS_ENV = "PIPY_READ_ROOTS"
+_AUTO_REFERENCE_ROOT_DOCS = (
+    Path("docs") / "parity-criterion.md",
+    Path("docs") / "pi-parity.md",
+    Path("AGENTS.md"),
+)
+
+
+def _resolve_reference_roots(
+    cli_roots: list[str] | None,
+    *,
+    cwd: Path | None = None,
+) -> tuple[Path, ...]:
+    """Resolve the configured read-only reference roots for the tool loop.
+
+    Combines repeated ``--read-root`` CLI values with the ``PIPY_READ_ROOTS``
+    environment variable (``:``-separated). When no roots are configured,
+    scans a small fixed list of workspace docs (``AGENTS.md``,
+    ``docs/parity-criterion.md``, ``docs/pi-parity.md``) for ``~``-prefixed
+    absolute reference paths and auto-discovers the matching directories;
+    auto-discovery only fires when the user has not configured any explicit
+    root. Each entry is expanded (``~`` → home), resolved to an absolute
+    path, and de-duplicated while preserving order. Entries that do not
+    exist or are not directories are silently skipped so a stale env value
+    cannot break the REPL boot.
+    """
+
+    raw_entries: list[str] = []
+    if cli_roots:
+        raw_entries.extend(cli_roots)
+    env_value = os.environ.get(PIPY_READ_ROOTS_ENV, "")
+    if env_value:
+        raw_entries.extend(part for part in env_value.split(":") if part)
+
+    explicit_resolved = _resolve_root_entries(raw_entries)
+    if explicit_resolved:
+        return explicit_resolved
+    if cwd is None:
+        return ()
+    auto_entries = _scan_workspace_reference_roots(cwd)
+    return _resolve_root_entries(auto_entries)
+
+
+def _resolve_root_entries(entries: list[str]) -> tuple[Path, ...]:
+    seen: set[Path] = set()
+    resolved: list[Path] = []
+    for entry in entries:
+        candidate = Path(entry).expanduser()
+        try:
+            candidate = candidate.resolve(strict=False)
+        except OSError:
+            continue
+        if not candidate.is_absolute():
+            continue
+        if not candidate.exists() or not candidate.is_dir():
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        resolved.append(candidate)
+    return tuple(resolved)
+
+
+def _scan_workspace_reference_roots(cwd: Path) -> list[str]:
+    """Extract ``~/`` reference paths from a small fixed list of workspace docs.
+
+    Returns the deepest-existing root for each top-level directory
+    referenced by ``~/<dir>/...`` occurrences in those files. The
+    candidates are emitted at two depths (``~/<top>/<second>`` and
+    ``~/<top>``) and the existence check picks the deepest one that
+    resolves to a real directory. Only ``~``-prefixed paths are
+    considered so the scan never leaks an arbitrary absolute path from
+    a doc. Patterns under ``~/.``-prefixed config directories
+    (``~/.claude``, ``~/.codex``, ``~/.local``, ``~/.config``,
+    ``~/.pipy``) are skipped because those are pipy/agents config
+    locations, not reference repos.
+    """
+
+    import re
+
+    pattern = re.compile(
+        r"~/([A-Za-z0-9_.][A-Za-z0-9_.\-]*(?:/[A-Za-z0-9_.][A-Za-z0-9_.\-]*)*)"
+    )
+    skip_top_levels = {".claude", ".codex", ".config", ".local", ".pipy"}
+    top_to_candidates: dict[str, list[str]] = {}
+    for relative in _AUTO_REFERENCE_ROOT_DOCS:
+        candidate = cwd / relative
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for match in pattern.finditer(text):
+            segments = match.group(1).split("/")
+            top = segments[0]
+            if top in skip_top_levels:
+                continue
+            depths: list[str] = []
+            if len(segments) >= 2:
+                depths.append(f"~/{segments[0]}/{segments[1]}")
+            depths.append(f"~/{segments[0]}")
+            top_to_candidates.setdefault(top, [])
+            for entry in depths:
+                if entry not in top_to_candidates[top]:
+                    top_to_candidates[top].append(entry)
+
+    references: list[str] = []
+    for top, candidates in top_to_candidates.items():
+        del top
+        for entry in candidates:
+            resolved = Path(entry).expanduser()
+            try:
+                resolved = resolved.resolve(strict=False)
+            except OSError:
+                continue
+            if resolved.exists() and resolved.is_dir():
+                references.append(entry)
+                break
+    return references
 
 
 def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:

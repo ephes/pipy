@@ -16,9 +16,7 @@ from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
     _is_ignored_or_generated,
-    _is_relative_to,
-    _resolved_relative_label,
-    _validate_workspace_relative_path,
+    resolve_tool_path,
 )
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
@@ -56,10 +54,13 @@ class FindTool:
         return ToolDefinition(
             name="find",
             description=(
-                "Return workspace-relative paths matching a POSIX glob "
-                "pattern (for example '**/*.py'). The search root defaults "
-                "to '.' Patterns containing '..' or starting with '/' are "
-                "refused; .git and ignored matches are filtered."
+                "Return paths matching a POSIX glob pattern (for example "
+                "'**/*.py'). The search root may be workspace-relative, "
+                "'.' for the workspace root, or an absolute path under the "
+                "workspace or a configured reference root (such as a "
+                "sibling project added with --read-root). Patterns "
+                "containing '..' or starting with '/' are refused; .git "
+                "and ignored matches are filtered."
             ),
             input_schema={
                 "type": "object",
@@ -75,8 +76,9 @@ class FindTool:
                         "minLength": 1,
                         "maxLength": 1024,
                         "description": (
-                            "Workspace-relative search root; use '.' for "
-                            "the workspace root."
+                            "Workspace-relative search root, '.' for the "
+                            "workspace root, or absolute path under the "
+                            "workspace or a configured reference root."
                         ),
                     },
                 },
@@ -110,27 +112,33 @@ class FindTool:
                 field_path=("pattern",),
             )
 
-        workspace = context.workspace_root.resolve()
         if path_arg == ".":
+            workspace = context.workspace_root.resolve()
+            root = workspace
             search_root = workspace
             relative_prefix = ""
+            display_prefix = ""
         else:
             try:
-                _validate_workspace_relative_path(path_arg)
+                resolved = resolve_tool_path(
+                    path_arg,
+                    workspace_root=context.workspace_root,
+                    reference_roots=context.reference_roots,
+                )
             except ValueError as exc:
                 raise ToolArgumentError(
                     "find", str(exc), field_path=("path",)
                 ) from None
-            search_root = (workspace / path_arg).resolve()
-            relative_prefix = path_arg.rstrip("/") + "/"
-            if not _is_relative_to(search_root, workspace):
-                return self._error(request, "path escapes the workspace")
-            resolved_root_label = _resolved_relative_label(search_root, workspace)
-            if resolved_root_label is None:
-                return self._error(request, "path escapes the workspace")
+            root = resolved.root
+            search_root = resolved.resolved
+            relative_prefix = (
+                resolved.relative_label.rstrip("/") + "/"
+                if resolved.relative_label not in {"", "."}
+                else ""
+            )
             if _is_ignored_or_generated(
-                path_arg, workspace
-            ) or _is_ignored_or_generated(resolved_root_label, workspace):
+                resolved.relative_label, root
+            ):
                 return self._error(
                     request,
                     "path is ignored or under .git/generated directories",
@@ -139,6 +147,11 @@ class FindTool:
                 return self._error(request, "path does not exist")
             if not search_root.is_dir():
                 return self._error(request, "path is not a directory")
+            if resolved.is_workspace:
+                display_prefix = ""
+            else:
+                root_label = root.name or "reference-root"
+                display_prefix = root_label + "/"
 
         rows: list[str] = []
         truncated = False
@@ -149,12 +162,12 @@ class FindTool:
 
         for match in matches:
             try:
-                relative = match.resolve().relative_to(workspace).as_posix()
+                relative = match.resolve().relative_to(root).as_posix()
             except (ValueError, OSError):
                 continue
             if not relative:
                 continue
-            if _is_ignored_or_generated(relative, workspace):
+            if _is_ignored_or_generated(relative, root):
                 continue
             if relative_prefix and not (
                 relative == relative_prefix.rstrip("/")
@@ -164,7 +177,7 @@ class FindTool:
             if len(rows) >= self.max_results:
                 truncated = True
                 break
-            rows.append(relative)
+            rows.append(display_prefix + relative)
 
         output = "\n".join(rows)
         if truncated:

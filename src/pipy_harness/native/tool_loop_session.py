@@ -33,6 +33,7 @@ Invariants pinned by the focused tests:
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,7 +52,7 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderToolCall,
 )
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
     REPL_INPUT_RUNTIME_AUTO,
     NativeReplInput,
@@ -149,6 +150,7 @@ class NativeToolReplSession:
     workspace_root: Path | None = None
     transcript_sink: TranscriptSink | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
+    reference_roots: tuple[Path, ...] = field(default_factory=tuple)
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 10
     MAX_TOOL_BUDGET: ClassVar[int] = 25
@@ -194,7 +196,14 @@ class NativeToolReplSession:
             if self.transcript_sink is not None:
                 self.transcript_sink.append("diff", {"text": text})
 
-        context = ToolContext(workspace_root=cwd, stderr_sink=_stderr_sink)
+        context = ToolContext(
+            workspace_root=cwd,
+            stderr_sink=_stderr_sink,
+            reference_roots=self.reference_roots,
+        )
+        renderer = _ToolLoopRenderer(
+            output_stream=output_stream, error_stream=error_stream
+        )
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
         if self.transcript_sink is not None:
@@ -318,7 +327,14 @@ class NativeToolReplSession:
                     messages=tuple(messages),
                     available_tools=available_tools,
                 )
-                provider_result = self.provider.complete(provider_request)
+                renderer.begin_provider_turn()
+                provider_result = self.provider.complete(
+                    provider_request, stream_sink=renderer.stream_sink
+                )
+                renderer.end_provider_turn(
+                    final_text=provider_result.final_text or "",
+                    has_tool_calls=bool(provider_result.tool_calls),
+                )
                 if provider_result.status != HarnessStatus.SUCCEEDED:
                     ended_at = datetime.now(UTC)
                     error_type = provider_result.error_type or "ProviderFailed"
@@ -375,7 +391,7 @@ class NativeToolReplSession:
                     )
 
                 if not tool_calls:
-                    if provider_result.final_text:
+                    if provider_result.final_text and not renderer.streamed_any:
                         print(provider_result.final_text, file=output_stream)
                     self._print_footer(
                         error_stream,
@@ -391,6 +407,14 @@ class NativeToolReplSession:
                 for call in tool_calls:
                     if invocations_this_turn >= self.tool_budget:
                         budget_exhausted_count += 1
+                        renderer.render_tool_call(call)
+                        renderer.render_tool_result(
+                            output_text=(
+                                f"tool budget exhausted "
+                                f"(limit {self.tool_budget})"
+                            ),
+                            is_error=True,
+                        )
                         messages.append(
                             self._error_observation(
                                 call=call,
@@ -402,7 +426,12 @@ class NativeToolReplSession:
                         )
                         continue
 
+                    renderer.render_tool_call(call)
                     observation = self._invoke(call=call, context=context)
+                    renderer.render_tool_result(
+                        output_text=observation.output_text,
+                        is_error=observation.is_error,
+                    )
                     if observation.is_error:
                         malformed_argument_count += 1
                         consecutive_malformed_streak += 1
@@ -618,6 +647,146 @@ class NativeToolReplSession:
             is_error=True,
             provider_correlation_id=call.provider_correlation_id,
         )
+
+
+class _ToolLoopRenderer:
+    """Pi-parity live rendering for the bounded tool loop.
+
+    Streams provider text deltas to ``error_stream`` as they arrive, then
+    paints a styled header/body block around each tool invocation. Falls
+    back to plain text on non-TTY streams or when ``NO_COLOR`` is set,
+    so captured logs stay deterministic and tests can pin behavior.
+
+    Style intent:
+    - Streamed assistant text: dim cyan italic prefix `assistant >`, then
+      raw deltas printed verbatim (the provider already shapes the text).
+    - Tool call header: italic green prefix `→ <tool>(<arg-preview>)`.
+    - Tool result body: dim/quiet block prefixed with `↳`, indented two
+      spaces per line, with a leading `[error]` tag on failures.
+
+    The renderer exposes ``streamed_any`` so the loop can avoid double-
+    printing the final buffered text when streaming already covered it.
+    """
+
+    _ANSI_DIM = "\x1b[2m"
+    _ANSI_ITALIC = "\x1b[3m"
+    _ANSI_GREEN = "\x1b[32m"
+    _ANSI_RED = "\x1b[31m"
+    _ANSI_CYAN = "\x1b[36m"
+    _ANSI_RESET = "\x1b[0m"
+
+    _RESULT_LINE_PREVIEW_MAX_LENGTH = 12
+    _ARGUMENT_VALUE_PREVIEW_LIMIT = 80
+
+    def __init__(
+        self,
+        *,
+        output_stream: TextIO,
+        error_stream: TextIO,
+    ) -> None:
+        self._output_stream = output_stream
+        self._error_stream = error_stream
+        self._enabled = self._compute_enabled(error_stream)
+        self._stream_active = False
+        self._stream_emitted_any = False
+        self._streamed_any = False
+
+    @staticmethod
+    def _compute_enabled(stream: TextIO) -> bool:
+        if "NO_COLOR" in os.environ:
+            return False
+        term = os.environ.get("TERM", "").lower()
+        if term == "dumb":
+            return False
+        return bool(getattr(stream, "isatty", lambda: False)())
+
+    @property
+    def streamed_any(self) -> bool:
+        return self._streamed_any
+
+    @property
+    def stream_sink(self) -> StreamChunkSink:
+        return self._handle_stream_chunk
+
+    def begin_provider_turn(self) -> None:
+        self._stream_active = False
+        self._stream_emitted_any = False
+
+    def end_provider_turn(
+        self, *, final_text: str, has_tool_calls: bool
+    ) -> None:
+        del has_tool_calls
+        if self._stream_active:
+            # Flush a trailing newline so the next render block starts
+            # on its own line, even when the provider did not emit one.
+            if not self._stream_emitted_any or not final_text.endswith("\n"):
+                self._output_stream.write("\n")
+                self._output_stream.flush()
+        self._stream_active = False
+
+    def _handle_stream_chunk(self, chunk: str) -> None:
+        if not chunk:
+            return
+        if not self._stream_active:
+            self._stream_active = True
+            prefix = self._style("assistant > ", self._ANSI_DIM + self._ANSI_CYAN)
+            self._output_stream.write(prefix)
+        self._output_stream.write(chunk)
+        self._output_stream.flush()
+        self._stream_emitted_any = True
+        self._streamed_any = True
+
+    def render_tool_call(self, call: ProviderToolCall) -> None:
+        preview = self._argument_preview(call.arguments_json)
+        header = f"→ {call.tool_name}({preview})"
+        styled = self._style(header, self._ANSI_ITALIC + self._ANSI_GREEN)
+        self._error_stream.write(styled + "\n")
+        self._error_stream.flush()
+
+    def render_tool_result(self, *, output_text: str, is_error: bool) -> None:
+        if is_error:
+            head = self._style("↳ [error]", self._ANSI_RED + self._ANSI_DIM)
+        else:
+            head = self._style("↳", self._ANSI_DIM + self._ANSI_GREEN)
+        lines = output_text.splitlines() or [""]
+        preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+        more = len(lines) - len(preview_lines)
+        for line in preview_lines:
+            styled_body = self._style("  " + line, self._ANSI_DIM)
+            self._error_stream.write(f"{head} {styled_body}\n")
+            head = self._style(" ", self._ANSI_DIM)
+        if more > 0:
+            footer = self._style(f"  … (+{more} more line(s))", self._ANSI_DIM)
+            self._error_stream.write(f"{head} {footer}\n")
+        self._error_stream.flush()
+
+    def _argument_preview(self, arguments_json: str) -> str:
+        try:
+            data = json.loads(arguments_json)
+        except (json.JSONDecodeError, ValueError):
+            preview = arguments_json.strip()
+            if len(preview) > self._ARGUMENT_VALUE_PREVIEW_LIMIT:
+                preview = preview[: self._ARGUMENT_VALUE_PREVIEW_LIMIT] + "…"
+            return preview
+        if not isinstance(data, dict):
+            return ""
+        pieces: list[str] = []
+        for key, value in data.items():
+            if isinstance(value, str):
+                value_repr = value
+                if len(value_repr) > self._ARGUMENT_VALUE_PREVIEW_LIMIT:
+                    value_repr = value_repr[: self._ARGUMENT_VALUE_PREVIEW_LIMIT] + "…"
+                pieces.append(f'{key}="{value_repr}"')
+            elif isinstance(value, (int, float, bool)) or value is None:
+                pieces.append(f"{key}={value}")
+            else:
+                pieces.append(f"{key}=…")
+        return ", ".join(pieces)
+
+    def _style(self, text: str, code: str) -> str:
+        if not self._enabled:
+            return text
+        return f"{code}{text}{self._ANSI_RESET}"
 
 
 __all__ = [

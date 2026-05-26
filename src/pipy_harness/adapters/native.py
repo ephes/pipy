@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import TextIO
 
 from pipy_harness.adapters.base import EventSink
@@ -14,7 +15,7 @@ from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
-    NATIVE_BOOTSTRAP_SYSTEM_PROMPT,
+    NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
     NativeAgentSession,
     NativeNoToolReplSession,
     SYSTEM_PROMPT_ID,
@@ -255,6 +256,7 @@ class PipyNativeToolReplAdapter:
         transcript_sink: TranscriptSink | None = None,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
+        reference_roots: tuple[Path, ...] = (),
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -272,6 +274,16 @@ class PipyNativeToolReplAdapter:
         self.transcript_sink = transcript_sink
         self.instruction_loader = instruction_loader
         self.input_runtime = input_runtime
+        for root in reference_roots:
+            if not isinstance(root, Path):
+                raise ValueError(
+                    "PipyNativeToolReplAdapter reference_roots entries must be Path"
+                )
+            if not root.is_absolute():
+                raise ValueError(
+                    "PipyNativeToolReplAdapter reference_roots entries must be absolute"
+                )
+        self.reference_roots = tuple(reference_roots)
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -310,8 +322,14 @@ class PipyNativeToolReplAdapter:
                 "tool-capable provider"
             )
         discovery = self.instruction_loader(prepared.cwd)
+        base_prompt = NATIVE_TOOL_LOOP_SYSTEM_PROMPT
+        if self.reference_roots:
+            ref_lines = ["", "Reference roots (read-only, absolute paths):"]
+            for root in self.reference_roots:
+                ref_lines.append(f"- {root}")
+            base_prompt = base_prompt + "\n" + "\n".join(ref_lines)
         composed_system_prompt = compose_system_prompt(
-            NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
+            base_prompt, discovery
         )
         instruction_metadata = workspace_instruction_safe_metadata(discovery)
         event_sink.emit(
@@ -333,6 +351,7 @@ class PipyNativeToolReplAdapter:
             tool_budget=self.tool_budget,
             transcript_sink=self.transcript_sink,
             input_runtime=self.input_runtime,
+            reference_roots=self.reference_roots,
         )
         try:
             run_output = session.run(

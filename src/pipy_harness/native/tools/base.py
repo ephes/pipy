@@ -217,10 +217,18 @@ class ToolContext:
     The default is `None`, in which case mutation tools fall back to
     discarding the diff. The archive boundary is unrelated; diffs never
     cross it from inside the tool.
+
+    `reference_roots` is a tuple of additional absolute directories that
+    read-only tools (`read`, `ls`, `grep`, `find`) may resolve absolute
+    paths against. Mutation tools (`write`, `edit`, `edit_diff`) ignore
+    this tuple and remain workspace-only. Reference roots reuse the
+    workspace `.git`/symlink/secret-content defenses; they are read-only
+    inspection roots, not additional write surfaces.
     """
 
     workspace_root: Path
     stderr_sink: Callable[[str], None] | None = field(default=None)
+    reference_roots: tuple[Path, ...] = field(default=())
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):
@@ -229,6 +237,17 @@ class ToolContext:
             raise ValueError("ToolContext.workspace_root must be absolute")
         if self.stderr_sink is not None and not callable(self.stderr_sink):
             raise ValueError("ToolContext.stderr_sink must be callable or None")
+        if not isinstance(self.reference_roots, tuple):
+            raise ValueError("ToolContext.reference_roots must be a tuple")
+        for root in self.reference_roots:
+            if not isinstance(root, Path):
+                raise ValueError(
+                    "ToolContext.reference_roots entries must be Path"
+                )
+            if not root.is_absolute():
+                raise ValueError(
+                    "ToolContext.reference_roots entries must be absolute"
+                )
 
 
 @runtime_checkable

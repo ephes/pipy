@@ -19,9 +19,8 @@ from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
     _is_ignored_or_generated,
-    _is_relative_to,
     _resolved_relative_label,
-    _validate_workspace_relative_path,
+    resolve_tool_path,
 )
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
@@ -59,11 +58,13 @@ class LsTool:
         return ToolDefinition(
             name="ls",
             description=(
-                "List direct children of a workspace-relative directory. "
-                "Returns up to a bounded number of entries; paths under .git "
-                "or matching .gitignore are refused; absolute paths and "
-                "parent traversal are refused. Use '.' to list the workspace "
-                "root."
+                "List direct children of a directory. Paths may be "
+                "workspace-relative POSIX paths, '.' for the workspace root, "
+                "or absolute paths that lie under the workspace or a "
+                "configured reference root (such as a sibling project added "
+                "with --read-root). Returns up to a bounded number of "
+                "entries; paths under .git or matching .gitignore are "
+                "refused; parent traversal is refused."
             ),
             input_schema={
                 "type": "object",
@@ -73,8 +74,9 @@ class LsTool:
                         "minLength": 1,
                         "maxLength": 1024,
                         "description": (
-                            "Workspace-relative POSIX path to the directory. "
-                            "Use '.' for the workspace root."
+                            "Workspace-relative POSIX path, '.' for the "
+                            "workspace root, or absolute path under the "
+                            "workspace or a configured reference root."
                         ),
                     },
                 },
@@ -87,31 +89,43 @@ class LsTool:
         self, request: ToolRequest, context: ToolContext
     ) -> ToolExecutionResult:
         path_arg = request.arguments["path"]
-        workspace = context.workspace_root.resolve()
         if path_arg == ".":
-            target = workspace
+            target = context.workspace_root.resolve()
+            root = target
             relative_prefix = ""
+            display_prefix = ""
         else:
             try:
-                _validate_workspace_relative_path(path_arg)
+                resolved = resolve_tool_path(
+                    path_arg,
+                    workspace_root=context.workspace_root,
+                    reference_roots=context.reference_roots,
+                )
             except ValueError as exc:
                 raise ToolArgumentError(
                     "ls", str(exc), field_path=("path",)
                 ) from None
-            target = (workspace / path_arg).resolve()
-            relative_prefix = path_arg.rstrip("/") + "/"
-            if not _is_relative_to(target, workspace):
-                return self._error(request, "path escapes the workspace")
-            target_label = _resolved_relative_label(target, workspace)
-            if target_label is None:
-                return self._error(request, "path escapes the workspace")
+            target = resolved.resolved
+            root = resolved.root
             if _is_ignored_or_generated(
-                path_arg, workspace
-            ) or _is_ignored_or_generated(target_label, workspace):
+                resolved.relative_label, root
+            ):
                 return self._error(
                     request,
                     "path is ignored or under .git/generated directories",
                 )
+            relative_prefix = (
+                resolved.relative_label.rstrip("/") + "/"
+                if resolved.relative_label not in {"", "."}
+                else ""
+            )
+            display_prefix = (
+                resolved.display_label.rstrip("/") + "/"
+                if resolved.display_label not in {"", "."}
+                else resolved.display_label
+            )
+            if display_prefix and not display_prefix.endswith("/"):
+                display_prefix = display_prefix + "/"
 
         if not target.exists():
             return self._error(request, "directory does not exist")
@@ -127,17 +141,17 @@ class LsTool:
         truncated = False
         for child in children:
             relative_child = relative_prefix + child.name
-            if _is_ignored_or_generated(relative_child, workspace):
+            if _is_ignored_or_generated(relative_child, root):
                 continue
             try:
                 resolved_child_label = _resolved_relative_label(
-                    child.resolve(), workspace
+                    child.resolve(), root
                 )
             except OSError:
                 resolved_child_label = None
             if resolved_child_label is None:
                 continue
-            if _is_ignored_or_generated(resolved_child_label, workspace):
+            if _is_ignored_or_generated(resolved_child_label, root):
                 continue
             if len(rows) >= self.max_entries:
                 truncated = True
@@ -151,7 +165,8 @@ class LsTool:
                     label = "other"
             except OSError:
                 label = "other"
-            rows.append(f"{label} {relative_child}")
+            display_child = display_prefix + child.name
+            rows.append(f"{label} {display_child}")
 
         output = "\n".join(rows)
         if truncated:

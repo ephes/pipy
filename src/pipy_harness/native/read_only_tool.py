@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -535,12 +536,179 @@ def _source_hash(relative_path: str) -> str:
     return hashlib.sha256(relative_path.encode("utf-8")).hexdigest()
 
 
+_SECRET_CONTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?key|auth[_-]?token|"
+        r"bearer[_-]?token|refresh[_-]?token|password|passwd|credential|"
+        r"private[_-]?key)[A-Za-z0-9_-]*\s*[:=]\s*[\"']?[A-Za-z0-9_+/=.\-]{16,}"
+    ),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"ASIA[0-9A-Z]{16}"),
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[abrsp]-[A-Za-z0-9_-]{10,}"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+)
+
+
+def has_secret_shaped_content(text: str) -> bool:
+    """Detect content with secret-shaped values, not just mention of words.
+
+    The old ``looks_sensitive`` substring matcher in
+    ``pipy_harness.capture`` refuses any document that contains the words
+    ``token``, ``secret``, ``password``, etc. That is appropriate for
+    capture-side argv/env scrubbing, but it makes the model-driven
+    ``read``/``grep`` tools refuse any documentation that simply
+    discusses authentication.
+
+    This stricter check looks for actual secret-shaped values: long
+    high-entropy strings assigned to a secret-named key, well-known
+    provider key prefixes (AWS, OpenAI, GitHub, Slack), JWT-like
+    segments, or `-----BEGIN ... PRIVATE KEY-----` blocks. Prose that
+    mentions the words without an attached secret value passes through.
+    """
+
+    for pattern in _SECRET_CONTENT_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
+
 def _is_relative_to(candidate: Path, workspace: Path) -> bool:
     try:
         candidate.relative_to(workspace)
     except ValueError:
         return False
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedToolPath:
+    """A safely resolved tool path with its containing root.
+
+    Returned by `resolve_tool_path` for the bounded read-only model-driven
+    tool loop. `root` is the workspace or the matching reference root the
+    candidate lives under. `relative_label` is the POSIX path relative to
+    that root (used for `.gitignore`/`.git` checks and for the model-visible
+    output). `display_label` is the user-facing label: the relative label
+    for workspace paths, or `<root_label>/<relative_label>` for reference
+    roots, where `root_label` is the root's directory name (no home or
+    full path is leaked into model-visible text).
+
+    `is_workspace` lets mutation-adjacent tools refuse a non-workspace
+    target without re-parsing the root.
+    """
+
+    resolved: Path
+    root: Path
+    relative_label: str
+    display_label: str
+    is_workspace: bool
+
+
+def resolve_tool_path(
+    path_arg: str,
+    *,
+    workspace_root: Path,
+    reference_roots: tuple[Path, ...] = (),
+) -> ResolvedToolPath:
+    """Resolve a tool path argument against the workspace or a reference root.
+
+    Accepts either:
+    - A workspace-relative path (no leading slash, no parent traversal),
+      resolved against ``workspace_root``.
+    - An absolute path that resolves under ``workspace_root`` or under
+      any ``reference_roots`` entry.
+
+    Both forms reuse the existing `.git`/`.gitignore`/symlink/secret
+    defenses through ``_is_ignored_or_generated`` checks performed by
+    callers using ``relative_label``.
+
+    Raises ``ValueError`` on shell-expansion characters, control chars,
+    nul bytes, parent traversal, paths outside every allowed root, or
+    paths that fail the workspace-relative validation contract for
+    relative inputs.
+    """
+
+    if not isinstance(path_arg, str):
+        raise ValueError("path must be a string")
+    stripped = path_arg.strip()
+    if not stripped or stripped != path_arg:
+        raise ValueError("path must be non-empty and normalized")
+    if "\x00" in path_arg or "\\" in path_arg:
+        raise ValueError("path must use normalized separators")
+    if any(ord(char) < 32 for char in path_arg):
+        raise ValueError("path must not contain control characters")
+    if "~" in path_arg and not path_arg.startswith("~"):
+        # Tilde is only allowed as a leading home-expansion marker. Mid-path
+        # `~` would not expand under Path.expanduser, but accepting it would
+        # widen the visible surface for path tricks; refuse it explicitly.
+        raise ValueError("path may only use '~' as a leading home marker")
+    forbidden = _SHELLISH_MARKERS - {"~"}
+    if any(char in path_arg for char in forbidden):
+        raise ValueError("path must not use shell expansion")
+
+    workspace = workspace_root.resolve()
+    refs = tuple(root.resolve() for root in reference_roots)
+
+    expanded = path_arg
+    if expanded.startswith("~"):
+        expanded = str(Path(expanded).expanduser())
+
+    posix_path = PurePosixPath(expanded)
+    if posix_path.is_absolute() or expanded.startswith("/"):
+        candidate = Path(expanded).resolve()
+        return _resolve_against_roots(candidate, workspace, refs)
+
+    # Relative path: workspace-only.
+    _validate_workspace_relative_path(path_arg)
+    candidate = (workspace / path_arg).resolve()
+    if not _is_relative_to(candidate, workspace):
+        raise ValueError("path escapes the workspace")
+    relative = candidate.relative_to(workspace).as_posix()
+    return ResolvedToolPath(
+        resolved=candidate,
+        root=workspace,
+        relative_label=relative,
+        display_label=relative,
+        is_workspace=True,
+    )
+
+
+def _resolve_against_roots(
+    candidate: Path,
+    workspace: Path,
+    reference_roots: tuple[Path, ...],
+) -> ResolvedToolPath:
+    if _is_relative_to(candidate, workspace):
+        relative = candidate.relative_to(workspace).as_posix()
+        return ResolvedToolPath(
+            resolved=candidate,
+            root=workspace,
+            relative_label=relative,
+            display_label=relative,
+            is_workspace=True,
+        )
+    for ref_root in reference_roots:
+        if _is_relative_to(candidate, ref_root):
+            relative = candidate.relative_to(ref_root).as_posix()
+            root_label = ref_root.name or "reference-root"
+            display = (
+                f"{root_label}/{relative}"
+                if relative not in {"", "."}
+                else root_label
+            )
+            return ResolvedToolPath(
+                resolved=candidate,
+                root=ref_root,
+                relative_label=relative,
+                display_label=display,
+                is_workspace=False,
+            )
+    raise ValueError(
+        "path is outside the workspace and any configured reference root"
+    )
 
 
 def _duration_seconds(started_at: datetime, ended_at: datetime) -> float:

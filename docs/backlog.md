@@ -2150,6 +2150,83 @@ it lands. They are not later slices of this track:
 
 ## Next Slice
 
+### Pi-shape live REPL: streaming, tool blocks, cross-repo inspection (landed 2026-05-26)
+
+Goal: bring the bounded `pipy repl --repl-mode tool-loop` surface to
+Pi-class interactive parity for the "where are we regarding feature
+parity?" target prompt. Before this slice the default `pipy` REPL
+selected the tool-loop adapter but the system prompt instructed the
+model "do not execute tools", the provider call never streamed text,
+no tool invocation was visible to the user, and every read-only tool
+rejected absolute paths so `~/src/pi-mono` was unreachable.
+
+Implemented:
+
+- `pipy_harness.native.session.NATIVE_TOOL_LOOP_SYSTEM_PROMPT`: a
+  tool-encouraging system prompt that names the available tools, lists
+  the configured reference roots, and tells the model to inspect
+  rather than guess. `PipyNativeToolReplAdapter` now composes this
+  prompt with `compose_system_prompt` so workspace instructions and
+  reference-root labels surface together.
+- `pipy_harness.native.tool_loop_session._ToolLoopRenderer`: a small
+  ANSI-aware renderer that streams provider text deltas with a dim
+  `assistant >` prefix on the output stream and paints `→ <tool>(args)`
+  / `↳ <preview>` blocks on the error stream. Errors get a red
+  `↳ [error]` tag and large bodies truncate after twelve lines with a
+  `… (+N more line(s))` marker. ANSI is gated on TTY detection and
+  `NO_COLOR`; captured streams stay readable.
+- `pipy_harness.native.tools.base.ToolContext.reference_roots`: an
+  immutable tuple of additional read-only roots. Mutation tools keep
+  the workspace-only boundary; the read-only tools (`read`, `ls`,
+  `grep`, `find`) resolve absolute paths under workspace or any
+  reference root via the new
+  `pipy_harness.native.read_only_tool.resolve_tool_path` helper. The
+  helper rejects shell expansion, parent traversal, and control
+  characters; the existing `.git`/`.gitignore`/symlink defenses are
+  reused untouched.
+- `pipy_harness.native.read_only_tool.has_secret_shaped_content`: a
+  shape-based secret detector that replaces the substring-only
+  `looks_sensitive` check inside the model-driven `read`/`grep` tools.
+  Prose discussing auth passes; `api_key=<long-value>`, AWS access
+  key IDs (`AKIA…`, `ASIA…`), OpenAI keys (`sk-…`), Slack tokens
+  (`xox?-…`), JWTs, and PEM private-key blocks are still refused.
+  The capture-side `looks_sensitive` keeps its broader argv/env
+  scrubbing role; this helper is scoped to file content.
+- `pipy repl --read-root <PATH>` (repeatable) plus the
+  `PIPY_READ_ROOTS=:`-separated env var, with auto-discovery of
+  `~/<dir>` paths mentioned in `AGENTS.md`,
+  `docs/parity-criterion.md`, and `docs/pi-parity.md`. The deepest
+  existing path per top-level segment wins, so
+  `~/src/pi-mono/packages/...` references collapse to `~/src/pi-mono`
+  while `~/.claude` and `~/.codex` config locations are skipped.
+- 24 focused unit + integration tests cover the renderer states, the
+  path resolver, the secret-shape check, the reference-root resolver
+  (CLI flag, env var, auto-discovery, dedupe, explicit-overrides), and
+  a pseudo-TTY integration test that proves incremental streaming and
+  styled tool blocks on a real PTY.
+
+Pinned invariants:
+
+- the tool-loop session keeps its metadata-first archive contract; no
+  prompts, model text, tool payloads, file contents, or diffs cross
+  the archive boundary
+- `production_tool_registry()` still excludes `bash`; the
+  reference-root expansion is read-only
+- the streaming output already wired by `pipy run --stream` keeps its
+  stdout/stderr split for automation use; the REPL renderer only
+  affects the interactive `pipy` / `pipy repl --repl-mode tool-loop`
+  surface
+- mutation tools (`write`, `edit`, `edit_diff`) ignore
+  `reference_roots` and remain workspace-only; reference roots are an
+  inspection surface, not a write surface
+- `just check` stays green (1085 passed + 2 skipped on macOS)
+
+Captured live behavior is stored under
+`docs/audit/2026-05-26/`: `pipy-default-after.log` shows the live
+streaming and tool blocks; `pi-print-before.log` is the parallel
+`pi -p` reference; `gap-analysis.md` documents the root causes that
+this slice closed.
+
 ### Choose the next pipy-native direction after the 49/50 parity closure
 
 Goal: pick the next reviewable boundary now that the locked

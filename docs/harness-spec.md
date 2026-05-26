@@ -3679,8 +3679,12 @@ after it lands. They are not later slices of this track:
   assistant text deltas are surfaced.
 - Streaming thinking/reasoning deltas. Pi's stream emits
   `thinking_delta`; pipy stays metadata-only on thinking content.
-- Streaming in `--repl-mode no-tool` and `--repl-mode tool-loop`.
-  The initial track wires `pipy run` only.
+- Streaming in `--repl-mode no-tool`. The initial track wired
+  `pipy run` only; streaming in `--repl-mode tool-loop` (and therefore
+  in the default `pipy` REPL on tool-capable providers) is now
+  implemented through `_ToolLoopRenderer` in
+  `pipy_harness.native.tool_loop_session`. The no-tool REPL remains
+  buffered.
 - Streaming for providers other than `openai-codex`; the other
   eleven adapters stay on their buffered paths in this track.
 - Image, binary, or multimodal chunks; the sink carries text only.
@@ -3712,12 +3716,13 @@ For the current task-slice backlog and next-step ordering, see
   deferred.
 - Multi-agent task delegation.
 - Long-running dev server.
-- Live runtime wiring for the helpers that landed in the 49/50 parity
-  closure: streaming text deltas in `--repl-mode no-tool` and
-  `--repl-mode tool-loop`, real vision-provider serialization for
-  `ProviderRequest.image_attachments`, tool-loop invocation of
-  `compact_loop_messages`, and recorder integration that writes a
-  `session.branched_from` lifecycle event from `branch_from(...)`.
+- Live runtime wiring for the remaining helpers that landed in the
+  49/50 parity closure: streaming text deltas in `--repl-mode no-tool`
+  (the tool-loop wiring is now live), real vision-provider
+  serialization for `ProviderRequest.image_attachments`, tool-loop
+  invocation of `compact_loop_messages`, and recorder integration that
+  writes a `session.branched_from` lifecycle event from
+  `branch_from(...)`.
 
 ## Open Questions
 
