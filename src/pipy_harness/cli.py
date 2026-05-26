@@ -198,8 +198,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=SUPPORTED_REPL_INPUT_RUNTIMES,
         default="auto",
         help=(
-            "Native REPL input runtime. auto uses prompt-toolkit only when it is "
-            "available on real TTY streams, otherwise plain stdin/stderr."
+            "Native REPL input runtime. auto prefers prompt-toolkit when it is "
+            "available on real TTY streams, then falls back to the stdlib "
+            "readline editor (Tab completion, no external deps), and finally "
+            "to plain stdin/stderr."
         ),
     )
     repl_parser.add_argument(

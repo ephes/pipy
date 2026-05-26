@@ -9,18 +9,22 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.repl_input import (
+    DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS,
     DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS,
     DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
     REPL_INPUT_RUNTIME_AUTO,
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+    REPL_INPUT_RUNTIME_READLINE,
     PlainNativeReplInput,
     PromptToolkitNativeReplInput,
     PromptToolkitReplCompleter,
     PromptToolkitSlashCommandCompleter,
+    ReadlineNativeReplInput,
     ReplInputUnavailableError,
     _prompt_toolkit_multiline_key_bindings,
+    _readline_backend_is_libedit,
     native_repl_input_for,
 )
 from pipy_harness.native.session import _REPL_COMMAND_GROUPS
@@ -104,6 +108,7 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
             input,
             output,
             completer,
+            complete_while_typing,
             multiline,
             prompt_continuation,
             key_bindings,
@@ -111,12 +116,19 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
             created["input"] = input
             created["output"] = output
             created["completer"] = completer
+            created["complete_while_typing"] = complete_while_typing
             created["multiline"] = multiline
             created["prompt_continuation"] = prompt_continuation
             created["key_bindings"] = key_bindings
 
-        def prompt(self, prompt_label: str) -> str:
+        def prompt(self, prompt_label: str, **kwargs) -> str:
             created["prompt_label"] = prompt_label
+            existing = created.get("bottom_toolbar_history")
+            history: list[object] = (
+                list(existing) if isinstance(existing, list) else []
+            )
+            history.append(kwargs.get("bottom_toolbar"))
+            created["bottom_toolbar_history"] = history
             return "edited\ninput"
 
     prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)
@@ -192,6 +204,7 @@ def test_prompt_toolkit_repl_input_disables_cursor_position_requests(
             input,
             output,
             completer,
+            complete_while_typing,
             multiline,
             prompt_continuation,
             key_bindings,
@@ -230,7 +243,7 @@ def test_prompt_toolkit_repl_input_disables_cursor_position_requests(
     assert fake_output.enable_cpr is False
 
 
-def test_auto_repl_input_falls_back_to_plain_when_prompt_toolkit_initialization_fails(
+def test_auto_repl_input_falls_back_to_readline_when_prompt_toolkit_initialization_fails(
     monkeypatch,
 ) -> None:
     tty_input = TtyStringIO("/exit\n")
@@ -266,6 +279,28 @@ def test_auto_repl_input_falls_back_to_plain_when_prompt_toolkit_initialization_
     repl_input = native_repl_input_for(
         input_stream=tty_input,
         error_stream=tty_error,
+        input_runtime=REPL_INPUT_RUNTIME_AUTO,
+    )
+
+    assert isinstance(repl_input, ReadlineNativeReplInput)
+    assert repl_input.runtime_label == REPL_INPUT_RUNTIME_READLINE
+
+
+def test_auto_repl_input_falls_back_to_plain_when_readline_streams_unavailable(
+    monkeypatch,
+) -> None:
+    captured_input = StringIO("/exit\n")
+    captured_error = StringIO()
+    monkeypatch.delitem(sys.modules, "prompt_toolkit", raising=False)
+    monkeypatch.setitem(
+        sys.modules,
+        "prompt_toolkit",
+        types.SimpleNamespace(PromptSession=object),
+    )
+
+    repl_input = native_repl_input_for(
+        input_stream=captured_input,
+        error_stream=captured_error,
         input_runtime=REPL_INPUT_RUNTIME_AUTO,
     )
 
@@ -599,3 +634,249 @@ def test_prompt_toolkit_slash_command_completions_match_repl_help_commands() -> 
     )
 
     assert DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS == expected_commands
+
+
+class FakeCompletionWithMeta:
+    """Completion stub that records the description metadata."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        start_position: int,
+        display_meta: str = "",
+    ) -> None:
+        self.text = text
+        self.start_position = start_position
+        self.display_meta = display_meta
+
+
+def test_repl_completer_offers_full_menu_on_empty_input_with_descriptions() -> None:
+    """Empty input must surface the full slash-command menu with descriptions."""
+
+    completer = PromptToolkitReplCompleter(FakeCompletionWithMeta)
+
+    matches = list(completer.get_completions(FakeDocument(""), None))
+
+    assert [match.text for match in matches] == list(
+        DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    )
+    assert {match.start_position for match in matches} == {0}
+    for match in matches:
+        assert match.display_meta == DEFAULT_REPL_COMMAND_DESCRIPTIONS[match.text]
+
+
+def test_repl_completer_attaches_descriptions_to_slash_command_completions() -> None:
+    completer = PromptToolkitReplCompleter(FakeCompletionWithMeta)
+
+    matches = list(completer.get_completions(FakeDocument("/r"), None))
+
+    assert [match.text for match in matches] == ["/read"]
+    assert matches[0].display_meta == DEFAULT_REPL_COMMAND_DESCRIPTIONS["/read"]
+
+
+def test_repl_completer_descriptions_cover_every_default_command() -> None:
+    for command_name in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS:
+        description = DEFAULT_REPL_COMMAND_DESCRIPTIONS[command_name]
+        assert description, f"missing description for {command_name}"
+        assert command_name.strip("/") not in description.lower() or len(description) > 5
+
+
+def test_readline_repl_input_matches_for_empty_input_returns_all_commands() -> None:
+    instance = ReadlineNativeReplInput(error_stream=StringIO())
+    matches = instance.matches_for("")
+
+    assert matches == list(DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS)
+
+
+def test_readline_repl_input_matches_for_slash_prefix_filters_commands() -> None:
+    instance = ReadlineNativeReplInput(error_stream=StringIO())
+    matches = instance.matches_for("/r")
+
+    assert matches == ["/read"]
+
+
+def test_readline_repl_input_matches_for_non_command_text_returns_empty() -> None:
+    instance = ReadlineNativeReplInput(error_stream=StringIO())
+
+    assert instance.matches_for("hello") == []
+
+
+def test_readline_repl_input_completer_returns_matches_sequentially() -> None:
+    instance = ReadlineNativeReplInput(error_stream=StringIO())
+
+    first = instance._completer("/e", 0)
+    second = instance._completer("/e", 1)
+
+    # /exit is the only match for /e — second call must return None.
+    assert first == "/exit"
+    assert second is None
+
+
+def test_readline_repl_input_display_matches_writes_command_descriptions() -> None:
+    error_stream = StringIO()
+    instance = ReadlineNativeReplInput(error_stream=error_stream)
+
+    instance._display_matches("/", ["/help", "/read"], longest_match_length=5)
+
+    rendered = error_stream.getvalue()
+    assert "/help" in rendered
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/help"] in rendered
+    assert "/read" in rendered
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/read"] in rendered
+
+
+def test_readline_native_repl_input_rejects_captured_streams() -> None:
+    with pytest.raises(ReplInputUnavailableError, match="TTY streams"):
+        ReadlineNativeReplInput.create(
+            input_stream=StringIO(),
+            error_stream=StringIO(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("docstring", "expected_libedit"),
+    [
+        (
+            "Importing this module enables command line editing using libedit readline.",
+            True,
+        ),
+        (
+            "GNU readline library; importing this module enables command line editing.",
+            False,
+        ),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_readline_backend_libedit_detection(docstring, expected_libedit) -> None:
+    module = types.SimpleNamespace(__doc__=docstring)
+
+    assert _readline_backend_is_libedit(module) is expected_libedit
+
+
+def test_readline_native_repl_input_close_restores_saved_completer() -> None:
+    """``close()`` must restore the readline completer the adapter overwrote."""
+
+    captured_calls: dict[str, object] = {}
+
+    def fake_completer(_text: str, _state: int) -> str | None:
+        return None
+
+    fake_module = types.SimpleNamespace(
+        __doc__="GNU readline",
+        get_completer=lambda: fake_completer,
+        get_completer_delims=lambda: " \t",
+        set_completer=lambda value: captured_calls.__setitem__("completer", value),
+        set_completer_delims=lambda value: captured_calls.__setitem__("delims", value),
+        parse_and_bind=lambda value: captured_calls.__setitem__("bind", value),
+        set_completion_display_matches_hook=lambda value: captured_calls.__setitem__(
+            "display_hook", value
+        ),
+    )
+    instance = ReadlineNativeReplInput(error_stream=StringIO())
+    instance._readline_module = fake_module
+    instance._saved_state = {
+        "completer": fake_completer,
+        "completer_delims": " \t",
+        "display_matches_hook_installed": True,
+    }
+
+    instance.close()
+
+    assert captured_calls["completer"] is fake_completer
+    assert captured_calls["delims"] == " \t"
+    assert captured_calls["display_hook"] is None
+    # Calling close again must be a safe no-op.
+    captured_calls.clear()
+    instance.close()
+    assert captured_calls == {}
+
+
+def test_explicit_readline_runtime_rejects_captured_streams() -> None:
+    with pytest.raises(ReplInputUnavailableError, match="TTY streams"):
+        native_repl_input_for(
+            input_stream=StringIO(),
+            error_stream=StringIO(),
+            input_runtime=REPL_INPUT_RUNTIME_READLINE,
+        )
+
+
+def test_auto_runtime_falls_back_to_readline_on_real_tty_when_prompt_toolkit_missing(
+    monkeypatch,
+) -> None:
+    tty_input = TtyStringIO()
+    tty_error = TtyStringIO()
+    monkeypatch.setattr(sys, "stdin", tty_input)
+    monkeypatch.setattr(sys, "stderr", tty_error)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", None)
+
+    repl_input = native_repl_input_for(
+        input_stream=tty_input,
+        error_stream=tty_error,
+        input_runtime=REPL_INPUT_RUNTIME_AUTO,
+    )
+
+    assert isinstance(repl_input, ReadlineNativeReplInput)
+    assert repl_input.runtime_label == REPL_INPUT_RUNTIME_READLINE
+
+
+def test_prompt_toolkit_read_line_forwards_footer_as_bottom_toolbar(
+    monkeypatch, tmp_path
+) -> None:
+    tty_input = TtyStringIO()
+    tty_error = TtyStringIO()
+    created: dict[str, object] = {}
+
+    class FakePromptSession:
+        def __init__(
+            self,
+            *,
+            input,
+            output,
+            completer,
+            complete_while_typing,
+            multiline,
+            prompt_continuation,
+            key_bindings,
+        ) -> None:
+            created["complete_while_typing"] = complete_while_typing
+
+        def prompt(self, prompt_label: str, **kwargs) -> str:
+            created["prompt_label"] = prompt_label
+            toolbar = kwargs.get("bottom_toolbar")
+            created["bottom_toolbar_value"] = toolbar() if callable(toolbar) else toolbar
+            return "ok"
+
+    prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)
+    input_defaults_module = types.SimpleNamespace(
+        create_input=lambda *, stdin: ("input", stdin)
+    )
+    output_defaults_module = types.SimpleNamespace(
+        create_output=lambda *, stdout: FakePromptToolkitOutput()
+    )
+    completion_module = types.SimpleNamespace(Completion=FakeCompletion)
+    key_binding_module = types.SimpleNamespace(KeyBindings=FakeKeyBindings)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.input.defaults", input_defaults_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "prompt_toolkit.output.defaults", output_defaults_module
+    )
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.completion", completion_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
+    monkeypatch.setattr(sys, "stdin", tty_input)
+    monkeypatch.setattr(sys, "stderr", tty_error)
+
+    repl_input = native_repl_input_for(
+        input_stream=tty_input,
+        error_stream=tty_error,
+        input_runtime=REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+        workspace=tmp_path,
+    )
+
+    assert created["complete_while_typing"] is True
+    repl_input.read_line(">", footer="cwd\nstatus")
+
+    assert created["bottom_toolbar_value"] == "cwd\nstatus"

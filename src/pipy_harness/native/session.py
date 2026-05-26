@@ -474,8 +474,8 @@ class _StartupChromeStyle:
     def title(self, text: str) -> str:
         return self._wrap(text, "1;36")
 
-    def section(self, text: str) -> str:
-        return self._wrap(text, "1")
+    def section_label(self, text: str) -> str:
+        return self._wrap(text, "1;33")
 
     def dim(self, text: str) -> str:
         return self._wrap(text, "2")
@@ -931,8 +931,31 @@ class NativeNoToolReplSession:
             pending_apply_draft=pending_apply_draft,
             verify_after_apply_available=verify_after_apply_available,
         )
+        # Pi-parity: surface the workspace cwd + status footer once before the
+        # first prompt so the user sees the current state at the same place Pi
+        # would render it. Subsequent footers are emitted after each submission.
+        _print_repl_footer(
+            error_stream,
+            provider_state=provider_state,
+            run_input=current_run_input,
+            conversation_state=conversation_state,
+            read_budgets=read_budgets,
+            no_tool_context=no_tool_context,
+            pending_apply_draft=pending_apply_draft,
+            verify_after_apply_available=verify_after_apply_available,
+        )
 
         while conversation_state.turn_count < self.max_turns:
+            _print_repl_input_separator(error_stream)
+            footer_text = _repl_footer_text(
+                provider_state,
+                run_input=current_run_input,
+                conversation_state=conversation_state,
+                read_budgets=read_budgets,
+                no_tool_context=no_tool_context,
+                pending_apply_draft=pending_apply_draft,
+                verify_after_apply_available=verify_after_apply_available,
+            )
             try:
                 line = repl_input.read_line(
                     _repl_prompt_label_for(
@@ -943,7 +966,8 @@ class NativeNoToolReplSession:
                         no_tool_context=no_tool_context,
                         pending_apply_draft=pending_apply_draft,
                         verify_after_apply_available=verify_after_apply_available,
-                    )
+                    ),
+                    footer=footer_text,
                 )
             except KeyboardInterrupt:
                 print(file=error_stream)
@@ -956,6 +980,18 @@ class NativeNoToolReplSession:
             if line == "":
                 exit_reason = "eof"
                 break
+
+            _print_repl_input_separator(error_stream)
+            _print_repl_footer(
+                error_stream,
+                provider_state=provider_state,
+                run_input=current_run_input,
+                conversation_state=conversation_state,
+                read_budgets=read_budgets,
+                no_tool_context=no_tool_context,
+                pending_apply_draft=pending_apply_draft,
+                verify_after_apply_available=verify_after_apply_available,
+            )
 
             user_prompt = line.rstrip("\r\n")
             command = user_prompt.strip()
@@ -1393,6 +1429,10 @@ class NativeNoToolReplSession:
                 "duration_seconds": _duration_seconds(started_at, ended_at),
             },
         )
+        try:
+            repl_input.close()
+        except Exception:
+            pass
         return NativeRunOutput(
             status=status,
             exit_code=exit_code,
@@ -1657,19 +1697,23 @@ def _print_repl_startup_chrome(
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
     verify_after_apply_available: bool,
 ) -> None:
-    state = _repl_display_state(
-        provider_state,
-        run_input=run_input,
-        conversation_state=conversation_state,
-        read_budgets=read_budgets,
-        no_tool_context=no_tool_context,
-        pending_apply_draft=pending_apply_draft,
-        verify_after_apply_available=verify_after_apply_available,
-    )
+    """Render compact pipy startup chrome.
+
+    Layout mirrors the Pi terminal product: a one-line title, a one-line
+    dim controls strip, a one-line affordance for the full reference, and
+    `[Section]` listings for loaded resources. The per-turn status lives
+    in the footer printed alongside each prompt rather than in a startup
+    block, matching Pi's pattern.
+    """
+
+    del conversation_state
+    del read_budgets
+    del no_tool_context
+    del pending_apply_draft
+    del verify_after_apply_available
     style = _startup_chrome_style(error_stream)
     width = _startup_chrome_width(error_stream)
     resource_labels = _startup_resource_labels(run_input.cwd)
-    model_reference = _repl_model_reference_label(state)
 
     print(style.title(f"pipy v{_pipy_version_label()}  native shell"), file=error_stream)
     _print_wrapped_repl_line(
@@ -1680,56 +1724,113 @@ def _print_repl_startup_chrome(
         style=style.dim,
     )
     print(file=error_stream)
-    _print_startup_section(
+    _print_wrapped_repl_line(
         error_stream,
-        "Controls",
-        [
-            ("interrupt", "Ctrl-C"),
-            ("exit", "/exit or /quit"),
-            ("commands", "/help"),
-        ],
-        width=width,
-        style=style,
-    )
-    _print_startup_section(
-        error_stream,
-        "Resources",
-        [
-            ("context", resource_labels["context"]),
-            ("skills", resource_labels["skills"]),
-            ("prompts", resource_labels["prompts"]),
-            ("extensions", resource_labels["extensions"]),
-            ("commands", "auth, model, context, proposal, verify, status"),
-        ],
-        width=width,
-        style=style,
-    )
-    _print_startup_section(
-        error_stream,
-        "Status",
-        [
-            ("workspace", state.workspace_label),
-            ("model", model_reference),
-            ("turns", f"{state.provider_turn_count}/{state.max_turns}"),
+        "  ",
+        " · ".join(
             (
-                "history",
-                f"{_startup_availability_label(state.no_tool_context_retained)} "
-                f"{state.no_tool_context_exchange_count}/{state.no_tool_context_max_exchanges}",
-            ),
-            ("read", _read_budget_label(state)),
-            ("proposal", _ready_label(state.pending_proposal_available)),
-            ("verify", _ready_label(state.verification_available)),
-        ],
-        width=width,
-        style=style,
-    )
-    print(
-        style.dim(
-            f"{state.workspace_label} | {model_reference} | turns "
-            f"{state.provider_turn_count}/{state.max_turns}"
+                "Ctrl-C interrupt",
+                "/exit quit",
+                "/help commands",
+                "Tab menu",
+                "! bash deferred",
+            )
         ),
-        file=error_stream,
+        width=width,
+        style=style.dim,
     )
+    _print_wrapped_repl_line(
+        error_stream,
+        "  ",
+        "Type /help for the full command reference and loaded resources.",
+        width=width,
+        style=style.dim,
+    )
+    print(file=error_stream)
+    for section_name, label in (
+        ("Context", resource_labels.get("context", "")),
+        ("Skills", resource_labels.get("skills", "")),
+        ("Prompts", resource_labels.get("prompts", "")),
+        ("Extensions", resource_labels.get("extensions", "")),
+    ):
+        if not label or label == "not loaded":
+            continue
+        print(style.section_label(f"[{section_name}]"), file=error_stream)
+        _print_wrapped_repl_line(
+            error_stream,
+            "  ",
+            label,
+            width=width,
+            style=_identity_text,
+        )
+        print(file=error_stream)
+
+
+def _repl_footer_text(
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    *,
+    run_input: NativeRunInput,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> str:
+    """Two-line dim footer rendered alongside each prompt."""
+
+    state = _repl_display_state(
+        provider_state,
+        run_input=run_input,
+        conversation_state=conversation_state,
+        read_budgets=read_budgets,
+        no_tool_context=no_tool_context,
+        pending_apply_draft=pending_apply_draft,
+        verify_after_apply_available=verify_after_apply_available,
+    )
+    cwd_label = sanitize_text(str(run_input.cwd))
+    model_reference = _repl_model_reference_label(state)
+    read_label = _read_budget_label(state)
+    summary = (
+        f"{state.workspace_label} · {model_reference} · "
+        f"turns {state.provider_turn_count}/{state.max_turns} · "
+        f"read {read_label}"
+    )
+    if state.pending_proposal_available:
+        summary += " · proposal ready"
+    if state.verification_available:
+        summary += " · verify ready"
+    return f"{cwd_label}\n{summary}"
+
+
+def _print_repl_footer(
+    error_stream: TextIO,
+    *,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    run_input: NativeRunInput,
+    conversation_state: NativeConversationState,
+    read_budgets: _ReplReadBudgets,
+    no_tool_context: NativeNoToolReplConversationContext,
+    pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    verify_after_apply_available: bool,
+) -> None:
+    style = _startup_chrome_style(error_stream)
+    footer = _repl_footer_text(
+        provider_state,
+        run_input=run_input,
+        conversation_state=conversation_state,
+        read_budgets=read_budgets,
+        no_tool_context=no_tool_context,
+        pending_apply_draft=pending_apply_draft,
+        verify_after_apply_available=verify_after_apply_available,
+    )
+    for line in footer.splitlines():
+        print(style.dim(line), file=error_stream)
+
+
+def _print_repl_input_separator(error_stream: TextIO) -> None:
+    style = _startup_chrome_style(error_stream)
+    width = _startup_chrome_width(error_stream)
+    print(style.dim("─" * width), file=error_stream)
 
 
 def _repl_prompt_label_for(
@@ -1755,15 +1856,8 @@ def _repl_prompt_label_for(
 
 
 def _repl_prompt_label(state: _ReplDisplayState) -> str:
-    model_reference = _repl_model_reference_label(state)
-    read_label = _read_budget_label(state)
-    proposal_label = _ready_label(state.pending_proposal_available)
-    verification_label = _ready_label(state.verification_available)
-    return (
-        f"pipy-native [{model_reference} "
-        f"turns:{state.provider_turn_count}/{state.max_turns} "
-        f"read:{read_label} proposal:{proposal_label} verify:{verification_label}]>"
-    )
+    del state
+    return ">"
 
 
 def _repl_model_reference_label(state: _ReplDisplayState) -> str:
@@ -1791,26 +1885,6 @@ def _startup_chrome_width(error_stream: TextIO) -> int:
     if bool(getattr(error_stream, "isatty", lambda: False)()):
         return max(60, shutil.get_terminal_size((_STARTUP_CHROME_WIDTH_FALLBACK, 24)).columns)
     return _STARTUP_CHROME_WIDTH_FALLBACK
-
-
-def _print_startup_section(
-    error_stream: TextIO,
-    heading: str,
-    rows: Iterable[tuple[str, str]],
-    *,
-    width: int,
-    style: _StartupChromeStyle,
-) -> None:
-    print(style.section(heading), file=error_stream)
-    for label, value in rows:
-        _print_wrapped_repl_line(
-            error_stream,
-            f"  {label:<10} ",
-            value,
-            width=width,
-            style=_identity_text,
-        )
-    print(file=error_stream)
 
 
 def _identity_text(text: str) -> str:
@@ -1860,10 +1934,6 @@ def _startup_resource_source_exists(cwd: Path, candidate: str) -> bool:
         return (cwd / candidate).exists()
     except OSError:
         return False
-
-
-def _startup_availability_label(value: bool) -> str:
-    return "on" if value else "off"
 
 
 def _print_repl_status(

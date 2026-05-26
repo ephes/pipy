@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import importlib
 import sys
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
 
@@ -14,10 +15,12 @@ from pipy_harness.native.read_only_tool import _is_ignored_or_generated, _is_rel
 REPL_INPUT_RUNTIME_AUTO = "auto"
 REPL_INPUT_RUNTIME_PLAIN = "plain"
 REPL_INPUT_RUNTIME_PROMPT_TOOLKIT = "prompt-toolkit"
+REPL_INPUT_RUNTIME_READLINE = "readline"
 SUPPORTED_REPL_INPUT_RUNTIMES = (
     REPL_INPUT_RUNTIME_AUTO,
     REPL_INPUT_RUNTIME_PLAIN,
     REPL_INPUT_RUNTIME_PROMPT_TOOLKIT,
+    REPL_INPUT_RUNTIME_READLINE,
 )
 DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/help",
@@ -35,6 +38,22 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/exit",
     "/quit",
 )
+DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "/help": "Show pipy command reference",
+    "/clear": "Clear local conversation context",
+    "/status": "Show REPL state (read-only)",
+    "/settings": "Show provider settings (read-only)",
+    "/login": "Log in (openai-codex OAuth)",
+    "/logout": "Log out (openai-codex OAuth)",
+    "/model": "Select provider/model",
+    "/read": "Read a workspace file excerpt",
+    "/ask-file": "Ask provider about a file (read-only)",
+    "/propose-file": "Propose a patch for a file",
+    "/apply-proposal": "Apply the pending proposal",
+    "/verify": "Run a pre-approved verification",
+    "/exit": "Exit the REPL",
+    "/quit": "Exit the REPL (alias)",
+}
 DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS = (
     "/read",
     "/ask-file",
@@ -56,8 +75,21 @@ class NativeReplInput(Protocol):
 
     runtime_label: str
 
-    def read_line(self, prompt_label: str) -> str:
-        """Read one logical input line, returning ``""`` for EOF."""
+    def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
+        """Read one logical input line, returning ``""`` for EOF.
+
+        ``footer`` is rendered alongside the input as a status strip
+        (bottom toolbar for the prompt-toolkit runtime, printed after
+        the input line for the plain runtime).
+        """
+
+    def close(self) -> None:
+        """Release any process-global resources the adapter owns.
+
+        Default: no-op. Implementations that mutate process-global state
+        (e.g. the stdlib readline hooks) must restore it here so the
+        embedding process keeps its prior configuration.
+        """
 
 
 @dataclass(slots=True)
@@ -68,9 +100,13 @@ class PlainNativeReplInput:
     error_stream: TextIO
     runtime_label: str = REPL_INPUT_RUNTIME_PLAIN
 
-    def read_line(self, prompt_label: str) -> str:
+    def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
+        del footer  # the plain runtime emits the footer through the session loop instead
         print(f"{prompt_label} ", end="", file=self.error_stream, flush=True)
         return self.input_stream.readline()
+
+    def close(self) -> None:
+        return None
 
 
 @dataclass(slots=True)
@@ -84,10 +120,17 @@ class PromptToolkitReplCompleter:
     file_reference_commands: tuple[str, ...] = (
         DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS
     )
+    command_descriptions: Mapping[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    )
 
     def get_completions(self, document: Any, complete_event: Any) -> Iterable[Any]:
         text_before_cursor = str(getattr(document, "text_before_cursor", ""))
         command_prefix = text_before_cursor.lstrip()
+        if command_prefix == "" and text_before_cursor == "":
+            for command_name in self.command_names:
+                yield self._command_completion(command_name, start_position=0)
+            return
         if not command_prefix.startswith("/"):
             yield from self._file_reference_completions(text_before_cursor)
             return
@@ -104,10 +147,24 @@ class PromptToolkitReplCompleter:
 
         for command_name in self.command_names:
             if command_name.startswith(command_prefix):
-                yield self.completion_cls(
+                yield self._command_completion(
                     command_name,
                     start_position=-len(command_prefix),
                 )
+
+    def _command_completion(self, command_name: str, *, start_position: int) -> Any:
+        description = self.command_descriptions.get(command_name, "")
+        try:
+            return self.completion_cls(
+                command_name,
+                start_position=start_position,
+                display_meta=description,
+            )
+        except TypeError:
+            return self.completion_cls(
+                command_name,
+                start_position=start_position,
+            )
 
     def _path_completions(self, path_prefix: str) -> Iterable[Any]:
         if self.workspace is None:
@@ -141,6 +198,152 @@ class PromptToolkitReplCompleter:
 
 
 PromptToolkitSlashCommandCompleter = PromptToolkitReplCompleter
+
+
+@dataclass(slots=True)
+class ReadlineNativeReplInput:
+    """Stdlib-readline REPL input enabling Tab discovery without runtime deps.
+
+    Used when prompt-toolkit is unavailable but stdin/stderr are real TTYs.
+    Provides empty-input Tab to surface the full slash-command menu and
+    `/`-prefix completion with description metadata in the matches display.
+
+    The readline module exposes a single set of process-global hooks
+    (completer, completer delims, display-matches hook), so this adapter
+    captures the previous values on creation and restores them when the
+    REPL exits via :py:meth:`restore_global_state`. The session loop
+    keeps a single adapter instance per REPL run, so ``_current_matches``
+    is private per instance and not shared across REPLs.
+    """
+
+    error_stream: TextIO
+    command_names: tuple[str, ...] = DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    command_descriptions: Mapping[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    )
+    runtime_label: str = REPL_INPUT_RUNTIME_READLINE
+    _current_matches: list[str] = field(default_factory=list)
+    _saved_state: dict[str, Any] | None = None
+    _readline_module: Any | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        input_stream: TextIO,
+        error_stream: TextIO,
+        workspace: Path | None = None,
+    ) -> "ReadlineNativeReplInput":
+        del workspace
+        if not _readline_streams_supported(input_stream, error_stream):
+            raise ReplInputUnavailableError(
+                "readline input requires the process stdin and stderr TTY streams"
+            )
+        try:
+            readline = importlib.import_module("readline")
+        except ImportError as exc:
+            raise ReplInputUnavailableError(
+                "readline input requires the readline stdlib module"
+            ) from exc
+        instance = cls(error_stream=error_stream)
+        instance._readline_module = readline
+        instance._saved_state = {
+            "completer": readline.get_completer(),
+            "completer_delims": readline.get_completer_delims(),
+        }
+        try:
+            if _readline_backend_is_libedit(readline):
+                readline.parse_and_bind("bind ^I rl_complete")
+            else:
+                readline.parse_and_bind("tab: complete")
+            readline.set_completer_delims(" \t\n")
+            readline.set_completer(instance._completer)
+        except Exception as exc:
+            raise ReplInputUnavailableError(
+                "readline input could not be initialized"
+            ) from exc
+        display_hook = getattr(
+            readline, "set_completion_display_matches_hook", None
+        )
+        if callable(display_hook):
+            try:
+                display_hook(instance._display_matches)
+                instance._saved_state["display_matches_hook_installed"] = True
+            except (NotImplementedError, ValueError):
+                pass
+        return instance
+
+    def restore_global_state(self) -> None:
+        """Restore the readline hooks the adapter overwrote at create time.
+
+        Safe to call multiple times. The adapter takes ownership of the
+        process-global readline configuration only while the REPL session
+        is running; this method gives that ownership back so an embedding
+        Python process can keep its prior completer (e.g. ``rlcompleter``
+        from ``PYTHONSTARTUP``) afterward.
+        """
+
+        readline = self._readline_module
+        saved = self._saved_state
+        if readline is None or saved is None:
+            return
+        try:
+            readline.set_completer(saved.get("completer"))
+            delims = saved.get("completer_delims")
+            if isinstance(delims, str):
+                readline.set_completer_delims(delims)
+        except Exception:
+            pass
+        if saved.get("display_matches_hook_installed"):
+            display_hook = getattr(
+                readline, "set_completion_display_matches_hook", None
+            )
+            if callable(display_hook):
+                try:
+                    display_hook(None)
+                except (NotImplementedError, ValueError, TypeError):
+                    pass
+        self._saved_state = None
+
+    def matches_for(self, text: str) -> list[str]:
+        if text == "" or text.startswith("/"):
+            return [
+                command_name
+                for command_name in self.command_names
+                if command_name.startswith(text)
+            ]
+        return []
+
+    def _completer(self, text: str, state: int) -> str | None:
+        if state == 0:
+            self._current_matches = self.matches_for(text)
+        if 0 <= state < len(self._current_matches):
+            return self._current_matches[state]
+        return None
+
+    def _display_matches(
+        self,
+        substitution: str,
+        matches: list[str],
+        longest_match_length: int,
+    ) -> None:
+        del substitution, longest_match_length
+        self.error_stream.write("\n")
+        for match in matches:
+            description = self.command_descriptions.get(match, "")
+            self.error_stream.write(f"  {match:<20} {description}\n")
+        self.error_stream.flush()
+
+    def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
+        del footer
+        prompt = f"{prompt_label} "
+        try:
+            return f"{input(prompt)}\n"
+        except EOFError:
+            return ""
+
+    def close(self) -> None:
+        self.restore_global_state()
 
 
 @dataclass(slots=True)
@@ -178,6 +381,7 @@ class PromptToolkitNativeReplInput:
                     completion.Completion,
                     workspace=workspace,
                 ),
+                complete_while_typing=True,
                 multiline=True,
                 prompt_continuation=_prompt_toolkit_multiline_continuation,
                 key_bindings=_prompt_toolkit_multiline_key_bindings(
@@ -190,11 +394,17 @@ class PromptToolkitNativeReplInput:
             ) from exc
         return cls(session=session)
 
-    def read_line(self, prompt_label: str) -> str:
+    def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
+        kwargs: dict[str, Any] = {}
+        if footer:
+            kwargs["bottom_toolbar"] = lambda: footer
         try:
-            return f"{self.session.prompt(f'{prompt_label} ')}\n"
+            return f"{self.session.prompt(f'{prompt_label} ', **kwargs)}\n"
         except EOFError:
             return ""
+
+    def close(self) -> None:
+        return None
 
 
 def native_repl_input_for(
@@ -218,10 +428,25 @@ def native_repl_input_for(
             error_stream=error_stream,
             workspace=workspace,
         )
+    if input_runtime == REPL_INPUT_RUNTIME_READLINE:
+        return ReadlineNativeReplInput.create(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=workspace,
+        )
 
     if _prompt_toolkit_streams_supported(input_stream, error_stream):
         try:
             return PromptToolkitNativeReplInput.create(
+                input_stream=input_stream,
+                error_stream=error_stream,
+                workspace=workspace,
+            )
+        except Exception:
+            pass
+    if _readline_streams_supported(input_stream, error_stream):
+        try:
+            return ReadlineNativeReplInput.create(
                 input_stream=input_stream,
                 error_stream=error_stream,
                 workspace=workspace,
@@ -244,6 +469,12 @@ def validate_native_repl_input_runtime(
         raise ValueError(f"unsupported native REPL input runtime: {input_runtime}")
     if input_runtime == REPL_INPUT_RUNTIME_PROMPT_TOOLKIT:
         PromptToolkitNativeReplInput.create(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=workspace,
+        )
+    if input_runtime == REPL_INPUT_RUNTIME_READLINE:
+        ReadlineNativeReplInput.create(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=workspace,
@@ -308,6 +539,22 @@ def _prompt_toolkit_streams_supported(
         and bool(getattr(input_stream, "isatty", lambda: False)())
         and bool(getattr(error_stream, "isatty", lambda: False)())
     )
+
+
+def _readline_streams_supported(
+    input_stream: TextIO, error_stream: TextIO
+) -> bool:
+    return (
+        input_stream is sys.stdin
+        and error_stream is sys.stderr
+        and bool(getattr(input_stream, "isatty", lambda: False)())
+        and bool(getattr(error_stream, "isatty", lambda: False)())
+    )
+
+
+def _readline_backend_is_libedit(readline_module: Any) -> bool:
+    doc = getattr(readline_module, "__doc__", "") or ""
+    return "libedit" in doc.lower()
 
 
 def _path_completion_request(

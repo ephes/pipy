@@ -624,25 +624,16 @@ def test_native_no_tool_repl_status_reports_safe_state_without_mutation(tmp_path
     ]
     stderr = error_stream.getvalue()
     assert "pipy v" in stderr
-    assert "Controls" in stderr
-    assert "  interrupt  Ctrl-C" in stderr
-    assert "  exit       /exit or /quit" in stderr
-    assert "Resources" in stderr
-    assert "  context    not loaded" in stderr
-    assert "Status" in stderr
-    assert "  model      capturing-fake/capturing-model" in stderr
-    assert f"{tmp_path.name} | capturing-fake/capturing-model | turns 0/4" in stderr
+    assert "native shell" in stderr
+    assert "Ctrl-C interrupt" in stderr
+    assert "/exit quit" in stderr
+    assert "Tab menu" in stderr
+    assert "Type /help for the full command reference" in stderr
+    assert "[Context]" not in stderr  # AGENTS.md not present in tmp_path
+    assert "capturing-fake/capturing-model · turns 0/4 · read 2/2" in stderr
     assert "\x1b[" not in stderr
     assert stderr.count("pipy v") == 1
-    assert stderr.index("pipy v") < stderr.index("pipy-native [")
-    assert (
-        "pipy-native [capturing-fake/capturing-model turns:0/4 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in stderr
-    assert (
-        "pipy-native [capturing-fake/capturing-model turns:1/4 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in stderr
+    assert "> " in stderr
     assert "pipy native REPL status:" in stderr
     assert "  provider: capturing-fake" in stderr
     assert "  model: capturing-model" in stderr
@@ -701,9 +692,12 @@ def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
 
     stderr = error_stream.getvalue()
     assert "\x1b[" in stderr
-    assert "  context    AGENTS.md labels-only, .claude labels-only" in stderr
-    assert "  prompts    .claude/commands labels-only" in stderr
-    assert "  extensions .agents/plugins labels-only" in stderr
+    assert "[Context]" in stderr
+    assert "AGENTS.md labels-only, .claude labels-only" in stderr
+    assert "[Prompts]" in stderr
+    assert ".claude/commands labels-only" in stderr
+    assert "[Extensions]" in stderr
+    assert ".agents/plugins labels-only" in stderr
     assert "SECRET" not in stderr
 
 
@@ -802,14 +796,8 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     assert captured_requests[1].no_tool_repl_context is not None
     assert captured_requests[1].no_tool_repl_context.exchanges == ()
     stderr = error_stream.getvalue()
-    assert (
-        "pipy-native [fake/before-model turns:0/4 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in stderr
-    assert (
-        "pipy-native [fake/after-model turns:1/4 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in stderr
+    assert "fake/before-model · turns 0/4 · read 2/2" in stderr
+    assert "fake/after-model · turns 1/4 · read 2/2" in stderr
 
 
 def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):

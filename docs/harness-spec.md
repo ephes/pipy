@@ -1432,24 +1432,28 @@ by default.
 The native shell startup chrome for bare `pipy` and
 `pipy repl --agent pipy-native` is a Pi-like line-oriented frame on stderr
 before the first input prompt. The goal is to make the first screen feel like a
-native shell, closer to Pi's compact startup view, without adding execution
+native shell, equivalent to Pi's compact startup view, without adding execution
 powers or switching to a full-screen interface.
 
 The implementation stays plain terminal output for captured and non-TTY streams
 and may add ANSI title, section, and dim styling only for suitable TTY streams.
-It renders:
+The current rendering is:
 
-- a compact `pipy v<version>` header
-- grouped controls for existing interrupt, exit, slash-command, and help
-  affordances
-- one short product sentence explaining that pipy can use its native shell
-  commands and provider turns
-- safe loaded-context/resource labels, such as instruction-file labels and
-  context, skills, prompts, extensions, and command-source labels, without
-  reading or printing file contents
-- grouped provider/model/workspace/budget/status labels derived from the same
-  safe state data used by `/status` where practical
-- a compact footer-style workspace/model/turn label
+- a compact `pipy v<version>  native shell` header line with a dim subtitle
+- a one-line dim controls strip
+  (`Ctrl-C interrupt · /exit quit · /help commands · Tab menu · ! bash deferred`)
+- a dim `Type /help for the full command reference and loaded resources.`
+  affordance
+- safe loaded-context/resource sections rendered as `[Context]`, `[Skills]`,
+  `[Prompts]`, `[Extensions]` with indented comma-separated values, only when
+  the corresponding workspace source exists; absent sections do not render and
+  no "not loaded" filler is printed
+- a horizontal separator line above the input area
+- a simple `> ` prompt leader (no bracketed status label)
+- a horizontal separator line below the input area, followed by a two-line
+  dim footer rendered after each submission: the workspace cwd path and a
+  one-line `<workspace> · <provider>/<model> · turns N/M · read R/L`
+  summary (plus `· proposal ready` and `· verify ready` when applicable)
 
 The startup chrome is presentation only. It must not invoke providers, tools,
 reads, writes, verification commands, shell commands, network access,
@@ -1607,6 +1611,44 @@ completion buffers, prompts, model output, provider responses, excerpts,
 patch text, diffs, file contents, command stdout, command stderr, auth
 material, secrets, credentials, tokens, private keys, or sensitive personal
 data.
+
+### Native Pi-Parity Look-and-Feel Boundary
+
+A later boundary brought the running native REPL into product-experience
+parity with Pi without changing safety boundaries or making prompt-toolkit a
+declared runtime dependency. The change set replaced the previous three-block
+`Controls`/`Resources`/`Status` startup chrome with the compact layout
+described above (one-line dim controls strip, loaded-only `[Section]`
+listings, no startup Status block), replaced the verbose bracketed
+`pipy-native [...]>` prompt label with a simple `> ` leader framed by
+horizontal separator lines, and added a two-line dim footer (workspace cwd
+plus `<workspace> · <provider>/<model> · turns · read` summary) after each
+input submission. The footer is also forwarded to prompt-toolkit's
+`bottom_toolbar` when that adapter is selected so it stays visible while the
+user types.
+
+To make Tab-driven command discovery work in the live terminal without
+declaring a runtime dependency, the input-adapter boundary now includes a
+third adapter, `ReadlineNativeReplInput`, that uses the Python stdlib
+`readline` module to bind Tab to slash-command completion on real TTY
+streams when prompt-toolkit is unavailable. The auto runtime tries
+prompt-toolkit first, then readline, and finally the plain adapter, mirroring
+the previous fall-through. The readline adapter shares the same slash-command
+list and descriptions as the prompt-toolkit completer; descriptions are
+rendered through `readline.set_completion_display_matches_hook` where the
+underlying backend honors it (GNU readline) and degrade gracefully to the
+default columnar match listing on libedit (macOS) without losing discovery.
+Empty-input Tab surfaces the complete slash-command set; partial `/<prefix>`
+input filters it. The CLI exposes the adapter explicitly as
+`--input-runtime readline` for smoke tests and reproducible captures.
+
+This boundary remains presentation-only. It does not change provider
+behavior, tool boundaries, file-context safety gates, archive shapes, or
+session-event payloads. The footer prints the workspace cwd, mirroring Pi's
+visible-by-design path footer; sensitive payloads (raw prompts, model output,
+provider responses, file contents, excerpts, patch text, diffs, command
+output, auth material, secrets) remain excluded from the chrome and the
+archive.
 
 ### Native Prompt-Toolkit File/Path Completion Boundary
 

@@ -230,18 +230,9 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
     captured = capfd.readouterr()
     assert exit_code == 0
     assert captured.out == "REPL_OUTPUT_0\nREPL_OUTPUT_1\n"
-    assert (
-        "pipy-native [fake/fake-native-bootstrap turns:0/8 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in captured.err
-    assert (
-        "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in captured.err
-    assert (
-        "pipy-native [fake/fake-native-bootstrap turns:2/8 "
-        "read:2/2 proposal:unavailable verify:unavailable]>"
-    ) in captured.err
+    assert "fake/fake-native-bootstrap · turns 0/8 · read 2/2" in captured.err
+    assert "fake/fake-native-bootstrap · turns 1/8 · read 2/2" in captured.err
+    assert "fake/fake-native-bootstrap · turns 2/8 · read 2/2" in captured.err
     assert "session finalized" in captured.err
     assert [
         (request.provider_turn_index, request.provider_turn_label, request.user_prompt)
@@ -334,16 +325,14 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     assert provider_calls == 0
     assert "pipy v" in captured.err
     assert "native shell" in captured.err
-    assert "Controls" in captured.err
-    assert "  interrupt  Ctrl-C" in captured.err
-    assert "Resources" in captured.err
-    assert "  context    not loaded" in captured.err
-    assert "Status" in captured.err
-    assert "  model      fake/fake-native-bootstrap" in captured.err
-    assert f"{tmp_path.name} | fake/fake-native-bootstrap | turns 0/8" in captured.err
+    assert "Ctrl-C interrupt" in captured.err
+    assert "/exit quit" in captured.err
+    assert "Tab menu" in captured.err
+    assert "Type /help for the full command reference" in captured.err
+    assert "fake/fake-native-bootstrap · turns 0/8 · read 2/2" in captured.err
     assert "\x1b[" not in captured.err
     assert captured.err.count("pipy v") == 1
-    assert captured.err.index("pipy v") < captured.err.index("pipy-native [")
+    assert captured.err.index("pipy v") < captured.err.index("> ")
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     assert "native.provider.started" not in [event["type"] for event in events]
@@ -603,7 +592,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
     assert provider_calls == 0
     assert captured.out == ""
     assert "pipy v" in captured.err
-    assert "  model      fake/fake-native-bootstrap" in captured.err
+    assert "fake/fake-native-bootstrap · turns 0/8" in captured.err
     assert captured.err.count("pipy v") == 1
     assert "pipy native REPL status:" in captured.err
     assert "  provider: fake" in captured.err
@@ -634,7 +623,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
         encoding="utf-8"
     )
     assert "/status" not in combined
-    assert "  interrupt  Ctrl-C" not in combined
+    assert "Ctrl-C interrupt" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
@@ -1239,15 +1228,11 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
     assert provider_calls == 0
     assert captured.out == ""
     assert "pipy v" in captured.err
-    assert "Controls" in captured.err
-    assert "  interrupt  Ctrl-C" in captured.err
+    assert "Ctrl-C interrupt" in captured.err
     assert "Local slash commands and bounded provider turns stay behind pipy-owned boundaries." in captured.err
-    assert "Resources" in captured.err
-    assert "  context    not loaded" in captured.err
-    assert "Status" in captured.err
-    assert "  model      fake/fake-native-bootstrap" in captured.err
+    assert "fake/fake-native-bootstrap · turns 0/8" in captured.err
     assert captured.err.count("pipy v") == 1
-    assert captured.err.index("pipy v") < captured.err.index("pipy-native [")
+    assert captured.err.index("pipy v") < captured.err.index("> ")
     assert "pipy native REPL commands:" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
@@ -3867,14 +3852,12 @@ def test_cli_native_repl_verify_before_apply_preserves_pending_proposal(
     assert "  pending_proposal_available: true" in captured.err
     assert "  verification_available: false" in captured.err
     assert (
-        "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:1/2 proposal:ready verify:unavailable]>"
+        "fake/fake-native-bootstrap · turns 1/8 · read 1/2 · proposal ready"
     ) in captured.err
     assert "malformed /status command. Supported command usage:" in captured.err
     assert "apply-proposal command succeeded: patch_applied" in captured.err
     assert (
-        "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:1/2 proposal:unavailable verify:ready]>"
+        "fake/fake-native-bootstrap · turns 1/8 · read 1/2 · verify ready"
     ) in captured.err
     events = read_jsonl(next((root / "pipy").glob("*/*/*.jsonl")))
     event_types = [event["type"] for event in events]
@@ -3975,12 +3958,7 @@ def test_cli_native_repl_verify_after_apply_records_metadata_only_without_provid
     assert "  pending_proposal_available: false" in captured.err
     assert "  verification_available: true" in captured.err
     assert (
-        "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:1/2 proposal:unavailable verify:ready]>"
-    ) in captured.err
-    assert (
-        "pipy-native [fake/fake-native-bootstrap turns:1/8 "
-        "read:1/2 proposal:unavailable verify:unavailable]>"
+        "fake/fake-native-bootstrap · turns 1/8 · read 1/2 · verify ready"
     ) in captured.err
     assert target.read_text(encoding="utf-8") == new_text
 

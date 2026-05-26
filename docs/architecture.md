@@ -97,24 +97,37 @@ Markdown, catalog output, and structured native JSON output by default.
 ## Current Feature Surface
 
 The native shell is line-oriented and bounded. It is intentionally not a full
-Pi-style TUI yet. REPL input now goes through a small adapter: captured and
-non-TTY streams keep the plain stdin/stderr behavior, while real TTY sessions
-can use optional prompt-toolkit line-editor input when it is available or
-explicitly selected, including slash-command completion and workspace-relative
-path completion for explicit file commands, completion-only `@file` reference
-labels in ordinary prompts and supported command free-text, plus multiline
-editing.
+Pi-style TUI yet, but the terminal product experience now mirrors Pi's:
+compact startup chrome with `[Context]`/`[Skills]`/`[Prompts]`/`[Extensions]`
+sections rendered only when loaded, a one-line dim controls strip, a simple
+`>` prompt leader framed by horizontal separators, and a two-line dim footer
+(workspace path plus `provider/model · turns · read` summary) below the
+input area. REPL input now goes through a small adapter: captured and
+non-TTY streams keep the plain stdin/stderr behavior, real TTY sessions can
+use optional prompt-toolkit line-editor input when it is available or
+explicitly selected, and when prompt-toolkit is absent a stdlib `readline`
+adapter takes over so Tab-driven slash-command discovery still works without
+any runtime dependency. All adapters share the same slash-command set,
+descriptions, and read/apply gates.
 
 Available now:
 
 - `pipy` and `pipy repl --agent pipy-native` start the native REPL in the
   current directory with compact startup chrome.
-- `pipy repl --input-runtime auto|plain|prompt-toolkit` selects the REPL input
-  boundary; `auto` preserves plain fallback for captured streams.
-- In the optional prompt-toolkit path, leading slash command names, explicit
-  file-command path arguments, and completion-only `@file` reference labels can
-  be completed; Esc+Enter inserts multiline input without changing command
-  parser behavior or read/apply gates.
+- `pipy repl --input-runtime auto|plain|prompt-toolkit|readline` selects the
+  REPL input boundary; `auto` prefers prompt-toolkit when it is importable on
+  real TTY streams, then falls back to the stdlib readline adapter (Tab
+  completion, no external deps), and finally to plain stdin/stderr.
+- In the optional prompt-toolkit path, the completer reports descriptions
+  alongside command names and surfaces the full menu on empty input. The
+  stdlib readline path uses the same command list and descriptions through
+  `readline.set_completion_display_matches_hook` where supported; on Mac's
+  libedit backend descriptions degrade gracefully to the default columnar
+  match list while Tab discovery remains intact.
+- In the prompt-toolkit path, leading slash command names, explicit
+  file-command path arguments, and completion-only `@file` reference labels
+  can be completed; Esc+Enter inserts multiline input without changing
+  command parser behavior or read/apply gates.
 - `pipy repl --repl-mode {auto,no-tool,tool-loop}` selects the REPL mode.
   `auto` (the default) launches the bounded model-driven tool loop when the
   selected provider advertises `supports_tool_calls=True` (all three real
