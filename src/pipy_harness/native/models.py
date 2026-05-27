@@ -13,7 +13,6 @@ from pipy_harness.models import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.conversation import NativeNoToolReplConversationContext
-    from pipy_harness.native.image_attachment import ImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
     from pipy_harness.native.tools.messages import LoopMessage
 
@@ -147,7 +146,6 @@ class ProviderRequest:
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None
     messages: tuple["LoopMessage", ...] = ()
     available_tools: tuple["ToolDefinition", ...] = ()
-    image_attachments: tuple["ImageAttachment", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

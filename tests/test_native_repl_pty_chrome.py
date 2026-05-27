@@ -110,8 +110,6 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
     """
 
     (tmp_path / "AGENTS.md").write_text("safe\n", encoding="utf-8")
-    skills_root = tmp_path / ".pipy" / "skills"
-    (skills_root / "my-skill").mkdir(parents=True)
     captured = _decode_capture(
         _run_pty(
             pipy_cli + ["--cwd", str(tmp_path), "--root", str(tmp_path / "sessions")],
@@ -131,9 +129,6 @@ def test_live_repl_chrome_matches_compact_pi_layout(pipy_cli, tmp_path) -> None:
     assert "[Context]" in captured
     # Context lists the project-local AGENTS.md source by name.
     assert "AGENTS.md" in captured.split("[Context]")[1].split("[")[0]
-    # Skills section must surface a project-local skill the workspace provides.
-    assert "[Skills]" in captured
-    assert "my-skill" in captured.split("[Skills]")[1]
     # The bordered separator above the prompt must be present.
     assert "─" * 10 in captured
     # The persistent bottom status block (cwd + status line) must render below

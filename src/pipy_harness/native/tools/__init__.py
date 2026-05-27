@@ -29,7 +29,6 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from pipy_harness.native.tools.bash import BashTool
 from pipy_harness.native.tools.edit import EditTool
 from pipy_harness.native.tools.edit_diff import EditDiffTool
 from pipy_harness.native.tools.find import FindTool
@@ -41,7 +40,6 @@ from pipy_harness.native.tools.write import WriteTool
 
 __all__ = [
     "AssistantMessage",
-    "BashTool",
     "EditTool",
     "EditDiffTool",
     "FindTool",

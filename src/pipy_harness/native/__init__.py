@@ -1,15 +1,5 @@
 """Native pipy runtime bootstrap."""
 
-from pipy_harness.native.approval_prompt import (
-    NativeApprovalPromptReason,
-    NativeApprovalPromptResolver,
-    NativeApprovalPromptStatus,
-    NativeApprovalSandboxDecision,
-    NativeApprovalSandboxPrompt,
-    NativeInteractiveApprovalPromptResolver,
-    NativeReadOnlyApprovalResolution,
-    resolve_read_only_workspace_approval,
-)
 from pipy_harness.native.conversation import (
     NATIVE_NO_TOOL_REPL_CONTEXT_MAX_BYTES,
     NATIVE_NO_TOOL_REPL_CONTEXT_METADATA_KEYS,
@@ -179,11 +169,6 @@ __all__ = [
     "NATIVE_VERIFICATION_RECORDED_EVENT",
     "NATIVE_VERIFICATION_STORAGE_KEYS",
     "NativeAgentSession",
-    "NativeApprovalPromptReason",
-    "NativeApprovalPromptResolver",
-    "NativeApprovalPromptStatus",
-    "NativeApprovalSandboxDecision",
-    "NativeApprovalSandboxPrompt",
     "NativeConversationIdentity",
     "NativeConversationState",
     "NativeConversationTurn",
@@ -192,7 +177,6 @@ __all__ = [
     "NativeExplicitFileExcerptTarget",
     "NativeExplicitFileExcerptTool",
     "NativeInMemoryFileExcerpt",
-    "NativeInteractiveApprovalPromptResolver",
     "NativeDefaultsStore",
     "NativeModelOption",
     "NativeModelSelection",
@@ -212,7 +196,6 @@ __all__ = [
     "NativePatchProposalReason",
     "NativePatchProposalStatus",
     "NativeReadOnlyApprovalDecision",
-    "NativeReadOnlyApprovalResolution",
     "NativeReadOnlyGateDecision",
     "NativeReadOnlyToolLimits",
     "NativeReadOnlyToolRequest",
@@ -277,7 +260,6 @@ __all__ = [
     "normalize_provider_usage",
     "parse_authorization_input",
     "production_tool_registry",
-    "resolve_read_only_workspace_approval",
     "validate_native_repl_input_runtime",
     "DEFAULT_PER_FILE_BYTE_CAP",
     "DEFAULT_TOTAL_BYTE_CAP",

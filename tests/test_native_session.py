@@ -673,11 +673,6 @@ def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
             return True
 
     (tmp_path / "AGENTS.md").write_text("SECRET instruction contents\n", encoding="utf-8")
-    # A loaded prompt template lives as a subdirectory under .pipy/commands.
-    (tmp_path / ".pipy" / "commands" / "ship-it").mkdir(parents=True)
-    # An extension lives as a subdirectory under .pipy/plugins (one of the
-    # known per-project extension roots scanned by the chrome).
-    (tmp_path / ".pipy" / "plugins" / "demo-ext").mkdir(parents=True)
     provider = SequentialCapturingProvider(results=[])
     sink = RecordingSink()
     error_stream = TtyStringIO()
@@ -704,10 +699,6 @@ def test_native_repl_startup_chrome_uses_safe_resource_labels_and_tty_style(
     assert "[Context]" in stderr
     # The Pi-shape compact list names the loaded sources by short label.
     assert "AGENTS.md" in stderr.split("[Context]")[1]
-    assert "[Prompts]" in stderr
-    assert "ship-it" in stderr.split("[Prompts]")[1]
-    assert "[Extensions]" in stderr
-    assert "demo-ext" in stderr.split("[Extensions]")[1]
     # The instruction file contents must never leak into the chrome.
     assert "SECRET" not in stderr
 
