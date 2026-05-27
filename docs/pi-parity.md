@@ -63,13 +63,14 @@ Status labels are intentionally coarse:
 ## Still To Slopfork
 
 The locked 50-feature parity criterion (see `docs/parity-criterion.md`) is now
-43/50 with 7 big features green after the 2026-05-26 code-quality audit
+41/50 with 7 big features green after the 2026-05-26 code-quality audit
 cleanup honestly reset the per-row state. Red rows are B7 (`bash`), D4
-(skills loading), D5 (prompt templates), D7 (themes), E2 (session
-compaction), E3 (session branching), and E5 (dynamic provider swap). Each
-red row corresponds to a previously file-existence-checked surface that the
-audit identified as dead code with no production consumer; the surfaces
-were removed in Track CQ-A of `docs/backlog.md`. Rewriting the parity-score
+(skills loading), D5 (prompt templates), D6 (custom slash commands), D7
+(themes), D8 (image attachments), E2 (session compaction), E3 (session
+branching), and E5 (dynamic provider swap). Each red row corresponds to a
+previously file-existence-checked surface that the audit identified as dead
+code with no production consumer; the surfaces were removed in Track CQ-A of
+`docs/backlog.md`. Rewriting the parity-score
 checks to verify real behavior (rather than `test -f path`) is queued. The
 boundaries below remain Pi-class surfaces that pipy has not yet closed,
 several because the previously dormant helper was removed for being
@@ -224,7 +225,8 @@ Future Pi parity work should preserve these pipy-specific rules:
 Use these docs together:
 
 - [Architecture](architecture.md) explains what exists now and where it lives.
-- [Backlog](backlog.md) is the current slice index and historical ledger.
+- [Backlog](backlog.md) is the forward-planning index for slices and parity
+  tracks.
 - [Harness Spec](harness-spec.md) records detailed rationale and deferred
   design.
 - [Session Storage](session-storage.md) is the archive and privacy policy.

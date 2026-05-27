@@ -359,10 +359,9 @@ and the parity-map entry in `docs/pi-parity.md`
 4. Docs cleanup and close. Move the parity-map row to "Implemented",
    remove the "Still To Slopfork" / "Deferred" wording for
    AGENTS/CLAUDE-style context discovery, refresh the Pi Parity
-   Roadmap context/resource-loading bullet, add the Done entry in
-   `docs/backlog.md`, and run a real-provider smoke (recorded as a
-   metadata-only `pipy-session`) that honors an `AGENTS.md`-only
-   instruction end-to-end.
+   Roadmap context/resource-loading bullet, and run a real-provider
+   smoke (recorded as a metadata-only `pipy-session`) that honors an
+   `AGENTS.md`-only instruction end-to-end.
 
 ### Invariants
 
@@ -477,8 +476,7 @@ parity-map entry in `docs/pi-parity.md`
    stderr diagnostic when the active provider does not advertise
    streaming, flip parity-criterion C14 to `✅`, refresh
    `docs/pi-parity.md` (this section moves to the "What Has Been
-   Slopforked" table), add the matching Done entry below, and re-run
-   `just parity-score`.
+   Slopforked" table), and re-run `just parity-score`.
 
 ### Invariants
 
@@ -865,8 +863,7 @@ track:
 
 - Every slice in this track ships with a focused test, a green
   `just check`, an updated `docs/architecture.md` codebase map row if
-  a file moves or disappears, a `Done` entry, and a conventional
-  commit.
+  a file moves or disappears, and a conventional commit.
 - Slice ordering is a recommendation, not a constraint. Pick the
   highest-leverage slice from any track that fits the next review
   cycle.
@@ -1029,8 +1026,8 @@ Invariants that must hold for any near-term slice:
 
 ## Maintenance Notes
 
-- Move completed slices from `Next Slice` or `Near Term` to `Done` in the same
-  change that implements them.
+- Remove completed slices from `Next Slice` or `Near Term` in the same change
+  that implements them; the git log is the authoritative record of shipped work.
 - Keep deferred items here brief; put detailed design and rationale in
   `docs/harness-spec.md`.
 - Keep archive and privacy rules aligned with `docs/session-storage.md`.
