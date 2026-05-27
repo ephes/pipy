@@ -380,7 +380,7 @@ and `reasoning_tokens`. Unknown provider-native usage fields and unavailable
 counters are omitted rather than guessed.
 
 Finalized records remain compatible with `pipy-session verify`, `list`,
-`search`, `inspect`, and `reflect`.
+`search`, and `inspect`.
 
 The subprocess harness is a foundation and smoke-test path, not the long-term
 agent runtime. The native bootstrap path establishes that pipy owns its system
@@ -439,31 +439,6 @@ For partial reconstructions, use `--partial` when initializing the record:
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
-Record workflow-learning events when a session should help compare agent/model
-roles, review quality, or subagent usage:
-
-```sh
-uv run pipy-session workflow role <active-path> --role implementer --agent codex --model gpt-5.3-codex
-uv run pipy-session workflow role <active-path> --role reviewer --agent claude --model claude-opus
-uv run pipy-session workflow review-outcome <active-path> \
-  --implementer-agent codex --implementer-model gpt-5.3-codex \
-  --reviewer-agent claude --reviewer-model claude-opus \
-  --high 1 --medium 2 --low 4 \
-  --accepted 7 --fixed 7 --rejected 0 --deferred 0
-uv run pipy-session workflow subagent <active-path> --role explorer --agent codex --outcome findings-used
-uv run pipy-session workflow evaluation <active-path> \
-  --pattern codex-implementation-claude-opus-review \
-  --confidence medium --recommendation keep-testing \
-  --summary "Reviewer found lifecycle risks implementer missed."
-```
-
-These commands append summary-safe `workflow.role`, `review.outcome`,
-`subagent.used`, and `workflow.evaluation` events. Automatic adapters also
-append `model.used` when a model identifier is exposed safely by hook metadata
-or wrapper argv. Their generated summaries are searchable and appear in
-`reflect`; do not include prompts, transcripts, tool output, secrets, or
-sensitive personal data in those fields.
-
 List finalized records in the local archive:
 
 ```sh
@@ -521,23 +496,6 @@ session id, provider/model labels, turn count, workspace hash, timestamps, and
 the optional Markdown summary for inspection. Runtime seeding of a resumed
 native session is a later slice.
 
-Reflect on finalized records to extract summary-safe learning signals:
-
-```sh
-uv run pipy-session reflect
-uv run pipy-session reflect --json
-```
-
-The reflect command is read-only. It scans finalized records and reports archive
-counts, event type counts, low-signal partial capture counts, and curated
-learning signals from event `summary` strings and Markdown summary snippets. It
-does not print raw JSONL event bodies, payload values, prompt text, tool output,
-or transcript bodies. Workflow-learning events are grouped so the archive can
-answer questions about role/model combinations, review outcomes, subagent use,
-and whether a workflow pattern should be kept or compared further. Use it as
-the first pass before promoting durable decisions, lessons, ADRs, prompts,
-hooks, or skills into git.
-
 Verify local archive health without repairing or mutating files:
 
 ```sh
@@ -566,7 +524,7 @@ Current capture/reference matrix:
 | --- | --- | --- |
 | Claude Code | `pipy-session auto hook claude` handles official hook JSON for `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial by default; stores lifecycle and conservative metadata, not raw prompt/tool transcripts. |
 | Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex hooks were rechecked against current OpenAI docs and local CLI support; no pipy Codex hook adapter is installed because the documented `Stop` hook is turn-scoped, not a reliable session finalizer. | Partial. Do not treat this as complete automatic transcript capture. |
-| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. `pipy-session auto reference-pi <path>` creates a finalized pipy reference to a Pi-native session file without copying its contents. | Partial pipy metadata/reference only; no raw Pi transcript import by default. |
+| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. | Partial pipy metadata only; no raw Pi transcript import by default. |
 
 Start, append, and stop an automatic partial capture directly:
 
@@ -575,20 +533,6 @@ active="$(uv run pipy-session auto start --agent codex --slug wrapper-test --ses
 uv run pipy-session auto event --agent codex --session-id codex-123 --type codex.turn.observed --summary "Observed a turn boundary."
 uv run pipy-session auto stop --agent codex --session-id codex-123
 ```
-
-Reference an existing Pi-native session file without importing its raw JSONL
-body:
-
-```sh
-uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
-```
-
-The Pi reference workflow requires an explicit existing file path, creates a
-finalized partial `agent="pi"` record immediately, stores conservative metadata
-such as the source filename, file size, mtime, and SHA-256 hash of the resolved
-absolute path, and writes a Markdown summary saying the record is a reference,
-not a transcript import. It does not read, copy, print, or store raw Pi session
-content or the absolute source path.
 
 The automatic state mapping is stored under the sync-excluded active area:
 

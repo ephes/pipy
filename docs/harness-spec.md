@@ -2208,49 +2208,14 @@ provider-visible context, and metadata-only archive contracts in sync.
 
 ### Native Visible Approval And Sandbox Prompt Path
 
-Status: historical foundation, removed from the product REPL path. The helper
-remains as test-covered historical code only; normal `/read`, `/ask-file`, and
-`/propose-file` interactive commands do not call it or display its prompt.
-
-The first visible approval/sandbox prompt foundation is implemented in
-`pipy_harness.native.approval_prompt`. It is deliberately narrower than a
-tool-capable shell. The helper supports only the existing read-only workspace
-inspection request class, and only the `explicit-file-excerpt` request kind is
-accepted for this first prompt path.
-
-The prompt data model is `NativeApprovalSandboxPrompt`. It stores only safe
-labels and booleans:
-
-- operation, tool name, and tool kind labels
-- approval policy label and `approval_required`
-- sandbox policy label
-- `workspace_read_allowed`, `filesystem_mutation_allowed`,
-  `shell_execution_allowed`, and `network_access_allowed`
-- optional safe scope and reason labels
-
-It does not store or display raw prompts, provider output, raw tool arguments,
-workspace paths, command text, stdout, stderr, diffs, patches, file contents,
-or excerpt text. `NativeInteractiveApprovalPromptResolver` writes the visible
-prompt to an injected output stream and reads an approval answer from an
-injected input stream, which keeps the path testable without terminal input and
-lets future CLI wiring choose stderr for prompts. A missing resolver, missing
-stream, EOF, denied answer, resolver error, unsupported request kind,
-unsupported approval policy, unsupported sandbox mode, sandbox mismatch, unsafe
-request data, or attempted capability escalation produces a fail-closed
-decision before execution.
-
-The public helper `resolve_read_only_workspace_approval(request, resolver)`
-returns `NativeReadOnlyApprovalResolution`, including a
-`NativeApprovalSandboxDecision` and the existing `NativeReadOnlyGateDecision`
-consumed by `NativeExplicitFileExcerptTool`. An approved prompt maps to
-`NativeReadOnlyApprovalDecision.ALLOWED`; denial maps to `DENIED`; unavailable
-UI and unsupported request kinds map to `SKIPPED`; unsupported policies,
-sandbox mismatches, unsafe data, capability escalation, and resolver failures
-map to `FAILED`.
-
-This foundation slice added no new archive event type and no new
-`--native-output json` fields. The helper exposes `safe_metadata()` methods for
-future archive wiring, but it is not wired into the current interactive shell.
+Status: removed. The `pipy_harness.native.approval_prompt` helper module
+(visible approval/sandbox prompt resolver and `NativeApprovalSandboxPrompt`
+value object) shipped without a production caller. It was deleted as part of
+the 2026-05-26 code-quality audit cleanup; see Track CQ-A in
+`docs/backlog.md`. The retained read-only gate decision contracts
+(`NativeReadOnlyApprovalDecision`, `NativeReadOnlyGateDecision`) live in
+`pipy_harness.native.read_only_tool`. A real interactive approval prompt
+remains deferred until a tool-capable shell needs it.
 
 ### Native Read-Only Tool Request Value Objects
 
@@ -3353,23 +3318,29 @@ These hold throughout the track, not as later deferrals:
 These remain explicitly out of scope while the tool-loop track lands and
 after it lands. They are not later slices of this track:
 
-- A `bash` tool or any arbitrary shell execution tool. A standalone helper
-  exists, but production model-loop registration is deferred until a real shell
-  sandbox preserves secret isolation and `.git` default-deny.
+- A `bash` tool or any arbitrary shell execution tool. The previous
+  `pipy_harness.native.tools.bash.BashTool` standalone helper was removed
+  in the 2026-05-26 code-quality audit cleanup (it was never registered
+  for model-loop use). Production registration requires a real shell
+  sandbox that preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A
-  metadata-only resume reader, a metadata-only branching helper
-  (`session_branching.branch_from`), and an LLM-summarize compaction
-  helper (`session_compaction.compact_loop_messages`) all shipped
-  later; live runtime wiring for resume prompt seeding, recorder
-  `session.branched_from` events, and tool-loop invocation of the
-  compaction pass remain follow-up slices.
+  metadata-only resume reader (`pipy_harness.native.session_resume`)
+  ships today. The previous metadata-only branching helper
+  (`session_branching.branch_from`) and LLM-summarize compaction helper
+  (`session_compaction.compact_loop_messages`) were removed in the
+  2026-05-26 code-quality audit cleanup — `branch_from` had no recorder
+  integration, and the compaction helper could not fire because
+  `NativeConversationState.MAX_TURNS = 8` is below its threshold. See
+  backlog Track CQ-A.
 - RPC mode and SDK embedding. The in-process Python SDK at
   `pipy_harness.sdk` shipped later (closing parity-criterion row
   E7); a network/wire-protocol RPC daemon remains deferred.
 - Extensions, package loading, theme integration, and slash-command loading for
-  skills and prompt templates. Skills, prompt-template discovery, custom-command
-  discovery, and a pure theme registry shipped later.
+  skills and prompt templates. The previous workspace-resource discovery
+  helpers (`skills`, `prompt_templates`, `custom_commands`, `themes`) were
+  removed in the 2026-05-26 code-quality audit cleanup because no runtime
+  consumer ever loaded them. See backlog Track CQ-A.
 - Automatic `@file` content reads from completion-only references.
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
@@ -3705,10 +3676,11 @@ For the current task-slice backlog and next-step ordering, see
 - Indexed archive search.
 - Repo maps or workspace summaries.
 - Permission policy and sandbox profiles. A real process/filesystem
-  sandbox is the prerequisite for production registration of
-  `pipy_harness.native.tools.bash.BashTool` — until that lands, the
-  standalone helper remains unregistered and parity-criterion row B7
-  stays red.
+  sandbox is the prerequisite for production registration of any
+  `bash`-style shell tool. The previous unregistered `BashTool` helper
+  was removed in the 2026-05-26 code-quality audit cleanup; until a
+  real sandbox lands, parity-criterion row B7 stays red. See backlog
+  Track CQ-A.
 - Interactive TUI.
 - Network/wire-protocol RPC daemon. The in-process Python SDK at
   `pipy_harness.sdk` closes parity-criterion row E7; a long-running
@@ -3716,13 +3688,12 @@ For the current task-slice backlog and next-step ordering, see
   deferred.
 - Multi-agent task delegation.
 - Long-running dev server.
-- Live runtime wiring for the remaining helpers that landed in the
-  49/50 parity closure: streaming text deltas in `--repl-mode no-tool`
-  (the tool-loop wiring is now live), real vision-provider
-  serialization for `ProviderRequest.image_attachments`, tool-loop
-  invocation of `compact_loop_messages`, and recorder integration that
-  writes a `session.branched_from` lifecycle event from
-  `branch_from(...)`.
+- Live runtime wiring for streaming text deltas in `--repl-mode no-tool`
+  (the tool-loop wiring is now live). The previous `image_attachment`,
+  `session_compaction`, and `session_branching` helpers that closed
+  parity-criterion rows D8, E2, and E3 in the 49/50 score were removed
+  in the 2026-05-26 code-quality audit cleanup; those rows are now red
+  in the current 43/50 parity score. See backlog Track CQ-A.
 
 ## Open Questions
 

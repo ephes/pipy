@@ -80,18 +80,18 @@ check D2 "Byte caps"                 small  "grep -q byte_cap src/pipy_harness/n
 check D3 "PIPY_CONFIG_HOME"          small  "grep -q PIPY_CONFIG_HOME src/pipy_harness/native/workspace_context.py"
 check D4 "Skills loading"            small  "test -f src/pipy_harness/native/skills.py"
 check D5 "Prompt templates"          small  "test -f src/pipy_harness/native/prompt_templates.py"
-check D6 "Custom slash commands"     small  "grep -rq 'custom_commands\|user_commands' src/pipy_harness/native/ 2>/dev/null"
+check D6 "Custom slash commands"     small  "grep -rq --include='*.py' 'custom_commands\|user_commands' src/pipy_harness/native/ 2>/dev/null"
 check D7 "Themes"                    small  "test -f src/pipy_harness/native/themes.py"
-check D8 "Image attachments"         small  "grep -rq 'image_attachment\|load_image' src/pipy_harness/native/ 2>/dev/null"
+check D8 "Image attachments"         small  "grep -rq --include='*.py' 'image_attachment\|load_image' src/pipy_harness/native/ 2>/dev/null"
 
 echo
 echo "── Advanced session features (E1–E7) ───────────────"
-check E1 "Session resume"            big    "test -f src/pipy_harness/native/session_resume.py || grep -rq 'def resume' src/pipy_harness/native/ 2>/dev/null"
-check E2 "Session compaction"        big    "test -f src/pipy_harness/native/session_compaction.py || grep -rq 'def compact' src/pipy_harness/native/ 2>/dev/null"
-check E3 "Session branching"         small  "grep -rq 'def fork\|def branch' src/pipy_harness/native/ 2>/dev/null"
+check E1 "Session resume"            big    "test -f src/pipy_harness/native/session_resume.py || grep -rq --include='*.py' 'def resume' src/pipy_harness/native/ 2>/dev/null"
+check E2 "Session compaction"        big    "test -f src/pipy_harness/native/session_compaction.py || grep -rq --include='*.py' 'def compact' src/pipy_harness/native/ 2>/dev/null"
+check E3 "Session branching"         small  "grep -rq --include='*.py' 'def fork\|def branch' src/pipy_harness/native/ 2>/dev/null"
 check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
-check E5 "Dynamic provider swap"     big    "test -f src/pipy_harness/native/dynamic_provider.py || grep -rq 'def swap_provider\|/provider ' src/pipy_harness/native/ 2>/dev/null"
-check E6 "Settings panel"            small  "grep -rq '/settings' src/pipy_harness/native/session.py 2>/dev/null"
+check E5 "Dynamic provider swap"     big    "test -f src/pipy_harness/native/dynamic_provider.py || grep -rq --include='*.py' 'def swap_provider\|/provider ' src/pipy_harness/native/ 2>/dev/null"
+check E6 "Settings panel"            small  "grep -rq --include='*.py' '/settings' src/pipy_harness/native/session.py 2>/dev/null"
 check E7 "RPC / SDK"                 small  "test -f src/pipy_harness/rpc.py || test -f src/pipy_harness/sdk.py"
 
 echo

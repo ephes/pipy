@@ -79,11 +79,11 @@ The format is intentionally loose at this stage. Prefer stable fields where poss
 Full raw transcript capture is a separate adapter capability from summary-safe
 learning events. When a platform exposes a reliable full-session export, pipy
 may store or reference that private raw artifact under the same local session
-root, outside git. Commands such as `search`, `inspect`, `verify`, and
-`reflect` must still default to finalized metadata, event types, event
-summaries, Markdown summaries, and explicitly allowlisted learning fields rather
-than raw transcript bodies. This keeps complete capture useful for private
-forensics while preserving safe day-to-day reflection.
+root, outside git. Commands such as `search`, `inspect`, and `verify` must still default to
+finalized metadata, event types, event summaries, Markdown summaries, and
+explicitly allowlisted learning fields rather than raw transcript bodies. This
+keeps complete capture useful for private forensics while preserving safe
+day-to-day inspection.
 
 ## File Lifecycle
 
@@ -143,55 +143,13 @@ uv run pipy-session append <active-path> --type decision.recorded --summary "Use
 uv run pipy-session append <active-path> --event-json '{"type":"verification.performed","summary":"uv run pytest passed."}'
 ```
 
-Record workflow-learning details explicitly when the session should teach future
-agents about model, role, review, or subagent choices:
-
-```sh
-uv run pipy-session workflow role <active-path> \
-  --role implementer \
-  --agent codex \
-  --model gpt-5.3-codex \
-  --phase implementation
-
-uv run pipy-session workflow role <active-path> \
-  --role reviewer \
-  --agent claude \
-  --model claude-opus \
-  --phase review
-
-uv run pipy-session workflow review-outcome <active-path> \
-  --implementer-agent codex \
-  --implementer-model gpt-5.3-codex \
-  --reviewer-agent claude \
-  --reviewer-model claude-opus \
-  --high 1 --medium 2 --low 4 \
-  --accepted 7 --fixed 7 --rejected 0 --deferred 0
-
-uv run pipy-session workflow evaluation <active-path> \
-  --pattern codex-implementation-claude-opus-review \
-  --confidence medium \
-  --recommendation keep-testing \
-  --summary "Reviewer found lifecycle risks implementer missed."
-```
-
-Use `workflow subagent` when delegation materially affects the result:
-
-```sh
-uv run pipy-session workflow subagent <active-path> \
-  --role explorer \
-  --agent codex \
-  --model gpt-5.3-codex \
-  --task-kind review-support \
-  --outcome findings-used
-```
-
-These commands append summary-safe events such as `workflow.role`,
-`review.outcome`, `workflow.evaluation`, and `subagent.used`. Automatic
-adapters also append `model.used` when a model identifier is exposed safely by
-hook metadata or wrapper argv. The generated summaries are intentionally
-searchable by `pipy-session search` and surfaced by `pipy-session reflect`. Do
-not include prompts, transcript bodies, tool output, secrets, credentials, or
-sensitive personal data in model, role, outcome, or summary fields.
+Automatic adapters also append `model.used` when a model identifier is exposed
+safely by hook metadata or wrapper argv. Their summaries are searchable by
+`pipy-session search`. Do not include prompts, transcript bodies, tool output,
+secrets, credentials, or sensitive personal data in model, role, outcome, or
+summary fields. (The dedicated `pipy-session workflow` subcommand was removed
+as part of the 2026-05-26 code-quality audit cleanup; see Track CQ-A in
+`docs/backlog.md` for context.)
 
 Finalize the record when the session ends:
 
@@ -307,42 +265,6 @@ because they are intentional human-review artifacts. Human metadata and event
 type labels collapse control whitespace so malformed archive values cannot forge
 extra physical output lines; JSON output preserves structured values.
 
-Reflect on finalized records without indexing or mutating them:
-
-```sh
-uv run pipy-session reflect
-uv run pipy-session reflect --json
-```
-
-`reflect` builds a summary-safe learning report over finalized archive records.
-It uses the same finalized-record discovery rules as `list`, skips malformed or
-unreadable records quietly, and does not read active records, automatic state
-files, `*.partial` staging files, or arbitrary files outside the archive.
-
-The report includes:
-
-- record counts by agent and capture marker
-- total Markdown-summary coverage
-- event type counts
-- count of low-signal partial captures that contain only lifecycle or hook
-  metadata
-- curated learning items from event `summary` strings for event types such as
-  `decision.recorded`, `lesson.learned`, `recommendation.recorded`,
-  `model.used`, `workflow.role`, `subagent.used`, `review.findings`,
-  `review.outcome`, `review.followup.completed`, `workflow.evaluation`,
-  `implementation.completed`, `file.changed`, `verification.performed`, and
-  `research.performed`
-- short Markdown summary snippets when they are not generic automatic-capture
-  summaries
-
-Human output is Markdown intended for review. JSON output is a structured report
-with the same fields. Neither output includes raw JSONL event bodies, payload
-values, prompt text, tool output, transcript bodies, raw invalid bytes, or raw
-exception messages. The command does not repair, delete, move, rewrite, index,
-import, cache, sync, or promote session records. Use the report as an input to
-explicit promotion work: ADRs, curated lessons, prompts, hooks, skills, or
-documentation changes that intentionally belong in git.
-
 Verify finalized archive health without modifying records:
 
 ```sh
@@ -398,7 +320,7 @@ The native tool-loop REPL (`pipy repl --agent pipy-native --repl-mode tool-loop`
 The sidecar deliberately lives outside `PIPY_SESSION_DIR`:
 
 - The pipy metadata-first session archive is not written to and not read from when the flag is set.
-- `pipy-session list`, `search`, `inspect`, `verify`, `reflect`, and `sync` never see the sidecar because they walk only the session root.
+- `pipy-session list`, `search`, `inspect`, `verify`, and `sync` never see the sidecar because they walk only the session root.
 - The sidecar is opt-in. When `--archive-transcript` is not supplied (the default), no file is created and no raw loop content is persisted anywhere.
 
 Users who enable the sidecar are responsible for treating the transcript files as sensitive. Do not share them, do not commit them, and do not include them in archive sync flows.
@@ -870,7 +792,7 @@ post-tool provider turns remain out of scope.
 `session.finalized` is appended while the JSONL record is still active. The
 recorder then moves the JSONL and Markdown summary into the finalized archive
 under `pipy/YYYY/MM/`. Records produced by `pipy run` are compatible with
-`pipy-session verify`, `list`, `search`, `inspect`, and `reflect`.
+`pipy-session verify`, `list`, `search`, and `inspect`.
 
 ## Automatic Capture
 
@@ -893,7 +815,6 @@ uv run pipy-session auto event --agent claude --session-id platform-id --type cl
 uv run pipy-session auto stop --agent claude --session-id platform-id
 uv run pipy-session auto prune --dry-run
 uv run pipy-session auto prune
-uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
 uv run pipy-session auto hook claude
 uv run pipy-session wrap --agent codex --slug codex-work -- codex
 ```
@@ -928,39 +849,15 @@ a future adapter adds a verified lifecycle bridge:
   Pipy therefore does not install `pipy-session auto hook codex` in this slice.
   Use `pipy-session wrap --agent codex -- ...` for partial lifecycle metadata.
 - Pi: Pi already auto-saves its own JSONL sessions under `~/.pi/agent/sessions/`.
-  Use `pipy-session auto reference-pi <pi-session-path>` when you want a
-  finalized pipy record that points at a Pi-native session file without copying
-  raw transcript content. Use `pipy-session wrap --agent pi -- ...` only when
-  you want a pipy-side partial lifecycle marker around the Pi process.
+  Use `pipy-session wrap --agent pi -- ...` when you want a pipy-side partial
+  lifecycle marker around the Pi process. (The dedicated `auto reference-pi`
+  subcommand was removed as part of the 2026-05-26 cleanup; see Track CQ-A in
+  `docs/backlog.md`.)
 
 Records created by these automatic commands are partial unless `auto start
 --complete` is used by an adapter that truly captures a complete transcript.
 Do not use `--complete` for the Claude, Codex wrapper, or Pi wrapper flows
 documented here.
-
-### Pi-Native Session References
-
-`auto reference-pi` is a conservative bridge for cases where Pi already wrote a
-native session file and pipy only needs a durable pointer:
-
-```sh
-uv run pipy-session auto reference-pi ~/.pi/agent/sessions/session.jsonl --slug pi-session-note
-```
-
-The command requires an explicit existing file path and rejects missing paths or
-directories. It creates and immediately finalizes a partial `agent="pi"` pipy
-record. The JSONL record stores only conservative metadata:
-
-- adapter name
-- source filename
-- source file size
-- source mtime
-- SHA-256 hash of the resolved absolute source path
-- markers that the source path itself was not stored and raw content was not imported
-
-The command does not read, copy, print, or store the Pi-native JSONL body or the
-absolute source path. The Markdown summary explicitly says the pipy record is a
-reference to a Pi-native session, not a transcript import.
 
 ### Raw Transcript Import Policy
 

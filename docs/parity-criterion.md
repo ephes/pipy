@@ -96,21 +96,21 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | D1 | Parent-walk for instruction files | ✅ | `grep -q 'parent' src/pipy_harness/native/workspace_context.py` |
 | D2 | Per-file + total byte caps | ✅ | `grep -q 'byte_cap' src/pipy_harness/native/workspace_context.py` |
 | D3 | Global config root (PIPY_CONFIG_HOME) | ✅ | `grep -q 'PIPY_CONFIG_HOME' src/pipy_harness/native/workspace_context.py` |
-| D4 | Skills loading (workspace skills) | ✅ | `test -f src/pipy_harness/native/skills.py` |
-| D5 | Prompt templates | ✅ | `test -f src/pipy_harness/native/prompt_templates.py` |
-| D6 | Custom slash commands (user-defined) | ✅ | `grep -rq 'custom_commands\|user_commands' src/pipy_harness/native/` |
-| D7 | Themes / color schemes | ✅ | `test -f src/pipy_harness/native/themes.py` |
-| D8 | Image/binary attachment loading | ✅ | `grep -rq 'image_attachment\|load_image' src/pipy_harness/native/` |
+| D4 | Skills loading (workspace skills) | ❌ | `test -f src/pipy_harness/native/skills.py` (helper removed in 2026-05-26 audit cleanup; never wired to a runtime consumer — see backlog Track CQ-A) |
+| D5 | Prompt templates | ❌ | `test -f src/pipy_harness/native/prompt_templates.py` (helper removed in 2026-05-26 audit cleanup; never wired to a runtime consumer — see backlog Track CQ-A) |
+| D6 | Custom slash commands (user-defined) | ❌ | `grep -rq --include='*.py' 'custom_commands\|user_commands' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; never wired to a dispatcher — see backlog Track CQ-A) |
+| D7 | Themes / color schemes | ❌ | `test -f src/pipy_harness/native/themes.py` (helper removed in 2026-05-26 audit cleanup; never wired to chrome — see backlog Track CQ-A) |
+| D8 | Image/binary attachment loading | ❌ | `grep -rq --include='*.py' 'image_attachment\|load_image' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; no provider consumed it — see backlog Track CQ-A) |
 
 ### E. Advanced session features (7 features)
 
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
 | E1 | Session resume (replay from record) | ✅ | `test -f src/pipy_harness/native/session_resume.py \|\| grep -rq 'def resume' src/pipy_harness/native/` |
-| E2 | Session compaction (LLM-summarize transcript) | ✅ | `test -f src/pipy_harness/native/session_compaction.py` |
-| E3 | Session branching/forking | ✅ | `test -f src/pipy_harness/native/session_branching.py` |
+| E2 | Session compaction (LLM-summarize transcript) | ❌ | `test -f src/pipy_harness/native/session_compaction.py` (helper removed in 2026-05-26 audit cleanup; could not fire because `MAX_TURNS=8` is below threshold — see backlog Track CQ-A) |
+| E3 | Session branching/forking | ❌ | `test -f src/pipy_harness/native/session_branching.py` (helper removed in 2026-05-26 audit cleanup; no recorder integration — see backlog Track CQ-A) |
 | E4 | Session export/share | ✅ | `uv run pipy-session export --help 2>/dev/null \|\| grep -rq 'def export' src/pipy_session/` |
-| E5 | Dynamic provider/model swap mid-session | ✅ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` |
+| E5 | Dynamic provider/model swap mid-session | ❌ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; was a 140 L wrapper around one `select_model` call — see backlog Track CQ-A) |
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
 | E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
@@ -119,15 +119,24 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-26, after SDK module landed): 49
-target  ✅ count for 80% parity:                        40
-delta beyond 80% target:                                +9
+current ✅ count (2026-05-27, after the code-quality audit cleanup):  41
+target  ✅ count for 80% parity:                                       40
+delta beyond 80% target:                                               +1
 ```
 
-The only remaining ❌ is B7 `bash`, which is deliberately deferred
-from the production model-loop registry pending a real shell
-sandbox; see the row notes above. All other rows in the locked
-50-feature criterion are green.
+Red rows after the 2026-05-26 audit cleanup: B7 (bash, deferred behind
+a real sandbox), D4 (skills), D5 (prompt templates), D6 (custom slash
+commands), D7 (themes), D8 (image attachments), E2 (session compaction),
+E3 (session branching), and E5 (dynamic provider swap). All eight
+non-bash rows were previously pinned by a `test -f path` (or `grep -rq`
+over the directory) rubber-stamp on a helper module with no runtime
+consumer; the audit (`docs/audit/2026-05-26/code-quality-audit/`)
+identified them as dead code and Track CQ-A of `docs/backlog.md` removed
+the helpers. The Verify commands now restrict `grep -r` to `*.py` so
+stale `__pycache__/*.pyc` bytecode no longer satisfies the check.
+Re-introducing the helpers is justified only when a runtime consumer
+exists first; rewriting the per-row Verify commands to test real
+behavior (instead of file existence) is queued.
 
 ## How To Verify
 
@@ -150,10 +159,10 @@ The `bash` tool (B7) was previously listed here as a candidate big feature.
 It is now deferred from the production model-loop registry pending a real
 process/filesystem sandbox that preserves secret isolation and `.git`
 default-deny against shell-quoting, glob, and command-substitution bypasses.
-The standalone `BashTool` class still exists for non-model use cases, but
-B7's Verify command now checks model-loop registration and therefore stays
-at ❌ until the sandbox lands. B7 does not count toward the big-feature
-bar in its current state.
+The standalone `BashTool` helper was removed in the 2026-05-26 audit
+cleanup (it was never registered for model-loop use); B7's Verify command
+checks model-loop registration and therefore stays at ❌ until the sandbox
+lands. B7 does not count toward the big-feature bar in its current state.
 
 ## What Counts As "Big"
 
