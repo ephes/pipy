@@ -1,18 +1,16 @@
 # pipy
 
-Python slop fork experiments for a coding-agent harness inspired by Pi and clean architecture.
+Python slop fork experiments for a coding-agent harness inspired by Pi and
+clean architecture.
 
-The repository currently contains the first project infrastructure slices:
-durable session-storage policy, a small local session-recorder CLI, an initial
-`pipy run` subprocess harness, a native pipy runtime bootstrap, and explicit
-sync between the `studio` and `atlas` development machines.
+Pipy's product runtime is `pipy-native`: a Python runtime that owns provider
+access, tool boundaries, session semantics, and privacy-conscious archive
+metadata. Mentions of Codex, Claude Code, or Pi below refer to metadata
+capture or subprocess wrapping for external tools — they are not supported
+product runtime backends.
 
-Product direction: `pipy-native` is the agent runtime. It should talk directly
-to model providers through pipy's own provider ports, prompt construction, tool
-boundary, and session semantics. Mentions of Codex, Claude Code, or Pi below
-refer to metadata capture, subprocess wrapping, or session-reference workflows
-for external tools. They are not supported product runtime backends and should
-not become the core agent loop.
+For the design rationale, runtime diagrams, archive layout, and parity
+status, start at [`docs/index.md`](docs/index.md).
 
 ## Development Setup
 
@@ -38,23 +36,12 @@ somewhere else.
 
 ## Documentation Site
 
-The Markdown docs can be previewed locally with Zensical:
+Preview the Markdown docs locally with Zensical:
 
 ```sh
-just docs-serve
-```
-
-This starts the local preview server, normally at `http://localhost:8000`.
-Use an explicit address when that port is already occupied:
-
-```sh
+just docs-serve              # http://localhost:8000 by default
 just docs-serve localhost:8001
-```
-
-Build the static site into `site/` with:
-
-```sh
-just docs-build
+just docs-build              # static output in site/
 ```
 
 ## Session Sync Setup
@@ -67,46 +54,25 @@ direnv allow
 just sessions-init
 ```
 
-Then sync finalized session records with the paired Tailscale machine:
+Sync finalized session records with the paired Tailscale machine:
 
 ```sh
 just sessions-sync
 ```
 
-On `studio`, the default remote is `atlas.tailde2ec.ts.net`.
-On `atlas`, the default remote is `studio.tailde2ec.ts.net`.
+On `studio`, the default remote is `atlas.tailde2ec.ts.net`. On `atlas`, the
+default remote is `studio.tailde2ec.ts.net`.
 
-Raw session records live outside git by default:
-
-```text
-~/.local/state/pipy/sessions/
-```
-
-Active records should be written under:
-
-```text
-~/.local/state/pipy/sessions/.in-progress/pipy/
-```
-
-Finalized immutable records should be moved to:
-
-```text
-~/.local/state/pipy/sessions/pipy/YYYY/MM/
-```
-
-See `docs/session-storage.md` for the full lifecycle.
-
-Start with `docs/index.md` for the documentation reading path. The current
-codebase map and diagrams live in `docs/architecture.md`; Pi parity and
-architecture differences live in `docs/pi-parity.md`; near-term implementation
-planning lives in `docs/backlog.md`; design rationale and product boundaries
-live in `docs/harness-spec.md`.
+Session records live outside git under `~/.local/state/pipy/sessions/`,
+with active records in `.in-progress/pipy/` and finalized records in
+`pipy/YYYY/MM/`. See [`docs/session-storage.md`](docs/session-storage.md) for
+the full lifecycle.
 
 ## Pipy Run Harness
 
-Use `pipy run --agent pipy-native` for the native product runtime. It runs one
-minimal native turn through a direct provider boundary while pipy records
-conservative partial lifecycle metadata into the session archive:
+`pipy run --agent pipy-native` runs one minimal native turn through a direct
+provider boundary while pipy records conservative lifecycle metadata into the
+session archive:
 
 ```sh
 uv run pipy
@@ -119,297 +85,143 @@ uv run pipy run --agent pipy-native --native-provider openai-codex --native-mode
 ```
 
 The same command can also wrap an arbitrary subprocess for conservative
-lifecycle capture. This is a foundation and smoke-test path, not the long-term
-agent runtime:
+lifecycle capture. This is a foundation and smoke-test path, not the
+long-term agent runtime:
 
 ```sh
 uv run pipy run --agent custom --slug smoke -- echo hello
 uv run pipy run --agent codex --slug codex-capture --cwd . -- codex exec "..."
 ```
 
-Required flags:
+For subprocess capture runs, the harness streams child stdout and stderr to
+the caller, finalizes the pipy record, and returns the child exit code. Pipy
+does not own the subprocess prompt stack, model calls, tool behavior,
+approval model, or transcript format.
 
-- `--agent <name>`: use `pipy-native` for the product runtime; other names such
-  as `custom`, `codex`, `claude`, or `pi` are subprocess/capture labels only
-- `--slug <slug>`: short run label used in the session filename
-- `--goal <text>`: short goal, required for `--agent pipy-native`
-- command after `--`: subprocess command to run, required except for `--agent pipy-native`
+### Flags
 
-Optional flags:
+Required:
 
-- `--cwd <path>`: child process working directory, defaulting to the current directory
-- `--root <path>`: session root override, matching `pipy-session --root`
-- `--record-files`: after the child exits, record changed git file paths only
-- `--native-provider fake|openai|openai-codex|openrouter|anthropic|google|google-vertex|mistral|amazon-bedrock|azure-openai|cloudflare|openai-completions`: native provider for `--agent pipy-native`, defaulting to `fake`. All real providers are stdlib-only (no third-party SDK dependencies); see `docs/parity-criterion.md` for the locked feature list.
-- `--native-model <id>`: model label for the native provider; required for real providers in one-shot `pipy run`
-- `--native-output json`: for `--agent pipy-native` only, print one metadata-only JSON status object instead of provider final text
+- `--agent <name>`: `pipy-native` for the product runtime; `custom`, `codex`,
+  `claude`, `pi` are subprocess/capture labels only.
+- `--slug <slug>`: short label used in the session filename.
+- `--goal <text>`: short goal, required for `--agent pipy-native`. Treat as
+  user-visible archive metadata; do not paste prompts, secrets, credentials,
+  or sensitive personal data.
+- command after `--`: subprocess command, required except for
+  `--agent pipy-native`.
 
-The separate `openai-codex` native provider is the ChatGPT Plus/Pro Codex
-subscription path, based on local Pi prior art under
-`/Users/jochen/src/pi-mono`. From the native shell, use `/login openai-codex`
-and then `/model openai-codex/gpt-5.2` or another available Codex model; the standalone
-`pipy auth openai-codex login` command remains available for one-shot smoke
-runs. Both paths store pipy-owned OAuth state under
-`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; pipy does not
-read or copy Pi's `~/.pi/agent/auth.json`. The existing `openai` provider
-remains the OpenAI Platform API-key path using `OPENAI_API_KEY`. OpenRouter
-remains available for manual smoke tests with `OPENROUTER_API_KEY`, and `fake`
-remains the no-credential smoke provider.
-Shell direction: native REPL auth/model/read/context commands are Pi-like for
-normal interactive use. `/clear`, `/login`, `/logout`, and `/model` are local
-shell commands, while explicit `/read`, `/ask-file`, and `/propose-file`
-commands do not display approval popups.
+Optional:
 
-Treat `--goal` as user-visible archive metadata; do not paste full prompts,
-secrets, credentials, or sensitive personal data into it.
+- `--cwd <path>`: child process working directory.
+- `--root <path>`: session root override (matches `pipy-session --root`).
+- `--record-files`: after the child exits, record changed git file paths
+  only. Without it, changed paths are not recorded.
+- `--native-provider <id>`: native provider for `--agent pipy-native`,
+  defaulting to `fake`. Supported ids: `fake`, `openai`, `openai-codex`,
+  `openrouter`, `anthropic`, `google`, `google-vertex`, `mistral`,
+  `amazon-bedrock`, `azure-openai`, `cloudflare`, `openai-completions`. All
+  real providers are stdlib-only (no third-party SDK dependencies).
+- `--native-model <id>`: model label for the native provider; required for
+  real providers in one-shot `pipy run`.
+- `--native-output json`: for `--agent pipy-native` only; emits a single
+  metadata-only JSON status object instead of provider final text.
 
-For `--agent pipy-native`, pipy runs one minimal native turn through an
-injected provider. The deterministic fake provider remains the default
-smoke-test boundary and does not require credentials. Native tool invocation is
-driven only by one sanitized supported intent from provider metadata; provider
-success with final text and no intent completes without tool events. The no-op
-tool path proves tool lifecycle and policy records without inspecting or
-mutating the workspace. The explicit-file-excerpt read-only path is
-fixture-gated, consumes only supported pipy-owned request/gate/target data,
-forwards a successful bounded excerpt only in memory to one follow-up provider
-turn, and never archives raw excerpt text. The OpenAI provider calls the
-Responses API through a small standard-library HTTP boundary, reads its API key
-from `OPENAI_API_KEY`, requires an explicit `--native-model`, sends pipy's
-internal system prompt as `instructions`, sends the short `--goal` as `input`,
-and requests `store: false`. It now also serializes the model-driven loop's
-message envelope and `available_tools` into the Responses-API `input`/`tools`
-shape and parses returned `function_call` outputs into the loop's
-`ProviderToolCall` values when used through the tool-loop REPL; legacy
-single-turn `pipy run` / `/ask-file` / `/propose-file` callers continue to
-send the plain single-prompt body and receive no tool calls. It does not
-enable provider-side built-in tools (web search, file search, code
-interpreter, computer use), streaming, retries, conversation state,
-background mode, model fallback, or raw transcript import. Provider final
-text is printed to stdout by the CLI contract only when the native run
-succeeds, but the pipy archive still stores only lifecycle metadata.
+### Providers
 
-OpenRouter remains usable for real-provider smoke testing:
+- `openai` reads `OPENAI_API_KEY` and calls the Responses API.
+- `openai-codex` is the distinct ChatGPT Plus/Pro subscription path. Log in
+  with `uv run pipy auth openai-codex login` (or `/login openai-codex` from
+  the REPL). Pipy stores its own OAuth state under
+  `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; it does not
+  read or copy Pi's `~/.pi/agent/auth.json`.
+- `openrouter` reads `OPENROUTER_API_KEY` and is convenient for ad-hoc smoke
+  tests against many models:
 
-```sh
-uv run pipy repl --agent pipy-native --slug openrouter-smoke \
-  --native-provider openrouter \
-  --native-model openai/gpt-5.1-codex
-```
+  ```sh
+  uv run pipy repl --agent pipy-native --slug openrouter-smoke \
+    --native-provider openrouter \
+    --native-model openai/gpt-5.1-codex
+  ```
+- `fake` is the deterministic no-credential default.
 
-Set `OPENROUTER_API_KEY` first. Model availability is controlled by
-OpenRouter, so choose another `<provider/model>` id if needed.
+### Native REPL
 
-For subprocess capture runs, the harness streams child stdout and stderr to the
-caller, finalizes the pipy record, and then returns the child process exit code.
-Pipy does not own the subprocess prompt stack, model calls, tool behavior,
-approval model, or transcript format. Use this path only when you want a
-metadata record around another command.
+`pipy` and `pipy repl` start the interactive native shell with default slug
+`native-repl`. `--repl-mode` defaults to `auto`: when the selected provider
+advertises `supports_tool_calls=True` (all three real adapters do), the
+shell launches the bounded model-driven tool loop with `read`, `ls`, `grep`,
+`find`, `write`, `edit`, `edit_diff`, and `truncate`. Pass `--repl-mode
+no-tool` or `tool-loop` to force a mode. `--tool-budget` (default 10,
+max 25) caps invocations per user turn. Filesystem tools refuse generated,
+`.git`, symlink-escaped, and oversized targets.
 
-The current native intent path can make exactly one bounded post-tool provider
-call when the first provider result carries either a supported safe no-op intent
-plus an explicitly supported synthetic sanitized observation fixture, or a
-supported read-only explicit-file-excerpt intent plus a supported pipy-owned
-read fixture. That follow-up turn receives only generated observation metadata
-and, for the read-only path, bounded in-memory provider-visible context.
-Archives remain metadata-only: safe turn/provider/model labels, status,
-durations, normalized usage counters, storage booleans, safe observation
-labels, and read-tool counts/source labels may be recorded, but raw excerpts,
-raw tool results, stdout, stderr, diffs, patches, file contents, prompts, model
-output, provider responses, provider-native tool-call or result objects,
-function arguments, provider response ids that could reveal payload content,
-raw tool arguments, shell commands, model-selected filesystem paths, secrets,
-credentials, tokens, private keys, and sensitive personal data must not be
-stored by default.
+`bash` is intentionally not exposed in the production model loop until it
+has a real shell sandbox.
 
-`pipy` and `pipy repl` start the interactive native shell in the current
-directory with the default slug `native-repl`; `pipy repl --agent pipy-native`
-remains accepted. The REPL's `--repl-mode` flag defaults to `auto`: when the
-selected provider advertises `supports_tool_calls=True`, the shell launches
-the bounded model-driven tool loop (with `read`, `ls`, `grep`, `find`,
-`write`, `edit`, `edit_diff` (in-process unified-diff applier), and `truncate` from
-`pipy_harness.native.tool_loop_session.production_tool_registry`)
-and `--tool-budget` (default 10, max 25) caps invocations per user turn.
-Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
-targets before loading file content.
-`bash` is intentionally not exposed in the production model loop until it has
-a real shell sandbox that preserves secret isolation and `.git` default-deny.
-Otherwise it falls back to the existing line-oriented REPL with the
-`/settings`, `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
-`/verify just-check` commands. Pass `--repl-mode no-tool` to force the
-line-oriented REPL or `--repl-mode tool-loop` to force the tool loop. The
-opt-in `--archive-transcript` flag writes raw loop turns to
-`~/.local/state/pipy/transcripts/<id>.jsonl` outside the metadata-first
-pipy session archive; the sidecar is sensitive content, uses a filename-safe
-id and regular owner-only file, refuses preexisting symlinks, and is excluded
-from `pipy-session list/search/inspect`. All three real adapters
-(`openrouter`, `openai`, and `openai-codex`) advertise
-`supports_tool_calls=True` and drive the tool loop end-to-end, so
-`pipy repl --native-provider openrouter --native-model <vendor/model>`
-with `OPENROUTER_API_KEY`, `pipy repl --native-provider openai
---native-model <model>` with `OPENAI_API_KEY`, and `pipy repl
---native-provider openai-codex --native-model <model>` after
-`pipy auth openai-codex login` all run the same bounded model-driven
-loop. Workspace context (`AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, and
-`CLAUDE.MD` — in that per-directory precedence) is discovered and
-composed into the native bootstrap system prompt in both REPL modes
-and the one-shot runner across `openai`, `openai-codex`, and
-`openrouter`. The composed prompt lists the global pipy config root
-first, then each ancestor of the workspace from the root-most ancestor
-down to the workspace's direct parent, then the workspace itself last,
-so more-specific instructions override earlier ones. The global root
-is resolved through `PIPY_CONFIG_HOME`, then `${XDG_CONFIG_HOME}/pipy`,
-then `~/.config/pipy`. The matched files are deduplicated by canonical
-path and bounded by per-file (64 KiB) and total (256 KiB) byte caps
-with deterministic truncation markers. Only safe per-file metadata
-(workspace-relative path label, sha256, byte length, truncated flag)
-plus a `total_byte_cap_reached` boolean reaches the session archive;
-instruction bodies never appear in the JSONL events, the Markdown
-summary, or the opt-in `--archive-transcript` sidecar. The shell prints a compact startup
-chrome to stderr before
-the first prompt, including the pipy version, controls, safe command/resource
-labels, and the same kind of safe provider/model, workspace, turn, context,
-read-budget, proposal, and verification indicators shown by `/status`. The
-prompt itself is now a compact state-aware label with provider/model, turn,
-read, proposal, and verification availability. REPL input goes through
-`--input-runtime auto|plain|prompt-toolkit`; `auto` keeps the existing plain
-stdin/stderr behavior for captured streams and can use optional prompt-toolkit
-line-editor input only on real TTY streams when the package is available. The
-optional prompt-toolkit path also suggests existing slash command names while
-editing a leading `/` command, plus workspace-relative path labels while
-editing explicit file-command path arguments, and completion-only `@file`
-reference labels in ordinary prompts plus supported command free-text. It also
-supports multiline editing with Enter to submit and Esc+Enter to insert a
-newline; prompt-toolkit remains optional and is not a declared runtime
-dependency. The prompt-toolkit adapter disables cursor-position probes to avoid
-PTY warning noise and accepts both common Enter encodings for submit/newline key
-handling.
-Startup chrome, prompt labels, and input-runtime selection are presentation
-only: they do not call providers, run tools, read files, attach `@file`
-context, mutate state, consume budgets, or write to stdout. Ordinary
-non-command input lines remain bounded no-tool provider turns.
-Local `/login [openai-codex]`, `/logout [openai-codex]`, and
-`/model [<provider>/<model>|<model>]` commands run inside the shell, print
-status to stderr, do not invoke providers, do not consume provider turns, and
-do not consume explicit-read budgets. `/clear` clears retained no-tool
-conversation context and any pending proposal draft without resetting
-provider/model selection, auth state, read budgets, verification availability,
-or provider turn indexes. `/status` prints only safe local shell-state labels
-and counters to stderr, including provider/model selection, provider-turn
-count, retained no-tool history counters, read-budget counters and flags,
-pending proposal availability, and verification availability; it does not call
-providers, tools, reads, writes, verification, or mutate REPL state.
-`/settings` prints the active provider/model plus safe registered-provider
-availability labels without exposing environment values. `/model` with no
-argument shows the current selection and configured usable model references.
-Successful `/model` selections are persisted as non-secret native defaults under
-local pipy state.
-The explicit
-`/read <workspace-relative-path>` command shares a two-successful-excerpt
-budget per REPL session across `/read`, `/ask-file`, and `/propose-file`
-without an approval prompt; a successful bounded excerpt prints only to the
-interactive stdout stream and is not provider-forwarded or archived.
-The explicit `/ask-file <workspace-relative-path> -- <question>` command uses
-the same bounded read path, then forwards one successful excerpt plus question
-only in memory to one provider turn labeled `ask_file_repl`; it prints only
-provider final text to stdout. Unsafe, skipped, failed, malformed, and
-over-budget read-command cases fail closed before provider visibility. REPL
-archives remain metadata-only and omit raw approval prompts,
-raw tool arguments, raw tool results, stdout, stderr, full file contents,
-prompts, model output, provider responses, auth material, secrets, credentials,
-tokens, private keys, and sensitive personal data.
-The explicit `/propose-file <workspace-relative-path> -- <change-request>`
-command shares the same bounded read path, forwards one excerpt plus
-change request only in memory to a provider turn labeled `propose_file_repl`,
-records only metadata-only proposal status when supported, and does not apply
-edits or run verification.
-The explicit `/apply-proposal <workspace-relative-path>` command is available
-only after a successful same-session `/propose-file` for the exact same
-normalized workspace-relative path. It consumes one pending in-memory,
-human-reviewed visible proposal draft, invokes pipy's existing
-`NativePatchApplyTool` as one file and one operation, emits only the
-metadata-only `native.patch.apply.recorded` event, prints safe status
-diagnostics to stderr, and then clears the pending draft. Local REPL commands,
-unsupported slash commands, provider failures, later provider-visible turns,
-and any apply attempt also clear the pending draft. A visible draft without
-structured proposal metadata can enable only the in-memory apply draft; it does
-not synthesize a proposal archive event. It does not call a provider, run
-verification itself, invoke provider-side tools, support multi-file writes, or
-read proposal data back from archives.
-The explicit `/verify just-check` command is available only after a successful
-same-session `/apply-proposal` mutation. It maps the safe label `just-check` to
-the internal `just check` argv through the existing `NativeVerificationTool`,
-emits only the metadata-only `native.verification.recorded` event, suppresses
-command stdout and stderr, and fails the REPL run when verification is skipped
-or fails. It does not accept arbitrary command text, provider-selected commands,
-network access, filesystem mutation, provider follow-up turns, or retries.
+The line-oriented mode also exposes these explicit commands:
 
-Native stdout is intentionally human-readable by default: a successful
-`pipy-native` run prints only the provider final text to stdout. Session
-finalization messages, diagnostics, and errors go to stderr so stdout remains
-usable in shell pipelines. Failed native runs do not print provider final text
-to stdout.
+- `/settings`, `/status`, `/clear`
+- `/login [openai-codex]`, `/logout [openai-codex]`,
+  `/model [<provider>/<model>]`
+- `/read <path>` — bounded excerpt printed to stdout only; not
+  provider-forwarded or archived.
+- `/ask-file <path> -- <question>` — forwards one bounded excerpt plus
+  question to a single provider turn labeled `ask_file_repl`.
+- `/propose-file <path> -- <change-request>` — produces an in-memory
+  proposal draft. No write, no verify.
+- `/apply-proposal <path>` — consumes the same-session draft and invokes
+  the `NativePatchApplyTool` on exactly one file.
+- `/verify just-check` — available only after a successful same-session
+  `/apply-proposal`; runs `just check` through `NativeVerificationTool`.
 
-Use `--native-output json` with `--agent pipy-native` for structured
-automation output. That mode emits one final versioned JSON object on stdout
-after the native run and recorder finalization attempt, with diagnostics and
-finalization still on stderr. It is a metadata-only status surface, not a
-transcript or final-text channel. The JSON includes summary-safe values such as
-schema/version, run id, status, exit code, agent, adapter, provider, model,
-duration, normalized usage counters when available, storage booleans, and
-finalized-record references. It does not emit raw prompts, model output,
-provider responses, provider-native payloads, tool arguments or results,
-stdout, stderr, command output, diffs, file contents, secrets, credentials,
-tokens, private keys, or sensitive personal data by default. `--native-output`
-is rejected for non-native agents before a run record is created.
+`/read`, `/ask-file`, and `/propose-file` share a two-successful-excerpt
+budget per REPL session and never display approval prompts. Workspace
+context (`AGENTS.md` / `CLAUDE.md` ancestors plus the global pipy config
+root) is discovered and composed into the native bootstrap system prompt
+across the real providers, bounded by 64 KiB per file and 256 KiB total.
 
-By default `pipy run` does not store child stdout, child stderr, full argv,
-prompt text, model output, raw HTTP payloads, diffs, or file contents. It
-records safe metadata such as agent, adapter, provider, model id, run id,
-workspace basename plus path hash, status, exit code, safe usage counters when
-available, provider storage booleans, safe tool-intent labels when present,
-no-op tool name/kind when invoked, approval and sandbox policy labels, and tool
-storage booleans. Injected verification records add only safe command labels,
-status, exit code, duration, reason/error labels, policy booleans, and false
-stdout/stderr/command-output storage booleans. `--record-files` records
-relative changed paths from `git status --porcelain` and redacts
-assignment-style secret values embedded in those paths; without it, changed
-paths are not recorded.
-Native provider usage is normalized to finite non-negative allowlisted token
-counters: `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`,
-and `reasoning_tokens`. Unknown provider-native usage fields and unavailable
-counters are omitted rather than guessed.
+REPL input goes through `--input-runtime auto|plain|prompt-toolkit`. `auto`
+keeps plain stdin/stderr for captured streams and uses the optional
+prompt-toolkit line editor on real TTYs when the package is available
+(slash-command, path, and `@file` completion plus Enter / Esc+Enter
+multiline editing). Prompt-toolkit is optional and not a declared runtime
+dependency.
 
-Finalized records remain compatible with `pipy-session verify`, `list`,
-`search`, and `inspect`.
+### What pipy-native records — and doesn't
 
-The subprocess harness is a foundation and smoke-test path, not the long-term
-agent runtime. The native bootstrap path establishes that pipy owns its system
-prompt, provider boundary, tool boundary, and session semantics instead of
-delegating to `codex`, `claude`, or another coding-agent CLI. It now includes a
-small OpenAI Responses provider boundary and one bounded fake no-op tool-intent
-path that may make one follow-up provider turn only from a synthetic sanitized
-observation fixture. It also includes a fixture-gated explicit-file-excerpt
-read-only path that can forward one bounded in-memory excerpt to a follow-up
-provider turn, plus a supervised patch-apply boundary for injected
-human-reviewed requests and an injected post-apply allowlisted verification
-boundary for `just check`. The REPL exposes the
-local `/settings` command, the explicit `/read` and `/ask-file` commands,
-the proposal-only `/propose-file` command, the same-session one-file
-`/apply-proposal` command, the post-apply `/verify just-check` command, and — in
-`--repl-mode tool-loop` (or `auto` against a provider that advertises
-`supports_tool_calls=True`) — the bounded model-driven loop with
-`read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate`.
-Native provider CLI runs still do not expose provider-side
-built-in tools (web search, file search, code interpreter, computer
-use), non-allowlisted verification commands, streaming provider output,
-a dynamic provider registry, or raw transcript import. Native OAuth belongs only to the distinct
-`openai-codex` subscription provider, not to the existing `openai` API-key
-provider.
+By default the harness stores only safe lifecycle metadata: agent, adapter,
+provider/model labels, run id, workspace basename + path hash, status, exit
+code, normalized usage counters (`input_tokens`, `output_tokens`,
+`total_tokens`, `cached_tokens`, `reasoning_tokens`), provider storage
+booleans, safe tool-intent labels, approval/sandbox policy labels, and
+verification status. `--record-files` additionally records changed paths
+from `git status --porcelain`, redacting assignment-style secret values.
+
+It does **not** store raw prompts, model output, provider responses,
+provider-native tool-call payloads, function arguments, response ids that
+could reveal payloads, tool results, stdout, stderr, diffs, file contents,
+secrets, credentials, tokens, private keys, or sensitive personal data.
+
+Successful native runs print provider final text to stdout; finalization
+messages and diagnostics go to stderr. `--native-output json` emits one
+versioned metadata-only status object on stdout after recorder
+finalization.
+
+The opt-in `--archive-transcript` flag writes raw loop turns to
+`~/.local/state/pipy/transcripts/<id>.jsonl` outside the pipy session
+archive; this sidecar is sensitive content and is excluded from
+`pipy-session list/search/inspect`.
+
+For the full invariant set, capture-policy rationale, and deferred
+boundaries see [`docs/harness-spec.md`](docs/harness-spec.md) and
+[`docs/architecture.md`](docs/architecture.md). Pi parity status lives in
+[`docs/pi-parity.md`](docs/pi-parity.md).
 
 ## Session Recorder CLI
 
-Use `pipy-session` to create active JSONL records, append structured events,
-and finalize immutable records into the syncable archive:
+Use `pipy-session` to create active JSONL records, append structured
+events, and finalize immutable records into the syncable archive:
 
 ```sh
 active="$(uv run pipy-session init --agent codex --slug session-storage-work)"
@@ -419,114 +231,50 @@ uv run pipy-session finalize "$active" --summary "# Summary
 Implemented the local recorder foundation."
 ```
 
-The recorder resolves its root from `PIPY_SESSION_DIR`, or defaults to:
-
-```text
-~/.local/state/pipy/sessions/
-```
-
-It writes active records under `.in-progress/pipy/` and finalizes them under
-`pipy/YYYY/MM/` with filenames shaped like:
+Finalized filenames are shaped like:
 
 ```text
 YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl
 YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.md
 ```
 
-For partial reconstructions, use `--partial` when initializing the record:
+For partial reconstructions, pass `--partial`:
 
 ```sh
 uv run pipy-session init --agent codex --slug manual-reconstruction --partial
 ```
 
-List finalized records in the local archive:
+### Read-only inspection
 
-```sh
-uv run pipy-session list
-uv run pipy-session list --json
-```
+- `list [--json]` — finalized archive listing with Markdown-summary
+  presence.
+- `search <query> [--json]` — case-insensitive substring match against
+  listing metadata, event types, event summaries, and Markdown summaries.
+- `inspect <name> [--json]` — metadata, event counts, and Markdown summary
+  for one finalized record (accepts path, basename, or stem).
+- `export <name>` — metadata-only JSON of one record; raw transcript
+  sidecar included only with explicit `--include-transcript`.
+- `resume-info <name>` — JSON-only continuation metadata.
+- `verify [--json]` — scans the archive for structural issues (malformed
+  first events, orphan Markdown summaries, stray `*.partial` files,
+  unexpected files under `pipy/`, ambiguous basenames or stems).
 
-The list command is read-only. It scans finalized `pipy/YYYY/MM/*.jsonl`
-records, ignores `.in-progress/` and `*.partial` files, and reports whether a
-matching Markdown summary exists. It skips archive JSONL files whose first line
-is missing, not valid UTF-8, malformed JSON, or not a `session.started` event.
-
-Search finalized records in the local archive:
-
-```sh
-uv run pipy-session search session-storage
-uv run pipy-session search session-storage --json
-```
-
-The search command is read-only and scans only finalized `pipy/YYYY/MM/*.jsonl`
-records plus sibling Markdown summaries. It requires a non-empty query and
-performs case-insensitive substring matching against listing metadata, event
-types, event `summary` strings, and Markdown summary text. It ignores active
-`.in-progress/` records, automatic state files, `*.partial` files, unsupported
-archive files, and malformed or unreadable finalized JSONL records. Human
-output is tab-separated; JSON output includes structured match fields. Search
-does not print raw JSONL event bodies, payload values, prompt text, tool output,
-or transcript bodies.
-
-Inspect one finalized record by path, basename, or stem:
-
-```sh
-uv run pipy-session inspect 2026-05-02T064433Z-studio-codex-session-work
-uv run pipy-session inspect 2026-05-02T064433Z-studio-codex-session-work.jsonl --json
-```
-
-The inspect command is also read-only and only opens finalized archive JSONL
-records directly under `pipy/YYYY/MM/`. It reports metadata, event counts,
-event type counts, and the matching Markdown summary text when present. It does
-not dump raw JSONL event bodies. Human labels collapse control whitespace so
-record metadata or event type strings cannot forge extra table or label lines;
-`--json` keeps structured values non-lossy.
-
-Export or inspect resume metadata for one finalized record:
-
-```sh
-uv run pipy-session export 2026-05-02T064433Z-studio-codex-session-work
-uv run pipy-session resume-info 2026-05-02T064433Z-studio-codex-session-work
-```
-
-`export` emits metadata-only JSON to stdout by default; raw transcript sidecar
-events are included only with explicit `--include-transcript`. `resume-info`
-also emits JSON-only stdout and returns safe continuation metadata: prior
-session id, provider/model labels, turn count, workspace hash, timestamps, and
-the optional Markdown summary for inspection. Runtime seeding of a resumed
-native session is a later slice.
-
-Verify local archive health without repairing or mutating files:
-
-```sh
-uv run pipy-session verify
-uv run pipy-session verify --json
-```
-
-The verify command scans the resolved session root for finalized archive
-structure issues. It reports malformed finalized JSONL first events, unreadable
-finalized JSONL first-line read failures, orphan Markdown summaries,
-sync-excluded `*.partial` leftovers, unexpected files under `pipy/`, and
-duplicate finalized record basenames or stems that would make `inspect <name>`
-ambiguous. The report contains paths, issue kinds, severities, and structural
-details only; it does not print raw JSONL event bodies, prompt text, tool
-output, raw exception text, or transcript payloads.
+All read commands omit raw JSONL event bodies, prompt text, tool output,
+and transcript payloads.
 
 ## External Tool Capture
 
-External tool capture is adapter-specific and secondary to `pipy-native`. There
-is no single hook mechanism that reliably covers Claude Code, Codex, and Pi,
-and these capture paths do not make those tools product runtime backends.
-
-Current capture/reference matrix:
+External tool capture is adapter-specific and secondary to `pipy-native`.
+No single hook mechanism reliably covers Claude Code, Codex, and Pi, and
+these paths do not make those tools product runtime backends.
 
 | Platform | pipy capture/reference path | Capture status |
 | --- | --- | --- |
-| Claude Code | `pipy-session auto hook claude` handles official hook JSON for `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial by default; stores lifecycle and conservative metadata, not raw prompt/tool transcripts. |
-| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. Codex hooks were rechecked against current OpenAI docs and local CLI support; no pipy Codex hook adapter is installed because the documented `Stop` hook is turn-scoped, not a reliable session finalizer. | Partial. Do not treat this as complete automatic transcript capture. |
-| Pi | `pipy-session wrap --agent pi -- ...` can record pipy wrapper metadata. | Partial pipy metadata only; no raw Pi transcript import by default. |
+| Claude Code | `pipy-session auto hook claude` handles `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial; lifecycle and conservative metadata, not raw transcripts. |
+| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. The documented `Stop` hook is turn-scoped, so no Codex hook adapter is installed. | Partial. |
+| Pi | `pipy-session wrap --agent pi -- ...` records pipy wrapper metadata. | Partial; no raw transcript import. |
 
-Start, append, and stop an automatic partial capture directly:
+Drive an automatic partial capture directly:
 
 ```sh
 active="$(uv run pipy-session auto start --agent codex --slug wrapper-test --session-id codex-123)"
@@ -534,37 +282,20 @@ uv run pipy-session auto event --agent codex --session-id codex-123 --type codex
 uv run pipy-session auto stop --agent codex --session-id codex-123
 ```
 
-The automatic state mapping is stored under the sync-excluded active area:
-
-```text
-~/.local/state/pipy/sessions/.in-progress/pipy/.state/
-```
-
-If hooks or wrappers are interrupted, stale automatic state mappings can be
-inspected and removed without deleting session records:
+Automatic state mappings live under
+`~/.local/state/pipy/sessions/.in-progress/pipy/.state/`. Clean up stale
+mappings without touching session records:
 
 ```sh
 uv run pipy-session auto prune --dry-run
 uv run pipy-session auto prune
 ```
 
-Prune scans only `.in-progress/pipy/.state/*.json` under the selected session
-root. It removes stale state files that are malformed or no longer point to an
-existing active `.jsonl` record under `.in-progress/pipy/`. It does not remove
-active JSONL records, finalized archive files, Markdown summaries, or
-`*.partial` staging files. Output is tab-separated, with one line per stale
-state file and a final summary line:
-
-```text
-would-remove	/path/to/state.json	active-not-found
-summary	would-remove	1
-```
-
 ### Claude Code Hook Capture
 
-Claude Code capture is implemented as a hook adapter, but this repository does
-not install hooks into your user dotfiles or commit live hook settings. To enable
-it for your local checkout, add `.claude/settings.local.json`:
+This repository does not install hooks into your dotfiles or commit live
+hook settings. To enable Claude Code capture for your local checkout, add
+`.claude/settings.local.json`:
 
 ```json
 {
@@ -619,44 +350,25 @@ it for your local checkout, add `.claude/settings.local.json`:
 }
 ```
 
-Claude Code must trust the project settings for project-local hooks to run. The
-adapter intentionally stores prompt text and assistant/tool output as redacted
-metadata counts instead of raw content. The example observes every prompt and
-high-signal write-like tool event, so each matching hook starts `uv`; tighten
-matchers further or remove `UserPromptSubmit` if that overhead is noticeable.
+Claude Code must trust the project settings for project-local hooks to
+run. The adapter stores prompt text and assistant/tool output as redacted
+metadata counts, not raw content. The example observes every prompt and
+high-signal write-like tool event; tighten matchers or drop
+`UserPromptSubmit` if the overhead is noticeable.
 
 ### Wrapper Capture
 
-Use wrapper capture when a platform does not provide a verified start/end hook
-that pipy can finalize reliably:
+Use wrapper capture when a platform lacks a verified start/end hook:
 
 ```sh
 uv run pipy-session wrap --agent codex --slug codex-work -- codex
 uv run pipy-session wrap --agent pi --slug pi-work -- pi
 ```
 
-Wrapper records are marked partial because they only record pipy lifecycle
-metadata around the process. They do not capture the platform's full transcript.
+Wrapper records are partial because they record pipy lifecycle metadata
+around the process, not the platform's full transcript.
 
-### Codex Hook Status
-
-OpenAI's current Codex docs include lifecycle hooks, and the local CLI reports
-the `codex_hooks` feature as stable and enabled. Pipy still does not provide
-`pipy-session auto hook codex` because the available reliable local finalization
-surface is not a session end event: the documented `Stop` hook runs at turn
-scope. Until Codex exposes stable local session start/end semantics that map
-cleanly to pipy's active/finalized lifecycle, use wrapper capture for Codex.
-
-### Raw Transcript Import
-
-Raw transcript import is intentionally out of scope by default. Importing raw
-Codex, Claude, or Pi transcript bodies would require explicit opt-in behavior
-and a concrete redaction policy for prompts, assistant messages, tool inputs,
-tool outputs, secrets, tokens, credentials, private keys, and sensitive personal
-data. Current automatic commands capture metadata or references only.
-
-### Indexed Storage
-
-The finalized JSONL and Markdown archive remains the current implementation and
-source of truth. SQLite or another indexed store is deferred future
-query/performance work, not a blocker for moving on to the coding-agent harness.
+Raw transcript import for Codex / Claude / Pi is intentionally out of
+scope: it would require explicit opt-in and a concrete redaction policy.
+SQLite or another indexed store is also deferred — the JSONL + Markdown
+archive remains the source of truth.
