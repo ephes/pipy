@@ -16,19 +16,13 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, JsonResponse, JsonHTTPClient, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions, extract_usage_from_fields, decode_json_object
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
-from pipy_harness.native.usage import normalize_provider_usage
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -36,28 +30,6 @@ OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("completion_tokens", "output_tokens"),
     ("total_tokens", "total_tokens"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class JsonResponse:
-    """Small JSON response boundary used by provider tests."""
-
-    status_code: int
-    body: Mapping[str, Any]
-
-
-class JsonHTTPClient(Protocol):
-    """Minimal injectable JSON HTTP client."""
-
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-    ) -> JsonResponse:
-        """POST JSON and return parsed JSON metadata."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +67,7 @@ class UrllibJsonHTTPClient:
                 f"OpenAI API request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=OpenAICompletionsResponseParseError, provider_label="OpenAI API"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,9 +102,9 @@ class OpenAIChatCompletionsProvider:
         reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
-        started_at = _utc_now()
+        started_at = utc_now()
         if not self.model_id or not self.model_id.strip():
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -143,7 +115,7 @@ class OpenAIChatCompletionsProvider:
             )
         api_key = self.api_key.strip() if self.api_key is not None else ""
         if not api_key:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -161,7 +133,7 @@ class OpenAIChatCompletionsProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_openai(tool) for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool) for tool in request.available_tools
             ]
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -182,7 +154,7 @@ class OpenAIChatCompletionsProvider:
                 )
             result = _parse_response(response.body)
         except OpenAICompletionsProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -196,7 +168,7 @@ class OpenAIChatCompletionsProvider:
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now(),
             final_text=result.final_text,
             usage=result.usage,
             metadata={
@@ -236,7 +208,7 @@ class OpenAICompletionsHTTPStatusError(OpenAICompletionsProviderError):
     ) -> OpenAICompletionsHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = _decode_json_object(exc.read())
+            body = decode_json_object(exc.read(), error_class=OpenAICompletionsResponseParseError, provider_label="OpenAI API")
         except OpenAICompletionsResponseParseError:
             body = {}
         error = body.get("error")
@@ -272,7 +244,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICompletionsResponse:
             "OpenAI response included an error.", metadata=metadata
         )
 
-    response_object = _safe_response_label(body.get("object"), default="unknown")
+    response_object = safe_response_label(body.get("object"), default="unknown")
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices:
         raise OpenAICompletionsResponseParseError(
@@ -292,14 +264,15 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICompletionsResponse:
                 "response_object": response_object,
             },
         )
-    finish_reason = _safe_response_label(
+    finish_reason = safe_response_label(
         first_choice.get("finish_reason"), default="unknown"
     )
     message = first_choice.get("message")
     content = message.get("content") if isinstance(message, Mapping) else None
-    final_text = _extract_text_content(content)
-    tool_calls = _extract_tool_calls(
-        message.get("tool_calls") if isinstance(message, Mapping) else None
+    final_text = extract_text_content(content)
+    tool_calls = extract_chat_completions_tool_calls(
+        message.get("tool_calls") if isinstance(message, Mapping) else None,
+        provider_prefix="openai-completions",
     )
     if not final_text and not tool_calls:
         raise OpenAICompletionsResponseParseError(
@@ -313,54 +286,11 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICompletionsResponse:
 
     return ParsedOpenAICompletionsResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=extract_usage_from_fields(body.get("usage"), OPENAI_COMPLETIONS_USAGE_FIELDS),
         response_object=response_object,
         finish_reason=finish_reason,
         tool_calls=tool_calls,
     )
-
-
-def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
-    if not isinstance(value, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") not in (None, "function"):
-            continue
-        identifier = item.get("id")
-        function = item.get("function")
-        if not isinstance(function, Mapping):
-            continue
-        name = function.get("name")
-        arguments_json = function.get("arguments")
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(arguments_json, Mapping):
-            arguments_json = json.dumps(arguments_json, sort_keys=True)
-        if not isinstance(arguments_json, str):
-            arguments_json = ""
-        correlation = (
-            identifier
-            if isinstance(identifier, str) and identifier
-            else f"openai-completions-tool-{index}"
-        )
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments_json[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)
 
 
 def _chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
@@ -369,7 +299,7 @@ def _chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
     ]
     if request.messages:
         for envelope in request.messages:
-            messages.append(_envelope_to_chat_message(envelope))
+            messages.append(envelope_to_chat_message(envelope))
         return messages
     if request.no_tool_repl_context is not None:
         for exchange in request.no_tool_repl_context.exchanges:
@@ -379,127 +309,3 @@ def _chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
             )
     messages.append({"role": "user", "content": request.user_prompt})
     return messages
-
-
-def _envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
-    if isinstance(envelope, UserMessage):
-        return {"role": "user", "content": envelope.content}
-    if isinstance(envelope, AssistantMessage):
-        message: dict[str, Any] = {"role": "assistant"}
-        if envelope.content:
-            message["content"] = envelope.content
-        if envelope.tool_calls:
-            message["tool_calls"] = [
-                {
-                    "id": call.provider_correlation_id,
-                    "type": "function",
-                    "function": {
-                        "name": call.tool_name,
-                        "arguments": call.arguments_json,
-                    },
-                }
-                for call in envelope.tool_calls
-            ]
-        if "content" not in message:
-            message["content"] = ""
-        return message
-    if isinstance(envelope, ToolResultMessage):
-        return {
-            "role": "tool",
-            "tool_call_id": _require_provider_correlation_id(envelope),
-            "content": envelope.output_text,
-        }
-    raise OpenAICompletionsResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-
-def _serialize_tool_for_openai(tool: Any) -> dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": dict(tool.input_schema),
-        },
-    }
-
-
-def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
-    if envelope.provider_correlation_id:
-        return envelope.provider_correlation_id
-    raise OpenAICompletionsResponseParseError(
-        "ToolResultMessage is missing provider_correlation_id."
-    )
-
-
-def _extract_text_content(value: Any) -> str | None:
-    if isinstance(value, str):
-        return value
-    if not isinstance(value, list):
-        return None
-
-    chunks: list[str] = []
-    for item in value:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") == "text" and isinstance(item.get("text"), str):
-            chunks.append(item["text"])
-    if not chunks:
-        return None
-    return "".join(chunks)
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for provider_key, normalized_key in OPENAI_COMPLETIONS_USAGE_FIELDS:
-        usage[normalized_key] = value.get(provider_key)
-    return normalize_provider_usage(usage)
-
-
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI API returned non-JSON response metadata."
-        ) from exc
-    if not isinstance(decoded, Mapping):
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI API returned unsupported JSON response metadata."
-        )
-    return decoded
-
-
-def _safe_response_label(value: Any, *, default: str) -> str:
-    if not isinstance(value, str) or not value:
-        return default
-    sanitized = sanitize_text(value)
-    return sanitized if sanitized != "[REDACTED]" else default
-
-
-def _failed_result(
-    request: ProviderRequest,
-    *,
-    provider_name: str,
-    started_at: datetime,
-    error_type: str,
-    error_message: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> ProviderResult:
-    return ProviderResult(
-        status=HarnessStatus.FAILED,
-        provider_name=provider_name,
-        model_id=request.model_id,
-        started_at=started_at,
-        ended_at=_utc_now(),
-        metadata=dict(metadata or {}),
-        error_type=sanitize_text(error_type),
-        error_message=sanitize_text(error_message),
-    )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)

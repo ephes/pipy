@@ -16,12 +16,12 @@ import urllib.request
 import webbrowser
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -271,7 +271,7 @@ class UrllibOAuthHTTPClient:
             reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
             raise OpenAICodexOAuthError(f"OpenAI Codex OAuth request failed: {reason}") from exc
 
-        body = _decode_json_object(payload)
+        body = decode_json_object(payload, error_class=OpenAICodexResponseParseError, provider_label="OpenAI Codex")
         access_token = body.get("access_token")
         refresh_token = body.get("refresh_token")
         expires_in = body.get("expires_in")
@@ -481,9 +481,9 @@ class OpenAICodexResponsesProvider:
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
-        started_at = _utc_now()
+        started_at = utc_now()
         if not self.model_id or not self.model_id.strip():
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -494,7 +494,7 @@ class OpenAICodexResponsesProvider:
         try:
             credentials = self.auth_manager.get_credentials()
         except OpenAICodexProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -503,7 +503,7 @@ class OpenAICodexResponsesProvider:
                 metadata=exc.metadata,
             )
         if credentials is None:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -528,7 +528,7 @@ class OpenAICodexResponsesProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_openai_codex(tool)
+                serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
         headers = {
@@ -564,7 +564,7 @@ class OpenAICodexResponsesProvider:
                 event_stream=response.event_stream,
             )
         except OpenAICodexProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -578,7 +578,7 @@ class OpenAICodexResponsesProvider:
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now(),
             final_text=result.final_text,
             usage=result.usage,
             metadata={
@@ -670,23 +670,6 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
     )
 
 
-def _serialize_tool_for_openai_codex(tool: Any) -> dict[str, Any]:
-    """Translate a `ToolDefinition` into the Codex Responses tool shape.
-
-    Codex Responses streaming accepts the same flat Responses-API tool
-    shape used by the Platform Responses API: `type`/`name`/
-    `description`/`parameters` (no Chat-Completions-style `function:`
-    wrapper).
-    """
-
-    return {
-        "type": "function",
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": dict(tool.input_schema),
-    }
-
-
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
@@ -739,7 +722,7 @@ class OpenAICodexHTTPStatusError(OpenAICodexProviderError):
     def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenAICodexHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = _decode_json_object(exc.read())
+            body = decode_json_object(exc.read(), error_class=OpenAICodexResponseParseError, provider_label="OpenAI Codex")
         except OpenAICodexResponseParseError:
             body = {}
         error = body.get("error")
@@ -901,7 +884,7 @@ def _parse_sse_response(
             )
         if event_type == "response.failed":
             terminal_response = _event_response(event)
-            response_status = _safe_response_label(
+            response_status = safe_response_label(
                 terminal_response.get("status") if terminal_response is not None else None,
                 default="failed",
             )
@@ -922,14 +905,14 @@ def _parse_sse_response(
         if event_type == "response.output_item.added":
             item = event.get("item")
             if isinstance(item, Mapping) and item.get("type") == "function_call":
-                item_id = _safe_item_id(item.get("id"))
+                item_id = _safe_str(item.get("id"))
                 if item_id is not None:
                     call = function_call_items.get(item_id)
                     if call is None:
                         call = _StreamingFunctionCall(
                             item_id=item_id,
-                            call_id=_safe_call_id(item.get("call_id")),
-                            name=_safe_function_name(item.get("name")),
+                            call_id=_safe_str(item.get("call_id")),
+                            name=_safe_str(item.get("name")),
                             order_index=next_call_order,
                         )
                         function_call_items[item_id] = call
@@ -940,15 +923,15 @@ def _parse_sse_response(
                         # from `added` into that placeholder so finalization
                         # does not drop a partially-described call.
                         if call.call_id is None:
-                            call.call_id = _safe_call_id(item.get("call_id"))
+                            call.call_id = _safe_str(item.get("call_id"))
                         if call.name is None:
-                            call.name = _safe_function_name(item.get("name"))
+                            call.name = _safe_str(item.get("name"))
                     initial_arguments = item.get("arguments")
                     if isinstance(initial_arguments, str) and initial_arguments:
                         call.argument_deltas.append(initial_arguments)
             continue
         if event_type == "response.function_call_arguments.delta":
-            item_id = _safe_item_id(event.get("item_id"))
+            item_id = _safe_str(event.get("item_id"))
             delta = event.get("delta")
             if item_id is None or not isinstance(delta, str):
                 continue
@@ -962,7 +945,7 @@ def _parse_sse_response(
             call.argument_deltas.append(delta)
             continue
         if event_type == "response.function_call_arguments.done":
-            item_id = _safe_item_id(event.get("item_id"))
+            item_id = _safe_str(event.get("item_id"))
             if item_id is None:
                 continue
             arguments = event.get("arguments")
@@ -980,7 +963,7 @@ def _parse_sse_response(
             item = event.get("item")
             if isinstance(item, Mapping):
                 if item.get("type") == "function_call":
-                    item_id = _safe_item_id(item.get("id"))
+                    item_id = _safe_str(item.get("id"))
                     if item_id is not None:
                         call = function_call_items.get(item_id)
                         if call is None:
@@ -990,9 +973,9 @@ def _parse_sse_response(
                             function_call_items[item_id] = call
                             next_call_order += 1
                         if call.call_id is None:
-                            call.call_id = _safe_call_id(item.get("call_id"))
+                            call.call_id = _safe_str(item.get("call_id"))
                         if call.name is None:
-                            call.name = _safe_function_name(item.get("name"))
+                            call.name = _safe_str(item.get("name"))
                         final_arguments = item.get("arguments")
                         if isinstance(final_arguments, str):
                             call.final_arguments = final_arguments
@@ -1008,7 +991,7 @@ def _parse_sse_response(
             metadata={"provider_response_store_requested": False, "response_status": "unknown"},
         )
 
-    response_status = _safe_response_label(terminal_response.get("status"), default="unknown")
+    response_status = safe_response_label(terminal_response.get("status"), default="unknown")
     if response_status and response_status != "completed":
         raise OpenAICodexResponseParseError(
             f"OpenAI Codex response status was {response_status}.",
@@ -1066,19 +1049,7 @@ def _finalize_streaming_function_calls(
     return tuple(calls)
 
 
-def _safe_item_id(value: Any) -> str | None:
-    if isinstance(value, str) and value:
-        return value
-    return None
-
-
-def _safe_call_id(value: Any) -> str | None:
-    if isinstance(value, str) and value:
-        return value
-    return None
-
-
-def _safe_function_name(value: Any) -> str | None:
+def _safe_str(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
@@ -1141,44 +1112,6 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
     return normalize_provider_usage(usage)
 
 
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpenAICodexResponseParseError("OpenAI Codex returned non-JSON response metadata.") from exc
-    if not isinstance(decoded, Mapping):
-        raise OpenAICodexResponseParseError("OpenAI Codex returned unsupported JSON response metadata.")
-    return decoded
-
-
-def _safe_response_label(value: Any, *, default: str) -> str:
-    if not isinstance(value, str) or not value:
-        return default
-    sanitized = sanitize_text(value)
-    return sanitized if sanitized != "[REDACTED]" else default
-
-
-def _failed_result(
-    request: ProviderRequest,
-    *,
-    provider_name: str,
-    started_at: datetime,
-    error_type: str,
-    error_message: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> ProviderResult:
-    return ProviderResult(
-        status=HarnessStatus.FAILED,
-        provider_name=provider_name,
-        model_id=request.model_id,
-        started_at=started_at,
-        ended_at=_utc_now(),
-        metadata=dict(metadata or {}),
-        error_type=sanitize_text(error_type),
-        error_message=sanitize_text(error_message),
-    )
-
-
 def _base64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
@@ -1188,10 +1121,6 @@ def _single_query_value(params: Mapping[str, list[str]], key: str) -> str | None
     if not values:
         return None
     return values[0] or None
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 @dataclass(slots=True)

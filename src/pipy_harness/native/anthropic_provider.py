@@ -8,10 +8,10 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -30,28 +30,6 @@ ANTHROPIC_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("cache_creation_input_tokens", "cached_tokens"),
     ("cache_read_input_tokens", "cached_tokens"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class JsonResponse:
-    """Small JSON response boundary used by provider tests."""
-
-    status_code: int
-    body: Mapping[str, Any]
-
-
-class JsonHTTPClient(Protocol):
-    """Minimal injectable JSON HTTP client."""
-
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-    ) -> JsonResponse:
-        """POST JSON and return parsed JSON metadata."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +67,7 @@ class UrllibJsonHTTPClient:
                 f"Anthropic API request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=AnthropicResponseParseError, provider_label="Anthropic API"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,9 +102,9 @@ class AnthropicProvider:
         reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
-        started_at = _utc_now()
+        started_at = utc_now()
         if not self.model_id:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -134,7 +112,7 @@ class AnthropicProvider:
                 error_message="--native-model is required for native provider anthropic.",
             )
         if not self.api_key:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -150,7 +128,7 @@ class AnthropicProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_anthropic(tool)
+                serialize_tool_for_anthropic(tool)
                 for tool in request.available_tools
             ]
         headers = {
@@ -173,7 +151,7 @@ class AnthropicProvider:
                 )
             result = _parse_response(response.body)
         except AnthropicProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -187,7 +165,7 @@ class AnthropicProvider:
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now(),
             final_text=result.final_text,
             usage=result.usage,
             metadata={
@@ -254,16 +232,6 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
     )
 
 
-def _serialize_tool_for_anthropic(tool: Any) -> dict[str, Any]:
-    """Translate a `ToolDefinition` into the Anthropic Messages tool shape."""
-
-    return {
-        "name": tool.name,
-        "description": tool.description,
-        "input_schema": dict(tool.input_schema),
-    }
-
-
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
@@ -295,7 +263,7 @@ class AnthropicHTTPStatusError(AnthropicProviderError):
     def from_http_error(cls, exc: urllib.error.HTTPError) -> AnthropicHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = _decode_json_object(exc.read())
+            body = decode_json_object(exc.read(), error_class=AnthropicResponseParseError, provider_label="Anthropic API")
         except AnthropicResponseParseError:
             body = {}
         error = body.get("error")
@@ -428,42 +396,3 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
             usage["total_tokens"] = input_tokens + output_tokens
 
     return normalize_provider_usage(usage)
-
-
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AnthropicResponseParseError(
-            "Anthropic API returned non-JSON response metadata."
-        ) from exc
-    if not isinstance(decoded, Mapping):
-        raise AnthropicResponseParseError(
-            "Anthropic API returned unsupported JSON response metadata."
-        )
-    return decoded
-
-
-def _failed_result(
-    request: ProviderRequest,
-    *,
-    provider_name: str,
-    started_at: datetime,
-    error_type: str,
-    error_message: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> ProviderResult:
-    return ProviderResult(
-        status=HarnessStatus.FAILED,
-        provider_name=provider_name,
-        model_id=request.model_id,
-        started_at=started_at,
-        ended_at=_utc_now(),
-        metadata=dict(metadata or {}),
-        error_type=sanitize_text(error_type),
-        error_message=sanitize_text(error_message),
-    )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)

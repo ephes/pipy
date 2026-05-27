@@ -12,6 +12,7 @@ from typing import Callable, Iterable, Mapping, TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
+from pipy_harness.native._provider_helpers import utc_now
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.chrome import (
     BottomStatusFields,
@@ -478,7 +479,7 @@ class NativeAgentSession:
     stream_sink: StreamChunkSink | None = None
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
-        started_at = _utc_now()
+        started_at = utc_now()
         conversation_state = NativeConversationState.for_native_run(max_turns=2)
         discovery = self.instruction_loader(run_input.cwd)
         composed_system_prompt = compose_system_prompt(
@@ -643,8 +644,8 @@ class NativeAgentSession:
 
         final_provider_result = follow_up_provider_result or provider_result
         final_usage = _merge_provider_usage(provider_usage, follow_up_provider_usage)
-        ended_at = _utc_now()
-        final_status = _final_status(
+        ended_at = utc_now()
+        final_status, error_type, error_message = _final_outcome(
             provider_result,
             tool_result,
             observation_failure_reason=observation_failure_reason,
@@ -672,22 +673,8 @@ class NativeAgentSession:
             provider_name=final_provider_result.provider_name,
             model_id=final_provider_result.model_id,
             usage=final_usage,
-            error_type=_native_error_type(
-                provider_result,
-                tool_result,
-                observation_failure_reason=observation_failure_reason,
-                follow_up_provider_result=follow_up_provider_result,
-                patch_apply_result=patch_apply_result,
-                verification_result=verification_result,
-            ),
-            error_message=_native_error_message(
-                provider_result,
-                tool_result,
-                observation_failure_reason=observation_failure_reason,
-                follow_up_provider_result=follow_up_provider_result,
-                patch_apply_result=patch_apply_result,
-                verification_result=verification_result,
-            ),
+            error_type=error_type,
+            error_message=error_message,
         )
 
     def _invoke_noop_tool(
@@ -709,7 +696,7 @@ class NativeAgentSession:
                 "status": NativeToolStatus.RUNNING.value,
             },
         )
-        tool_started_at = _utc_now()
+        tool_started_at = utc_now()
         try:
             tool_result = self.tool.invoke(tool_request)
         except Exception as exc:
@@ -765,7 +752,7 @@ class NativeAgentSession:
                 parsed_fixture.target,
             )
         except Exception as exc:
-            tool_result = _failed_tool_result(tool_request, exc, started_at=_utc_now())
+            tool_result = _failed_tool_result(tool_request, exc, started_at=utc_now())
             _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
             return tool_result, None
 
@@ -843,7 +830,7 @@ class NativeNoToolReplSession:
         output_stream: TextIO,
         error_stream: TextIO,
     ) -> NativeRunOutput:
-        started_at = _utc_now()
+        started_at = utc_now()
         provider_state = self.provider_state
         if provider_state is None:
             raise ValueError("NativeNoToolReplSession requires provider state")
@@ -1377,7 +1364,7 @@ class NativeNoToolReplSession:
             exit_reason = "turn_limit"
             print("pipy: native REPL turn limit reached.", file=error_stream)
 
-        ended_at = _utc_now()
+        ended_at = utc_now()
         current_run_input, safe_context = _current_repl_turn_state(
             provider_state,
             run_input,
@@ -1556,7 +1543,7 @@ def _handle_repl_verify_command(
             reason_label="explicit_user_command",
         )
     except ValueError:
-        now = _utc_now()
+        now = utc_now()
         result = NativeVerificationResult(
             status=NativeToolStatus.SKIPPED,
             reason_label=NativeVerificationReason.UNSAFE_COMMAND,
@@ -2037,7 +2024,7 @@ def _read_repl_file_excerpt(
             target,
         )
     except Exception as exc:
-        tool_result = _failed_tool_result(tool_request, exc, started_at=_utc_now())
+        tool_result = _failed_tool_result(tool_request, exc, started_at=utc_now())
         _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
         print(f"pipy: {command_label} command failed: read_failed.", file=error_stream)
         return _ReplReadOutcome(command_consumed=True)
@@ -2300,7 +2287,7 @@ def _call_provider_turn(
         },
     )
 
-    provider_started_at = _utc_now()
+    provider_started_at = utc_now()
     try:
         provider_result = provider.complete(
             ProviderRequest(
@@ -3313,7 +3300,7 @@ def _skipped_tool_result(
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> NativeToolResult:
-    now = _utc_now()
+    now = utc_now()
     return NativeToolResult(
         request_id=tool_request.request_id,
         tool_name=tool_request.tool_name,
@@ -3341,7 +3328,7 @@ def _failed_tool_result(
         tool_name=tool_request.tool_name,
         status=NativeToolStatus.FAILED,
         started_at=started_at,
-        ended_at=_utc_now(),
+        ended_at=utc_now(),
         metadata={
             "workspace_mutated": False,
             "workspace_inspected": False,
@@ -3358,7 +3345,7 @@ def _failed_patch_apply_result(
     exc: Exception,
 ) -> NativePatchApplyResult:
     _ = exc
-    now = _utc_now()
+    now = utc_now()
     return NativePatchApplyResult(
         status=NativeToolStatus.FAILED,
         reason_label=NativePatchApplyReason.WRITE_FAILED,
@@ -3394,7 +3381,7 @@ def _failed_verification_result(
     request: NativeVerificationRequest,
     gate: NativeVerificationGateDecision,
 ) -> NativeVerificationResult:
-    now = _utc_now()
+    now = utc_now()
     return NativeVerificationResult(
         status=NativeToolStatus.FAILED,
         reason_label=NativeVerificationReason.EXECUTION_FAILED,
@@ -3429,7 +3416,7 @@ def _merge_provider_usage(
     return merged
 
 
-def _final_status(
+def _final_outcome(
     provider_result: ProviderResult,
     tool_result: NativeToolResult | None,
     *,
@@ -3437,76 +3424,55 @@ def _final_status(
     follow_up_provider_result: ProviderResult | None,
     patch_apply_result: NativePatchApplyResult | None,
     verification_result: NativeVerificationResult | None,
-) -> HarnessStatus:
+) -> tuple[HarnessStatus, str | None, str | None]:
+    """Walk the result tree once and return ``(status, error_type, error_message)``.
+
+    The three values share the same dispatch ladder; computing them
+    together avoids re-walking the tree (and avoids three near-identical
+    helper functions diverging).
+    """
+
     if provider_result.status != HarnessStatus.SUCCEEDED:
-        return provider_result.status
+        return (
+            provider_result.status,
+            _safe_optional_text(provider_result.error_type),
+            _safe_optional_text(provider_result.error_message),
+        )
     if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
-        return HarnessStatus.FAILED
+        return (
+            HarnessStatus.FAILED,
+            _safe_optional_text(tool_result.error_type) or "NativeToolError",
+            _safe_optional_text(tool_result.error_message),
+        )
     if observation_failure_reason is not None:
-        return HarnessStatus.FAILED
+        return (
+            HarnessStatus.FAILED,
+            "NativeToolObservationSkipped",
+            observation_failure_reason.value,
+        )
     if follow_up_provider_result is not None:
-        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED and (
-            patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED
-        ):
-            return HarnessStatus.FAILED
-        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED and (
-            verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED
-        ):
-            return HarnessStatus.FAILED
-        return follow_up_provider_result.status
-    return HarnessStatus.SUCCEEDED
-
-
-def _native_error_type(
-    provider_result: ProviderResult,
-    tool_result: NativeToolResult | None,
-    *,
-    observation_failure_reason: NativeToolObservationReason | None,
-    follow_up_provider_result: ProviderResult | None,
-    patch_apply_result: NativePatchApplyResult | None,
-    verification_result: NativeVerificationResult | None,
-) -> str | None:
-    if provider_result.status != HarnessStatus.SUCCEEDED:
-        return _safe_optional_text(provider_result.error_type)
-    if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
-        return _safe_optional_text(tool_result.error_type) or "NativeToolError"
-    if observation_failure_reason is not None:
-        return "NativeToolObservationSkipped"
-    if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
-        return _safe_optional_text(follow_up_provider_result.error_type)
-    if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
-        if patch_apply_result.status == NativeToolStatus.SKIPPED:
-            return "NativePatchApplySkipped"
-        return "NativePatchApplyFailed"
-    if verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED:
-        if verification_result.status == NativeToolStatus.SKIPPED:
-            return "NativeVerificationSkipped"
-        return "NativeVerificationFailed"
-    return None
-
-
-def _native_error_message(
-    provider_result: ProviderResult,
-    tool_result: NativeToolResult | None,
-    *,
-    observation_failure_reason: NativeToolObservationReason | None,
-    follow_up_provider_result: ProviderResult | None,
-    patch_apply_result: NativePatchApplyResult | None,
-    verification_result: NativeVerificationResult | None,
-) -> str | None:
-    if provider_result.status != HarnessStatus.SUCCEEDED:
-        return _safe_optional_text(provider_result.error_message)
-    if tool_result is not None and tool_result.status != NativeToolStatus.SUCCEEDED:
-        return _safe_optional_text(tool_result.error_message)
-    if observation_failure_reason is not None:
-        return observation_failure_reason.value
-    if follow_up_provider_result is not None and follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
-        return _safe_optional_text(follow_up_provider_result.error_message)
-    if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
-        return patch_apply_result.reason_label.value
-    if verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED:
-        return verification_result.reason_label.value
-    return None
+        if follow_up_provider_result.status != HarnessStatus.SUCCEEDED:
+            return (
+                follow_up_provider_result.status,
+                _safe_optional_text(follow_up_provider_result.error_type),
+                _safe_optional_text(follow_up_provider_result.error_message),
+            )
+        if patch_apply_result is not None and patch_apply_result.status != NativeToolStatus.SUCCEEDED:
+            error_type = (
+                "NativePatchApplySkipped"
+                if patch_apply_result.status == NativeToolStatus.SKIPPED
+                else "NativePatchApplyFailed"
+            )
+            return (HarnessStatus.FAILED, error_type, patch_apply_result.reason_label.value)
+        if verification_result is not None and verification_result.status != NativeToolStatus.SUCCEEDED:
+            error_type = (
+                "NativeVerificationSkipped"
+                if verification_result.status == NativeToolStatus.SKIPPED
+                else "NativeVerificationFailed"
+            )
+            return (HarnessStatus.FAILED, error_type, verification_result.reason_label.value)
+        return (follow_up_provider_result.status, None, None)
+    return (HarnessStatus.SUCCEEDED, None, None)
 
 
 def _safe_optional_text(value: str | None) -> str | None:
@@ -3526,7 +3492,7 @@ def _failed_provider_result(
         provider_name=run_input.provider_name,
         model_id=run_input.model_id,
         started_at=started_at,
-        ended_at=_utc_now(),
+        ended_at=utc_now(),
         error_type=type(exc).__name__,
         error_message=type(exc).__name__,
     )
@@ -3535,9 +3501,6 @@ def _failed_provider_result(
 def _duration_seconds(started_at: datetime, ended_at: datetime) -> float:
     return max(0.0, (_ensure_utc(ended_at) - _ensure_utc(started_at)).total_seconds())
 
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _ensure_utc(value: datetime) -> datetime:

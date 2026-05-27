@@ -17,10 +17,10 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, decode_json_object, extract_responses_tool_calls
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -36,28 +36,6 @@ AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class JsonResponse:
-    """Small JSON response boundary used by provider tests."""
-
-    status_code: int
-    body: Mapping[str, Any]
-
-
-class JsonHTTPClient(Protocol):
-    """Minimal injectable JSON HTTP client."""
-
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-    ) -> JsonResponse:
-        """POST JSON and return parsed JSON metadata."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +73,7 @@ class UrllibJsonHTTPClient:
                 f"Azure OpenAI API request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=AzureOpenAIResponseParseError, provider_label="Azure OpenAI API"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,9 +115,9 @@ class AzureOpenAIResponsesProvider:
         reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
-        started_at = _utc_now()
+        started_at = utc_now()
         if not self.model_id:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -149,7 +127,7 @@ class AzureOpenAIResponsesProvider:
                 ),
             )
         if not self.endpoint_url:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -160,7 +138,7 @@ class AzureOpenAIResponsesProvider:
                 ),
             )
         if not self.api_key:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -186,7 +164,7 @@ class AzureOpenAIResponsesProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_responses(tool)
+                serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
         headers = {
@@ -209,7 +187,7 @@ class AzureOpenAIResponsesProvider:
                 )
             result = _parse_response(response.body)
         except AzureOpenAIProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -223,7 +201,7 @@ class AzureOpenAIResponsesProvider:
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now(),
             final_text=result.final_text,
             usage=result.usage,
             metadata={
@@ -312,17 +290,6 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
     )
 
 
-def _serialize_tool_for_responses(tool: Any) -> dict[str, Any]:
-    """Translate a ``ToolDefinition`` into the Responses API tool shape."""
-
-    return {
-        "type": "function",
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": dict(tool.input_schema),
-    }
-
-
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
@@ -361,7 +328,7 @@ class AzureOpenAIHTTPStatusError(AzureOpenAIProviderError):
     ) -> AzureOpenAIHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = _decode_json_object(exc.read())
+            body = decode_json_object(exc.read(), error_class=AzureOpenAIResponseParseError, provider_label="Azure OpenAI API")
         except AzureOpenAIResponseParseError:
             body = {}
         error = body.get("error")
@@ -401,7 +368,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedAzureOpenAIResponse:
         )
 
     final_text = _extract_final_text(body)
-    tool_calls = _extract_tool_calls(body.get("output"))
+    tool_calls = extract_responses_tool_calls(body.get("output"), provider_prefix="azure-openai")
     if not final_text and not tool_calls:
         raise AzureOpenAIResponseParseError(
             "Azure OpenAI response did not include final output text or tool calls.",
@@ -449,51 +416,6 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     return "".join(chunks)
 
 
-def _extract_tool_calls(value: Any) -> tuple[ProviderToolCall, ...]:
-    """Parse Responses-API ``output`` items of type ``function_call``."""
-
-    if not isinstance(value, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") != "function_call":
-            continue
-        name = item.get("name")
-        arguments = item.get("arguments")
-        call_id = item.get("call_id")
-        if not isinstance(call_id, str) or not call_id:
-            candidate_id = item.get("id")
-            call_id = (
-                candidate_id
-                if isinstance(candidate_id, str) and candidate_id
-                else None
-            )
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(arguments, Mapping):
-            arguments = json.dumps(arguments, sort_keys=True)
-        if not isinstance(arguments, str):
-            arguments = ""
-        correlation = call_id if call_id else f"azure-openai-tool-{index}"
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)
-
-
 def _extract_usage(value: Any) -> dict[str, int | float]:
     if not isinstance(value, Mapping):
         return {}
@@ -507,42 +429,3 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
             usage[usage_key] = details[usage_key]
 
     return normalize_provider_usage(usage)
-
-
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AzureOpenAIResponseParseError(
-            "Azure OpenAI API returned non-JSON response metadata."
-        ) from exc
-    if not isinstance(decoded, Mapping):
-        raise AzureOpenAIResponseParseError(
-            "Azure OpenAI API returned unsupported JSON response metadata."
-        )
-    return decoded
-
-
-def _failed_result(
-    request: ProviderRequest,
-    *,
-    provider_name: str,
-    started_at: datetime,
-    error_type: str,
-    error_message: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> ProviderResult:
-    return ProviderResult(
-        status=HarnessStatus.FAILED,
-        provider_name=provider_name,
-        model_id=request.model_id,
-        started_at=started_at,
-        ended_at=_utc_now(),
-        metadata=dict(metadata or {}),
-        error_type=sanitize_text(error_type),
-        error_message=sanitize_text(error_message),
-    )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)

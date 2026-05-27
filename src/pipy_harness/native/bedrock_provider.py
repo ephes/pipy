@@ -19,9 +19,10 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -43,28 +44,6 @@ BEDROCK_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("cache_creation_input_tokens", "cached_tokens"),
     ("cache_read_input_tokens", "cached_tokens"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class JsonResponse:
-    """Small JSON response boundary used by provider tests."""
-
-    status_code: int
-    body: Mapping[str, Any]
-
-
-class JsonHTTPClient(Protocol):
-    """Minimal injectable JSON HTTP client."""
-
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-    ) -> JsonResponse:
-        """POST JSON and return parsed JSON metadata."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +81,7 @@ class UrllibJsonHTTPClient:
                 f"Bedrock API request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=BedrockResponseParseError, provider_label="Bedrock API"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +123,9 @@ class AmazonBedrockProvider:
         reasoning_sink: StreamChunkSink | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
-        started_at = _utc_now()
+        started_at = utc_now()
         if not self.model_id:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -154,7 +133,7 @@ class AmazonBedrockProvider:
                 error_message="--native-model is required for native provider amazon-bedrock.",
             )
         if not self.region:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -162,7 +141,7 @@ class AmazonBedrockProvider:
                 error_message="AWS region is required for native provider amazon-bedrock.",
             )
         if not self.access_key or not self.secret_key:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -184,7 +163,7 @@ class AmazonBedrockProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                _serialize_tool_for_bedrock(tool)
+                serialize_tool_for_anthropic(tool)
                 for tool in request.available_tools
             ]
 
@@ -207,7 +186,7 @@ class AmazonBedrockProvider:
                 now=self._utc_now_for_signing(),
             )
         except BedrockProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -232,7 +211,7 @@ class AmazonBedrockProvider:
                 )
             result = _parse_response(response.body)
         except BedrockProviderError as exc:
-            return _failed_result(
+            return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
@@ -246,7 +225,7 @@ class AmazonBedrockProvider:
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
-            ended_at=_utc_now(),
+            ended_at=utc_now(),
             final_text=result.final_text,
             usage=result.usage,
             metadata={
@@ -262,7 +241,7 @@ class AmazonBedrockProvider:
             if not isinstance(value, datetime):
                 raise BedrockProviderError("clock must return a datetime")
             return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-        return _utc_now()
+        return utc_now()
 
 
 def _messages_payload(request: ProviderRequest) -> list[dict[str, object]]:
@@ -321,16 +300,6 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
     )
 
 
-def _serialize_tool_for_bedrock(tool: Any) -> dict[str, Any]:
-    """Translate a `ToolDefinition` into the Anthropic-shape tool block."""
-
-    return {
-        "name": tool.name,
-        "description": tool.description,
-        "input_schema": dict(tool.input_schema),
-    }
-
-
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     if envelope.provider_correlation_id:
         return envelope.provider_correlation_id
@@ -362,7 +331,7 @@ class BedrockHTTPStatusError(BedrockProviderError):
     def from_http_error(cls, exc: urllib.error.HTTPError) -> BedrockHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = _decode_json_object(exc.read())
+            body = decode_json_object(exc.read(), error_class=BedrockResponseParseError, provider_label="Bedrock API")
         except BedrockResponseParseError:
             body = {}
         message = body.get("message")
@@ -502,45 +471,6 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
     return normalize_provider_usage(usage)
 
 
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BedrockResponseParseError(
-            "Bedrock API returned non-JSON response metadata."
-        ) from exc
-    if not isinstance(decoded, Mapping):
-        raise BedrockResponseParseError(
-            "Bedrock API returned unsupported JSON response metadata."
-        )
-    return decoded
-
-
-def _failed_result(
-    request: ProviderRequest,
-    *,
-    provider_name: str,
-    started_at: datetime,
-    error_type: str,
-    error_message: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> ProviderResult:
-    return ProviderResult(
-        status=HarnessStatus.FAILED,
-        provider_name=provider_name,
-        model_id=request.model_id,
-        started_at=started_at,
-        ended_at=_utc_now(),
-        metadata=dict(metadata or {}),
-        error_type=sanitize_text(error_type),
-        error_message=sanitize_text(error_message),
-    )
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
 # ---------------------------------------------------------------------------
 # AWS Signature Version 4 — pure stdlib implementation.
 # ---------------------------------------------------------------------------
@@ -584,7 +514,7 @@ def _sigv4_sign(
     if not service:
         raise BedrockAuthError("AWS service name is required for SigV4 signing.")
 
-    signing_time = now if now is not None else _utc_now()
+    signing_time = now if now is not None else utc_now()
     if signing_time.tzinfo is None:
         signing_time = signing_time.replace(tzinfo=UTC)
     amz_date = signing_time.strftime("%Y%m%dT%H%M%SZ")
