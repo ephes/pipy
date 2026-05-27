@@ -640,6 +640,352 @@ it lands. They are not later slices of this track:
   synchronous callable invoked from the provider's existing
   thread/transport.
 
+## Code Quality Audit Track (2026-05-26)
+
+A seven-agent comparative audit ran against `pi-mono` on 2026-05-26 with the
+brief: find AI slop, plausible-but-wrong control flow, permissive error
+handling, and bad-state-handled-instead-of-prevented patterns that have
+accreted in the pipy slopfork. The audits live under
+`docs/audit/2026-05-26/code-quality-audit/` (151 findings, line-cited):
+
+- `01-session-repl.md` — native session + REPL (20 findings, 4 high)
+- `02-providers.md` — 12 provider adapters (20 findings, 5 high)
+- `03-tools.md` — tools layer + dual `ToolPort` (24 findings, 6 high)
+- `04-cli-runner.md` — CLI, runner, adapters (22 findings, 3 high)
+- `05-session-storage.md` — `pipy_session` recorder/catalog (20 findings, 5 high)
+- `06-chrome-resources.md` — chrome + resource discovery (23 findings, 7 high)
+- `07-value-objects.md` — value objects + state (24 findings, 5 high)
+
+The dominant signal: pipy ships ~29 KLoC against pi-mono's ~28 KLoC for
+the equivalent feature surface (excluding pi-mono's `tui/`, `ai/` model
+registry, and most providers), but at least 4–6 KLoC of that is
+demonstrable slop: dead modules with zero production callers, parallel
+families with overlapping responsibilities, eleven-fold duplication of
+the same provider scaffolding, and defensive runtime guards on closed
+type universes.
+
+This track is not a single linear roadmap; it is a list of small,
+reviewable cleanup slices grouped into six themed tracks. Each slice is
+intended to ship as a focused conventional commit with `just check`
+green and documentation updates. Pick the next slice from whichever
+track has the highest leverage at the time. Audit file references are
+shorthand for the detailed finding (e.g. `01:F3` is finding F3 in
+`01-session-repl.md`).
+
+### Invariants (apply across all tracks)
+
+- No new runtime dependencies. Stdlib plus manual dict validation only.
+  No pydantic, jsonschema, attrs, or typebox port.
+- Metadata-first archive privacy is preserved exactly. No prompt, model
+  text, tool payload, file content, or diff reaches JSONL, Markdown, or
+  the catalog. Each cleanup slice that touches the boundary re-pins the
+  invariant.
+- `.git` default-deny, symlink containment, and bounded byte caps
+  remain in force across every tool and resource loader.
+- The bounded model-driven tool loop, `--archive-transcript` sidecar
+  contracts, `/login`/`/logout`/`/model`/`/clear`/`/status` slash
+  commands, and the public read/apply/verify boundary all keep working
+  in both REPL modes.
+- "Bad state impossible by construction" beats "bad state handled at
+  runtime." When a finding offers both options, prefer the structural
+  fix.
+
+### Track CQ-A: Dead code removal
+
+These modules ship with zero production callers, are wired through one
+test, or cannot fire because an upstream cap blocks them. Removing each
+also removes its tests and any docs claims that quietly assume the
+module is live.
+
+1. Remove `pipy_harness.native.dynamic_provider` (140 L wrapper around
+   one `state.select_model` call, used only by its own test).
+   Refs: `02:F18`, `07:F10`.
+2. Remove `pipy_harness.native.approval_prompt` (410 L; ten reasons,
+   six statuses, three value objects, zero non-test, non-re-export call
+   sites). Refs: `07:F11`.
+3. Remove `pipy_harness.native.session_branching` (157 L; recorder
+   admits the wiring is deferred). Refs: `07:F13`.
+4. Remove `pipy_harness.native.session_compaction` (210 L; cannot fire
+   because `NativeConversationState.MAX_TURNS = 8` is below the
+   compaction threshold). Refs: `07:F12`. If compaction is desired,
+   first lift the conversation cap (Track CQ-D slice 5) and only then
+   bring this back.
+5. Remove `pipy_harness.native.image_attachment` (196 L; plumbed through
+   `ProviderRequest.image_attachments` but consumed by no provider).
+   Refs: `07:F14`. Re-introduce only when an actual provider parses it.
+6. Remove `pipy_harness.native.themes` and remove the unused theme
+   registry surfaces (test-only). Refs: `06:F22`.
+7. Remove `pipy_harness.native.skills`, `prompt_templates`,
+   `custom_commands` and the chrome-side wiring that calls into them.
+   Refs: `06:F1`. Reintroduce only when a runtime path consumes them.
+   Until then, the banner stops advertising `[Skills]`, `[Prompts]`,
+   and `[Extensions]` for inert paths.
+8. Remove the `BashTool` module (`pipy_harness/native/tools/bash.py`,
+   391 L, registered=False) until a real shell sandbox lands. Keep
+   the parity-track entry that re-introduces it. Refs: `03:F6`.
+9. Remove the `TruncateTool` from the model-visible registry (pi treats
+   it as an internal post-processing utility, not a model-facing
+   tool). Refs: `03:F5`.
+10. Remove the archive-side parallel tool family
+    (`read_only_tool.NativeExplicitFileExcerptTool`,
+    `patch_apply.NativePatchApplyTool`,
+    `verification.NativeVerificationTool` — ~1,500 L) once the slash
+    commands they back are migrated to call the model-driven
+    `Read`/`Edit`/`Write` tools directly through the same
+    archive-safe wrapper. Refs: `03:F1`, `03:F2`, `03:F8`.
+11. Remove `pipy_session.catalog.verify_session_archive` and
+    `reflect_on_finalized_sessions` (60+ L dead surface with an
+    18-event registry, no production caller). Refs: `05:F5`, `05:F6`.
+12. Remove the speculative `auto_capture.py` surfaces
+    (`reference_pi_session`, `_public_model_from_argv`, most of
+    `prune_auto_capture_state` — no production caller). Refs: `05:F9`.
+13. Remove `pipy_harness.adapters.subprocess.SubprocessAdapter` if its
+    only consumer is the test suite. If the "support path" claim is
+    real, surface a runtime consumer. Refs: `04:F14`.
+14. Remove `pipy_harness.sdk` if `__init__.py` already re-exports the
+    same primitives. Or make `sdk` the documented surface and demote
+    `__init__.py`. Choose one. Refs: `04:F20`.
+15. Remove the `[Extensions]` banner section and the `ctrl+o` hint
+    (advertised, unwired). Refs: `06:F3`, `06:F11`.
+
+### Track CQ-B: Provider layer consolidation
+
+Twelve adapters total ~7 KLoC for four wire shapes (OpenAI Responses,
+OpenAI Chat Completions, Anthropic Messages, Gemini `generateContent`).
+The bulk is mechanical duplication. pi-mono's
+`openai-responses-shared.ts` is the model.
+
+1. Extract a single `pipy_harness.native.http` module owning the
+   `JsonHTTPClient` / `UrllibJsonHTTPClient` boundary and the four-class
+   exception hierarchy. Delete the per-provider copies. Refs:
+   `02:F1`, `02:F2`.
+2. Extract `pipy_harness.native.providers._chat_completions_shared` for
+   the Chat-Completions wire shape. Collapse OpenAI-Completions,
+   OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
+   `02:F3`.
+3. Extract `pipy_harness.native.providers._responses_shared` for the
+   OpenAI Responses wire shape and collapse the three current copies
+   (`openai_provider`, `openai_codex_provider`, plus the Codex SSE
+   path). Refs: `02:F16`.
+4. Extract `pipy_harness.native.providers._anthropic_shared` and
+   collapse Anthropic + Bedrock onto it. Refs: `02:F4`.
+5. Move `_safe_response_label`, `_extract_usage`, and `_utc_now` into
+   the shared http/parsing modules. Delete the per-provider copies.
+   Refs: `02:F2`, `02:F13`, `02:F20`.
+6. Wire `pipy_harness.native.retry.retry_with_policy` into every real
+   provider HTTP entry point. Today it is well-tested but used by one
+   of nine real providers. Refs: `02:F7`, `07:F15`.
+7. Decide the streaming contract. Either (a) implement
+   `StreamChunkSink` and `ReasoningSink` in every adapter that the
+   protocol claims to support, or (b) remove the sink parameters from
+   `ProviderPort.complete` and re-introduce them per-provider when a
+   real streaming path exists. Today 10 of 11 real adapters accept
+   them and immediately `del` them. Refs: `02:F6`.
+8. Introduce a per-model registry module
+   (`pipy_harness.native.model_registry`) that owns `max_tokens`,
+   `supports_tool_calls`, `default_temperature`, default `max_tokens`,
+   and reasoning-effort support per `(provider, model)`. Stop
+   hardcoding `max_tokens=4096` across all Anthropic models, stop
+   hard-coding `gpt-5.5` and `gpt-5.1-codex` as defaults, and let
+   `Cloudflare` only advertise `supports_tool_calls=True` for models
+   that actually support function calling. Refs: `02:F8`, `02:F9`,
+   `02:F17`, `07:F9`.
+9. Fix `GoogleProvider` / `GoogleVertexProvider` tool-call id
+   fabrication: stop synthesizing ids from loop index and propagate the
+   real id from the response. Refs: `02:F5`.
+10. Fix the Codex OAuth refresh path so a refreshed token that omits
+    `account_id` is rejected at refresh time, not the next request.
+    Refs: `02:F10`.
+
+### Track CQ-C: Bad-state-impossible refactors
+
+Ronacher's rule applied directly: where pipy currently *handles* a bad
+state, redesign the type so the bad state cannot exist.
+
+1. Replace `ProviderResult` with a discriminated union (or
+   factory-only constructors) so `SUCCEEDED` cannot carry an
+   `error_message`, `PENDING` cannot appear from a completed call,
+   `FAILED` cannot carry `tool_calls`. Delete the `__post_init__`
+   guards. Refs: `07:F1`.
+2. Replace `NativeToolSandboxPolicy` / `NativeToolApprovalPolicy`
+   with mode-tagged value objects whose fields cannot be set
+   incoherently (e.g. `NO_WORKSPACE_ACCESS` cannot have
+   `workspace_read_allowed=True`). Refs: `07:F2`.
+3. Close the metadata-key universe: convert the 27 frozensets of
+   string keys in `models.py` into `Literal[...]` types or enums.
+   Make the archive-safe allowlist a type, not a runtime check. Refs:
+   `07:F6`.
+4. Make `NativeRunInput.system_prompt_id` / `system_prompt_version`
+   `Literal[...]` once they have one production value each. Refs:
+   `07:F3`.
+5. Validate `NativeToolRequest.tool_kind` against a closed enum at
+   construction; do not accept `str`. Refs: `07:F4`.
+6. Remove the nine "always False" storage booleans from
+   `NativeTurnMetadata.archive_payload()` and reflect the actual policy
+   in the type instead. Refs: `07:F5`.
+7. Replace `recorder.finalize_session` recovery branch with a
+   constructor-time check that finalize cannot be called twice or on
+   an already-renamed directory. Today the recovery branch *handles*
+   the case. Refs: `05:F1`.
+8. Make `recorder.append_event` refuse appends to a finalized record
+   structurally (no `.in-progress/pipy` path → no append), instead of
+   relying on the caller not to call. Refs: `05:F2`.
+9. Fix `_unique_path` so the canonical filename round-trips through
+   `FILENAME_RE` instead of being mangled. The "uniqueness" suffix
+   should not break the format. Refs: `05:F3`.
+10. Stop swallowing every `(OSError, UnicodeError,
+    json.JSONDecodeError)` in catalog readers. A finalized record that
+    will not parse is a recorder bug, not a catalog edge case. Refs:
+    `05:F7`. The downstream `verify_session_archive` surface that
+    exists to compensate for this can then be deleted (already in
+    Track CQ-A).
+11. Bind `NativeVerificationRequest.command_label` to a closed enum;
+    do not accept arbitrary 80-char strings into a "safe label"
+    position. Refs: `07:F16`.
+12. Replace the free-form `request_source == "pipy-owned-human-reviewed"`
+    check in `NativePatchApplyRequest` with a discriminator enum that
+    only the pipy-owned construction site can produce. Refs: `07:F22`.
+
+### Track CQ-D: Structural simplification
+
+Collapse the parallel families.
+
+1. Collapse `NativeAgentSession`, `NativeNoToolReplSession`, and
+   `NativeToolReplSession` into one session driven by an explicit
+   state machine. The no-tool REPL's shadow slash-command
+   implementations of `/read`/`/ask-file`/`/propose-file`/
+   `/apply-proposal`/`/verify` re-route to the same tools the
+   tool-loop session uses. Refs: `01:F3`, `01:F2`.
+2. Replace the 350-line `if/elif` REPL command-dispatch chain in
+   `session.py` with a command table (name → handler + descriptor).
+   The chrome menu, the help printer, and the dispatcher all read the
+   same table. Refs: `01:F4`.
+3. Centralize the slash-menu / readline / prompt-toolkit / plain
+   adapters behind one input port and remove the hand-rolled ANSI
+   cursor logic from the slash-menu adapter (~280 L). Refs:
+   `01:F18`, `01:F19`.
+4. Collapse `PipyNativeAdapter`, `PipyNativeReplAdapter`, and
+   `PipyNativeToolReplAdapter` into one adapter parameterized by
+   `RunMode` (one-shot / no-tool-repl / tool-loop-repl). They already
+   share the name `pipy-native`. Refs: `04:F1`.
+5. Decide whether `AgentPort` is real polymorphism (subprocess +
+   native + future) or a phantom protocol with one consumer. If
+   phantom: inline. If real: write the missing consumer (e.g. a
+   real RPC adapter) before the protocol is allowed to stay. Refs:
+   `04:F2`.
+6. Split `pipy_session.catalog` (1,179 L) into focused modules:
+   `catalog/list.py`, `catalog/search.py`, `catalog/inspect.py`. Drop
+   `verify` and `reflect` per Track CQ-A. Refs: `05:F4`.
+7. Split `pipy_harness.native.read_only_tool` (715 L) into the
+   archive-safe one-call boundary it claims to be plus a separate
+   path-validation helpers module shared with the model-driven tools.
+   Refs: `03:F2`.
+8. Lift `NativeConversationState.MAX_TURNS = 8` for the interactive
+   REPL. The cap is currently shipping a UX bug (the REPL refuses
+   turns at 8) and silently disables `session_compaction` (Track
+   CQ-A slice 4). Refs: `07:F7`.
+9. Consolidate the 13-way provider switch in `repl_state.py` (four
+   copies) into one provider-descriptor table that owns every
+   per-provider fact. Refs: `02:F19`, `07:F8`.
+10. Resolve the dual `ToolPort` Protocol name clash by giving the
+    archive-safe variant a distinct name (e.g. `ArchiveToolPort`) or
+    by deleting the archive-side family per Track CQ-A slice 10.
+    Refs: `03:F1`.
+
+### Track CQ-E: Plausible-but-wrong correctness fixes
+
+Concrete bugs surfaced by the audits. Each warrants a focused test.
+
+1. Re-order `session.finalized` emission to fire *after*
+   `recorder.finalize()` completes, not before. Wrap the failure path
+   in `finally` so finalization is guaranteed. Refs: `04:F7`, `04:F8`.
+2. Resolve the chrome banner / loader path disagreement. Pick one
+   canonical layout for global resources (currently chrome says
+   `~/.pipy/...`, loader says `~/.config/pipy/...`) and one for
+   workspace resources (chrome says `.pipy/commands` for prompts,
+   loader says `.pipy/templates`). Refs: `06:F4`, `06:F5`, `06:F6`,
+   `06:F7`.
+3. Stop printing `final_text` to `sys.stdout` from inside
+   `PipyNativeAdapter.run`. The adapter does not own stdout. Refs:
+   `04:F21`.
+4. Stop instantiating a real provider in `_resolve_repl_mode` just to
+   read `supports_tool_calls`. Derive the capability from the
+   model-registry (Track CQ-B slice 8) without an HTTP-capable
+   instance. Refs: `04:F9`.
+5. Disambiguate the `harness.run.failed` event. It is emitted from
+   two code paths with different semantics (adapter returned bad
+   status vs exception escaped adapter); split into
+   `harness.run.adapter_failed` and `harness.run.exception`. Refs:
+   `04:F16`.
+6. Fix `_resource_files.discover_resource_files`: enforce the workspace
+   byte cap *before* `_read_capped_bytes` streams the whole file, not
+   after. Today an over-cap file is read fully and then discarded.
+   Refs: `06:F14`.
+7. Fix `_resource_files._path_label_for` so symlink resolution does
+   not lose the workspace prefix. Refs: `06:F15`.
+8. Fix `_load_first_candidate` so a seen candidate falls through to
+   the next candidate in the same directory, instead of returning
+   `None` for the whole directory. Refs: `06:F16`.
+9. Tighten the two competing secret detectors (`looks_sensitive`
+   substring vs `has_secret_shaped_content` regex) into one helper
+   with one definition. Apply at one layer. Refs: `03:F9`.
+
+### Track CQ-F: Deduplication
+
+Remove copy-paste that the type system could have caught.
+
+1. Deduplicate `_safe_component`, `_filename_stamp`,
+   `_looks_sensitive`, and `_redacted_argv` between
+   `pipy_harness.capture` and `pipy_session.auto_capture` (~80 L).
+   Refs: `05:F16`.
+2. Deduplicate the three near-identical `_validate_safe_label` /
+   `_validate_scope_label` helpers. Refs: `07:F24`.
+3. Replace the six identical footer-repaint call sites with one
+   `_redraw_footer()` helper that reads from a single source of
+   truth. Refs: `01:F5`.
+4. Replace `_final_status` / `_native_error_type` /
+   `_native_error_message` with one dispatcher that returns the
+   tuple. Refs: `01:F17`.
+5. Stop swallowing `ValueError` on `ProviderToolCall` construction
+   in 11 places. Move the construction into a single helper. Refs:
+   `02:F12`.
+6. Consolidate the chrome status block's overloaded
+   `context_budget_suffix` (currently encoding two distinct facts in
+   one field). Refs: `06:F20`.
+7. Delete duplicate byte-cap checks in `discover_resource_files`
+   (three checks for the same value, one structurally unreachable).
+   Refs: `06:F12`.
+8. Consolidate the eleven copies of `_extract_usage` into the shared
+   provider module (Track CQ-B). Refs: `02:F13`.
+
+### Out Of Scope For This Track
+
+These remain explicitly deferred and are not slices of the audit
+track:
+
+- Rewriting pipy in TypeScript or porting pi-mono's TUI library.
+- Adding pydantic, typebox, jsonschema, attrs, or any other
+  validation/typing runtime dependency.
+- Adding multi-agent orchestration, RPC mode, full TUI, persistent
+  history, or extension/plugin loaders.
+- Re-introducing dead modules removed in Track CQ-A as a "future"
+  hedge. They come back only when a runtime path consumes them.
+- Touching the public archive privacy invariants. The audit's bad-
+  state fixes (Track CQ-C) tighten them; they never relax them.
+
+### Cross-cutting reminders
+
+- Every slice in this track ships with a focused test, a green
+  `just check`, an updated `docs/architecture.md` codebase map row if
+  a file moves or disappears, a `Done` entry, and a conventional
+  commit.
+- Slice ordering is a recommendation, not a constraint. Pick the
+  highest-leverage slice from any track that fits the next review
+  cycle.
+- Each audit finding cites file:line in the audit file. The audit
+  files are the authoritative detail; this section is the planning
+  index.
+
 ## Done
 
 - Streaming Output Parity Track (2026-05-26): closed parity-criterion row
@@ -2281,53 +2627,52 @@ streaming and tool blocks; `pi-print-before.log` is the parallel
 `pi -p` reference; `gap-analysis.md` documents the root causes that
 this slice closed.
 
-### Choose the next pipy-native direction after the 49/50 parity closure
+### Choose the next pipy-native direction after the 2026-05-26 cleanup
 
-Goal: pick the next reviewable boundary now that the locked
-50-feature criterion in `docs/parity-criterion.md` is 49/50 with 9
-"big" features green. Five rows landed in the closure push: C14
-(streaming output, via the
-[Streaming Output Parity Track](#streaming-output-parity-track)),
-D8 (image attachment loader and `ProviderRequest` plumbing), E2
-(`compact_loop_messages` helper), E3 (`branch_from` /
-`fork_from` helpers), and E7 (`pipy_harness.sdk` SDK module). The
-only remaining ❌ is B7 (`bash`), which is deliberately deferred
-behind a real process/filesystem sandbox per
-`docs/parity-criterion.md`. The implementation track for the next
-slice is intentionally not selected here; the goal is to use
-summary-safe session reflection and the current state of the new
-helpers to choose the next small `pipy-native` boundary.
+Goal: pick the next reviewable boundary now that the
+[Code Quality Audit Track (2026-05-26)](#code-quality-audit-track-2026-05-26)
+has dropped the locked 50-feature score from 49/50 to 41/50 by
+honestly removing dormant helpers that had been pinned only by
+`test -f path` or directory `grep -rq` checks (D4 skills, D5 prompt
+templates, D6 custom slash commands, D7 themes, D8 image
+attachments, E2 session compaction, E3 session branching, E5
+dynamic provider swap; B7 bash stays red, deferred behind a real
+shell sandbox). The streaming closure (C14) and the SDK module
+(E7) stay green.
+The implementation track for the next slice is intentionally not
+selected here; the goal is to use the current archive signals and
+the audit's Track CQ-B through CQ-F items to choose the next
+small `pipy-native` boundary.
 
 Implementation focus:
 
-- inspect summary-safe archive signals with
-  `pipy-session reflect --json` and targeted `pipy-session search`
-  queries before picking a direction
-- compare next-boundary candidates against the now-landed value
-  objects whose live runtime wiring is the natural follow-up:
-  - streaming text deltas in `--repl-mode no-tool` and
-    `--repl-mode tool-loop` (today `--stream` is wired only for
-    `pipy run`)
-  - real vision-provider serialization for
-    `ProviderRequest.image_attachments` through one tool-capable
-    adapter (today the loader exists but no provider sends bytes)
-  - tool-loop invocation of `compact_loop_messages` when the
-    `LoopMessage` envelope grows past a configurable threshold
-  - recorder integration that writes a `session.branched_from`
-    lifecycle event from `branch_from(...)`
-  - the B7 `bash` shell-sandbox investigation (the only remaining
-    red row in the locked criterion; production registration
-    stays blocked until the sandbox lands with safety tests and
-    docs)
+- inspect summary-safe archive signals with targeted
+  `pipy-session search`, `pipy-session list`, and
+  `pipy-session inspect` queries before picking a direction
+  (`pipy-session reflect` was removed in the 2026-05-26 cleanup)
+- prioritize next-boundary candidates from the audit's
+  [Code Quality Audit Track (2026-05-26)](#code-quality-audit-track-2026-05-26)
+  tracks CQ-B (provider consolidation), CQ-C (bad-state-impossible
+  refactors), CQ-D (structural simplification), CQ-E (correctness
+  fixes), and CQ-F (deduplication)
+- consider streaming text deltas in `--repl-mode no-tool` and
+  `--repl-mode tool-loop` (today `--stream` is wired only for
+  `pipy run`)
+- consider the B7 `bash` shell-sandbox investigation; production
+  registration of any `bash`-style tool stays blocked until the
+  sandbox lands with safety tests and docs
+- the previously-listed image-attachment, compaction, and
+  branching helpers were removed in the 2026-05-26 cleanup
+  (Track CQ-A); re-introducing them is justified only when a
+  runtime consumer exists first
 - document the selected next slice in this backlog and, when
   architectural behavior changes, in `docs/harness-spec.md`
 - keep metadata-first archive contracts, `.git` default-deny
   posture, `/verify just-check` scope, the no-tool REPL, the
   tool-loop REPL, the opt-in `--archive-transcript` sidecar, the
   existing slash commands, the workspace-context system-prompt
-  wiring, the `--stream` flag, the image-attachment loader, the
-  compaction helper, the branching helper, and the SDK module
-  unchanged in this planning slice
+  wiring, the `--stream` flag, and the SDK module unchanged in
+  this planning slice
 
 The Tool-Loop Parity Track, the OpenAI Responses + OpenAI Codex
 Tool-Call Parity Track, the Workspace Context Loading Parity
