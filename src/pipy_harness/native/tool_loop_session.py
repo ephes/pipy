@@ -990,6 +990,8 @@ class _ToolLoopRenderer:
     ) -> None:
         self._output_stream = output_stream
         self._error_stream = error_stream
+        self._terminal_lock = threading.Lock()
+        self._cursor_control_enabled = self._compute_cursor_control_enabled(error_stream)
         self._enabled = self._compute_enabled(error_stream)
         self._tool_panel_bg = (
             self._ANSI_BG_TOOL_PANEL_TRUECOLOR
@@ -1005,6 +1007,7 @@ class _ToolLoopRenderer:
         self._stream_emitted_any = False
         self._streamed_any = False
         self._working_shown = False
+        self._working_mode = ""
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
         self._reasoning_active = False
@@ -1014,6 +1017,13 @@ class _ToolLoopRenderer:
     def _compute_enabled(stream: TextIO) -> bool:
         if "NO_COLOR" in os.environ:
             return False
+        term = os.environ.get("TERM", "").lower()
+        if term == "dumb":
+            return False
+        return bool(getattr(stream, "isatty", lambda: False)())
+
+    @staticmethod
+    def _compute_cursor_control_enabled(stream: TextIO) -> bool:
         term = os.environ.get("TERM", "").lower()
         if term == "dumb":
             return False
@@ -1050,6 +1060,7 @@ class _ToolLoopRenderer:
         self._stream_active = False
         self._stream_emitted_any = False
         self._working_shown = False
+        self._working_mode = ""
         self._reasoning_emitted_any = False
 
     @property
@@ -1065,19 +1076,31 @@ class _ToolLoopRenderer:
         """Animate a Pi-shape `⠋ Working...` line on the error stream.
 
         A background thread cycles through ``_SPINNER_FRAMES`` every
-        80 ms and rewrites the line in place (`\\r\\x1b[K`). The thread
-        is daemonized so it never blocks process exit, and stopped via
-        ``_stop_working_event`` before the next visible block (stream
-        text, tool block, or footer redraw) lands. On non-TTY streams
-        the line and animation are suppressed entirely so captured
-        logs stay deterministic.
+        80 ms and rewrites the line in place. The visible loader sits one
+        row below the post-user-message cursor, matching Pi's active-turn
+        spacing, while the terminal cursor returns to the row where streamed
+        assistant text should begin. The thread is daemonized so it never
+        blocks process exit, and stopped via ``_stop_working_event`` before
+        the next visible block (stream text, tool block, or footer redraw)
+        lands. On non-TTY streams the line and animation are suppressed
+        entirely so captured logs stay deterministic.
         """
 
         if not self._enabled:
             self._working_shown = False
             return
+        self._start_working_animation(mode="reserved")
+
+    def _show_stream_working(self) -> None:
+        if not self._enabled:
+            self._working_shown = False
+            return
+        self._start_working_animation(mode="stream")
+
+    def _start_working_animation(self, *, mode: str) -> None:
         self._stop_working_event = threading.Event()
         self._working_shown = True
+        self._working_mode = mode
 
         def _animate(stop_event: threading.Event) -> None:
             frame_index = 0
@@ -1090,8 +1113,9 @@ class _ToolLoopRenderer:
                     self._ANSI_DIM,
                 )
                 try:
-                    self._error_stream.write(f"\r\x1b[K {marker}")
-                    self._error_stream.flush()
+                    with self._terminal_lock:
+                        self._error_stream.write(self._working_frame(marker, mode))
+                        self._error_stream.flush()
                 except (ValueError, OSError):
                     return
                 frame_index += 1
@@ -1106,9 +1130,22 @@ class _ToolLoopRenderer:
         self._working_thread = thread
         thread.start()
 
+    @staticmethod
+    def _working_frame(marker: str, mode: str) -> str:
+        if mode == "stream":
+            return f"\x1b7\x1b[2B\r\x1b[K {marker}\x1b8"
+        return f"\x1b7\x1b[1B\r\x1b[K {marker}\x1b8"
+
+    @staticmethod
+    def _working_clear(mode: str) -> str:
+        if mode == "stream":
+            return "\x1b7\x1b[2B\r\x1b[K\x1b8"
+        return "\x1b7\x1b[1B\r\x1b[K\x1b8"
+
     def _clear_working(self) -> None:
         if not self._working_shown:
             return
+        mode = self._working_mode
         if self._stop_working_event is not None:
             self._stop_working_event.set()
         if self._working_thread is not None:
@@ -1117,16 +1154,19 @@ class _ToolLoopRenderer:
         self._working_thread = None
         if self._enabled:
             try:
-                self._error_stream.write("\r\x1b[K")
-                self._error_stream.flush()
+                with self._terminal_lock:
+                    self._error_stream.write(self._working_clear(mode))
+                    self._error_stream.flush()
             except (ValueError, OSError):
                 pass
         self._working_shown = False
+        self._working_mode = ""
 
     def end_provider_turn(
         self, *, final_text: str, has_tool_calls: bool
     ) -> None:
         del has_tool_calls
+        self._clear_working()
         if self._stream_active:
             # Flush a trailing newline so the next render block starts
             # on its own line, even when the provider did not emit one,
@@ -1143,8 +1183,8 @@ class _ToolLoopRenderer:
     def _handle_stream_chunk(self, chunk: str) -> None:
         if not chunk:
             return
-        self._clear_working()
         if not self._stream_active:
+            self._clear_working()
             self._stream_active = True
             # Pi prints the final assistant answer with a one-space
             # left indent and a single blank row above. The bottom
@@ -1153,9 +1193,15 @@ class _ToolLoopRenderer:
             # the answer; emit one more `\n` plus the leading indent
             # here. Subsequent lines within the same stream get their
             # indent from the newline rewrite below.
-            self._output_stream.write("\n ")
-        self._output_stream.write(chunk.replace("\n", "\n "))
-        self._output_stream.flush()
+            with self._terminal_lock:
+                self._output_stream.write("\n ")
+                self._output_stream.write(chunk.replace("\n", "\n "))
+                self._output_stream.flush()
+            self._show_stream_working()
+        else:
+            with self._terminal_lock:
+                self._output_stream.write(chunk.replace("\n", "\n "))
+                self._output_stream.flush()
         self._stream_emitted_any = True
         self._streamed_any = True
 
@@ -1245,7 +1291,7 @@ class _ToolLoopRenderer:
         if not text:
             return
         lines = text.splitlines() or [""]
-        if self._enabled:
+        if self._cursor_control_enabled:
             # Step back over the readline echo plus the separator row
             # that `print_input_separator` drew above the input area.
             # The readline echo of a single logical line can wrap to
@@ -1270,7 +1316,7 @@ class _ToolLoopRenderer:
             self._error_stream.write(self._user_message_panel_blank_line())
         for line in lines:
             self._error_stream.write(self._user_message_panel_line(line))
-        if self._enabled:
+        if self._cursor_control_enabled:
             # Bottom padding row of the bubble (full-width bg).
             self._error_stream.write(self._user_message_panel_blank_line())
         self._error_stream.flush()
@@ -1300,6 +1346,8 @@ class _ToolLoopRenderer:
         cells get dropped by `tmux capture-pane`.
         """
 
+        if not self._enabled:
+            return "\n"
         width = chrome_width(self._error_stream)
         padding = " " * width
         return (

@@ -21,6 +21,7 @@ These tests cover behavior the previous tool-loop suite did not pin:
 from __future__ import annotations
 
 import io
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TextIO, cast
@@ -61,6 +62,16 @@ class _StreamingStub:
 
     def getvalue(self) -> str:
         return self._buffer.getvalue()
+
+
+def _wait_for_text(stream: _StreamingStub, text: str) -> str:
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        value = stream.getvalue()
+        if text in value:
+            return value
+        time.sleep(0.01)
+    return stream.getvalue()
 
 
 @pytest.fixture(autouse=True)
@@ -215,6 +226,23 @@ def test_renderer_disables_ansi_under_no_color(monkeypatch: pytest.MonkeyPatch):
     assert "\x1b[" not in err.getvalue()
 
 
+def test_renderer_clears_submitted_input_under_no_color(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.render_user_message("hello world!")
+
+    rendered = err.getvalue()
+    assert "\x1b[48;" not in rendered
+    assert "\x1b[1A\x1b[2K" in rendered
+    assert rendered.count("hello world!") == 1
+
+
 def test_renderer_enables_ansi_on_tty_with_color(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
@@ -301,12 +329,33 @@ def test_renderer_clears_working_marker_before_streaming(monkeypatch: pytest.Mon
 
     renderer.begin_provider_turn()
     renderer.show_working()
-    assert "Working..." in err.getvalue()
+    assert "Working..." in _wait_for_text(err, "Working...")
+    assert "\x1b7\x1b[1B\r\x1b[K" in err.getvalue()
 
     renderer.stream_sink("hello ")
-    # The clear sequence (\r\x1b[K) is written before stream output appears.
-    assert "\r\x1b[K" in err.getvalue()
+    # The clear sequence removes the reserved spinner row while restoring
+    # the cursor to the assistant-start row before streaming text.
+    assert "\x1b7\x1b[1B\r\x1b[K\x1b8" in err.getvalue()
     assert "hello " in out.getvalue()
+
+
+def test_renderer_clears_working_marker_without_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
+
+    renderer.begin_provider_turn()
+    renderer.show_working()
+    assert "Working..." in _wait_for_text(err, "Working...")
+
+    renderer.end_provider_turn(final_text="done", has_tool_calls=False)
+
+    assert "\x1b7\x1b[1B\r\x1b[K\x1b8" in err.getvalue()
 
 
 def test_renderer_argument_preview_handles_invalid_json():
