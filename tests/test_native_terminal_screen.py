@@ -157,6 +157,10 @@ def test_analyze_frame_files_writes_machine_readable_cursor_and_visibility(
         {"bg": "52;53;65", "columns": 12, "row": 0},
         {"bg": "52;53;65", "columns": 14, "row": 1},
     ]
+    assert record["visual_regions"]["submitted_prompt"][0]["bg"] == "52;53;65"
+    assert record["visual_regions"]["separator"][0]["row"] == 2
+    assert record["visual_regions"]["cursor"][0]["reverse_columns"] == 1
+    assert record["visual_regions"]["footer"][1]["text"].endswith("gpt-5.5 • high")
     assert record["inferred_input_row"] == 3
     assert record["cursor_matches_input_row"] is True
     assert "visible count" not in anomalies.read_text(encoding="utf-8")
@@ -199,6 +203,45 @@ def test_analyze_frame_files_treats_tmux_lf_rows_as_static_viewport(
     assert record["findings"]["cwd"][0]["row"] == 4
     assert record["findings"]["status"][0]["row"] == 5
     assert record["cursor_matches_input_row"] is True
+
+
+def test_analyze_frame_files_infers_input_row_when_slash_menu_is_open(
+    tmp_path: Path,
+) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    frame = (
+        "────────────\n"
+        "/\x1b[7m \x1b[0m\n"
+        "\x1b[38;2;138;190;183m→ help          Show pipy command reference\x1b[0m\n"
+        "  clear\x1b[38;2;128;128;128m         Clear local conversation context\x1b[0m\n"
+        "────────────\n"
+        "~/projects/pipy (main)\n"
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"
+    )
+    (frames / "frame-001-slash-open.ansi").write_text(frame, encoding="utf-8")
+    cursor_metrics = tmp_path / "cursor-metrics.tsv"
+    cursor_metrics.write_text(
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
+        "1\tslash-open\t1\t1\t1\n",
+        encoding="utf-8",
+    )
+    out_jsonl = tmp_path / "screen-metrics.jsonl"
+
+    analyze_frame_files(
+        frames_dir=frames,
+        cursor_metrics_path=cursor_metrics,
+        out_jsonl=out_jsonl,
+        report_json=tmp_path / "terminal-report.json",
+        anomalies_tsv=tmp_path / "screen-anomalies.tsv",
+    )
+
+    record = json.loads(out_jsonl.read_text(encoding="utf-8"))
+    assert record["inferred_input_row"] == 1
+    assert record["visual_regions"]["slash_menu_selection"][0]["text"].startswith(
+        "→ help"
+    )
+    assert record["visual_regions"]["slash_menu"][0]["text"].startswith("  clear")
 
 
 def test_analyze_frame_files_counts_wrapped_prompt_once(tmp_path: Path) -> None:

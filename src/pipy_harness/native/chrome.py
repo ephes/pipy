@@ -68,12 +68,16 @@ _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
 }
 
 _PI_TITLE_TRUECOLOR = "1;38;2;138;190;183"
+_PI_ACCENT_TRUECOLOR = "38;2;138;190;183"
 _PI_TITLE_FALLBACK = "1;36"
+_PI_ACCENT_FALLBACK = "36"
 _PI_SECTION_TRUECOLOR = "38;2;240;198;116"
 _PI_SECTION_FALLBACK = "1;33"
 _PI_DIM_TRUECOLOR = "38;2;102;102;102"
 _PI_DIM_FALLBACK = "2"
 _PI_SECONDARY_DIM_TRUECOLOR = "38;2;128;128;128"
+_PI_ERROR_TRUECOLOR = "38;2;204;102;102"
+_PI_ERROR_FALLBACK = "31"
 _PI_USER_MESSAGE_BG_TRUECOLOR = "48;2;52;53;65"
 _PI_USER_MESSAGE_TEXT_TRUECOLOR = "38;2;212;212;212"
 _PI_TOOL_COMMAND_BG_TRUECOLOR = "48;2;40;50;40"
@@ -107,6 +111,9 @@ class ChromeStyle:
     def secondary_dim(self, text: str) -> str:
         return self._wrap(text, _PI_SECONDARY_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
 
+    def error(self, text: str) -> str:
+        return self._wrap(text, _PI_ERROR_TRUECOLOR, _PI_ERROR_FALLBACK)
+
     def separator(self, text: str) -> str:
         return self._wrap(text, _PI_SEPARATOR_TRUECOLOR, _PI_SEPARATOR_FALLBACK)
 
@@ -114,6 +121,8 @@ class ChromeStyle:
         if not self.enabled:
             return text
         padded = text + (" " * max(0, width - len(text)))
+        if text == "":
+            return f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m{padded}\x1b[0m"
         return (
             f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m"
             f"\x1b[{_PI_USER_MESSAGE_TEXT_TRUECOLOR}m{padded}\x1b[0m"
@@ -122,17 +131,57 @@ class ChromeStyle:
     def tool_command(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        padded = text + (" " * max(0, width - len(text)))
         text_code = _PI_USER_MESSAGE_TEXT_TRUECOLOR if self.truecolor else "37"
+        leading = text[: len(text) - len(text.lstrip(" "))]
+        visible = text[len(leading) :]
+        padding = " " * max(0, width - len(text))
         return (
             f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
-            f"\x1b[1;{text_code}m{padded}\x1b[0m"
+            f"{leading}\x1b[1;{text_code}m{visible}\x1b[0m"
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
         )
 
-    def cursor_cell(self, text: str) -> str:
+    def tool_result(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        return f"\x1b[39m{text}\x1b[7m \x1b[0m"
+        padding = " " * max(0, width - len(text))
+        if text == "":
+            return f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
+        text_code = _PI_SECONDARY_DIM_TRUECOLOR if self.truecolor else "2"
+        return (
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"\x1b[{text_code}m{text}\x1b[0m"
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
+        )
+
+    def tool_read(self, text: str, *, width: int) -> str:
+        if not self.enabled:
+            return text
+        leading = text[: len(text) - len(text.lstrip(" "))]
+        visible = text[len(leading) :]
+        verb, separator, rest = visible.partition(" ")
+        padding = " " * max(0, width - len(text))
+        return (
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"{leading}\x1b[{_PI_TITLE_TRUECOLOR}m{verb}\x1b[0m"
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"{separator}{rest}{padding}\x1b[0m"
+        )
+
+    def menu_row(self, text: str) -> str:
+        if not self.enabled:
+            return text
+        return self.dim(text)
+
+    def menu_selection(self, text: str) -> str:
+        if not self.enabled:
+            return text
+        return self._wrap(text, _PI_ACCENT_TRUECOLOR, _PI_ACCENT_FALLBACK)
+
+    def cursor_cell(self, before: str, cursor: str = " ", after: str = "") -> str:
+        if not self.enabled:
+            return f"{before}{cursor}{after}"
+        return f"\x1b[39m{before}\x1b[7m{cursor}\x1b[0m{after}"
 
     def _wrap(self, text: str, truecolor_code: str, fallback_code: str) -> str:
         if not self.enabled:

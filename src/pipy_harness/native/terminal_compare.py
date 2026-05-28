@@ -90,6 +90,7 @@ def compare_screen_metrics(
     deltas: list[DeltaRecord] = []
     viewport_deltas: list[ViewportDeltaRecord] = []
     background_deltas: list[BackgroundDeltaRecord] = []
+    visual_region_deltas: list[BackgroundDeltaRecord] = []
     anomalies: list[tuple[str, str, str]] = []
 
     for pair_index, pair in enumerate(pairs):
@@ -164,6 +165,16 @@ def compare_screen_metrics(
         )
         if background_delta is not None:
             background_deltas.append(background_delta)
+        visual_region_deltas.extend(
+            _visual_region_delta_records(
+                frame_index=pair_index,
+                phase=phase,
+                reference_label=reference_label,
+                reference=pair.reference,
+                target_label=target_label,
+                target=pair.target,
+            )
+        )
 
     for delta in deltas:
         if delta.within_tolerance is False and delta.phase == "final":
@@ -238,6 +249,22 @@ def compare_screen_metrics(
                 ),
             )
         )
+    for visual_delta in visual_region_deltas:
+        if visual_delta.phase not in {"active", "final"}:
+            continue
+        anomalies.append(
+            (
+                f"{visual_delta.frame_index}:{visual_delta.phase}",
+                "error",
+                (
+                    f"{visual_delta.metric} differ: "
+                    f"{visual_delta.reference_label}="
+                    f"{visual_delta.reference_rows!r} "
+                    f"{visual_delta.target_label}="
+                    f"{visual_delta.target_rows!r}"
+                ),
+            )
+        )
 
     report = {
         "reference_label": reference_label,
@@ -254,6 +281,13 @@ def compare_screen_metrics(
         "prompt_background_delta_count": len(background_deltas),
         "final_prompt_background_delta_count": sum(
             1 for delta in background_deltas if delta.phase == "final"
+        ),
+        "visual_region_delta_count": len(visual_region_deltas),
+        "active_visual_region_delta_count": sum(
+            1 for delta in visual_region_deltas if delta.phase == "active"
+        ),
+        "final_visual_region_delta_count": sum(
+            1 for delta in visual_region_deltas if delta.phase == "final"
         ),
         "max_row_delta": max_row_delta,
         "max_column_delta": max_column_delta,
@@ -547,6 +581,88 @@ def _prompt_background_rows(record: dict[str, Any] | None) -> list[dict[str, Any
         bg = row.get("bg")
         if isinstance(row_index, int) and isinstance(columns, int) and isinstance(bg, str):
             normalized.append({"row": row_index, "columns": columns, "bg": bg})
+    return normalized
+
+
+def _visual_region_delta_records(
+    *,
+    frame_index: int,
+    phase: str,
+    reference_label: str,
+    reference: dict[str, Any] | None,
+    target_label: str,
+    target: dict[str, Any] | None,
+) -> list[BackgroundDeltaRecord]:
+    reference_regions = _visual_regions(reference)
+    target_regions = _visual_regions(target)
+    keys = sorted(set(reference_regions) | set(target_regions))
+    deltas: list[BackgroundDeltaRecord] = []
+    for key in keys:
+        if phase != "final" and (
+            not reference_regions.get(key) or not target_regions.get(key)
+        ):
+            continue
+        reference_rows = _comparison_visual_rows(
+            reference_regions.get(key, []), phase=phase
+        )
+        target_rows = _comparison_visual_rows(target_regions.get(key, []), phase=phase)
+        if reference_rows == target_rows:
+            continue
+        deltas.append(
+            BackgroundDeltaRecord(
+                frame_index=frame_index,
+                phase=phase,
+                metric=f"visual_regions.{key}",
+                reference_label=reference_label,
+                reference_rows=reference_rows,
+                target_label=target_label,
+                target_rows=target_rows,
+            )
+        )
+    return deltas
+
+
+def _comparison_visual_rows(
+    rows: list[dict[str, Any]], *, phase: str
+) -> list[dict[str, Any]]:
+    if phase == "final":
+        return rows
+    # Active samples are order-paired, not semantically stage-paired; row-only
+    # drift during streaming can be timing noise. Keep active visual-region
+    # checks focused on text/style/background presence.
+    return [{key: value for key, value in row.items() if key != "row"} for row in rows]
+
+
+def _visual_regions(record: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(record, dict):
+        return {}
+    regions = record.get("visual_regions")
+    if not isinstance(regions, dict):
+        return {}
+    normalized: dict[str, list[dict[str, Any]]] = {}
+    for key, rows in regions.items():
+        if not isinstance(key, str) or not isinstance(rows, list):
+            continue
+        normalized_rows = [_visual_region_row(row) for row in rows]
+        normalized[key] = [row for row in normalized_rows if row is not None]
+    return normalized
+
+
+def _visual_region_row(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    row_index = row.get("row")
+    if not isinstance(row_index, int):
+        return None
+    normalized: dict[str, Any] = {"row": row_index}
+    text = row.get("text")
+    normalized["text"] = _normalize_viewport_line(text) if isinstance(text, str) else None
+    for key in ("bg", "fg"):
+        value = row.get(key)
+        normalized[key] = value if isinstance(value, str) else None
+    for key in ("reverse_columns", "dim_columns", "bold_columns"):
+        value = row.get(key)
+        normalized[key] = value if isinstance(value, int) else 0
     return normalized
 
 

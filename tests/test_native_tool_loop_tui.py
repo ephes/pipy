@@ -113,12 +113,25 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     renderer.stream_sink("world")
     renderer.end_provider_turn(final_text="hello world", has_tool_calls=False)
 
-    frame = "\n".join(ui.render_lines(width=72, height=14))
+    frame = "\n".join(ui.render_lines(width=72, height=20))
     assert "Working..." not in frame
     assert frame.count("hello world") == 1
 
 
-def test_tui_renderer_keeps_tool_blocks_in_history_region(tmp_path: Path):
+def test_tui_renderer_abort_shows_operation_aborted(tmp_path: Path):
+    ui = _ui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+
+    renderer.begin_provider_turn()
+    renderer.show_working()
+    renderer.abort_provider_turn()
+
+    frame = "\n".join(ui.render_lines(width=72, height=14))
+    assert "Working..." not in frame
+    assert "Operation aborted" in frame
+
+
+def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
     ui = _ui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui)
 
@@ -135,9 +148,35 @@ def test_tui_renderer_keeps_tool_blocks_in_history_region(tmp_path: Path):
         duration_seconds=0.2,
     )
 
-    frame = "\n".join(ui.render_lines(width=72, height=14))
-    assert "$ read docs/backlog.md:1-5" in frame
-    assert "line one" in frame
+    frame = "\n".join(ui.render_lines(width=72, height=20))
+    assert "read docs/backlog.md" in frame
+    assert "$ read" not in frame
+    assert ":1-5" not in frame
+    assert "line one" not in frame
+    assert "Took 0.2s" not in frame
+
+
+def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Path):
+    ui = _ui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+
+    renderer.render_tool_call(
+        ProviderToolCall(
+            provider_correlation_id="call_ls",
+            tool_name="ls",
+            arguments_json='{"path": "."}',
+        )
+    )
+    renderer.render_tool_result(
+        output_text="file one\nfile two",
+        is_error=False,
+        duration_seconds=0.2,
+    )
+
+    frame = "\n".join(ui.render_lines(width=72, height=20))
+    assert "$ ls" in frame
+    assert "one" in frame
+    assert "two" in frame
     assert "Took 0.2s" in frame
 
 
@@ -152,8 +191,11 @@ def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
         duration_seconds=0.1,
     )
 
-    frame = ui.render_lines(width=72, height=14, pad=False)
-    input_index = next(index for index, line in enumerate(frame) if line == " ")
+    frame_lines = ui._frame_lines(width=72, height=14, pad=False)
+    frame = [line.text for line in frame_lines]
+    input_index = next(
+        index for index, line in enumerate(frame_lines) if line.kind == "input"
+    )
 
     text = "\n".join(frame)
     assert "use a tool" in text
@@ -182,9 +224,12 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
     )
     ui.append_assistant("TOOL SMOKE DONE")
 
-    frame = ui.render_lines(width=100, height=30, pad=False)
+    frame_lines = ui._frame_lines(width=100, height=30, pad=False)
+    frame = [line.text for line in frame_lines]
     prompt_index = next(index for index, line in enumerate(frame) if "Use the ls" in line)
-    input_index = next(index for index, line in enumerate(frame) if line == " ")
+    input_index = next(
+        index for index, line in enumerate(frame_lines) if line.kind == "input"
+    )
 
     assert prompt_index > 0
     assert "[Skills]" in "\n".join(frame[:prompt_index])
@@ -332,6 +377,108 @@ def test_tui_tool_call_uses_pi_command_background(
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     assert "\x1b[48;2;40;50;40m" in output
+
+
+def test_tui_tool_result_uses_pi_command_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+
+    ui.add_tool_result(lines=["result line"], is_error=False, duration_seconds=0.1)
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(),
+        columns=88,
+        rows=24,
+    )
+    result = snapshot.find("result line")[0]
+    assert result.attr.bg == "40;50;40"
+    assert result.attr.fg == "128;128;128"
+
+
+def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+
+    ui.add_tool_call("ls")
+    ui.add_tool_result(lines=["alpha"], is_error=False, duration_seconds=0.1)
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(),
+        columns=88,
+        rows=24,
+    )
+    call = snapshot.find("$ ls")[0]
+
+    assert snapshot.viewport[call.row - 1] == ""
+    assert snapshot.cells[call.row - 1][0].attr.bg == "40;50;40"
+    assert snapshot.viewport[call.row + 1] == ""
+    assert snapshot.cells[call.row + 1][0].attr.bg == "40;50;40"
+    assert sum(1 for cell in snapshot.cells[call.row] if cell.attr.bold) == 4
+
+
+def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui._insert_input_text("/")
+
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    assert ui.slash_menu_open is True
+    assert "→ help" in rendered
+    assert "Show pipy command reference" in rendered
+    assert "  exit" in rendered
+    assert "  settings" not in rendered
+    assert any(line.kind == "slash_menu_selected" for line in frame)
+    input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
+    menu_index = next(
+        index for index, line in enumerate(frame) if line.kind == "slash_menu_selected"
+    )
+    assert frame[input_index + 1].kind == "separator"
+    assert menu_index == input_index + 2
+    assert "(1/3)" not in rendered
+
+
+def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._insert_input_text("/")
+
+    ui._navigate_slash_menu("down")
+    assert ui.slash_menu_selection == 1
+
+    ui._accept_slash_menu_selection()
+    assert ui.input_text == "/exit"
+    assert ui.input_cursor == len("/exit")
+    assert ui.slash_menu_open is False
+
+    ui.input_text = "/"
+    ui.input_cursor = 1
+    ui._refresh_slash_menu_state()
+    assert ui.slash_menu_open is True
+
+    ui.slash_menu_open = False
+    frame = "\n".join(ui.render_lines(width=88, height=24, pad=False))
+    assert "→ help" not in frame
+    assert ui.input_text == "/"
+
+
+def test_tui_input_cursor_can_move_within_typed_text(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._insert_input_text("ab")
+
+    ui._move_input_cursor("left")
+    ui._insert_input_text("X")
+
+    assert ui.input_text == "aXb"
+    assert ui.input_cursor == 2
 
 
 def test_tui_start_uses_alternate_screen_and_close_restores(tmp_path: Path):

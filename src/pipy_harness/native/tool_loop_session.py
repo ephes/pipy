@@ -52,6 +52,7 @@ from pipy_harness.native.chrome import (
 )
 from pipy_harness.native.models import (
     ProviderRequest,
+    ProviderResult,
     ProviderToolCall,
 )
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -593,11 +594,13 @@ class NativeToolReplSession:
                 )
                 renderer.begin_provider_turn()
                 renderer.show_working()
-                provider_result = self.provider.complete(
+                provider_result = self._complete_provider_turn(
                     provider_request,
-                    stream_sink=renderer.stream_sink,
-                    reasoning_sink=renderer.reasoning_sink,
+                    renderer=renderer,
+                    terminal_ui=terminal_ui,
                 )
+                if provider_result is None:
+                    break
                 usage_accumulator.absorb(provider_result.usage)
                 renderer.end_provider_turn(
                     final_text=provider_result.final_text or "",
@@ -815,6 +818,62 @@ class NativeToolReplSession:
             terminal_stream=error_stream,
             cwd=workspace,
         )
+
+    def _complete_provider_turn(
+        self,
+        provider_request: ProviderRequest,
+        *,
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        terminal_ui: ToolLoopTerminalUi | None,
+    ) -> ProviderResult | None:
+        if terminal_ui is None:
+            return self.provider.complete(
+                provider_request,
+                stream_sink=renderer.stream_sink,
+                reasoning_sink=renderer.reasoning_sink,
+            )
+
+        abort_event = threading.Event()
+        done_event = threading.Event()
+        result_holder: list[ProviderResult] = []
+        error_holder: list[BaseException] = []
+
+        def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
+            def _wrapped(chunk: str) -> None:
+                if abort_event.is_set():
+                    return
+                sink(chunk)
+
+            return _wrapped
+
+        def _run_provider() -> None:
+            try:
+                result_holder.append(
+                    self.provider.complete(
+                        provider_request,
+                        stream_sink=_cancellable_sink(renderer.stream_sink),
+                        reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - re-raised on main thread
+                error_holder.append(exc)
+            finally:
+                done_event.set()
+
+        worker = threading.Thread(
+            target=_run_provider,
+            name="pipy-provider-turn",
+            daemon=True,
+        )
+        worker.start()
+        aborted = terminal_ui.wait_for_active_turn_interrupt(done_event, abort_event)
+        if aborted:
+            renderer.abort_provider_turn()
+            return None
+        worker.join()
+        if error_holder:
+            raise error_holder[0]
+        return result_holder[0]
 
     def _footer_text(
         self,
@@ -1254,6 +1313,20 @@ class _ToolLoopRenderer:
             else:
                 self._output_stream.write("\n")
             self._output_stream.flush()
+        self._stream_active = False
+
+    def abort_provider_turn(self) -> None:
+        self._clear_working()
+        if self._enabled:
+            message = self._style(" Operation aborted", "\x1b[38;2;204;102;102m")
+            try:
+                with self._terminal_lock:
+                    self._error_stream.write(f"\n{message}\n")
+                    self._error_stream.flush()
+            except (ValueError, OSError):
+                pass
+        else:
+            print("Operation aborted", file=self._error_stream)
         self._stream_active = False
 
     def _handle_stream_chunk(self, chunk: str) -> None:
@@ -1720,13 +1793,14 @@ class _TuiToolLoopRenderer:
     _SPINNER_INTERVAL_SECONDS: ClassVar[float] = (
         _ToolLoopRenderer._SPINNER_INTERVAL_SECONDS
     )
-    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 6
+    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 5
 
     def __init__(self, *, ui: ToolLoopTerminalUi) -> None:
         self._ui = ui
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
+        self._last_tool_name = ""
 
     @property
     def streamed_any(self) -> bool:
@@ -1778,11 +1852,16 @@ class _TuiToolLoopRenderer:
             self._streamed_any = True
         self._ui.settle_assistant()
 
+    def abort_provider_turn(self) -> None:
+        self._stop_working(clear=True)
+        self._ui.show_operation_aborted()
+
     def render_user_message(self, text: str) -> None:
         self._ui.submit_user_message(text)
 
     def render_tool_call(self, call: ProviderToolCall) -> None:
         self._stop_working(clear=True)
+        self._last_tool_name = call.tool_name
         self._ui.add_tool_call(_plain_tool_call_header(call))
 
     def render_tool_result(
@@ -1792,7 +1871,9 @@ class _TuiToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
     ) -> None:
-        lines = output_text.splitlines() or [""]
+        if self._last_tool_name == "read" and not is_error:
+            return
+        lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
         preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
         earlier = len(lines) - len(preview_lines)
         if earlier > 0:
@@ -1807,6 +1888,21 @@ class _TuiToolLoopRenderer:
             is_error=is_error,
             duration_seconds=duration_seconds,
         )
+
+    def _visible_tool_result_lines(self, lines: list[str]) -> list[str]:
+        if self._last_tool_name != "ls":
+            return lines
+        rendered: list[str] = []
+        for line in lines:
+            if line.startswith("file "):
+                rendered.append(line[len("file ") :])
+            elif line.startswith("directory "):
+                rendered.append(line[len("directory ") :])
+            elif line.startswith("other "):
+                rendered.append(line[len("other ") :])
+            else:
+                rendered.append(line)
+        return rendered
 
     def handle_reasoning_chunk(self, chunk: str) -> None:
         self._stop_working(clear=True)

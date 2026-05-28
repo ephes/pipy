@@ -1082,9 +1082,19 @@ Implementation focus:
   text differences fail so unconstrained prompts cannot hide answer wording or
   retained-chrome drift behind a matching expected-output marker; final prompt
   background-band rows are also compared so screenshot-only shaded-block drift
-  fails the machine gate. The current gate covers both default 100x30 geometry
-  and the short 100x24 regression class where prompt/output rows previously
-  shifted above Pi
+  fails the machine gate. The screen metrics now also emit named visual-region
+  rows for submitted prompts, tool calls/results, slash-menu rows and
+  Pi-style arrow selection highlights, separators, cursor cells, and footer/status rows; the
+  comparison reports active/final visual-region deltas as anomalies when text
+  stays present but color or emphasis drifts. `scripts/tmux_tui_input_verify.sh`
+  separately exercises the real product command without submitting a provider
+  turn and fails on Escape/slash-menu row, cursor, text, or style regressions.
+  Active provider-turn Escape now has separate tmux audit evidence requiring
+  `Operation aborted` to replace `Working...` without late streamed text.
+  The current gate covers default 100x30 geometry, the short 100x24 regression
+  class where prompt/output rows previously shifted above Pi, and a
+  model-selected read-tool smoke where the compact shaded `read <path>` row,
+  prompt, answer, and footer must line up with Pi
 - keep provider/tool-loop behavior, metadata-first archive invariants,
   transcript sidecar behavior, and documented slash-command behavior intact
 - ship focused TUI/renderer tests, docs updates, and `just check`

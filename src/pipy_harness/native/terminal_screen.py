@@ -377,7 +377,7 @@ def analyze_frame_files(
     *,
     frames_dir: Path,
     cursor_metrics_path: Path | None,
-    prompt: str,
+    prompt: str = "",
     expected_output: str | None = None,
     columns: int | None = None,
     rows: int | None = None,
@@ -440,6 +440,7 @@ def analyze_frame_files(
             "frame": frame,
             "phase": phase,
             "path": str(path),
+            "prompt": prompt,
             "columns": snapshot.columns,
             "rows": snapshot.rows,
             "viewport": snapshot.viewport,
@@ -453,6 +454,11 @@ def analyze_frame_files(
             "separator_rows": separator_rows,
             "inferred_input_row": input_row,
             "prompt_background_rows": prompt_background_rows,
+            "visual_regions": _visual_regions(
+                snapshot,
+                prompt_findings=prompt_findings,
+                separator_rows=separator_rows,
+            ),
             "reverse_cells": reverse_cells,
             "cursor_matches_input_row": cursor_match,
             "expected_output": expected_output,
@@ -488,7 +494,7 @@ def _collect_anomalies(record: dict[str, Any], anomalies: list[tuple[str, str, s
     frame = f"{record['frame']}:{record['phase']}"
     phase = str(record["phase"])
     findings = record["findings"]
-    if phase.startswith("active") or phase == "final":
+    if (phase.startswith("active") or phase == "final") and record.get("prompt"):
         prompt_count = len(findings["prompt"])
         if prompt_count != 1:
             anomalies.append(
@@ -557,6 +563,134 @@ def _background_rows(snapshot: ScreenSnapshot, bg: str | None) -> list[dict[str,
     return rows
 
 
+def _visual_regions(
+    snapshot: ScreenSnapshot,
+    *,
+    prompt_findings: list[ScreenFinding],
+    separator_rows: list[int],
+) -> dict[str, list[dict[str, Any]]]:
+    """Return style-sensitive rows for Pi/pipy visual parity comparison.
+
+    The comparison verifier needs stronger evidence than screenshot text: it
+    must fail when important rows keep their text but lose the background,
+    foreground, reverse-cursor, or dim/bold attributes. Regions are named by
+    product semantics so expected dynamic text can still vary between runs.
+    """
+
+    prompt_bg = (
+        prompt_findings[0].attr.bg
+        if prompt_findings and prompt_findings[0].attr.bg
+        else None
+    )
+    regions: dict[str, list[dict[str, Any]]] = {
+        "submitted_prompt": [],
+        "tool_call": [],
+        "tool_result": [],
+        "slash_menu": [],
+        "slash_menu_selection": [],
+        "separator": [],
+        "cursor": [],
+        "footer": [],
+    }
+    footer_rows: set[int] = set()
+    if separator_rows:
+        footer_start = separator_rows[-1] + 1
+        footer_rows = {footer_start, footer_start + 1}
+    for row_index, row in enumerate(snapshot.cells):
+        text = snapshot.viewport[row_index] if row_index < len(snapshot.viewport) else ""
+        stripped = text.strip()
+        summary = _row_style_summary(row_index, text, row)
+        if row_index in separator_rows:
+            regions["separator"].append(summary)
+        if _row_has_reverse(row):
+            regions["cursor"].append(summary)
+        if prompt_bg and _row_has_bg(row, prompt_bg):
+            regions["submitted_prompt"].append(summary)
+            continue
+        if _row_has_bg(row, "40;50;40") or _row_has_bg(row, "28;42;30"):
+            if stripped.startswith("$ "):
+                regions["tool_call"].append(summary)
+            else:
+                regions["tool_result"].append(summary)
+            continue
+        if _looks_like_slash_menu_row(stripped):
+            if stripped.startswith("→") or _row_has_bg(row, "52;53;65"):
+                regions["slash_menu_selection"].append(summary)
+            else:
+                regions["slash_menu"].append(summary)
+            continue
+        if row_index in footer_rows:
+            regions["footer"].append(summary)
+    return {key: value for key, value in regions.items() if value}
+
+
+def _row_style_summary(
+    row_index: int,
+    text: str,
+    row: list[ScreenCell],
+) -> dict[str, Any]:
+    return {
+        "row": row_index,
+        "text": text.rstrip(),
+        "bg": _dominant_attr(row, "bg"),
+        "fg": _dominant_attr(row, "fg"),
+        "reverse_columns": sum(1 for cell in row if cell.attr.reverse),
+        "dim_columns": sum(1 for cell in row if cell.attr.dim),
+        "bold_columns": sum(1 for cell in row if cell.attr.bold),
+    }
+
+
+def _dominant_attr(row: list[ScreenCell], attr_name: str) -> str | None:
+    counts: dict[str, int] = {}
+    for cell in row:
+        value = getattr(cell.attr, attr_name)
+        if not isinstance(value, str):
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
+def _row_has_bg(row: list[ScreenCell], bg: str) -> bool:
+    return any(cell.attr.bg == bg for cell in row)
+
+
+def _row_has_reverse(row: list[ScreenCell]) -> bool:
+    return any(cell.attr.reverse for cell in row)
+
+
+def _looks_like_slash_menu_row(stripped: str) -> bool:
+    if not stripped:
+        return False
+    if stripped.startswith("→"):
+        stripped = stripped[1:].strip()
+    if not stripped:
+        return False
+    if stripped.startswith("/"):
+        command = stripped.split(maxsplit=1)[0]
+    else:
+        command = "/" + stripped.split(maxsplit=1)[0]
+    if command == "/":
+        return False
+    return command in {
+        "/help",
+        "/clear",
+        "/status",
+        "/settings",
+        "/login",
+        "/logout",
+        "/model",
+        "/read",
+        "/ask-file",
+        "/propose-file",
+        "/apply-proposal",
+        "/verify",
+        "/exit",
+        "/quit",
+    }
+
+
 def _separator_rows(rows: Iterable[str]) -> list[int]:
     result: list[int] = []
     for index, row in enumerate(rows):
@@ -570,6 +704,8 @@ def _input_row(separator_rows: list[int]) -> int | None:
     for previous, current in zip(separator_rows, separator_rows[1:]):
         if current - previous == 2:
             return previous + 1
+    if separator_rows:
+        return separator_rows[0] + 1
     return None
 
 
@@ -628,7 +764,7 @@ def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("frames_dir", type=Path)
     parser.add_argument("--cursor-metrics", type=Path)
-    parser.add_argument("--prompt", required=True)
+    parser.add_argument("--prompt", default="")
     parser.add_argument("--expected-output")
     parser.add_argument("--columns", type=int)
     parser.add_argument("--rows", type=int)

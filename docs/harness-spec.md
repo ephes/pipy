@@ -420,16 +420,25 @@ The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
 stderr are real TTY streams and the input runtime is `auto`. That boundary is
 `pipy_harness.native.tui.ToolLoopTerminalUi`: it stores chat history,
 submitted user-message blocks, the active assistant-output buffer, transient
-working text, the input/editor line, and the two-row footer/status, then
-composes whole alternate-screen terminal frames from that state. Submitted
+working text, slash-command menu state, the input/editor line, and the two-row
+footer/status, then composes whole alternate-screen terminal frames from that
+state. Typing `/` in the product TUI opens the same command-list/description
+surface inside the frame for the commands this tool-loop dispatcher can execute
+locally (`help`, `exit`, `quit`); Up/Down moves the selected row, Tab or Enter
+accepts the selected command, and Escape closes the menu without exiting the
+session.
+Submitted
 messages, streamed assistant text, and the loader flow through the history
 area so tmux history does not accumulate stale repaint rows; the input and
 footer remain stable frame rows. Streamed reasoning is accumulated into one
 active reasoning block instead of one block per token, and model-selected tool
-commands render as Pi-style `$ ...` command rows with a bounded result preview
-so tool overflow keeps the submitted prompt, newest result tail, final answer,
-and footer visible in the same 100x30 frame. When terminal height forces
-history trimming, the compositor keeps enough startup context before the
+commands/results render as Pi-style shaded rows with a bounded result preview.
+Model-selected `read` calls use Pi's compact shaded `read <path>` row in the
+TUI and suppress the excerpt body from the viewport while still passing the
+observation back to the model. Tool overflow keeps the submitted prompt,
+newest result tail, final answer, and footer visible in the same 100x30 frame.
+When terminal height forces history trimming, the compositor keeps enough startup
+context before the
 submitted prompt to match Pi's retained-chrome shape, including the 100x24
 simple prompt flow. Captured streams and explicit non-TTY input runtimes
 continue to use the deterministic line-oriented fallback so stdout/stderr
@@ -463,6 +472,16 @@ are supporting evidence only. A longer product-path smoke under
 model-selected `ls` tool rendering, prompt retention away from the top row,
 final assistant output, footer rows, and cursor alignment through the same
 script.
+`scripts/tmux_tui_input_verify.sh <out-dir>` is the no-provider-call
+product-path input-state gate. It launches the same real `pipy repl
+--native-provider openai-codex --native-model gpt-5.5` command, samples
+Escape-on-empty-input, slash-menu-open, slash-menu navigation, and
+Escape-to-close frames, then fails from parsed `screen-metrics.jsonl` when the
+slash-menu list, Pi-style arrow selection, typed slash preservation, input row,
+cursor cell, footer/status rows, or named visual-region styles are missing.
+Active provider-turn Escape parity is covered by tmux audit captures that submit
+a long prompt, sample `Working...`, press Escape, and require the post-Escape
+frame to show red `Operation aborted` with no resumed assistant stream.
 `scripts/tmux_pi_comparison_verify.sh <out-dir> [prompt] [expected-output]`
 wraps that product-path run and a Pi reference run in matching 100x30 tmux
 panes, then feeds both `screen-metrics.jsonl` files to
@@ -474,8 +493,11 @@ expected output, status/footer, cwd, inferred input row, live cursor, and
 drawn reverse cursor within zero row/column tolerance. Matching cell
 attributes are also recorded for visible findings and the drawn reverse
 cursor, and attribute mismatches fail the comparison. Screen metrics record
-the prompt background-band rows, and the comparison fails when the final
-submitted-prompt shading differs. The final viewport is also compared after
+the prompt background-band rows and named visual-region rows for submitted
+prompts, tool-call rows, tool-result rows, slash-menu rows and selection
+highlights, separators, cursor cells, and footer/status rows; the comparison
+fails on active or final visual-region deltas so color/background regressions
+cannot pass through screenshots alone. The final viewport is also compared after
 normalizing dynamic usage meters, including optional reasoning-token counters,
 so ordinary prompts such as `hello world` fail when the visible answer or
 retained startup chrome differs even if the selected expected-output marker is

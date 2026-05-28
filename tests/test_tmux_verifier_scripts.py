@@ -10,6 +10,7 @@ def test_tmux_verifiers_accept_env_configured_pane_geometry() -> None:
     for relative in (
         "scripts/tmux_transient_ui_verify.sh",
         "scripts/tmux_pi_comparison_verify.sh",
+        "scripts/tmux_tui_input_verify.sh",
     ):
         text = (ROOT / relative).read_text(encoding="utf-8")
 

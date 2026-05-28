@@ -26,6 +26,7 @@ def _record(
     cursor_x: int = 0,
     viewport: list[str] | None = None,
     prompt_background_rows: list[dict] | None = None,
+    visual_regions: dict[str, list[dict]] | None = None,
 ) -> dict:
     record = {
         "phase": phase,
@@ -51,6 +52,8 @@ def _record(
         record["viewport"] = viewport
     if prompt_background_rows is not None:
         record["prompt_background_rows"] = prompt_background_rows
+    if visual_regions is not None:
+        record["visual_regions"] = visual_regions
     return record
 
 
@@ -230,6 +233,55 @@ def test_compare_screen_metrics_reports_final_prompt_background_mismatch(
     anomalies = (tmp_path / "anomalies.tsv").read_text(encoding="utf-8")
     assert "prompt_background_rows differ" in anomalies
     assert "'row': 13" in anomalies
+
+
+def test_compare_screen_metrics_reports_active_visual_region_mismatch(
+    tmp_path: Path,
+) -> None:
+    reference = tmp_path / "pipy.jsonl"
+    target = tmp_path / "pi.jsonl"
+    common = {
+        "tool_call": [
+            {
+                "row": 12,
+                "text": "$ read docs/backlog.md:1-200",
+                "bg": "40;50;40",
+                "fg": "212;212;212",
+                "reverse_columns": 0,
+                "dim_columns": 0,
+                "bold_columns": 30,
+            }
+        ]
+    }
+    changed = {
+        "tool_call": [
+            {
+                "row": 12,
+                "text": "$ read docs/backlog.md:1-200",
+                "bg": None,
+                "fg": "212;212;212",
+                "reverse_columns": 0,
+                "dim_columns": 0,
+                "bold_columns": 30,
+            }
+        ]
+    }
+    _write_jsonl(reference, [_record(phase="active", visual_regions=common)])
+    _write_jsonl(target, [_record(phase="active", visual_regions=changed)])
+
+    report = compare_screen_metrics(
+        reference_jsonl=reference,
+        target_jsonl=target,
+        out_json=tmp_path / "deltas.json",
+        out_tsv=tmp_path / "deltas.tsv",
+        anomalies_tsv=tmp_path / "anomalies.tsv",
+    )
+
+    assert report["active_visual_region_delta_count"] == 1
+    assert report["anomaly_count"] == 1
+    anomalies = (tmp_path / "anomalies.tsv").read_text(encoding="utf-8")
+    assert "visual_regions.tool_call differ" in anomalies
+    assert "'bg': None" in anomalies
 
 
 def test_compare_screen_metrics_reports_final_viewport_mismatch(

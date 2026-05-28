@@ -11,9 +11,12 @@ script.
 from __future__ import annotations
 
 import io
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -22,9 +25,12 @@ from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplResult,
     NativeToolReplSession,
+    ProviderRequest,
+    ProviderResult,
     ProviderToolCall,
     production_tool_registry,
 )
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -162,6 +168,91 @@ def test_session_rejects_non_int_tool_budget():
 
     with pytest.raises(TypeError, match="tool_budget"):
         NativeToolReplSession(provider=provider, tool_budget=True)
+
+
+def test_provider_turn_escape_abort_returns_to_prompt_without_late_streams(
+    tmp_path: Path,
+):
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    @dataclass(frozen=True, slots=True)
+    class BlockingProvider:
+        supports_tool_calls: bool = True
+        name: str = "blocking"
+        model_id: str = "blocking-model"
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+        ) -> ProviderResult:
+            del request, reasoning_sink
+            started.set()
+            release.wait(timeout=1)
+            if stream_sink is not None:
+                stream_sink("late text that should be ignored")
+            now = datetime.now(UTC)
+            result = ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="late final text",
+                usage={},
+            )
+            finished.set()
+            return result
+
+    class InterruptingUi:
+        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+            assert started.wait(timeout=1)
+            assert not done_event.is_set()
+            abort_event.set()
+            release.set()
+            return True
+
+    class RecordingRenderer:
+        def __init__(self) -> None:
+            self.chunks: list[str] = []
+            self.aborted = False
+
+        @property
+        def stream_sink(self) -> StreamChunkSink:
+            return self.chunks.append
+
+        @property
+        def reasoning_sink(self) -> StreamChunkSink:
+            return lambda _chunk: None
+
+        def abort_provider_turn(self) -> None:
+            self.aborted = True
+
+    session = NativeToolReplSession(provider=BlockingProvider(), workspace_root=tmp_path)
+    renderer = RecordingRenderer()
+
+    result = session._complete_provider_turn(
+        ProviderRequest(
+            system_prompt="",
+            user_prompt="hello",
+            provider_name="blocking",
+            model_id="blocking-model",
+            cwd=tmp_path,
+        ),
+        renderer=cast(Any, renderer),
+        terminal_ui=cast(Any, InterruptingUi()),
+    )
+
+    assert result is None
+    assert renderer.aborted is True
+    release.set()
+    assert started.wait(timeout=1)
+    assert finished.wait(timeout=1)
+    assert renderer.chunks == []
 
 
 # --------------------------- successful invocation --------------------------
