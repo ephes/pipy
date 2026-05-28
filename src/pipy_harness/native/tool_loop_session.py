@@ -1720,9 +1720,7 @@ class _TuiToolLoopRenderer:
     _SPINNER_INTERVAL_SECONDS: ClassVar[float] = (
         _ToolLoopRenderer._SPINNER_INTERVAL_SECONDS
     )
-    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = (
-        _ToolLoopRenderer._RESULT_LINE_PREVIEW_MAX_LENGTH
-    )
+    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 6
 
     def __init__(self, *, ui: ToolLoopTerminalUi) -> None:
         self._ui = ui
@@ -1846,7 +1844,7 @@ def _plain_tool_call_header(call: ProviderToolCall) -> str:
         prefix = "read resource" if path.startswith("/") else "read"
         return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
     if call.tool_name == "ls" and isinstance(path, str):
-        return f"ls {path}"
+        return "ls" if path == "." else f"ls {path}"
     if call.tool_name in {"grep", "find"}:
         pattern = data.get("pattern")
         root = path if isinstance(path, str) else "."

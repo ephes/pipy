@@ -1,0 +1,8 @@
+{
+  "anomalies": "docs/audit/2026-05-28/hello-world-rows24-after-fix/pi/screen-anomalies.tsv",
+  "anomaly_count": 0,
+  "expected_output": "Hello!",
+  "frames": 11,
+  "prompt": "hello world",
+  "screen_metrics": "docs/audit/2026-05-28/hello-world-rows24-after-fix/pi/screen-metrics.jsonl"
+}

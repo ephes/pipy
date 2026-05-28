@@ -1,0 +1,8 @@
+{
+  "anomalies": "docs/audit/2026-05-28/hello-world-default-after-fix/pipy/screen-anomalies.tsv",
+  "anomaly_count": 0,
+  "expected_output": "Hello!",
+  "frames": 12,
+  "prompt": "hello world",
+  "screen_metrics": "docs/audit/2026-05-28/hello-world-default-after-fix/pipy/screen-metrics.jsonl"
+}

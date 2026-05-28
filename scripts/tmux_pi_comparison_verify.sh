@@ -7,6 +7,7 @@
 # The script writes pipy and pi subdirectories with raw frames, screenshots,
 # screen-metrics.jsonl, and terminal reports, then writes comparison artifacts:
 #   comparison/row-column-deltas.{json,tsv}
+#   comparison/final-viewport-deltas.{json,tsv}
 #   comparison/comparison-report.json
 #   comparison/comparison-anomalies.tsv
 
@@ -27,8 +28,8 @@ if [[ -z "$EXPECTED_OUTPUT" ]]; then
     exit 2
 fi
 
-PANE_COLUMNS=100
-PANE_ROWS=30
+PANE_COLUMNS="${PANE_COLUMNS:-100}"
+PANE_ROWS="${PANE_ROWS:-30}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-0.1}"
 MAX_SAMPLES="${MAX_SAMPLES:-450}"
 PI_COMMAND="${PI_COMMAND:-pi --provider openai-codex --model gpt-5.5}"
@@ -53,6 +54,19 @@ cleanup() {
     tmux kill-session -t "$SESSION" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+visible_count() {
+    local needle="$1"
+    perl -0 -e '
+        my $needle = shift;
+        my $text = <STDIN> // "";
+        my @lines = split /\n/, $text;
+        s/[ \t]+$// for @lines;
+        my $joined = join "", @lines;
+        my $count = () = $joined =~ /\Q$needle\E/g;
+        print $count + 0;
+    ' "$needle"
+}
 
 printf 'key\tvalue\n' > "$SUMMARY"
 printf 'frame\tphase\tcursor_x\tcursor_y\tpane_active\n' > "$CURSOR_METRICS"
@@ -87,28 +101,13 @@ for index in $(seq 1 "$MAX_SAMPLES"); do
     final_index="$index"
     plain="$(perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g' "$PI_DIR/raw-frames/frame-$(printf '%03d' "$index")-active.ansi")"
     working_count="$(printf '%s\n' "$plain" | grep -cF 'Working...' || true)"
-    prompt_count="$(printf '%s\n' "$plain" | awk -v prompt="$PROMPT" '
-        {
-            line = $0
-            sub(/^[[:space:]]+/, "", line)
-            sub(/[[:space:]]+$/, "", line)
-            if (line == prompt || line == ("user  " prompt)) n++
-        }
-        END { print n + 0 }
-    ')"
+    prompt_count="$(printf '%s\n' "$plain" | visible_count "$PROMPT")"
     output_count=0
     if [[ -n "$EXPECTED_OUTPUT" ]]; then
-        output_count="$(printf '%s\n' "$plain" | awk -v output="$EXPECTED_OUTPUT" -v prompt="$PROMPT" '
-            {
-                line = $0
-                sub(/^[[:space:]]+/, "", line)
-                sub(/[[:space:]]+$/, "", line)
-                if (index(line, output) && index(line, prompt) == 0) n++
-            }
-            END { print n + 0 }
-        ')"
+        output_count="$(printf '%s\n' "$plain" | visible_count "$EXPECTED_OUTPUT")"
     fi
-    if (( working_count == 0 && prompt_count == 1 && output_count > 0 )); then
+    prompt_output_count="$(printf '%s\n' "$PROMPT" | visible_count "$EXPECTED_OUTPUT")"
+    if (( working_count == 0 && prompt_count == 1 && output_count > prompt_output_count )); then
         settled="yes"
         break
     fi
@@ -138,6 +137,8 @@ tmux send-keys -t "$SESSION" C-c
 sleep 0.2
 
 printf 'session\t%s\n' "$SESSION" >> "$SUMMARY"
+printf 'pane_columns\t%s\n' "$PANE_COLUMNS" >> "$SUMMARY"
+printf 'pane_rows\t%s\n' "$PANE_ROWS" >> "$SUMMARY"
 printf 'prompt\t%s\n' "$PROMPT" >> "$SUMMARY"
 printf 'expected_output\t%s\n' "$EXPECTED_OUTPUT" >> "$SUMMARY"
 printf 'command\t%s\n' "$PI_COMMAND" >> "$SUMMARY"
@@ -146,6 +147,7 @@ printf 'anomaly_count\t%s\n' "$pi_anomaly_count" >> "$SUMMARY"
 printf 'screen_metrics\t%s\n' "$SCREEN_METRICS" >> "$SUMMARY"
 printf 'terminal_report\t%s\n' "$SCREEN_REPORT" >> "$SUMMARY"
 
+compare_status=0
 uv run python -m pipy_harness.native.terminal_compare \
     --reference "$PIPY_DIR/screen-metrics.jsonl" \
     --target "$PI_DIR/screen-metrics.jsonl" \
@@ -153,7 +155,10 @@ uv run python -m pipy_harness.native.terminal_compare \
     --target-label pi \
     --out-json "$COMPARE_DIR/row-column-deltas.json" \
     --out-tsv "$COMPARE_DIR/row-column-deltas.tsv" \
+    --viewport-json "$COMPARE_DIR/final-viewport-deltas.json" \
+    --viewport-tsv "$COMPARE_DIR/final-viewport-deltas.tsv" \
     --anomalies "$COMPARE_DIR/comparison-anomalies.tsv" \
-    --report "$COMPARE_DIR/comparison-report.json"
+    --report "$COMPARE_DIR/comparison-report.json" || compare_status=$?
 
 echo "wrote $OUT_DIR"
+exit "$compare_status"

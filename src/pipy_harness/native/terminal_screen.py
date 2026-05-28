@@ -44,6 +44,7 @@ class ScreenFinding:
     column: int
     text: str
     attr: CellAttr
+    cells: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(slots=True)
@@ -62,23 +63,59 @@ class ScreenSnapshot:
             return []
         findings: list[ScreenFinding] = []
         for row_index, line in enumerate(self.viewport):
-            start = 0
-            while True:
-                column = line.find(needle, start)
-                if column < 0:
-                    break
+            for column in range(len(line)):
+                cells = self._matched_cells(row_index, column, needle)
+                if cells is None:
+                    continue
                 attr = self.cells[row_index][column].attr
                 findings.append(
                     ScreenFinding(
                         needle=needle,
                         row=row_index,
                         column=column,
-                        text=line,
+                        text=self._matched_visible_text(row_index, column, len(needle)),
                         attr=attr,
+                        cells=tuple(cells),
                     )
                 )
-                start = column + max(1, len(needle))
         return findings
+
+    def _matched_cells(
+        self, row: int, column: int, needle: str
+    ) -> list[tuple[int, int]] | None:
+        row_index = row
+        column_index = column
+        cells: list[tuple[int, int]] = []
+        for char in needle:
+            while row_index < len(self.viewport) and column_index >= len(
+                self.viewport[row_index]
+            ):
+                row_index += 1
+                column_index = 0
+                if row_index < len(self.viewport) and not self.viewport[row_index]:
+                    return None
+            if row_index >= len(self.viewport):
+                return None
+            if self.viewport[row_index][column_index] != char:
+                return None
+            cells.append((row_index, column_index))
+            column_index += 1
+        return cells
+
+    def _matched_visible_text(self, row: int, column: int, length: int) -> str:
+        chars: list[str] = []
+        row_index = row
+        column_index = column
+        while len(chars) < length and row_index < len(self.viewport):
+            if column_index >= len(self.viewport[row_index]):
+                row_index += 1
+                column_index = 0
+                if row_index < len(self.viewport) and not self.viewport[row_index]:
+                    break
+                continue
+            chars.append(self.viewport[row_index][column_index])
+            column_index += 1
+        return "".join(chars)
 
     def reverse_cells(self) -> list[dict[str, Any]]:
         cells: list[dict[str, Any]] = []
@@ -362,8 +399,17 @@ def analyze_frame_files(
         # screen model does not invent diagonal drift while replaying them.
         replay_data = data if "\r" in data else data.replace("\n", "\r\n")
         snapshot = parse_ansi_screen(replay_data, columns=columns, rows=rows)
+        prompt_findings = snapshot.find(prompt)
+        prompt_background_rows = _background_rows(
+            snapshot,
+            (
+                prompt_findings[0].attr.bg
+                if prompt_findings and prompt_findings[0].attr.bg
+                else None
+            ),
+        )
         findings = {
-            "prompt": [asdict(finding) for finding in snapshot.find(prompt)],
+            "prompt": [asdict(finding) for finding in prompt_findings],
             "working": [asdict(finding) for finding in snapshot.find("Working...")],
             "status": [
                 asdict(finding)
@@ -379,7 +425,7 @@ def analyze_frame_files(
             findings["expected_output"] = [
                 asdict(finding)
                 for finding in snapshot.find(expected_output)
-                if prompt not in finding.text
+                if not _overlaps_prompt_finding(finding, prompt_findings)
             ]
         separator_rows = _separator_rows(snapshot.viewport)
         input_row = _input_row(separator_rows)
@@ -396,6 +442,7 @@ def analyze_frame_files(
             "path": str(path),
             "columns": snapshot.columns,
             "rows": snapshot.rows,
+            "viewport": snapshot.viewport,
             "screen_cursor": {
                 "x": snapshot.cursor_x,
                 "y": snapshot.cursor_y,
@@ -405,6 +452,7 @@ def analyze_frame_files(
             "viewport_y": snapshot.viewport_y,
             "separator_rows": separator_rows,
             "inferred_input_row": input_row,
+            "prompt_background_rows": prompt_background_rows,
             "reverse_cells": reverse_cells,
             "cursor_matches_input_row": cursor_match,
             "expected_output": expected_output,
@@ -446,6 +494,8 @@ def _collect_anomalies(record: dict[str, Any], anomalies: list[tuple[str, str, s
             anomalies.append(
                 (frame, "error", f"submitted prompt visible count is {prompt_count}")
             )
+        elif record.get("rows", 0) >= 20 and findings["prompt"][0]["row"] == 0:
+            anomalies.append((frame, "error", "submitted prompt is pinned to top row"))
     if len(findings["working"]) > 1:
         anomalies.append((frame, "error", "duplicate Working... rows"))
     if phase == "final" and findings["working"]:
@@ -485,6 +535,26 @@ def _cursor_matches(
         and live_y in {cell["row"] - 1, cell["row"], cell["row"] + 1}
         for cell in candidates
     )
+
+
+def _overlaps_prompt_finding(
+    finding: ScreenFinding, prompt_findings: list[ScreenFinding]
+) -> bool:
+    cells = set(finding.cells)
+    if not cells:
+        return False
+    return any(cells.intersection(prompt.cells) for prompt in prompt_findings)
+
+
+def _background_rows(snapshot: ScreenSnapshot, bg: str | None) -> list[dict[str, Any]]:
+    if not bg:
+        return []
+    rows: list[dict[str, Any]] = []
+    for row_index, row in enumerate(snapshot.cells):
+        columns = sum(1 for cell in row if cell.attr.bg == bg)
+        if columns:
+            rows.append({"row": row_index, "columns": columns, "bg": bg})
+    return rows
 
 
 def _separator_rows(rows: Iterable[str]) -> list[int]:

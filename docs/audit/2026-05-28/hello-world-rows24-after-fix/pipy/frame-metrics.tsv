@@ -1,0 +1,14 @@
+frame	phase	working_count	prompt_count	assistant_nonempty	footer_count	status_count	diagnostic_count
+0	startup	0	0	1	1	1	0
+1	active	1	1	1	1	1	0
+2	active	1	1	1	1	1	0
+3	active	1	1	1	1	1	0
+4	active	1	1	1	1	1	0
+5	active	1	1	1	1	1	0
+6	active	1	1	1	1	1	0
+7	active	1	1	1	1	1	0
+8	active	1	1	1	1	1	0
+9	active	1	1	1	1	1	0
+10	active	1	1	1	1	1	0
+11	active	0	1	2	1	1	0
+12	final	0	1	2	1	1	0

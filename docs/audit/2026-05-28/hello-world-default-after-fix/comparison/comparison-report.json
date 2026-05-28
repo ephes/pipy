@@ -1,0 +1,15 @@
+{
+  "anomaly_count": 0,
+  "compared_frames": 11,
+  "delta_count": 78,
+  "final_prompt_background_delta_count": 0,
+  "final_viewport_delta_count": 0,
+  "max_column_delta": 0,
+  "max_row_delta": 0,
+  "prompt_background_delta_count": 0,
+  "reference_label": "pipy",
+  "reference_metrics": "docs/audit/2026-05-28/hello-world-default-after-fix/pipy/screen-metrics.jsonl",
+  "target_label": "pi",
+  "target_metrics": "docs/audit/2026-05-28/hello-world-default-after-fix/pi/screen-metrics.jsonl",
+  "viewport_delta_count": 0
+}

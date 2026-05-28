@@ -61,6 +61,28 @@ def test_terminal_screen_tracks_cursor_clear_and_cell_attributes() -> None:
     assert snapshot.viewport[3] == ""
 
 
+def test_terminal_screen_finds_visible_text_wrapped_across_rows() -> None:
+    screen = TerminalScreen(columns=20, rows=4)
+
+    screen.write(
+        "\x1b[38;2;212;212;212m Reply exactly: This\r\n"
+        " prompt wraps"
+    )
+    snapshot = screen.snapshot()
+
+    findings = snapshot.find("Reply exactly: This prompt wraps")
+    assert len(findings) == 1
+    assert findings[0].row == 0
+    assert findings[0].column == 1
+    assert findings[0].attr.fg == "212;212;212"
+
+
+def test_terminal_screen_does_not_match_across_blank_rows() -> None:
+    snapshot = parse_ansi_screen("alpha\r\n\r\nbeta", columns=12, rows=3)
+
+    assert snapshot.find("alphabeta") == []
+
+
 def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -96,7 +118,7 @@ def test_analyze_frame_files_writes_machine_readable_cursor_and_visibility(
     frames = tmp_path / "frames"
     frames.mkdir()
     frame = (
-        " user prompt\r\n"
+        "\x1b[48;2;52;53;65m user prompt\x1b[0m\r\n"
         "\x1b[48;2;52;53;65mvisible answer\x1b[0m\r\n"
         "────────────\r\n"
         "\x1b[39m\x1b[7m \x1b[0m\r\n"
@@ -127,9 +149,14 @@ def test_analyze_frame_files_writes_machine_readable_cursor_and_visibility(
 
     record = json.loads(out_jsonl.read_text(encoding="utf-8"))
     assert summary["frames"] == 1
+    assert record["viewport"][0] == " user prompt"
     assert record["findings"]["prompt"][0]["row"] == 0
     assert record["findings"]["expected_output"][0]["row"] == 1
     assert record["findings"]["status"][0]["row"] == 6
+    assert record["prompt_background_rows"] == [
+        {"bg": "52;53;65", "columns": 12, "row": 0},
+        {"bg": "52;53;65", "columns": 14, "row": 1},
+    ]
     assert record["inferred_input_row"] == 3
     assert record["cursor_matches_input_row"] is True
     assert "visible count" not in anomalies.read_text(encoding="utf-8")
@@ -174,6 +201,86 @@ def test_analyze_frame_files_treats_tmux_lf_rows_as_static_viewport(
     assert record["cursor_matches_input_row"] is True
 
 
+def test_analyze_frame_files_counts_wrapped_prompt_once(tmp_path: Path) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    prompt = "Reply exactly: This prompt wraps across terminal rows"
+    frame = (
+        " Reply exactly: This prompt wraps across\n"
+        " terminal rows\n"
+        " visible answer\n"
+        "────────────\n"
+        "\x1b[7m \x1b[0m\n"
+        "────────────\n"
+        "~/projects/pipy (main)\n"
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"
+    )
+    (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
+    cursor_metrics = tmp_path / "cursor-metrics.tsv"
+    cursor_metrics.write_text(
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
+        "1\tfinal\t0\t4\t1\n",
+        encoding="utf-8",
+    )
+    out_jsonl = tmp_path / "screen-metrics.jsonl"
+    anomalies = tmp_path / "screen-anomalies.tsv"
+
+    analyze_frame_files(
+        frames_dir=frames,
+        cursor_metrics_path=cursor_metrics,
+        prompt=prompt,
+        expected_output="visible answer",
+        out_jsonl=out_jsonl,
+        report_json=tmp_path / "terminal-report.json",
+        anomalies_tsv=anomalies,
+    )
+
+    record = json.loads(out_jsonl.read_text(encoding="utf-8"))
+    assert record["findings"]["prompt"][0]["row"] == 0
+    assert record["findings"]["prompt"][0]["column"] == 1
+    assert "visible count" not in anomalies.read_text(encoding="utf-8")
+
+
+def test_analyze_frame_files_excludes_expected_output_inside_wrapped_prompt(
+    tmp_path: Path,
+) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    prompt = "Reply exactly: stable words with marker WRAP DONE"
+    frame = (
+        " Reply exactly: stable words with marker\n"
+        " WRAP DONE\n"
+        " WRAP DONE\n"
+        "────────────\n"
+        "\x1b[7m \x1b[0m\n"
+        "────────────\n"
+        "~/projects/pipy (main)\n"
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"
+    )
+    (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
+    cursor_metrics = tmp_path / "cursor-metrics.tsv"
+    cursor_metrics.write_text(
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
+        "1\tfinal\t0\t4\t1\n",
+        encoding="utf-8",
+    )
+    out_jsonl = tmp_path / "screen-metrics.jsonl"
+
+    analyze_frame_files(
+        frames_dir=frames,
+        cursor_metrics_path=cursor_metrics,
+        prompt=prompt,
+        expected_output="WRAP DONE",
+        out_jsonl=out_jsonl,
+        report_json=tmp_path / "terminal-report.json",
+        anomalies_tsv=tmp_path / "screen-anomalies.tsv",
+    )
+
+    record = json.loads(out_jsonl.read_text(encoding="utf-8"))
+    assert len(record["findings"]["expected_output"]) == 1
+    assert record["findings"]["expected_output"][0]["row"] == 2
+
+
 def test_analyze_frame_files_reports_core_tui_regressions(tmp_path: Path) -> None:
     frames = tmp_path / "frames"
     frames.mkdir()
@@ -214,3 +321,43 @@ def test_analyze_frame_files_reports_core_tui_regressions(tmp_path: Path) -> Non
     assert "stale Working... row on final frame" in text
     assert "expected model output is not visible" in text
     assert "multiple reverse cursor cells visible" in text
+
+
+def test_analyze_frame_files_reports_prompt_pinned_to_top_row(tmp_path: Path) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    frame = (
+        "user prompt\n"
+        "\n"
+        "visible answer\n"
+        + "\n" * 18
+        + "────────────\n"
+        "\x1b[7m \x1b[0m\n"
+        "────────────\n"
+        "~/projects/pipy (main)\n"
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"
+    )
+    (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
+    cursor_metrics = tmp_path / "cursor-metrics.tsv"
+    cursor_metrics.write_text(
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
+        "1\tfinal\t0\t22\t1\n",
+        encoding="utf-8",
+    )
+    anomalies = tmp_path / "screen-anomalies.tsv"
+
+    analyze_frame_files(
+        frames_dir=frames,
+        cursor_metrics_path=cursor_metrics,
+        prompt="user prompt",
+        expected_output="visible answer",
+        columns=80,
+        rows=30,
+        out_jsonl=tmp_path / "screen-metrics.jsonl",
+        report_json=tmp_path / "terminal-report.json",
+        anomalies_tsv=anomalies,
+    )
+
+    assert "submitted prompt is pinned to top row" in anomalies.read_text(
+        encoding="utf-8"
+    )

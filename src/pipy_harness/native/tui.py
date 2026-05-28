@@ -33,6 +33,9 @@ _MIN_WIDTH = 60
 _MIN_HEIGHT = 12
 _DEFAULT_SIZE = (88, 24)
 _DEFAULT_HISTORY_VIEW_LINES = 21
+_OVERFLOW_BOTTOM_GUTTER_LINES = 2
+_OVERFLOW_CONTEXT_TARGET_LINES = 11
+_OVERFLOW_CONTEXT_MIN_LINES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +62,7 @@ class ToolLoopTerminalUi:
     input_text: str = ""
     working_text: str = ""
     assistant_text: str = ""
+    reasoning_text: str = ""
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
     _entered_alt_screen: bool = False
@@ -153,12 +157,14 @@ class ToolLoopTerminalUi:
         self.paint()
 
     def submit_user_message(self, text: str) -> None:
+        self._settle_reasoning()
         self.assistant_text = ""
         self.working_text = ""
         self._history_blocks.append(("user", tuple(text.splitlines() or [""])))
         self.paint()
 
     def begin_assistant_turn(self) -> None:
+        self._settle_reasoning()
         self.assistant_text = ""
         self.working_text = ""
         self.paint()
@@ -176,11 +182,13 @@ class ToolLoopTerminalUi:
     def append_assistant(self, chunk: str) -> None:
         if not chunk:
             return
+        self._settle_reasoning()
         self.assistant_text += chunk
         self.paint()
 
     def settle_assistant(self, final_text: str = "") -> None:
         self.working_text = ""
+        self._settle_reasoning()
         if final_text and not self.assistant_text:
             self.assistant_text = final_text
         if self.assistant_text:
@@ -195,16 +203,24 @@ class ToolLoopTerminalUi:
             return
         self.working_text = ""
         cleaned = chunk.replace("**", "")
-        self._history_blocks.append(
-            ("reasoning", tuple(cleaned.splitlines() or [""]))
-        )
+        self.reasoning_text += cleaned
         self.paint()
 
+    def _settle_reasoning(self) -> None:
+        if not self.reasoning_text:
+            return
+        self._history_blocks.append(
+            ("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
+        )
+        self.reasoning_text = ""
+
     def add_notice(self, text: str) -> None:
+        self._settle_reasoning()
         self._history_blocks.append(("notice", tuple(text.splitlines() or [""])))
         self.paint()
 
     def add_tool_call(self, header: str) -> None:
+        self._settle_reasoning()
         self.working_text = ""
         self._history_blocks.append(("tool", (header,)))
         self.paint()
@@ -216,6 +232,7 @@ class ToolLoopTerminalUi:
         is_error: bool,
         duration_seconds: float | None = None,
     ) -> None:
+        self._settle_reasoning()
         rendered = list(lines)
         if is_error:
             rendered.append("[error] tool reported a failure")
@@ -252,15 +269,27 @@ class ToolLoopTerminalUi:
                     width=width,
                 )
             )
+        if self.reasoning_text:
+            history_lines.extend(
+                self._block_frame_lines(
+                    "reasoning",
+                    self.reasoning_text.splitlines() or [""],
+                    width=width,
+                )
+            )
         if self.working_text:
             history_lines.extend(
                 self._block_frame_lines("working", (self.working_text,), width=width)
             )
         max_history_lines = max(0, height - 5)
         min_history_lines = min(_DEFAULT_HISTORY_VIEW_LINES, max_history_lines)
+        history_overflowed = len(history_lines) > max_history_lines
         if len(history_lines) > max_history_lines:
-            history_lines = self._tail_history_lines(history_lines, max_history_lines)
-        if len(history_lines) < min_history_lines:
+            history_lines = self._tail_history_lines(
+                history_lines,
+                self._overflow_history_capacity(height, max_history_lines),
+            )
+        if not history_overflowed and len(history_lines) < min_history_lines:
             history_lines.extend(
                 _FrameLine("", "normal")
                 for _ in range(min_history_lines - len(history_lines))
@@ -336,6 +365,12 @@ class ToolLoopTerminalUi:
             return style.separator(text)
         if line.kind == "working":
             return style.secondary_dim(text)
+        if line.kind == "reasoning":
+            return style.secondary_dim(text)
+        if line.kind == "tool":
+            return style.tool_command(text, width=width)
+        if line.kind == "tool_result":
+            return style.dim(text)
         if line.kind == "input":
             if self.input_text:
                 return style.cursor_cell(self.input_text)
@@ -447,7 +482,7 @@ class ToolLoopTerminalUi:
             "assistant": " ",
             "reasoning": " ",
             "working": " ",
-            "tool": "tool  ",
+            "tool": " $ ",
             "tool_result": "      ",
             "notice": "pipy  ",
             "section": "",
@@ -473,7 +508,7 @@ class ToolLoopTerminalUi:
                     )
                 )
         if kind == "user":
-            rendered.extend((_FrameLine("", "user"), _FrameLine("", "user")))
+            rendered.extend((_FrameLine("", "user"), _FrameLine("")))
         elif kind in {"assistant", "tool_result", "notice", "working"}:
             rendered.append(_FrameLine(""))
         return rendered
@@ -489,6 +524,9 @@ class ToolLoopTerminalUi:
             "resource": "resource",
             "normal": "normal",
             "working": "working",
+            "reasoning": "reasoning",
+            "tool": "tool",
+            "tool_result": "tool_result",
         }.get(kind, "normal")
 
     @staticmethod
@@ -516,9 +554,44 @@ class ToolLoopTerminalUi:
         user_block = lines[user_start:user_end]
         if len(user_block) >= max_history_lines:
             return user_block[-max_history_lines:]
+        before_user = lines[:user_start]
         after_user = lines[user_end:]
-        remaining = max_history_lines - len(user_block)
-        return [*user_block, *after_user[-remaining:]]
+        available = max_history_lines - len(user_block)
+        min_context = min(
+            len(before_user), _OVERFLOW_CONTEXT_MIN_LINES, max(0, available)
+        )
+        after_capacity = max(0, available - min_context)
+        after_tail = ToolLoopTerminalUi._history_tail(after_user, after_capacity)
+        context_capacity = max_history_lines - len(user_block) - len(after_tail)
+        context_target = min(
+            len(before_user),
+            _OVERFLOW_CONTEXT_TARGET_LINES,
+            max(0, context_capacity),
+        )
+        context_before_user = before_user[-context_target:] if context_target else []
+        remaining = max_history_lines - len(context_before_user) - len(user_block)
+        if len(after_tail) > remaining:
+            after_tail = after_tail[-remaining:] if remaining > 0 else []
+        return [*context_before_user, *user_block, *after_tail]
+
+    @staticmethod
+    def _history_tail(lines: list[_FrameLine], capacity: int) -> list[_FrameLine]:
+        if capacity <= 0:
+            return []
+        if len(lines) <= capacity:
+            return lines
+        compacted = [line for line in lines if line.text.strip()]
+        if len(compacted) >= capacity:
+            return compacted[-capacity:]
+        return lines[-capacity:]
+
+    @staticmethod
+    def _overflow_history_capacity(height: int, max_history_lines: int) -> int:
+        return min(
+            max_history_lines,
+            _DEFAULT_HISTORY_VIEW_LINES,
+            max(0, height - 5 - _OVERFLOW_BOTTOM_GUTTER_LINES),
+        )
 
     def _dimensions(
         self, *, width: int | None = None, height: int | None = None

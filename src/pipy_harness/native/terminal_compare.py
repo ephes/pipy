@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,28 @@ class DeltaRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ViewportDeltaRecord:
+    frame_index: int
+    phase: str
+    row: int
+    reference_label: str
+    reference_text: str
+    target_label: str
+    target_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundDeltaRecord:
+    frame_index: int
+    phase: str
+    metric: str
+    reference_label: str
+    reference_rows: list[dict[str, Any]]
+    target_label: str
+    target_rows: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
 class _ComparisonPair:
     phase: str
     reference: dict[str, Any] | None
@@ -56,6 +79,8 @@ def compare_screen_metrics(
     target_label: str = "pi",
     max_row_delta: int = 0,
     max_column_delta: int = 0,
+    viewport_json: Path | None = None,
+    viewport_tsv: Path | None = None,
 ) -> dict[str, Any]:
     """Compare two screen-metrics JSONL files and write delta artifacts."""
 
@@ -63,6 +88,8 @@ def compare_screen_metrics(
     target_records = _load_records(target_jsonl)
     pairs = _comparison_pairs(reference_records, target_records)
     deltas: list[DeltaRecord] = []
+    viewport_deltas: list[ViewportDeltaRecord] = []
+    background_deltas: list[BackgroundDeltaRecord] = []
     anomalies: list[tuple[str, str, str]] = []
 
     for pair_index, pair in enumerate(pairs):
@@ -117,6 +144,26 @@ def compare_screen_metrics(
                     max_column_delta=max_column_delta,
                 )
             )
+        viewport_deltas.extend(
+            _viewport_delta_records(
+                frame_index=pair_index,
+                phase=phase,
+                reference_label=reference_label,
+                reference=pair.reference,
+                target_label=target_label,
+                target=pair.target,
+            )
+        )
+        background_delta = _background_delta_record(
+            frame_index=pair_index,
+            phase=phase,
+            reference_label=reference_label,
+            reference=pair.reference,
+            target_label=target_label,
+            target=pair.target,
+        )
+        if background_delta is not None:
+            background_deltas.append(background_delta)
 
     for delta in deltas:
         if delta.within_tolerance is False and delta.phase == "final":
@@ -146,6 +193,51 @@ def compare_screen_metrics(
                     f"{delta.metric} missing on one side of comparison",
                 )
             )
+    if viewport_deltas:
+        final_viewport_delta_count = sum(
+            1 for delta in viewport_deltas if delta.phase == "final"
+        )
+        if final_viewport_delta_count:
+            anomalies.append(
+                (
+                    "final",
+                    "error",
+                    f"final viewport differs on {final_viewport_delta_count} rows",
+                )
+            )
+            for viewport_delta in viewport_deltas[:20]:
+                if viewport_delta.phase != "final":
+                    continue
+                anomalies.append(
+                    (
+                        f"{viewport_delta.frame_index}:{viewport_delta.phase}",
+                        "error",
+                        (
+                            f"viewport row {viewport_delta.row} differs: "
+                            f"{viewport_delta.reference_label}="
+                            f"{viewport_delta.reference_text!r} "
+                            f"{viewport_delta.target_label}="
+                            f"{viewport_delta.target_text!r}"
+                        ),
+                    )
+                )
+
+    for background_delta in background_deltas:
+        if background_delta.phase != "final":
+            continue
+        anomalies.append(
+            (
+                f"{background_delta.frame_index}:{background_delta.phase}",
+                "error",
+                (
+                    f"{background_delta.metric} differ: "
+                    f"{background_delta.reference_label}="
+                    f"{background_delta.reference_rows!r} "
+                    f"{background_delta.target_label}="
+                    f"{background_delta.target_rows!r}"
+                ),
+            )
+        )
 
     report = {
         "reference_label": reference_label,
@@ -155,11 +247,23 @@ def compare_screen_metrics(
         "compared_frames": len(pairs),
         "delta_count": len(deltas),
         "anomaly_count": len(anomalies),
+        "viewport_delta_count": len(viewport_deltas),
+        "final_viewport_delta_count": sum(
+            1 for delta in viewport_deltas if delta.phase == "final"
+        ),
+        "prompt_background_delta_count": len(background_deltas),
+        "final_prompt_background_delta_count": sum(
+            1 for delta in background_deltas if delta.phase == "final"
+        ),
         "max_row_delta": max_row_delta,
         "max_column_delta": max_column_delta,
     }
     _write_json(out_json, [asdict(delta) for delta in deltas])
     _write_tsv(out_tsv, deltas)
+    if viewport_json is not None:
+        _write_json(viewport_json, [asdict(delta) for delta in viewport_deltas])
+    if viewport_tsv is not None:
+        _write_viewport_tsv(viewport_tsv, viewport_deltas)
     _write_anomalies(anomalies_tsv, anomalies)
     return report
 
@@ -345,9 +449,156 @@ def _required_metric(metric: str, phase: str) -> bool:
     return metric in {"prompt", "status", "cwd", "input_row"}
 
 
+def _viewport_delta_records(
+    *,
+    frame_index: int,
+    phase: str,
+    reference_label: str,
+    reference: dict[str, Any] | None,
+    target_label: str,
+    target: dict[str, Any] | None,
+) -> list[ViewportDeltaRecord]:
+    if phase != "final":
+        return []
+    reference_rows = _viewport_rows(reference)
+    target_rows = _viewport_rows(target)
+    if reference_rows is None and target_rows is None:
+        return []
+    reference_rows = reference_rows or []
+    target_rows = target_rows or []
+    rows: list[ViewportDeltaRecord] = []
+    max_rows = max(len(reference_rows), len(target_rows))
+    for row in range(max_rows):
+        reference_text = (
+            _normalize_viewport_line(reference_rows[row])
+            if row < len(reference_rows)
+            else ""
+        )
+        target_text = (
+            _normalize_viewport_line(target_rows[row])
+            if row < len(target_rows)
+            else ""
+        )
+        if reference_text == target_text:
+            continue
+        rows.append(
+            ViewportDeltaRecord(
+                frame_index=frame_index,
+                phase=phase,
+                row=row,
+                reference_label=reference_label,
+                reference_text=reference_text,
+                target_label=target_label,
+                target_text=target_text,
+            )
+        )
+    return rows
+
+
+def _viewport_rows(record: dict[str, Any] | None) -> list[str] | None:
+    if not isinstance(record, dict):
+        return None
+    viewport = record.get("viewport")
+    if not isinstance(viewport, list):
+        return None
+    return [str(row) for row in viewport]
+
+
+def _background_delta_record(
+    *,
+    frame_index: int,
+    phase: str,
+    reference_label: str,
+    reference: dict[str, Any] | None,
+    target_label: str,
+    target: dict[str, Any] | None,
+) -> BackgroundDeltaRecord | None:
+    if phase != "final":
+        return None
+    reference_rows = _prompt_background_rows(reference)
+    target_rows = _prompt_background_rows(target)
+    if reference_rows == target_rows:
+        return None
+    if not reference_rows and not target_rows:
+        return None
+    return BackgroundDeltaRecord(
+        frame_index=frame_index,
+        phase=phase,
+        metric="prompt_background_rows",
+        reference_label=reference_label,
+        reference_rows=reference_rows,
+        target_label=target_label,
+        target_rows=target_rows,
+    )
+
+
+def _prompt_background_rows(record: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(record, dict):
+        return []
+    rows = record.get("prompt_background_rows")
+    if not isinstance(rows, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_index = row.get("row")
+        columns = row.get("columns")
+        bg = row.get("bg")
+        if isinstance(row_index, int) and isinstance(columns, int) and isinstance(bg, str):
+            normalized.append({"row": row_index, "columns": columns, "bg": bg})
+    return normalized
+
+
+def _normalize_viewport_line(line: str) -> str:
+    normalized = line.rstrip()
+    normalized = re.sub(
+        r"^ (?:pipy|pi) v[0-9][0-9.]*$",
+        " <product> v<version>",
+        normalized,
+    )
+    normalized = re.sub(
+        r"^ (?:Pipy|Pi) can explain its own features and look up its docs\. "
+        r"Ask it how to use or extend (?:pipy|Pi)\.$",
+        " <product> can explain its own features and look up its docs. "
+        "Ask it how to use or extend <product>.",
+        normalized,
+    )
+    normalized = re.sub(
+        r"~/\.(?:pipy|pi/agent)/AGENTS\.md",
+        "~/<agent-config>/AGENTS.md",
+        normalized,
+    )
+    normalized = re.sub(
+        r"↑[0-9.]+[kKmM]?\s+↓[0-9.]+[kKmM]?\s+\$[0-9.]+"
+        r"\s+\(sub\)\s+[0-9.]+%/[0-9.]+[kKmM]?\s+\(auto\)",
+        "<usage-meter>",
+        normalized,
+    )
+    normalized = re.sub(
+        r"↑[0-9.]+[kKmM]?\s+↓[0-9.]+[kKmM]?\s+R[0-9.]+[kKmM]?\s+\$[0-9.]+"
+        r"\s+\(sub\)\s+[0-9.]+%/[0-9.]+[kKmM]?\s+\(auto\)",
+        "<usage-meter>",
+        normalized,
+    )
+    normalized = re.sub(
+        r"\$[0-9.]+\s+\(sub\)\s+[0-9.]+%/[0-9.]+[kKmM]?\s+\(auto\)",
+        "<usage-meter>",
+        normalized,
+    )
+    normalized = re.sub(
+        r"<usage-meter>\s+(\(openai-codex\))",
+        r"<usage-meter> \1",
+        normalized,
+    )
+    return normalized
+
+
 def _write_json(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _write_tsv(path: Path, records: list[DeltaRecord]) -> None:
@@ -382,6 +633,31 @@ def _write_tsv(path: Path, records: list[DeltaRecord]) -> None:
             )
 
 
+def _write_viewport_tsv(path: Path, records: list[ViewportDeltaRecord]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        "frame\tphase\trow\treference_label\treference_text\t"
+        "target_label\ttarget_text\n"
+    )
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(header)
+        for record in records:
+            handle.write(
+                "\t".join(
+                    (
+                        str(record.frame_index),
+                        record.phase,
+                        str(record.row),
+                        record.reference_label,
+                        _tsv_text(record.reference_text),
+                        record.target_label,
+                        _tsv_text(record.target_text),
+                    )
+                )
+                + "\n"
+            )
+
+
 def _write_anomalies(path: Path, anomalies: list[tuple[str, str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -396,6 +672,10 @@ def _field(value: object) -> str:
     return str(value)
 
 
+def _tsv_text(value: str) -> str:
+    return value.replace("\t", " ").replace("\n", " ")
+
+
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare pipy and Pi screen metrics.")
     parser.add_argument("--reference", type=Path, required=True)
@@ -407,6 +687,8 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-label", default="pi")
     parser.add_argument("--max-row-delta", type=int, default=0)
     parser.add_argument("--max-column-delta", type=int, default=0)
+    parser.add_argument("--viewport-json", type=Path)
+    parser.add_argument("--viewport-tsv", type=Path)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
     report = compare_screen_metrics(
@@ -419,12 +701,14 @@ def _main(argv: list[str] | None = None) -> int:
         target_label=args.target_label,
         max_row_delta=args.max_row_delta,
         max_column_delta=args.max_column_delta,
+        viewport_json=args.viewport_json,
+        viewport_tsv=args.viewport_tsv,
     )
     if args.report is not None:
         args.report.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    return 0
+    return 1 if report["anomaly_count"] else 0
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised by script smoke

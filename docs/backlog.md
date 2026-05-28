@@ -1074,10 +1074,17 @@ Implementation focus:
   pinning after history overflow
 - prove Pi comparison behavior with `scripts/tmux_pi_comparison_verify.sh`,
   which captures pipy and Pi in matching tmux panes and writes
-  `comparison/row-column-deltas.{json,tsv}`, `comparison-report.json`, and
+  `comparison/row-column-deltas.{json,tsv}`,
+  `comparison/final-viewport-deltas.{json,tsv}`, `comparison-report.json`, and
   `comparison-anomalies.tsv`; final-frame prompt/output/footer/input/cursor
-  deltas outside zero row/column tolerance fail the slice, and visible
-  cell-attribute mismatches fail the comparison
+  deltas outside zero row/column tolerance fail the slice, visible
+  cell-attribute mismatches fail the comparison, and normalized final-viewport
+  text differences fail so unconstrained prompts cannot hide answer wording or
+  retained-chrome drift behind a matching expected-output marker; final prompt
+  background-band rows are also compared so screenshot-only shaded-block drift
+  fails the machine gate. The current gate covers both default 100x30 geometry
+  and the short 100x24 regression class where prompt/output rows previously
+  shifted above Pi
 - keep provider/tool-loop behavior, metadata-first archive invariants,
   transcript sidecar behavior, and documented slash-command behavior intact
 - ship focused TUI/renderer tests, docs updates, and `just check`

@@ -32,8 +32,8 @@ if [[ -z "$EXPECTED_OUTPUT" ]]; then
 fi
 
 SESSION="pipy-tui-verify-$$"
-PANE_COLUMNS=100
-PANE_ROWS=30
+PANE_COLUMNS="${PANE_COLUMNS:-100}"
+PANE_ROWS="${PANE_ROWS:-30}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-0.1}"
 MAX_SAMPLES="${MAX_SAMPLES:-450}"
 RAW_DIR="$OUT_DIR/raw-frames"
@@ -62,6 +62,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+visible_count() {
+    local needle="$1"
+    perl -0 -e '
+        my $needle = shift;
+        my $text = <STDIN> // "";
+        my @lines = split /\n/, $text;
+        s/[ \t]+$// for @lines;
+        my $joined = join "", @lines;
+        my $count = () = $joined =~ /\Q$needle\E/g;
+        print $count + 0;
+    ' "$needle"
+}
+
 sample_frame() {
     local index="$1"
     local phase="$2"
@@ -80,17 +93,7 @@ sample_frame() {
     plain="$(perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g' "$file")"
     local working_count prompt_count assistant_nonempty footer_count status_count diagnostic_count
     working_count="$(printf '%s\n' "$plain" | grep -cF 'Working...' || true)"
-    prompt_count="$(printf '%s\n' "$plain" | awk -v prompt="$PROMPT" '
-        {
-            line = $0
-            sub(/^[[:space:]]+/, "", line)
-            sub(/[[:space:]]+$/, "", line)
-            if (line == prompt || line == ("user  " prompt)) {
-                n++
-            }
-        }
-        END { print n + 0 }
-    ')"
+    prompt_count="$(printf '%s\n' "$plain" | visible_count "$PROMPT")"
     assistant_nonempty="$(printf '%s\n' "$plain" | awk -v prompt="$PROMPT" '
         BEGIN { n=0 }
         {
@@ -170,7 +173,14 @@ for index in $(seq 1 "$MAX_SAMPLES"); do
     prompt_count="$(printf '%s\n' "$last_metrics" | cut -f4)"
     assistant_nonempty="$(printf '%s\n' "$last_metrics" | cut -f5)"
     diagnostic_count="$(printf '%s\n' "$last_metrics" | cut -f8)"
-    if (( working_count == 0 && prompt_count == 1 && (assistant_nonempty > 0 || diagnostic_count > 0) )); then
+    expected_count=0
+    expected_prompt_count=0
+    if [[ -n "$EXPECTED_OUTPUT" ]]; then
+        plain="$(perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g' "$RAW_DIR/frame-$(printf '%03d' "$index")-active.ansi")"
+        expected_count="$(printf '%s\n' "$plain" | visible_count "$EXPECTED_OUTPUT")"
+        expected_prompt_count="$(printf '%s\n' "$PROMPT" | visible_count "$EXPECTED_OUTPUT")"
+    fi
+    if (( working_count == 0 && prompt_count == 1 && expected_count > expected_prompt_count && (assistant_nonempty > 0 || diagnostic_count > 0) )); then
         settled="yes"
         break
     fi
@@ -215,6 +225,8 @@ if [[ "$settled" != "yes" ]]; then
     anomaly_count="$(( anomaly_count + 1 ))"
 fi
 printf 'session\t%s\n' "$SESSION" >> "$SUMMARY"
+printf 'pane_columns\t%s\n' "$PANE_COLUMNS" >> "$SUMMARY"
+printf 'pane_rows\t%s\n' "$PANE_ROWS" >> "$SUMMARY"
 printf 'prompt\t%s\n' "$PROMPT" >> "$SUMMARY"
 printf 'expected_output\t%s\n' "$EXPECTED_OUTPUT" >> "$SUMMARY"
 printf 'command\tuv run pipy repl --native-provider openai-codex --native-model gpt-5.5\n' >> "$SUMMARY"

@@ -1,0 +1,79 @@
+frame	phase	metric	reference_label	reference_row	reference_column	target_label	target_row	target_column	row_delta	column_delta	within_tolerance	attributes_match
+0	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+0	active	working	pipy	18	3	pi	18	3	0	0	True	True
+0	active	status	pipy	24	71	pi	24	71	0	0	True	True
+0	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+0	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+0	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+0	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+1	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+1	active	working	pipy	18	3	pi	18	3	0	0	True	True
+1	active	status	pipy	24	71	pi	24	71	0	0	True	True
+1	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+1	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+1	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+1	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+2	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+2	active	working	pipy	18	3	pi	18	3	0	0	True	True
+2	active	status	pipy	24	71	pi	24	71	0	0	True	True
+2	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+2	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+2	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+2	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+3	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+3	active	working	pipy	18	3	pi	18	3	0	0	True	True
+3	active	status	pipy	24	71	pi	24	71	0	0	True	True
+3	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+3	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+3	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+3	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+4	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+4	active	working	pipy	18	3	pi	18	3	0	0	True	True
+4	active	status	pipy	24	71	pi	24	71	0	0	True	True
+4	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+4	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+4	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+4	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+5	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+5	active	working	pipy	18	3	pi	18	3	0	0	True	True
+5	active	status	pipy	24	71	pi	24	71	0	0	True	True
+5	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+5	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+5	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+5	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+6	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+6	active	working	pipy	18	3	pi	18	3	0	0	True	True
+6	active	status	pipy	24	71	pi	24	71	0	0	True	True
+6	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+6	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+6	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+6	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+7	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+7	active	working	pipy	18	3	pi	18	3	0	0	True	True
+7	active	status	pipy	24	71	pi	24	71	0	0	True	True
+7	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+7	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+7	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+7	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+8	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+8	active	expected_output	pipy	18	1	pi	18	1	0	0	True	True
+8	active	working	pipy	20	3	pi	20	3	0	0	True	True
+8	active	status	pipy	26	71	pi	26	71	0	0	True	True
+8	active	cwd	pipy	25	0	pi	25	0	0	0	True	True
+8	active	input_row	pipy	23	0	pi	23	0	0	0	True	
+8	active	live_cursor	pipy	24	0	pi	22	0	-2	0	False	
+8	active	drawn_cursor	pipy	23	0	pi	23	0	0	0	True	True
+9	active	prompt	pipy	15	1	pi	15	1	0	0	True	True
+9	active	expected_output	pipy	18	1	pi	18	1	0	0	True	True
+9	active	status	pipy	24	71	pi	24	71	0	0	True	True
+9	active	cwd	pipy	23	0	pi	23	0	0	0	True	True
+9	active	input_row	pipy	21	0	pi	21	0	0	0	True	
+9	active	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+9	active	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True
+10	final	prompt	pipy	15	1	pi	15	1	0	0	True	True
+10	final	expected_output	pipy	18	1	pi	18	1	0	0	True	True
+10	final	status	pipy	24	71	pi	24	71	0	0	True	True
+10	final	cwd	pipy	23	0	pi	23	0	0	0	True	True
+10	final	input_row	pipy	21	0	pi	21	0	0	0	True	
+10	final	live_cursor	pipy	22	0	pi	22	0	0	0	True	
+10	final	drawn_cursor	pipy	21	0	pi	21	0	0	0	True	True

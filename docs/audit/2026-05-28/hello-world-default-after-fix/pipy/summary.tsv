@@ -1,0 +1,13 @@
+key	value
+session	pipy-tui-verify-99866
+pane_columns	100
+pane_rows	30
+prompt	hello world
+expected_output	Hello!
+command	uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+total_frames	12
+active_frames	10
+settled	yes
+anomaly_count	0
+screen_metrics	docs/audit/2026-05-28/hello-world-default-after-fix/pipy/screen-metrics.jsonl
+terminal_report	docs/audit/2026-05-28/hello-world-default-after-fix/pipy/terminal-report.json

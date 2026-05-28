@@ -76,6 +76,7 @@ _PI_DIM_FALLBACK = "2"
 _PI_SECONDARY_DIM_TRUECOLOR = "38;2;128;128;128"
 _PI_USER_MESSAGE_BG_TRUECOLOR = "48;2;52;53;65"
 _PI_USER_MESSAGE_TEXT_TRUECOLOR = "38;2;212;212;212"
+_PI_TOOL_COMMAND_BG_TRUECOLOR = "48;2;40;50;40"
 _PI_SEPARATOR_TRUECOLOR = "38;2;178;148;187"
 _PI_SEPARATOR_FALLBACK = "35"
 
@@ -116,6 +117,16 @@ class ChromeStyle:
         return (
             f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m"
             f"\x1b[{_PI_USER_MESSAGE_TEXT_TRUECOLOR}m{padded}\x1b[0m"
+        )
+
+    def tool_command(self, text: str, *, width: int) -> str:
+        if not self.enabled:
+            return text
+        padded = text + (" " * max(0, width - len(text)))
+        text_code = _PI_USER_MESSAGE_TEXT_TRUECOLOR if self.truecolor else "37"
+        return (
+            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"\x1b[1;{text_code}m{padded}\x1b[0m"
         )
 
     def cursor_cell(self, text: str) -> str:

@@ -364,9 +364,10 @@ access-token JWT. Provider calls use one SSE Responses request to
 `stream: true`, Responses-style user input, `Authorization`,
 `chatgpt-account-id`, `originator: pipy`,
 `OpenAI-Beta: responses=experimental`, and `Accept: text/event-stream`. The
-provider maps streamed final text and normalized usage into the existing
-provider result shape, and archives only safe metadata such as provider, model,
-status, duration, storage booleans, response status, and normalized counters.
+provider sends the same low default text verbosity as Pi's Codex Responses
+path, maps streamed final text and normalized usage into the existing provider
+result shape, and archives only safe metadata such as provider, model, status,
+duration, storage booleans, response status, and normalized counters.
 Auth material, authorization URLs, raw request bodies, raw provider responses,
 headers with credentials, prompts, model output, provider-native payloads,
 stdout, stderr, tool payloads, diffs, file contents, secrets, credentials,
@@ -423,41 +424,66 @@ working text, the input/editor line, and the two-row footer/status, then
 composes whole alternate-screen terminal frames from that state. Submitted
 messages, streamed assistant text, and the loader flow through the history
 area so tmux history does not accumulate stale repaint rows; the input and
-footer remain stable frame rows. Captured streams and explicit non-TTY input
-runtimes continue to use the deterministic line-oriented fallback so
-stdout/stderr automation contracts and tests remain stable. The TUI shell is a
-presentation boundary only; provider calls, bounded tool-loop behavior,
-transcript sidecars, and metadata-first archive policy stay behind the
-existing native session/tool/provider ports.
+footer remain stable frame rows. Streamed reasoning is accumulated into one
+active reasoning block instead of one block per token, and model-selected tool
+commands render as Pi-style `$ ...` command rows with a bounded result preview
+so tool overflow keeps the submitted prompt, newest result tail, final answer,
+and footer visible in the same 100x30 frame. When terminal height forces
+history trimming, the compositor keeps enough startup context before the
+submitted prompt to match Pi's retained-chrome shape, including the 100x24
+simple prompt flow. Captured streams and explicit non-TTY input runtimes
+continue to use the deterministic line-oriented fallback so stdout/stderr
+automation contracts and tests remain stable. The TUI shell is a presentation
+boundary only; provider calls, bounded tool-loop behavior, transcript
+sidecars, and metadata-first archive policy stay behind the existing native
+session/tool/provider ports.
 TUI verification uses `pipy_harness.native.terminal_screen` as a small
 stdlib ANSI screen-cell model, comparable in purpose to Pi's
 `packages/tui/test/virtual-terminal.ts`: it can replay rendered terminal
 output into visible rows, columns, cursor position, viewport/scroll state, and
-SGR-backed cell attributes. `scripts/tmux_transient_ui_verify.sh <out-dir>
+SGR-backed cell attributes. Visible-string findings match text that wraps
+across adjacent captured rows, and expected-output findings exclude cells that
+belong to the submitted prompt so prompts such as `Reply exactly: ...` do not
+mask missing assistant output. `scripts/tmux_transient_ui_verify.sh <out-dir>
 [prompt] [expected-output]` exercises the real product command
 `uv run pipy repl --native-provider openai-codex --native-model gpt-5.5` in a
 controlled tmux pane and writes both text summaries and machine-readable
 screen artifacts. The script samples active frames at 100 ms by default
 (`SAMPLE_INTERVAL` and `MAX_SAMPLES` can override that) and requires an
 expected output string unless it can derive one from a `Reply exactly: `
-prompt. Treat `screen-metrics.jsonl`, `terminal-report.json`, and
+prompt. The pane geometry defaults to `PANE_COLUMNS=100` and `PANE_ROWS=30`;
+set those environment variables before invoking either tmux verifier to cover
+shorter or wider terminal layouts. Its settle checks use an approximate wrapped
+visible-text count so sampling does not stop on the prompt copy alone. Treat
+`screen-metrics.jsonl`,
+`terminal-report.json`, and
 `screen-anomalies.tsv` as the authoritative verification outputs; screenshots
 are supporting evidence only. A longer product-path smoke under
-`docs/audit/2026-05-28/tool-stream-smoke/pipy/` exercises model-selected
-`ls` tool rendering, prompt retention, final assistant output, footer rows,
-and cursor alignment through the same script.
+`docs/audit/2026-05-28/tool-overflow-smoke-after-tui-fix/pipy/` exercises
+model-selected `ls` tool rendering, prompt retention away from the top row,
+final assistant output, footer rows, and cursor alignment through the same
+script.
 `scripts/tmux_pi_comparison_verify.sh <out-dir> [prompt] [expected-output]`
 wraps that product-path run and a Pi reference run in matching 100x30 tmux
 panes, then feeds both `screen-metrics.jsonl` files to
 `pipy_harness.native.terminal_compare`. The comparison writes
-`comparison/row-column-deltas.{json,tsv}`, `comparison-report.json`, and
+`comparison/row-column-deltas.{json,tsv}`,
+`comparison/final-viewport-deltas.{json,tsv}`, `comparison-report.json`, and
 `comparison-anomalies.tsv`; the final-frame deltas must show prompt,
 expected output, status/footer, cwd, inferred input row, live cursor, and
 drawn reverse cursor within zero row/column tolerance. Matching cell
 attributes are also recorded for visible findings and the drawn reverse
-cursor, and attribute mismatches fail the comparison. The Pi command defaults to
-`pi --provider openai-codex --model gpt-5.5` and can be overridden with
-`PI_COMMAND`.
+cursor, and attribute mismatches fail the comparison. Screen metrics record
+the prompt background-band rows, and the comparison fails when the final
+submitted-prompt shading differs. The final viewport is also compared after
+normalizing dynamic usage meters, including optional reasoning-token counters,
+so ordinary prompts such as `hello world` fail when the visible answer or
+retained startup chrome differs even if the selected expected-output marker is
+present on both sides. The Pi command defaults to `pi --provider openai-codex
+--model gpt-5.5` and can be overridden with `PI_COMMAND`. The parity gate
+includes the default 100x30 pane and the short 100x24 pane so height-sensitive
+prompt, answer, separator, input, footer, cursor placement, and shaded prompt
+band regressions are caught by machine-readable comparison artifacts.
 See `Read-Failure Recovery Boundary Direction`: two successful explicit file
 excerpts per REPL session plus one bounded failed or skipped read-attempt
 budget leaves the successful excerpt budget available.
