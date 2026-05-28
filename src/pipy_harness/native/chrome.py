@@ -69,10 +69,13 @@ _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
 
 _PI_TITLE_TRUECOLOR = "1;38;2;138;190;183"
 _PI_TITLE_FALLBACK = "1;36"
-_PI_SECTION_TRUECOLOR = "1;38;2;240;198;116"
+_PI_SECTION_TRUECOLOR = "38;2;240;198;116"
 _PI_SECTION_FALLBACK = "1;33"
-_PI_DIM_TRUECOLOR = "38;2;128;128;128"
+_PI_DIM_TRUECOLOR = "38;2;102;102;102"
 _PI_DIM_FALLBACK = "2"
+_PI_SECONDARY_DIM_TRUECOLOR = "38;2;128;128;128"
+_PI_USER_MESSAGE_BG_TRUECOLOR = "48;2;52;53;65"
+_PI_USER_MESSAGE_TEXT_TRUECOLOR = "38;2;212;212;212"
 _PI_SEPARATOR_TRUECOLOR = "38;2;178;148;187"
 _PI_SEPARATOR_FALLBACK = "35"
 
@@ -100,8 +103,25 @@ class ChromeStyle:
     def dim(self, text: str) -> str:
         return self._wrap(text, _PI_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
 
+    def secondary_dim(self, text: str) -> str:
+        return self._wrap(text, _PI_SECONDARY_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
+
     def separator(self, text: str) -> str:
         return self._wrap(text, _PI_SEPARATOR_TRUECOLOR, _PI_SEPARATOR_FALLBACK)
+
+    def user_message(self, text: str, *, width: int) -> str:
+        if not self.enabled:
+            return text
+        padded = text + (" " * max(0, width - len(text)))
+        return (
+            f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m"
+            f"\x1b[{_PI_USER_MESSAGE_TEXT_TRUECOLOR}m{padded}\x1b[0m"
+        )
+
+    def cursor_cell(self, text: str) -> str:
+        if not self.enabled:
+            return text
+        return f"\x1b[39m{text}\x1b[7m \x1b[0m"
 
     def _wrap(self, text: str, truecolor_code: str, fallback_code: str) -> str:
         if not self.enabled:

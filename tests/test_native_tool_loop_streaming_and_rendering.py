@@ -79,6 +79,7 @@ def _clear_no_color(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure NO_COLOR does not silently disable ANSI in TTY tests."""
 
     monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
 
 
 def _make_call(tool_name: str, arguments_json: str) -> ProviderToolCall:

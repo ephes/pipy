@@ -1,0 +1,11 @@
+key	value
+session	pipy-tui-verify-25014
+prompt	Use the ls tool on the current directory, then reply exactly: TOOL SMOKE DONE
+expected_output	TOOL SMOKE DONE
+command	uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+total_frames	26
+active_frames	24
+settled	yes
+anomaly_count	0
+screen_metrics	docs/audit/2026-05-28/tool-stream-smoke/pipy/screen-metrics.jsonl
+terminal_report	docs/audit/2026-05-28/tool-stream-smoke/pipy/terminal-report.json

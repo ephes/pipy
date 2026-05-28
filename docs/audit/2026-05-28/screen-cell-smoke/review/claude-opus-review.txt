@@ -1,0 +1,23 @@
+No blocking findings. The terminal-screen verifier, the tmux product-path script, and the artifacts meet the stated goal: the screen model handles cursor moves/clears/SGR/wrap/scroll/alt-screen/wide-chars, the script runs the exact `uv run pipy repl --native-provider openai-codex --native-model gpt-5.5` command, the TUI is genuinely engaged on that path (sample frames show the alt-screen frame, separators, and reverse-video cursor cell), and the analyzer emits machine-readable row/column findings, the live vs. drawn cursor, inferred input/footer rows, and cell attributes. All four in-scope tests pass, and the docs (harness-spec.md:432-445, pi-parity.md:39, architecture.md:110, backlog.md:1068) describe the verifier accurately. The renderer emits the literal `Working...` substring (tool_loop_session.py:1761), so the stale/duplicate-Working detectors are live, not dead.
+
+Detector-to-goal mapping is complete: missing output (terminal_screen.py:451-453), prompt visibility (442-446), pinned input/footer rows (456-457 + `_input_row` 495-499), stale/duplicate Working (447-450), diagonal drift (CRLF normalization 358-362 + test at test_native_terminal_screen.py:138), second cursor/cursor drift (458-459 + `_cursor_matches`), key cell attributes (`CellAttr`/`_set_sgr` + test at :47).
+
+Non-blocking risks, roughly in priority order:
+
+1. **Anomaly detection is only tested on the happy path.** Every test asserts the no-anomaly case (e.g., test_native_terminal_screen.py:135 asserts `"visible count" not in ...`); none construct a frame that *should* trip duplicate/stale Working, missing output, a second cursor, a missing prompt, or absent separators and assert the anomaly fires. The regression-catching core (terminal_screen.py:437-459) is therefore unverified. Recommend adding negative fixtures, one per detector.
+
+2. **Cursor-match tolerance is wide and already absorbing a 1-row offset.** `_cursor_matches` accepts ±1 row on both the reverse cell band and the live-cursor compare (terminal_screen.py:471-483). The sample's final frame shows `live_cursor.cursor_y=22` against `inferred_input_row=21`/reverse cell row 21 yet reports `cursor_matches_input_row: true` (last line of screen-metrics.jsonl). On an active frame this same ±1 band would mask a genuine one-row cursor drift / second-cursor regression. Consider tightening or documenting why ±1 is intended.
+
+3. **Screen geometry is inferred from capture text, not the real pane.** `analyze_frame_files` calls `parse_ansi_screen(replay_data)` with no columns/rows (terminal_screen.py:362), so width = longest stripped line and height = line count (318-322). This only lines up with the real 100×30 pane because the TUI always draws full-width separators and tmux pads rows; a truncated/partial capture would shift column-sensitive findings (e.g., status at col 71) and the live-cursor row compare. The script knows the pane is `-x 100 -y 30` (script:147) — passing those explicitly would remove the fragility.
+
+4. **`tmux capture-pane -J` joins wrapped lines** (script:61), which can merge a wrapped visual row into one logical line and desync screen-model row indices from the physical `#{cursor_y}` used for the live-cursor compare (script:63-66). Unlikely with short content on a 100-col pane, but a latent row-alignment risk for the cursor check.
+
+5. **`footer_meter` finding is vestigial.** It searches the literal idle string `"$0.000 (sub) 0.0%/272k"` (terminal_screen.py:371-374), which only matches a pristine startup frame; once tokens are billed the values change (sample shows `$0.004 … 1.1%`), so it is empty and unused by any anomaly (`footer_meter: []` in the metrics). Pinned-footer coverage actually rides on the `status` find + separator inference, so this is harmless but misleading; either drop it or make it match the stable label portion.
+
+6. **`status` needle is hardcoded** to `"(openai-codex) gpt-5.5"` (terminal_screen.py:367-369) and the missing-status anomaly fires on *every* phase including startup (454-455). Fine for this single hardcoded command, but the analyzer can't be reused for another model without editing source, and a startup frame painted before the footer would false-positive.
+
+7. **`_separator_rows` matches any ≥10-wide run of `─`** (terminal_screen.py:486-492) and `_input_row` returns the *first* pair 2 rows apart (495-499). A wide horizontal rule in assistant/tool output could form a false separator pair earlier in history and win over the real input separators. Edge case, but worth a guard (e.g., prefer the last full-width pair).
+
+8. **Cosmetic:** `strip_ansi` allocates a `TerminalScreen` and immediately `del`s it before doing pure regex stripping (terminal_screen.py:329-332) — dead code.
+
+[exit:0]

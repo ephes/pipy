@@ -1,0 +1,15 @@
+No blocking findings. The hardening changes keep the verifier on the product path and preserve every required detection capability.
+
+What I checked:
+
+- **Dimensions flow end-to-end.** `--columns/--rows` → `analyze_frame_files` → `parse_ansi_screen` (terminal_screen.py:318-325, :339-364, :561-577). The script names geometry once (`PANE_COLUMNS=100`, `PANE_ROWS=30`) and uses it for both `tmux new-session -x/-y` and the analyzer (tmux_transient_ui_verify.sh:31-32, :149-150, :176-184), so the screen model now matches the actual pane instead of guessing from captured line lengths. This *strengthens* pinned-row and cursor-drift fidelity, since `live_cursor.cursor_y` from `tmux display-message` is a physical pane coordinate — modeling at the real pane size makes the comparison apples-to-apples.
+
+- **Backward-compat preserved.** `columns/rows` default to `None` → inference (`columns or max(...)`), exercised by the two analyze tests that omit them; the regression test passes explicit `80×12`. Both paths covered.
+
+- **All detection paths intact and tested:** missing output, prompt-count, separator-derived input row, status footer, duplicate/stale `Working...`, CRLF-normalization (diagonal drift), and reverse-cell cursor matching all still fire in `_collect_anomalies` (:439-461). The new negative test genuinely produces the three asserted anomalies (verified by running — 5 passed).
+
+- **Product-path evidence corroborated** by reading the artifacts directly: last `screen-metrics.jsonl` record shows `columns/rows=100/30`, prompt row 15, expected-output row 18, footer row 23 / status row 24, inferred input row 21, reverse cursor row 21, live cursor y 22, `cursor_matches_input_row=true`; `summary.tsv` and report both `anomaly_count=0`, `settled=yes`, against the real `openai-codex gpt-5.5` REPL. The explicit dimensions are present in the output, confirming they actually took effect rather than falling back to inference.
+
+One non-blocking note: the captured footer/status sit at rows 23/24 in a 30-row pane (a few blank rows below), so the model rows are ~1 off the physical `cursor_y` (21 vs 22) — absorbed by the ±1 tolerance in `_cursor_matches`. That's product layout, not a verifier defect, and the tolerance is appropriate.
+
+[exit:0]

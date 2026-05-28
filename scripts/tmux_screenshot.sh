@@ -54,11 +54,15 @@ def _expand(match: re.Match) -> str:
     body = match.group(2)
     if not any(bg_hex in style_attr.lower() for bg_hex in panel_bgs):
         return match.group(0)
+    if body == "":
+        return ""
     pieces: list[str] = []
-    for index, line in enumerate(body.split("\n")):
-        prefix = "\n" if index > 0 else ""
+    lines = body.split("\n")
+    for index, line in enumerate(lines):
+        if line == "" and index == len(lines) - 1 and body.endswith("\n"):
+            continue
         pieces.append(
-            f'{prefix}<span style="{style_attr};display:inline-block;width:100%">'
+            f'<span style="{style_attr};display:block;width:100%">'
             f'{line}</span>'
         )
     return "".join(pieces)

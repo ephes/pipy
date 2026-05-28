@@ -1,0 +1,8 @@
+key	value
+session	pipy-tui-verify-76568
+prompt	hello world!
+command	uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+total_frames	8
+active_frames	6
+settled	yes
+anomaly_count	0

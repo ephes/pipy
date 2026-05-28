@@ -60,6 +60,7 @@ from pipy_harness.native.repl_input import (
     NativeReplInput,
     native_repl_input_for,
 )
+from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
     AssistantMessage,
@@ -408,11 +409,20 @@ class NativeToolReplSession:
             stderr_sink=_stderr_sink,
             reference_roots=self.reference_roots,
         )
-        renderer = _ToolLoopRenderer(
-            output_stream=output_stream, error_stream=error_stream
-        )
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
+        terminal_ui = self._build_terminal_ui(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            workspace=cwd,
+        )
+        renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
+        if terminal_ui is not None:
+            renderer = _TuiToolLoopRenderer(ui=terminal_ui)
+        else:
+            renderer = _ToolLoopRenderer(
+                output_stream=output_stream, error_stream=error_stream
+            )
         if self.transcript_sink is not None:
             self.transcript_sink.append(
                 "session",
@@ -433,19 +443,41 @@ class NativeToolReplSession:
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
-        repl_input = self._build_repl_input(
-            input_stream=input_stream,
-            error_stream=error_stream,
-            workspace=cwd,
+        repl_input = (
+            terminal_ui
+            if terminal_ui is not None
+            else self._build_repl_input(
+                input_stream=input_stream,
+                error_stream=error_stream,
+                workspace=cwd,
+            )
         )
-        print_startup_chrome(error_stream, cwd=cwd)
+        if terminal_ui is None:
+            print_startup_chrome(error_stream, cwd=cwd)
+        else:
+            terminal_ui.set_footer_text(
+                self._footer_text(
+                    cwd=cwd,
+                    provider_name=effective_provider_name,
+                    model_id=effective_model_id,
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                    error_stream=error_stream,
+                    usage_accumulator=usage_accumulator,
+                )
+            )
+            terminal_ui.start()
+
+        def legacy_footer_enabled() -> bool:
+            return terminal_ui is None and repl_input.runtime_label != "slash-menu"
+
         # Pi-parity: the slash-menu input adapter draws the bottom status
         # block (cwd + status line) live below the input area, so we only
         # emit a pre-loop frame for non-slash-menu runtimes. This avoids a
         # duplicate cwd/status row above the prompt area in TTY sessions,
         # while keeping the captured-stream/plain case visible on immediate
         # EOF. `_print_footer` re-emits it after each submission.
-        if repl_input.runtime_label != "slash-menu":
+        if legacy_footer_enabled():
             self._print_footer(
                 error_stream,
                 cwd=cwd,
@@ -457,7 +489,8 @@ class NativeToolReplSession:
             )
 
         while True:
-            print_input_separator(error_stream)
+            if terminal_ui is None:
+                print_input_separator(error_stream)
             footer_text = self._footer_text(
                 cwd=cwd,
                 provider_name=effective_provider_name,
@@ -488,7 +521,7 @@ class NativeToolReplSession:
             if stripped:
                 renderer.render_user_message(user_input)
             if not stripped:
-                if repl_input.runtime_label != "slash-menu":
+                if legacy_footer_enabled():
                     self._print_footer(
                         error_stream,
                         cwd=cwd,
@@ -501,8 +534,11 @@ class NativeToolReplSession:
             if stripped in {"/exit", "/quit"}:
                 break
             if stripped == "/help":
-                self._print_help(error_stream)
-                if repl_input.runtime_label != "slash-menu":
+                if terminal_ui is not None:
+                    terminal_ui.add_notice(self._help_text())
+                else:
+                    self._print_help(error_stream)
+                if legacy_footer_enabled():
                     self._print_footer(
                         error_stream,
                         cwd=cwd,
@@ -513,13 +549,16 @@ class NativeToolReplSession:
                     )
                 continue
             if stripped.startswith("/"):
-                print(
-                    f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                    "supported local commands are /help, /exit, /quit. "
-                    "Other prompts are sent to the model.",
-                    file=error_stream,
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    (
+                        f"pipy: {stripped!r} is not handled in tool-loop mode; "
+                        "supported local commands are /help, /exit, /quit. "
+                        "Other prompts are sent to the model."
+                    ),
                 )
-                if repl_input.runtime_label != "slash-menu":
+                if legacy_footer_enabled():
                     self._print_footer(
                         error_stream,
                         cwd=cwd,
@@ -577,12 +616,15 @@ class NativeToolReplSession:
                     # against, or a brief network hiccup) should not tear
                     # the whole session down. The user can ask again at
                     # the next prompt.
-                    print(
-                        f"pipy: provider failure during turn: "
-                        f"{error_type}: {error_message}",
-                        file=error_stream,
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        (
+                            "pipy: provider failure during turn: "
+                            f"{error_type}: {error_message}"
+                        ),
                     )
-                    if repl_input.runtime_label != "slash-menu":
+                    if legacy_footer_enabled():
                         self._print_footer(
                             error_stream,
                             cwd=cwd,
@@ -619,7 +661,7 @@ class NativeToolReplSession:
                 if not tool_calls:
                     if provider_result.final_text and not renderer.streamed_any:
                         print(provider_result.final_text, file=output_stream)
-                    if repl_input.runtime_label != "slash-menu":
+                    if legacy_footer_enabled():
                         self._print_footer(
                             error_stream,
                             cwd=cwd,
@@ -671,11 +713,14 @@ class NativeToolReplSession:
                         consecutive_malformed_streak += 1
                         messages.append(observation)
                         if consecutive_malformed_streak >= self.MAX_MALFORMED_STREAK:
-                            print(
-                                "pipy: tool-loop ended after "
-                                f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                                "tool calls",
-                                file=error_stream,
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                (
+                                    "pipy: tool-loop ended after "
+                                    f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
+                                    "tool calls"
+                                ),
                             )
                             fatal = True
                             break
@@ -752,6 +797,23 @@ class NativeToolReplSession:
             error_stream=error_stream,
             input_runtime=self.input_runtime,
             workspace=workspace,
+        )
+
+    def _build_terminal_ui(
+        self,
+        *,
+        input_stream: TextIO,
+        error_stream: TextIO,
+        workspace: Path,
+    ) -> ToolLoopTerminalUi | None:
+        if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
+            return None
+        if not ToolLoopTerminalUi.is_supported(input_stream, error_stream):
+            return None
+        return ToolLoopTerminalUi(
+            input_stream=input_stream,
+            terminal_stream=error_stream,
+            cwd=workspace,
         )
 
     def _footer_text(
@@ -856,13 +918,27 @@ class NativeToolReplSession:
         )
 
     def _print_help(self, error_stream: TextIO) -> None:
-        print(
+        print(self._help_text(), file=error_stream)
+
+    @staticmethod
+    def _help_text() -> str:
+        return (
             "pipy: tool-loop mode supports `/help`, `/exit`, `/quit` locally. "
             "Other input is sent to the model. The model can call bounded "
             "`read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`, and "
-            "`truncate` tools (budget per user turn).",
-            file=error_stream,
+            "`truncate` tools (budget per user turn)."
         )
+
+    @staticmethod
+    def _emit_diagnostic(
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        message: str,
+    ) -> None:
+        if terminal_ui is not None:
+            terminal_ui.add_notice(message)
+            return
+        print(message, file=error_stream)
 
     def _invoke(
         self,
@@ -1635,6 +1711,160 @@ class _ToolLoopRenderer:
         if not self._enabled:
             return text
         return f"{code}{text}{self._ANSI_RESET}"
+
+
+class _TuiToolLoopRenderer:
+    """Tool-loop renderer backed by the pipy-owned terminal UI shell."""
+
+    _SPINNER_FRAMES: ClassVar[tuple[str, ...]] = _ToolLoopRenderer._SPINNER_FRAMES
+    _SPINNER_INTERVAL_SECONDS: ClassVar[float] = (
+        _ToolLoopRenderer._SPINNER_INTERVAL_SECONDS
+    )
+    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = (
+        _ToolLoopRenderer._RESULT_LINE_PREVIEW_MAX_LENGTH
+    )
+
+    def __init__(self, *, ui: ToolLoopTerminalUi) -> None:
+        self._ui = ui
+        self._streamed_any = False
+        self._stop_working_event: threading.Event | None = None
+        self._working_thread: threading.Thread | None = None
+
+    @property
+    def streamed_any(self) -> bool:
+        return self._streamed_any
+
+    @property
+    def stream_sink(self) -> StreamChunkSink:
+        return self._handle_stream_chunk
+
+    @property
+    def reasoning_sink(self) -> StreamChunkSink:
+        return self.handle_reasoning_chunk
+
+    def begin_provider_turn(self) -> None:
+        self._stop_working(clear=True)
+        self._streamed_any = False
+        self._ui.begin_assistant_turn()
+
+    def show_working(self) -> None:
+        self._stop_working(clear=True)
+        stop_event = threading.Event()
+        self._stop_working_event = stop_event
+
+        def _animate() -> None:
+            frame_index = 0
+            while not stop_event.is_set():
+                glyph = self._SPINNER_FRAMES[
+                    frame_index % len(self._SPINNER_FRAMES)
+                ]
+                self._ui.set_working(f"{glyph} Working...")
+                frame_index += 1
+                stop_event.wait(self._SPINNER_INTERVAL_SECONDS)
+
+        thread = threading.Thread(
+            target=_animate,
+            name="pipy-tool-loop-tui-spinner",
+            daemon=True,
+        )
+        self._working_thread = thread
+        thread.start()
+
+    def end_provider_turn(
+        self, *, final_text: str, has_tool_calls: bool
+    ) -> None:
+        del has_tool_calls
+        self._stop_working(clear=True)
+        if final_text and not self._streamed_any:
+            self._ui.append_assistant(final_text)
+            self._streamed_any = True
+        self._ui.settle_assistant()
+
+    def render_user_message(self, text: str) -> None:
+        self._ui.submit_user_message(text)
+
+    def render_tool_call(self, call: ProviderToolCall) -> None:
+        self._stop_working(clear=True)
+        self._ui.add_tool_call(_plain_tool_call_header(call))
+
+    def render_tool_result(
+        self,
+        *,
+        output_text: str,
+        is_error: bool,
+        duration_seconds: float | None = None,
+    ) -> None:
+        lines = output_text.splitlines() or [""]
+        preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+        earlier = len(lines) - len(preview_lines)
+        if earlier > 0:
+            rendered = [
+                f"... ({earlier} earlier lines, ctrl+o to expand)",
+                *lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :],
+            ]
+        else:
+            rendered = preview_lines
+        self._ui.add_tool_result(
+            lines=rendered,
+            is_error=is_error,
+            duration_seconds=duration_seconds,
+        )
+
+    def handle_reasoning_chunk(self, chunk: str) -> None:
+        self._stop_working(clear=True)
+        self._ui.append_reasoning(chunk)
+
+    def _handle_stream_chunk(self, chunk: str) -> None:
+        if not chunk:
+            return
+        self._stop_working(clear=False)
+        self._ui.append_assistant(chunk)
+        self._streamed_any = True
+
+    def _stop_working(self, *, clear: bool = True) -> None:
+        if self._stop_working_event is not None:
+            self._stop_working_event.set()
+        if self._working_thread is not None:
+            self._working_thread.join(timeout=0.2)
+        self._stop_working_event = None
+        self._working_thread = None
+        if clear:
+            self._ui.clear_working()
+
+
+def _plain_tool_call_header(call: ProviderToolCall) -> str:
+    """Return a concise tool-call label for the TUI history region."""
+
+    try:
+        data = json.loads(call.arguments_json)
+    except json.JSONDecodeError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    path = data.get("path")
+    if call.tool_name == "read" and isinstance(path, str):
+        prefix = "read resource" if path.startswith("/") else "read"
+        return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
+    if call.tool_name == "ls" and isinstance(path, str):
+        return f"ls {path}"
+    if call.tool_name in {"grep", "find"}:
+        pattern = data.get("pattern")
+        root = path if isinstance(path, str) else "."
+        if isinstance(pattern, str):
+            return f'{call.tool_name} "{pattern}" {root}'
+    preview = _argument_preview(data)
+    return f"{call.tool_name}({preview})"
+
+
+def _argument_preview(data: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    for key in sorted(data):
+        value = data[key]
+        rendered = json.dumps(value, sort_keys=True)
+        if len(rendered) > 40:
+            rendered = rendered[:39] + "…"
+        parts.append(f"{key}={rendered}")
+    return ", ".join(parts)
 
 
 __all__ = [

@@ -1,0 +1,75 @@
+Confirmed: `terminal_compare` never reads cell attributes and never counts reverse cells. I have everything I need.
+
+# Review: Pi comparison layer + product smoke evidence
+
+The code is clean and the detectors it implements work. But measured against the stated goal — "pipy's TUI verification must be at least as strong as Pi's before further visual parity work" — the verification has real gaps. The most important: the comparison layer is **positional only**, and the one real divergence present in the smoke sailed through unflagged.
+
+## Blocking (relative to the stated goal)
+
+### B1. The Pi comparison ignores cell attributes/colors entirely — and the smoke already contains an unflagged divergence
+`terminal_compare` compares only row/column. `_FINDING_KEYS` (terminal_compare.py:12), `_finding_point` (212–222), and `DeltaRecord` (15–28) carry positions only; `_reverse_cursor_point` (231–238) reads `reverse_cells` solely for its `row`/`column` and never touches `attr`. The grep confirms `CellAttr`/`attr` is never referenced in the comparison module.
+
+The screen model captures rich SGR attributes (terminal_screen.py:25–32, 83–96) and the per-product JSONL records them — but nothing diffs them between pipy and Pi. Concrete evidence in the smoke you ran:
+
+- pipy working spinner: `"fg": null` — `sample/pipy/screen-metrics.jsonl:2` (` ⠴ Working...`, row 18 col 3)
+- pi working spinner: `"fg": "128;128;128"` — `sample/pi/screen-metrics.jsonl:2` (row 18 col 3)
+- comparison verdict: `row-column-deltas.tsv:3` → `working … 0 0 True`, `comparison-report.json` → `anomaly_count: 0`
+
+So pipy renders the loader in a different color than Pi and the harness reports clean parity. A renderer that drew *every* row in the wrong color/weight would still pass. For a layer whose purpose is *visual* parity, "positions match" is not "looks the same." This is the finding I'd block on: as run, the comparison would green-light a visibly non-parity render.
+
+### B2. The product-path smoke never exercises the states transient-UI verification exists to check
+The skill is explicit: when a product streams quickly, use a prompt that triggers a long response or tool calls so the transient state can actually be sampled. The smoke does the opposite — `Reply exactly: Hello!` settles in ~1s with **no tool calls, no sustained streaming, no reasoning**. Consequences:
+
+- Tool-call/result rendering through the real command path is **never captured** — `_TuiToolLoopRenderer.render_tool_call/render_tool_result` (tool_loop_session.py:1786–1811) is only unit-tested via `render_lines` (test_native_tool_loop_tui.py:120–141), never via a real tmux session.
+- Stale-`Working`-after-a-long-turn, loader/stream interleaving, and reasoning blocks are not in any captured frame.
+- Sampling is `sleep 0.5` (tmux_transient_ui_verify.sh:159) — 3–10× coarser than the skill's 50–150 ms. The ~1s transient yielded only 2–3 working frames (pipy frames 1–2). A slightly faster settle would miss the loader entirely.
+
+The detectors for these *do* exist and are unit-tested (terminal_screen.py:447–457; test_native_terminal_screen.py:177–215), so this is an evidence-sufficiency gap, not a code bug — but combined with B1, the smoke does not yet demonstrate parity for the transient/tool/stream states that are the entire point.
+
+## High (non-blocking, but answer the review questions directly)
+
+### H1. Duplicate cursor is undetectable (Q3)
+Nothing flags more than one drawn cursor. `_collect_anomalies` (terminal_screen.py:439–461) never checks `len(reverse_cells)`; `_cursor_matches` (464–485) only verifies the *live* cursor sits near *a* reverse cell at the input row, and `_reverse_cursor_point` takes `reverse_cells[0]`. A leftover reverse-video cell from a prior paint (the classic repaint "ghost cursor") would not trip any anomaly, because tmux's `#{cursor_x/y}` is always singular and the input-row cell still matches. The prior screen-cell review's claim that 458–459 catches a "second cursor" is overstated — it catches drift, not duplication.
+
+### H2. Hidden-output detection silently disappears without `--expected-output`
+`analyze_frame_files` only collects `expected_output` findings under `if expected_output:` (terminal_screen.py:378–383), and the final-frame "expected model output is not visible" anomaly is guarded by `record.get("expected_output")` (453–455). In the comparison, absent-on-both-sides metrics are skipped (terminal_compare.py:65–66). The scripts auto-derive the expected string only from a `Reply exactly: ` prefix (tmux_transient_ui_verify.sh:26–28). Any free-form prompt → no hidden-output check at all, on either layer. Given Q3 lists "hidden output," this is a real conditional gap.
+
+### H3. ±2 row/column tolerance can mask systematic drift (Q2/Q3)
+Defaults `max_row_delta=2`, `max_column_delta=2` (terminal_compare.py:47–48) and the comparison script never overrides them (149). A consistent 1–2 row offset between pipy and Pi — exactly the kind of "off by one separator/padding row" parity bug — passes silently. The smoke shows exact 0 deltas, so tightening to 0 (or 1) would lose nothing today and would actually enforce parity.
+
+## Medium / Low
+
+### M1. Final-to-final pairing is correct; active pairing is weak but harmless (Q2)
+`_comparison_pairs` (terminal_compare.py:149–181) correctly pairs the *last* `final` of each side regardless of active counts — the smoke confirms it (pipy final frame 4 ↔ pi final frame 6, `compared_frames: 4`), and `test_compare_screen_metrics_pairs_last_final_frame_by_phase` covers it. Good. The positional active-frame `zip`, however, can pair a settled pipy frame against a still-working Pi frame (pair index 2 in `row-column-deltas.tsv:17–18`: pipy `expected_output@18` vs pi `working@18`). Neither is a required active metric, so no false positive — but it means "active parity" is only really validated for the brief window where both are working. Acceptable, worth knowing.
+
+### M2. The Pi run's own screen anomalies are never surfaced or counted
+`tmux_pi_comparison_verify.sh` writes `pi/screen-anomalies.tsv` (44, 127) but never merges it into a summary or checks it, and `pi/summary.tsv` has no `anomaly_count` row at all (contrast the pipy script's merge at tmux_transient_ui_verify.sh:190–193, 206–218). A stale `Working`/missing-output regression *in the Pi reference itself* would be invisible unless someone opens that file. Pi is the reference, so low severity — but the asymmetry undercuts "Pi is a valid baseline."
+
+### M3. Settle heuristics differ between the two runs
+pipy settles on `assistant_nonempty > 0 || diagnostic_count > 0` (tmux_transient_ui_verify.sh:167) — it can settle on a *diagnostic* (e.g. a provider-failure notice) without the real answer. Pi settles only on `output_count > 0` (tmux_pi_comparison_verify.sh:105), i.e. the expected substring is actually visible. The mismatch is mostly caught downstream (pipy's final frame would then trip "expected model output is not visible"), but the two "final" frames are not selected by the same criterion.
+
+### L1. `footer_meter` needle is stale on every real final frame
+The needle is hardcoded to the zero-cost state `"$0.000 (sub) 0.0%/272k"` (terminal_screen.py:373–376). Once a turn bills tokens it becomes `↑3.0k ↓6 $0.004 …`, so `footer_meter` is `[]` on every settled frame (`sample/pipy/screen-metrics.jsonl:4–5`, `sample/pi/screen-metrics.jsonl:6–7`). It's not in `_FINDING_KEYS` and not an anomaly source, so it's harmless today — but it's dead signal masquerading as a footer check.
+
+### L2. Carried over from the prior screen-cell review, still unaddressed
+The follow-up touched only the comparison layer, so these remain:
+- `status` needle hardcoded to `"(openai-codex) gpt-5.5"` and the missing-status anomaly fires on *every* phase including startup (terminal_screen.py:367–369, 456–457) — the analyzer can't run another model without a source edit.
+- `cwd` needle hardcoded to `"~/projects/pipy"` (372); running from any other cwd silently drops cwd parity (no per-product anomaly; comparison skips when absent on both).
+- `_separator_rows`/`_input_row` pick the *first* full-width `─` pair 2 rows apart (488–501); a wide horizontal rule in assistant/tool output could form a false pair earlier in history.
+- `strip_ansi` allocates a `TerminalScreen` then immediately `del`s it before doing pure regex stripping (328–336) — dead code.
+
+### L3. Test gap in `terminal_compare`
+`_required_metric`'s "missing on one side of comparison" anomaly (terminal_compare.py:123–130, 302–313) has no test. `test_native_terminal_compare.py` covers the within-tolerance, out-of-tolerance, and final-pairing paths but never asserts the missing-metric anomaly fires — which is the mechanism behind B-style "pipy shows output, Pi doesn't" detection.
+
+## Docs
+Docs are accurate, not stale. architecture.md:109–111, harness-spec.md:418–452, and backlog.md:1050–1080 correctly describe the new modules, scripts, artifact names, and the final-frame required-metric list (matching `_required_metric`). One soft note: harness-spec.md:448–450 says final deltas prove "prompt, expected output, status/footer, cwd, input row, live cursor, drawn cursor within tolerance" — true positionally, but the prose implies a completeness ("footer", "visual") the comparison doesn't deliver given B1 (no color/attribute diffing). Worth a sentence clarifying the comparison is positional-only.
+
+## Direct answers
+1. **Mostly, on the real path, but not fully.** The script drives the real `pipy repl` command and the screen model proves visible prompt/output, pinned input/footer rows, cursor-to-input alignment, stale/duplicate `Working`, and cell attributes — but tool blocks and sustained streaming were never captured in a real session (B2), and *duplicate* cursor is not provable at all (H1).
+2. **Yes for final-to-final** — pairing is correct and tested (M1). Active pairing is positional and weak once one side settles, but produces no false positives.
+3. **Partially.** Row/column drift: yes (within a loose ±2, H3). Stale `Working`: yes (per-product). Hidden output: only when `--expected-output` is supplied (H2). Footer overwrite: only via the `(openai-codex) gpt-5.5` presence check, not position/color. Duplicate cursor: **no** (H1). And **no color/attribute drift detection anywhere** (B1).
+4. Docs are current; the only fix needed is the positional-only clarification above, plus the L2/L3 code/test carryovers.
+
+My recommendation: treat B1 (and ideally B2) as gating before further visual-parity work — add attribute/color diffing to the comparison and capture a tool-using, longer-streaming prompt — since right now the harness would pass a render that does not match Pi visually.
+
+[exit:0]

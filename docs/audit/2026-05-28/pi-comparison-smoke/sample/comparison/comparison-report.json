@@ -1,0 +1,11 @@
+{
+  "anomaly_count": 0,
+  "compared_frames": 11,
+  "delta_count": 79,
+  "max_column_delta": 0,
+  "max_row_delta": 0,
+  "reference_label": "pipy",
+  "reference_metrics": "docs/audit/2026-05-28/pi-comparison-smoke/sample/pipy/screen-metrics.jsonl",
+  "target_label": "pi",
+  "target_metrics": "docs/audit/2026-05-28/pi-comparison-smoke/sample/pi/screen-metrics.jsonl"
+}

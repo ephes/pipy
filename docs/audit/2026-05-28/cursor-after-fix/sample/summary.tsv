@@ -1,0 +1,279 @@
+label	frame	needle	row	line
+pipy	0	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	0	Hello!	16	 Reply exactly: Hello!
+pipy	0	Working...	19	 ⠋ Working...
+pipy	0	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	0	Reply exactly: Hello!	22	Reply exactly: Hello!
+pi	0	Hello!	22	Reply exactly: Hello!
+pi	0	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	1	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	1	Hello!	16	 Reply exactly: Hello!
+pipy	1	Working...	19	 ⠙ Working...
+pipy	1	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	1	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	1	Hello!	22	 Reply exactly: Hello!
+pi	1	Working...	25	 ⠙ Working...
+pi	1	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	2	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	2	Hello!	16	 Reply exactly: Hello!
+pipy	2	Working...	19	 ⠸ Working...
+pipy	2	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	2	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	2	Hello!	22	 Reply exactly: Hello!
+pi	2	Working...	25	 ⠸ Working...
+pi	2	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	3	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	3	Hello!	16	 Reply exactly: Hello!
+pipy	3	Working...	19	 ⠼ Working...
+pipy	3	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	3	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	3	Hello!	22	 Reply exactly: Hello!
+pi	3	Working...	25	 ⠴ Working...
+pi	3	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	4	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	4	Hello!	16	 Reply exactly: Hello!
+pipy	4	Working...	19	 ⠦ Working...
+pipy	4	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	4	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	4	Hello!	22	 Reply exactly: Hello!
+pi	4	Working...	25	 ⠦ Working...
+pi	4	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	5	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	5	Hello!	16	 Reply exactly: Hello!
+pipy	5	Working...	19	 ⠧ Working...
+pipy	5	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	5	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	5	Hello!	22	 Reply exactly: Hello!
+pi	5	Working...	25	 ⠇ Working...
+pi	5	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	6	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	6	Hello!	16	 Reply exactly: Hello!
+pipy	6	Working...	19	 ⠏ Working...
+pipy	6	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	6	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	6	Hello!	22	 Reply exactly: Hello!
+pi	6	Working...	25	 ⠏ Working...
+pi	6	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	7	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	7	Hello!	16	 Reply exactly: Hello!
+pipy	7	Working...	19	 ⠙ Working...
+pipy	7	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	7	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	7	Hello!	22	 Reply exactly: Hello!
+pi	7	Working...	25	 ⠙ Working...
+pi	7	$0.000 (sub) 0.0%/272k	31	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	8	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	8	Hello!	16	 Reply exactly: Hello!
+pipy	8	Working...	19	 ⠹ Working...
+pipy	8	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	8	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	8	Hello!	22	 Reply exactly: Hello!
+pi	8	Hello!	25	 Hello!
+pi	8	Working...	27	 ⠸ Working...
+pi	8	$0.000 (sub) 0.0%/272k	33	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pipy	9	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	9	Hello!	16	 Reply exactly: Hello!
+pipy	9	Working...	19	 ⠼ Working...
+pipy	9	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	9	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	9	Hello!	22	 Reply exactly: Hello!
+pi	9	Hello!	25	 Hello!
+pipy	10	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	10	Hello!	16	 Reply exactly: Hello!
+pipy	10	Working...	19	 ⠴ Working...
+pipy	10	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	10	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	10	Hello!	22	 Reply exactly: Hello!
+pi	10	Hello!	25	 Hello!
+pipy	11	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	11	Hello!	16	 Reply exactly: Hello!
+pipy	11	Working...	19	 ⠧ Working...
+pipy	11	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	11	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	11	Hello!	22	 Reply exactly: Hello!
+pi	11	Hello!	25	 Hello!
+pipy	12	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	12	Hello!	16	 Reply exactly: Hello!
+pipy	12	Working...	19	 ⠇ Working...
+pipy	12	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	12	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	12	Hello!	22	 Reply exactly: Hello!
+pi	12	Hello!	25	 Hello!
+pipy	13	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	13	Hello!	16	 Reply exactly: Hello!
+pipy	13	Working...	19	 ⠋ Working...
+pipy	13	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	13	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	13	Hello!	22	 Reply exactly: Hello!
+pi	13	Hello!	25	 Hello!
+pipy	14	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	14	Hello!	16	 Reply exactly: Hello!
+pipy	14	Working...	19	 ⠙ Working...
+pipy	14	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	14	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	14	Hello!	22	 Reply exactly: Hello!
+pi	14	Hello!	25	 Hello!
+pipy	15	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	15	Hello!	16	 Reply exactly: Hello!
+pipy	15	Working...	19	 ⠸ Working...
+pipy	15	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	15	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	15	Hello!	22	 Reply exactly: Hello!
+pi	15	Hello!	25	 Hello!
+pipy	16	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	16	Hello!	16	 Reply exactly: Hello!
+pipy	16	Working...	19	 ⠴ Working...
+pipy	16	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	16	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	16	Hello!	22	 Reply exactly: Hello!
+pi	16	Hello!	25	 Hello!
+pipy	17	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	17	Hello!	16	 Reply exactly: Hello!
+pipy	17	Working...	19	 ⠦ Working...
+pipy	17	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	17	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	17	Hello!	22	 Reply exactly: Hello!
+pi	17	Hello!	25	 Hello!
+pipy	18	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	18	Hello!	16	 Reply exactly: Hello!
+pipy	18	Working...	19	 ⠇ Working...
+pipy	18	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	18	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	18	Hello!	22	 Reply exactly: Hello!
+pi	18	Hello!	25	 Hello!
+pipy	19	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	19	Hello!	16	 Reply exactly: Hello!
+pipy	19	Working...	19	 ⠏ Working...
+pipy	19	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	19	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	19	Hello!	22	 Reply exactly: Hello!
+pi	19	Hello!	25	 Hello!
+pipy	20	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	20	Hello!	16	 Reply exactly: Hello!
+pipy	20	Working...	19	 ⠙ Working...
+pipy	20	$0.000 (sub) 0.0%/272k	25	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	20	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	20	Hello!	22	 Reply exactly: Hello!
+pi	20	Hello!	25	 Hello!
+pipy	21	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	21	Hello!	16	 Reply exactly: Hello!
+pipy	21	Hello!	19	 Hello!
+pipy	21	Working...	21	 ⠙ Working...
+pipy	21	$0.000 (sub) 0.0%/272k	27	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	21	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	21	Hello!	22	 Reply exactly: Hello!
+pi	21	Hello!	25	 Hello!
+pipy	22	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	22	Hello!	16	 Reply exactly: Hello!
+pipy	22	Hello!	19	 Hello!
+pipy	22	Working...	21	 ⠙ Working...
+pipy	22	$0.000 (sub) 0.0%/272k	27	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	22	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	22	Hello!	22	 Reply exactly: Hello!
+pi	22	Hello!	25	 Hello!
+pipy	23	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	23	Hello!	16	 Reply exactly: Hello!
+pipy	23	Hello!	19	 Hello!
+pipy	23	Working...	21	 ⠙ Working...
+pipy	23	$0.000 (sub) 0.0%/272k	27	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	23	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	23	Hello!	22	 Reply exactly: Hello!
+pi	23	Hello!	25	 Hello!
+pipy	24	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	24	Hello!	16	 Reply exactly: Hello!
+pipy	24	Hello!	19	 Hello!
+pipy	24	Working...	21	 ⠙ Working...
+pipy	24	$0.000 (sub) 0.0%/272k	27	$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+pi	24	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	24	Hello!	22	 Reply exactly: Hello!
+pi	24	Hello!	25	 Hello!
+pipy	25	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	25	Hello!	16	 Reply exactly: Hello!
+pipy	25	Hello!	19	 Hello!
+pi	25	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	25	Hello!	22	 Reply exactly: Hello!
+pi	25	Hello!	25	 Hello!
+pipy	26	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	26	Hello!	16	 Reply exactly: Hello!
+pipy	26	Hello!	19	 Hello!
+pi	26	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	26	Hello!	22	 Reply exactly: Hello!
+pi	26	Hello!	25	 Hello!
+pipy	27	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	27	Hello!	16	 Reply exactly: Hello!
+pipy	27	Hello!	19	 Hello!
+pi	27	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	27	Hello!	22	 Reply exactly: Hello!
+pi	27	Hello!	25	 Hello!
+pipy	28	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	28	Hello!	16	 Reply exactly: Hello!
+pipy	28	Hello!	19	 Hello!
+pi	28	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	28	Hello!	22	 Reply exactly: Hello!
+pi	28	Hello!	25	 Hello!
+pipy	29	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	29	Hello!	16	 Reply exactly: Hello!
+pipy	29	Hello!	19	 Hello!
+pi	29	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	29	Hello!	22	 Reply exactly: Hello!
+pi	29	Hello!	25	 Hello!
+pipy	30	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	30	Hello!	16	 Reply exactly: Hello!
+pipy	30	Hello!	19	 Hello!
+pi	30	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	30	Hello!	22	 Reply exactly: Hello!
+pi	30	Hello!	25	 Hello!
+pipy	31	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	31	Hello!	16	 Reply exactly: Hello!
+pipy	31	Hello!	19	 Hello!
+pi	31	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	31	Hello!	22	 Reply exactly: Hello!
+pi	31	Hello!	25	 Hello!
+pipy	32	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	32	Hello!	16	 Reply exactly: Hello!
+pipy	32	Hello!	19	 Hello!
+pi	32	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	32	Hello!	22	 Reply exactly: Hello!
+pi	32	Hello!	25	 Hello!
+pipy	33	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	33	Hello!	16	 Reply exactly: Hello!
+pipy	33	Hello!	19	 Hello!
+pi	33	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	33	Hello!	22	 Reply exactly: Hello!
+pi	33	Hello!	25	 Hello!
+pipy	34	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	34	Hello!	16	 Reply exactly: Hello!
+pipy	34	Hello!	19	 Hello!
+pi	34	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	34	Hello!	22	 Reply exactly: Hello!
+pi	34	Hello!	25	 Hello!
+pipy	35	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	35	Hello!	16	 Reply exactly: Hello!
+pipy	35	Hello!	19	 Hello!
+pi	35	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	35	Hello!	22	 Reply exactly: Hello!
+pi	35	Hello!	25	 Hello!
+pipy	36	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	36	Hello!	16	 Reply exactly: Hello!
+pipy	36	Hello!	19	 Hello!
+pi	36	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	36	Hello!	22	 Reply exactly: Hello!
+pi	36	Hello!	25	 Hello!
+pipy	37	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	37	Hello!	16	 Reply exactly: Hello!
+pipy	37	Hello!	19	 Hello!
+pi	37	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	37	Hello!	22	 Reply exactly: Hello!
+pi	37	Hello!	25	 Hello!
+pipy	38	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	38	Hello!	16	 Reply exactly: Hello!
+pipy	38	Hello!	19	 Hello!
+pi	38	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	38	Hello!	22	 Reply exactly: Hello!
+pi	38	Hello!	25	 Hello!
+pipy	39	Reply exactly: Hello!	16	 Reply exactly: Hello!
+pipy	39	Hello!	16	 Reply exactly: Hello!
+pipy	39	Hello!	19	 Hello!
+pi	39	Reply exactly: Hello!	22	 Reply exactly: Hello!
+pi	39	Hello!	22	 Reply exactly: Hello!
+pi	39	Hello!	25	 Hello!

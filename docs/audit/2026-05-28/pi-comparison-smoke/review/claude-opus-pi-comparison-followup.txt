@@ -1,0 +1,34 @@
+I have enough to assess all three questions. Tests pass, evidence is consistent with the claims, and the loader color is genuinely captured and compared now.
+
+## Follow-up review: TUI verification fixes
+
+**Verdict: No blocking findings.** B1 and B2 are both resolved, the overflow/prompt-preservation fix holds in the real product path, and I found no regressions. Non-blocking risks listed at the end.
+
+### B1 — terminal_compare ignored cell attributes (FIXED)
+
+`terminal_compare.py:307-314` now derives `attributes_match` and stores `reference_attr`/`target_attr`. The attribute-mismatch anomaly at `terminal_compare.py:133-140` has **no phase guard**, so a loader/text color divergence is flagged on active frames too — not just final. Default tolerance is zero (`max_row_delta=0`, `max_column_delta=0`, `terminal_compare.py:57-58`).
+
+I verified the original "loader color" concern is genuinely closed: the `working` metric carries the cell attr, and both sides record `⠙ Working...` at `fg=128;128;128` with `attributes_match=True` (`row-column-deltas.tsv:10` and the metrics). A real color drift would now produce `attributes_match=False` → error anomaly. Tests `test_compare_screen_metrics_reports_attribute_mismatch` and `test_compare_screen_metrics_reports_missing_required_final_metric` cover both the mismatch and the missing-metric paths.
+
+### B2 — product smoke only ran "Reply exactly: Hello!" (FIXED)
+
+A real tool-directed smoke now runs the actual product command with `"Use the ls tool on the current directory, then reply exactly: TOOL SMOKE DONE"` (`tool-stream-smoke/pipy/summary.tsv:3`): 26 frames / 24 active, `settled=yes`, `anomaly_count=0`. The per-frame metrics show sustained transient rendering — `working=1` across every active frame, `prompt=1` throughout, `rev=1` (single cursor) — and `expected_output=1` only on the final frame. This exercises the loader + tool path the old prompt never reached. Scripts also enforce that an expected-output string is supplied unless derivable from `Reply exactly: ` (`tmux_transient_ui_verify.sh:26-32`, `tmux_pi_comparison_verify.sh:22-28`).
+
+### Q2 — input/footer pinning vs. prompt/output retention (HOLDS)
+
+`tui.py:271-278` always appends `separator / input / separator / footer / footer` (5 rows) **after** history is tailed to `height-5` (`tui.py:259-262`), so input/footer are structurally pinned regardless of overflow. `_tail_history_lines` (`tui.py:494-521`) preserves the most-recent user block and keeps the tail of everything after it, so the final assistant/tool output stays visible above the input.
+
+Real-path evidence: in the tool smoke the inferred input row migrates 21→24→25→24 as history grows and then tails, while `prompt` stays at exactly 1 every active frame and `expected_output` is present on the final frame — i.e. the prompt never scrolled off and the final answer survived. The deterministic unit test `test_tui_preserves_input_and_footer_when_history_overflows` forces 30 lines of tool output and asserts the prompt, the last output line, both separators, and both footer rows are all present.
+
+### Q3 — Non-blocking risks
+
+1. **Active-phase positional drift is recorded but not failed** (`terminal_compare.py:122`, `final` only). This is intentional and documented (CLIs settle at different sample counts). Attribute mismatches *are* failed in every phase, so the loader-color regression class is still caught mid-stream — but raw row/column drift during streaming will not fail the comparison.
+2. **Attribute comparison samples only the first cell of each needle** (`terminal_screen.py:70`, `_finding_point` uses `values[0]`). The loader *text* color is compared via the "W" of "Working…", but a color difference isolated to the spinner glyph cell, or to trailing cells of a finding, would go undetected. Adequate for the stated goal; just not full per-cell parity.
+3. **Pi parity is only proven on the trivial prompt.** The pi-vs-pipy comparison still runs `Reply exactly: Hello!` (`pi-comparison-smoke/.../pipy/summary.tsv:3`); the tool/overflow path is exercised pipy-only. So cross-implementation parity for *tool* rendering is unverified — consider a tool-directed `tmux_pi_comparison_verify.sh` run.
+4. **`reverse_cells()` treats every reverse cell as a cursor** (`terminal_screen.py:83-96`, anomaly at `:456`). If either CLI ever uses reverse video for non-cursor chrome (selection, inverse status), it would raise a false "multiple reverse cursor cells" anomaly. Fine today (count is 1 throughout).
+5. **`footer_meter` is captured but not compared** — it's absent from `_FINDING_KEYS` (`terminal_compare.py:12`), so the cost/budget meter's position/attr isn't checked against Pi (the status footer is).
+6. **Long-prompt edge in `_tail_history_lines`** (`tui.py:517-518`): if a single user block alone exceeds `height-5`, it returns the user-block tail and drops `after_user`, which would hide the final output. Pathological (prompt > ~19 rows) and acceptable, but it is the one path where output can be hidden while input/footer stay pinned.
+
+Docs (`harness-spec.md:432-460`, `pi-parity.md:39`, `architecture.md:109-111`, `backlog.md:1065-1080`) accurately describe the new modules, zero-tolerance comparison, attribute mismatch failure, and overflow behavior. Targeted tests pass (19/19 across the three files); I did not re-run the full `just check` but spot-verified the relevant suites.
+
+[exit:0]

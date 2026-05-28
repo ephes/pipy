@@ -330,9 +330,10 @@ to `https://openrouter.ai/api/v1/chat/completions`:
 uv run pipy run --agent pipy-native --native-provider openrouter --native-model <provider/model> --slug openrouter-smoke --goal "Say hello briefly"
 ```
 
-The OpenRouter provider maps documented usage counters to pipy's normalized
-`input_tokens`, `output_tokens`, and `total_tokens` metadata and omits unknown,
-unavailable, negative, non-finite, or provider-native usage fields. It does not
+The OpenRouter provider maps documented usage counters `prompt_tokens`,
+`completion_tokens`, and `total_tokens` to pipy's normalized `input_tokens`,
+`output_tokens`, and `total_tokens` metadata and omits unknown, unavailable,
+negative, non-finite, or provider-native usage fields. It does not
 send OpenRouter app-attribution headers, debug options, provider routing
 preferences, plugins, tools, function calling, streaming, retries, fallback
 routing, OAuth, or provider-side tool settings. It does not store raw request
@@ -414,6 +415,52 @@ command text, authorization URLs, prompts, provider responses, tokens, or auth
 material. Successful `/model` selections are persisted as non-secret native
 defaults under local pipy state with only provider and model identifiers.
 `/exit` and `/quit` terminate the session.
+The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
+stderr are real TTY streams and the input runtime is `auto`. That boundary is
+`pipy_harness.native.tui.ToolLoopTerminalUi`: it stores chat history,
+submitted user-message blocks, the active assistant-output buffer, transient
+working text, the input/editor line, and the two-row footer/status, then
+composes whole alternate-screen terminal frames from that state. Submitted
+messages, streamed assistant text, and the loader flow through the history
+area so tmux history does not accumulate stale repaint rows; the input and
+footer remain stable frame rows. Captured streams and explicit non-TTY input
+runtimes continue to use the deterministic line-oriented fallback so
+stdout/stderr automation contracts and tests remain stable. The TUI shell is a
+presentation boundary only; provider calls, bounded tool-loop behavior,
+transcript sidecars, and metadata-first archive policy stay behind the
+existing native session/tool/provider ports.
+TUI verification uses `pipy_harness.native.terminal_screen` as a small
+stdlib ANSI screen-cell model, comparable in purpose to Pi's
+`packages/tui/test/virtual-terminal.ts`: it can replay rendered terminal
+output into visible rows, columns, cursor position, viewport/scroll state, and
+SGR-backed cell attributes. `scripts/tmux_transient_ui_verify.sh <out-dir>
+[prompt] [expected-output]` exercises the real product command
+`uv run pipy repl --native-provider openai-codex --native-model gpt-5.5` in a
+controlled tmux pane and writes both text summaries and machine-readable
+screen artifacts. The script samples active frames at 100 ms by default
+(`SAMPLE_INTERVAL` and `MAX_SAMPLES` can override that) and requires an
+expected output string unless it can derive one from a `Reply exactly: `
+prompt. Treat `screen-metrics.jsonl`, `terminal-report.json`, and
+`screen-anomalies.tsv` as the authoritative verification outputs; screenshots
+are supporting evidence only. A longer product-path smoke under
+`docs/audit/2026-05-28/tool-stream-smoke/pipy/` exercises model-selected
+`ls` tool rendering, prompt retention, final assistant output, footer rows,
+and cursor alignment through the same script.
+`scripts/tmux_pi_comparison_verify.sh <out-dir> [prompt] [expected-output]`
+wraps that product-path run and a Pi reference run in matching 100x30 tmux
+panes, then feeds both `screen-metrics.jsonl` files to
+`pipy_harness.native.terminal_compare`. The comparison writes
+`comparison/row-column-deltas.{json,tsv}`, `comparison-report.json`, and
+`comparison-anomalies.tsv`; the final-frame deltas must show prompt,
+expected output, status/footer, cwd, inferred input row, live cursor, and
+drawn reverse cursor within zero row/column tolerance. Matching cell
+attributes are also recorded for visible findings and the drawn reverse
+cursor, and attribute mismatches fail the comparison. The Pi command defaults to
+`pi --provider openai-codex --model gpt-5.5` and can be overridden with
+`PI_COMMAND`.
+See `Read-Failure Recovery Boundary Direction`: two successful explicit file
+excerpts per REPL session plus one bounded failed or skipped read-attempt
+budget leaves the successful excerpt budget available.
 `/read <workspace-relative-path>` is the display-only workspace command.
 `/ask-file <workspace-relative-path> -- <question>` is the first explicit
 provider-visible context command: it uses a whitespace-delimited `--` separator,
@@ -526,6 +573,317 @@ responses, provider-native payloads, provider metadata, raw approval prompts,
 raw tool arguments, raw tool results, stdout, stderr, diffs, patches, full file
 contents, command output, auth material, secrets, credentials, tokens, private
 keys, and sensitive personal data.
+
+### Native Approval And Sandbox Enforcement Baseline
+
+This historical baseline defines the visible approval prompt foundation and
+sandbox enforcement for broad interactive tools, provider-visible context, and
+sanitized fixtures that can drive one follow-up provider turn. Decisions use
+`pending`, `allowed`, `denied`, `skipped`, and `failed`. Operations covered:
+read-only workspace tools, provider-visible repo context production, write
+tools, patch proposal apply, shell execution, network access, and verification
+commands. Sandbox modes are `no-workspace-access`, `read-only-workspace`, and
+`mutating-workspace`; capabilities are `workspace_read_allowed`,
+`filesystem_mutation_allowed`, `shell_execution_allowed`, and
+`network_access_allowed`.
+
+Gate order: Policy validation; Request normalization and identity; Approval
+gate; Sandbox capability gate; Path and context validation; Execution gate;
+Observation and provider-context gate. Missing policy, unsupported approval
+mode, unsupported sandbox mode, denied approval, unavailable approval UI,
+sandbox mismatch, unsafe request data, model-selected paths, and attempted
+capability escalation must not execute. Archive-safe fields are policy labels,
+approval required/resolved booleans, decision labels, safe reason labels,
+`tool_request_id`, `turn_index`, `duration_seconds`, and storage booleans. raw
+prompts, model output, provider responses, provider-native payloads, raw tool
+payloads, stdout, stderr, diffs, patches, full file contents, shell commands,
+raw args, model-selected paths, secrets, credentials, API keys, tokens, private
+keys, and sensitive personal data remain forbidden.
+
+### OpenAI Subscription-Backed Native Auth Decision
+
+Decision: reopened and implemented as a distinct `openai-codex` provider.
+Decision date: 2026-05-07. Decision update: reopened for a distinct
+`openai-codex` provider after checking /Users/jochen/src/pi-mono and these
+sources: https://developers.openai.com/api/reference/overview,
+https://help.openai.com/en/articles/6950777-what-is-chatgpt-plus,
+https://help.openai.com/en/articles/9039756,
+https://developers.openai.com/codex/auth,
+https://developers.openai.com/codex/pricing, and
+https://developers.openai.com/codex/sdk. Checked topics: ChatGPT subscription
+versus OpenAI API billing, OpenAI API authentication, Codex CLI authentication
+and device-code sign-in behavior, Codex pricing, and Codex SDK surface.
+
+The API-key path for direct API calls and subscription-backed sign-in path for
+Codex product clients are distinct. The docs do not document an official,
+stable, locally usable OAuth or device-code flow for a third-party native
+application call OpenAI models directly, so pipy must not turn the existing
+`--native-provider openai` Responses API provider into subscription auth. The
+OpenAI Platform API-key baseline uses `OPENAI_API_KEY` plus `--native-model`;
+the existing `openai` provider remains the OpenAI Platform API-key provider
+and must remain the OpenAI Platform API-key provider.
+Rejected approaches: scraping or reusing ChatGPT, browser, Codex CLI, or IDE
+extension credential stores; access tokens; refresh tokens; cookies;
+authorization headers; cached `auth.json` values; reverse engineering private
+product endpoints; wrapping Codex, ChatGPT, Claude Code, or another product
+UI/CLI; and archiving raw provider response content. OpenRouter remains
+implemented and usable for manual smoke tests, but the desired default
+real-provider direction is the `openai-codex` provider. The Pi reference files
+were packages/ai/src/utils/oauth/openai-codex.ts,
+packages/coding-agent/src/core/auth-storage.ts, and
+packages/ai/src/providers/openai-codex-responses.ts, including
+https://chatgpt.com/backend-api/codex/responses. This provider must also
+continue to reject credential-store scraping. Historical provider priority
+after the original blocked decision: Local model provider integrations remained
+deferred pending benchmark work. Anthropic subscription-backed native provider
+support was not promoted. Required closeout was focused
+tests for OAuth shape, credential storage, refresh, and manual smoke confirms
+that live login, refresh, provider calls work.
+
+### Native Provider-Visible Repo Context Policy
+
+Provider-visible repo context is provider input, not archive content. It is
+limited to exactly one follow-up provider turn and may include bounded explicit
+file excerpts, bounded search-result excerpts, explicit per-turn workspace
+summaries, short user-provided goal metadata, and sanitized tool-observation
+summaries. Forbidden context includes broad repo maps, unbounded file contents,
+persistent workspace summaries, raw diffs, patches, stdout, stderr, shell
+command output, raw tool payloads, raw tool arguments, raw provider responses,
+model-selected paths, secrets, credentials, API keys, tokens, private keys, and
+sensitive personal data.
+
+Limits: per excerpt: 4 KiB and 80 lines; per source file per provider turn:
+8 KiB and 160 lines; total provider-visible repo context per provider turn:
+24 KiB and 480 lines; maximum excerpts per provider turn: 12; maximum distinct
+source files per provider turn: 6. Metadata uses normalized relative workspace
+path plus source label plus a stable path hash or omit the path. Unsafe data
+must fail closed. Unsafe data must be dropped or skipped in memory before
+provider-visible context. JSONL, Markdown, and `--native-output json` may
+record only `tool_request_id`, `turn_index`, and
+`native.tool.observation.recorded` metadata. No-fixture fake/OpenAI/OpenRouter
+runs still perform no repo reads.
+
+### Implemented REPL Boundary: Proposal-Only File Context
+
+`/propose-file <workspace-relative-path> -- <change-request>` builds on the
+fact that `/ask-file` already proved one bounded explicit-file-excerpt read.
+The turn is labeled `propose_file_repl`, uses `pipy_native_patch_proposal`,
+records `native.tool.observation.recorded`, the same metadata-only
+`native.tool.observation.recorded` lifecycle event, and a
+`native.patch.proposal.recorded` event. It accepts at most one proposal and
+uses the existing metadata-only proposal payload allowlist. It hard-stops at
+provider result and proposal parse boundaries. Required boundaries are
+read-only sandbox policy, explicit-file-excerpt tool, workspace-relative target
+validation, and shared successful-read budget. Deferred: workspace mutation,
+verification, shell execution, broad search, multiple file context,
+provider-side tools, general model/tool loop, network access, and another
+provider turn. Allowed metadata: `tool_request_id`, `turn_index`, `status`,
+`reason_label`, file and operation counts, closed operation labels, and false
+storage booleans. Forbidden: raw patch text, raw diffs, replacement file
+contents, model-selected paths, raw provider proposal objects, raw provider
+metadata, raw prompts, model output, provider responses, provider-native
+payloads, raw approval prompts, raw tool arguments, raw tool results, stdout,
+stderr, command output, auth material, secrets, credentials, API keys, tokens,
+private keys, and sensitive personal data.
+
+### Proposal Trial Outcome And Write Boundary Direction
+
+/apply-proposal <workspace-relative-path> is the first public write-capable
+REPL boundary. It requires same-session `/propose-file`, the exact same
+normalized workspace-relative path, a pending in-memory proposal draft,
+`NativePatchApplyRequest`, and `NativePatchApplyTool`. The explicit slash
+command is the human review signal and does not add a visible approval popup.
+It records `native.patch.apply.recorded`. Verification is now exposed through
+`/verify just-check` and must not run `just check` unless apply succeeded.
+Review and smoke status covered propose/apply/verify success, a failing
+`just check` path, and `pipy-session verify`, `list`, `search`, and `inspect`
+remained compatible.
+
+Checks: one pending proposal for one file and one operation,
+request_source=pipy-owned-human-reviewed, `mutating-workspace` sandbox policy,
+workspace read and filesystem mutation allowed, shell/network access forbidden,
+expected SHA-256 hashes, provider-selected paths, multi-file plans, and
+multiple operations. Allowed metadata: `tool_request_id`, `turn_index`, status
+and reason labels, file and operation counts, closed operation labels,
+approval/sandbox labels, `workspace_mutated`, and false storage booleans.
+Forbidden: raw proposal text, raw patch text, raw diffs, replacement file
+contents, target paths, raw prompts, model output, provider responses,
+provider-native payloads, raw provider metadata, raw tool payloads, stdout,
+stderr, command output, shell commands, auth material, secrets, credentials,
+API keys, tokens, private keys, and sensitive personal data.
+
+### First Native Self-Bootstrap Trial Outcome
+
+On 2026-05-11, `openai-codex/gpt-5.2` proposed and applied a tiny
+`pyproject.toml` change through `/apply-proposal pyproject.toml` and
+`/verify just-check`. The observed state confirmed no runtime dependencies are
+declared, `pipy-session verify` reported `ok`, and the session slug was
+`native-self-bootstrap-trial`. The archive contained metadata-only lifecycle,
+provider, tool, patch-apply, and verification event types plus partial
+lifecycle metadata only. Deferred: provider auth changes, token storage
+changes, provider routing changes, model default changes, arbitrary shell
+execution, non-allowlisted verification commands, multi-file reads, multiple
+tool requests, automatic write selection, provider follow-up turns, and
+general model/tool loop.
+
+### Read-Failure Recovery Boundary Direction
+
+The selected boundary was bounded read-failure recovery for explicit REPL file
+commands, based on `native-self-bootstrap-trial` metadata-only
+propose/apply/verify run evidence. A secret-looking target failed closed as
+intended, but the one-read session limit then blocked a second explicit target.
+The boundary keeps one successful explicit file excerpt budget per REPL session
+plus one narrowly bounded failed or skipped explicit-read attempt budget for
+`/read`, `/ask-file`, and `/propose-file` before provider visibility and
+outside both budgets for usage/help. It reuses existing metadata-only tool
+lifecycle and observation events. Failed reasons include unsafe target,
+ignored/generated target, binary or unreadable file, unsupported encoding,
+secret-looking content, size or line limit failure, and tool-skipped status.
+Deferred: broad context loading, provider-selected filesystem paths,
+provider-side tools, provider follow-up turns, arbitrary shell execution,
+non-allowlisted verification commands, automatic write selection, and general
+model/tool loop. Forbidden archive content: raw prompts, excerpts, model
+output, provider responses, proposal text, patch text, diffs, file contents,
+command stdout, command stderr, auth material, secrets, credentials, API keys,
+tokens, private keys, and sensitive personal data.
+
+### No-Tool REPL Conversation Context
+
+The no-tool REPL now has bounded in-memory conversation context for ordinary
+no-tool REPL turns, including ordinary non-command REPL turns, backed by
+summary-safe archive evidence only. The
+read-failure recovery review and smoke records show a clean closeout, including
+fake-provider REPL smoke with finalized archive verification. Ordinary
+non-command REPL turns may forward prior successful ordinary no-tool user
+prompts and provider final text through `NativeNoToolReplConversationContext`
+under the existing REPL provider-turn limit and a 4 KiB provider-visible
+history byte budget; oldest no-tool exchanges are dropped before provider
+visibility. It is cleared when provider/model selection changes, on login, on
+logout, after provider failure, and by `/clear`; `/read`, `/ask-file`,
+`/propose-file`, `/apply-proposal`, and `/verify just-check` are excluded.
+Archive metadata-only Provider lifecycle events may state whether history
+exchanges were forwarded, history bytes were forwarded, terminal session event
+labels, retained-at-end counters, and how many exchanges remained retained.
+Excluded history: file excerpts, `/ask-file` questions, `/propose-file` change
+requests, visible proposal drafts, raw proposal text, patch text, diffs,
+verification status or output, command output, provider metadata, tool
+observations, auth material, and local slash-command text. Deferred:
+persistent conversation history, transcript export, structured conversation
+stdout, conversation archive events, provider auth changes, token storage
+changes, provider routing changes, model default changes, arbitrary shell
+execution, non-allowlisted verification commands, multi-file reads, second
+successful read/context handoff, provider-selected filesystem paths, automatic
+write selection, provider-side tools, and general model/tool loop. Forbidden
+archive content: raw prompts, provider final text, model output, provider
+responses, provider-native payloads, excerpts, proposal text, patch text,
+diffs, file contents, command stdout, command stderr, auth material, secrets,
+credentials, API keys, tokens, private keys, and sensitive personal data.
+
+### No-Tool REPL Conversation Context Review And Smoke
+
+The bounded no-tool REPL conversation context implementation is reviewed and
+smoked. The two-round independent review cycle first round reported one
+warning and three suggestions; the second round reported zero findings. Smoke
+used two ordinary fake-provider REPL turns, `pipy-session verify`, and
+`just check` passed. It did not require implementation hardening.
+
+### Native Local Clear REPL Command
+
+The native shell exposes a local `/clear` command that clears retained no-tool
+history and discards any pending same-session proposal draft. Malformed
+`/clear <text>` remains local and does not clear retained no-tool history, does
+not reset provider/model selection, auth state, read budgets, verification
+availability, or provider turn indexes. It archives metadata-only.
+
+### Native Local Clear Review And Smoke
+
+The `/clear` slice had a two-round independent review cycle with two
+suggestion-level coverage items; the second review reported no findings,
+`just check` passed, fake-provider REPL smoke passed, and the next native work
+selected by the follow-up decision slice was a local `/status` command. The
+implementation is now present.
+
+### Native Local Status REPL Command
+
+The native shell exposes a local `/status` command with summary-safe archive
+evidence only, clean second review, and a later closeout audit also found no
+new issues. /status is listed by `/help`, uses static supported-command usage
+diagnostics, and prints safe state labels and counters to stderr: provider/model
+selection labels, provider turn count and limit, retained no-tool history
+counts and byte counts, explicit-read budget booleans, pending proposal
+availability, and verification availability. It must not invoke providers,
+tools, reads, writes, patch apply, verification commands, shell commands,
+network access, provider-visible context handoff, provider-side tools, another
+provider turn, consume provider turns, consume explicit-read budgets, mutate
+retained conversation context, clear pending proposals, change provider/model
+selection, change auth state, change verification availability, emits no
+archive events, and stores no raw command text. Forbidden content: raw prompts,
+provider final text, model output, provider responses, provider-native
+payloads, excerpts, proposal text, patch text, diffs, file contents, command
+stdout, command stderr, shell commands, auth material, authorization URLs,
+secrets, credentials, API keys, tokens, private keys, and sensitive personal
+data.
+
+### Native Explicit File Excerpt Tool
+
+`NativeExplicitFileExcerptTool` uses `NativeReadOnlyGateDecision` and
+`NativeExplicitFileExcerptTarget` with `workspace_read_allowed`. It was wired
+into `NativeAgentSession` only through the bounded fixture-gated provider turn
+path. Oversized files fail closed, fuller ignore semantics remain deferred,
+and the metadata helper excludes raw excerpt text.
+
+### Pi Parity Direction
+
+The broader slopfork direction is Pi parity through pipy-owned Python
+boundaries.
+
+### Native Pi-Like REPL Startup Chrome
+
+The startup-chrome slice printed compact Pi-like native shell chrome.
+
+### Native Terminal-Layer Direction Checkpoint
+
+Prompt-toolkit is the best next candidate for the input-adapter boundary while
+the plain captured-stream fallback remains required.
+
+### Native Prompt-Toolkit Line-Editor Feasibility Boundary
+
+The prompt-toolkit line-editor feasibility boundary kept the runtime optional.
+
+### Native Prompt-Toolkit Slash-Command Completion Boundary
+
+Slash-command completion is an input-editor feature, not provider context.
+
+### Native Prompt-Toolkit File/Path Completion Boundary
+
+Workspace path completion suggests labels; command handlers remain authority.
+
+### Native Prompt-Toolkit Multiline Input Boundary
+
+Enter submits the current buffer and Esc+Enter inserts a newline.
+
+### Native Prompt-Toolkit Bottom-Toolbar Status Decision
+
+The bottom-toolbar decision defers footer behavior.
+
+### Native Prompt-Toolkit Real-TTY Input Hardening
+
+Real-TTY hardening disables prompt-toolkit cursor-position requests and handles
+CR and LF encodings.
+
+### Native Prompt-Toolkit File Reference Completion Boundary
+
+This is an input-editor feature, not a read/context feature. completion-only `@file` references insert safe workspace-relative labels.
+
+### Native Explicit Multi-File Context Budget
+
+The boundary raises the successful explicit file-excerpt budget from one to two
+and keeps file reads explicit.
+
+### Local Documentation Preview Decision
+
+Recommendation: yes, for local preview/build only. A minimal Zensical setup
+with `zensical.toml`, `docs/index.md`, and local recipes is acceptable.
 
 ## Native Tool Boundaries
 

@@ -1,0 +1,9 @@
+key	value
+session	pi-tui-verify-27227
+prompt	Reply exactly: Hello!
+expected_output	Hello!
+command	pi --provider openai-codex --model gpt-5.5
+settled	yes
+anomaly_count	0
+screen_metrics	docs/audit/2026-05-28/pi-comparison-smoke/sample/pi/screen-metrics.jsonl
+terminal_report	docs/audit/2026-05-28/pi-comparison-smoke/sample/pi/terminal-report.json

@@ -1,0 +1,8 @@
+{
+  "anomalies": "docs/audit/2026-05-28/tool-stream-smoke/pipy/screen-anomalies.tsv",
+  "anomaly_count": 0,
+  "expected_output": "TOOL SMOKE DONE",
+  "frames": 26,
+  "prompt": "Use the ls tool on the current directory, then reply exactly: TOOL SMOKE DONE",
+  "screen_metrics": "docs/audit/2026-05-28/tool-stream-smoke/pipy/screen-metrics.jsonl"
+}

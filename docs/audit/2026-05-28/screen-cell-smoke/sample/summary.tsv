@@ -1,0 +1,11 @@
+key	value
+session	pipy-tui-verify-22124
+prompt	Reply exactly: Hello!
+expected_output	Hello!
+command	uv run pipy repl --native-provider openai-codex --native-model gpt-5.5
+total_frames	10
+active_frames	8
+settled	yes
+anomaly_count	0
+screen_metrics	docs/audit/2026-05-28/screen-cell-smoke/sample/screen-metrics.jsonl
+terminal_report	docs/audit/2026-05-28/screen-cell-smoke/sample/terminal-report.json

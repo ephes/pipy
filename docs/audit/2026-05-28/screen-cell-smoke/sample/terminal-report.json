@@ -1,0 +1,8 @@
+{
+  "anomalies": "docs/audit/2026-05-28/screen-cell-smoke/sample/screen-anomalies.tsv",
+  "anomaly_count": 0,
+  "expected_output": "Hello!",
+  "frames": 10,
+  "prompt": "Reply exactly: Hello!",
+  "screen_metrics": "docs/audit/2026-05-28/screen-cell-smoke/sample/screen-metrics.jsonl"
+}

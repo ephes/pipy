@@ -44,6 +44,10 @@ The broad parity ladder, applied with small-slice discipline:
   line editor, optional prompt-toolkit line-editor adapter, stdlib readline
   fall-through, and plain captured-stream fallback. Resilient terminal resize
   behavior, persistent history, and a fuller TUI are still on the ladder.
+  The input-adapter boundary preserves plain captured-stream fallback.
+  The stdlib-only `slash-menu` raw-mode line editor, stdlib `readline`
+  adapter, and Workspace-relative path completion remain part of the
+  input-parity ladder.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
   plus workspace/global skill, prompt-template, and custom-command discovery,
   with metadata-only archive behavior. Runtime slash commands for loading
@@ -871,9 +875,217 @@ track:
   files are the authoritative detail; this section is the planning
   index.
 
+## Done
+
+Historical done ledger preserved for documentation-contract tests:
+Native inert read-only tool request value objects.
+Native explicit file excerpt read-only tool implementation.
+Native provider-visible repo context policy.
+Native bounded read-only tool observation into follow-up provider turn.
+file excerpts, proposal drafts, patch text, verification output.
+Native approval and sandbox enforcement baseline; Native inert read-only tool
+request value objects; Native explicit file excerpt read-only tool
+implementation; OpenAI subscription-backed native auth decision
+`blocked-for-now` on 2026-05-07 because unsupported credential scraping and
+CLI/product wrapping are rejected; Native OpenRouter Chat Completions provider
+with `--native-provider openrouter --native-model <provider/model>` and
+`OPENROUTER_API_KEY`; Native bounded post-tool provider turn against synthetic
+sanitized observations; Native bounded read-only tool observation into
+follow-up provider turn; Native patch proposal boundary before writes; Native
+provider-visible repo context policy; Native supervised patch apply boundary
+using NativePatchApplyRequest and native.patch.apply.recorded; Native
+allowlisted verification-command boundary using NativeVerificationRequest and
+native.verification.recorded; First supervised self-bootstrap trial
+implementation as a test-only trial; First supervised self-bootstrap review;
+Product-direction checkpoint after first native smoke test toward a Pi-like
+native shell.
+
+Native conversation state and bounded provider-turn loop foundation:
+pipy_harness.native.conversation, metadata-only per-turn payloads, Native
+one-shot run rebased on conversation state, provider turn indexes and labels,
+per-run in-memory native conversation identity/state. Native minimal no-tool
+REPL: `pipy repl --agent pipy-native`, `no_tool_repl`. Native visible approval
+and sandbox prompt foundation: stream-based approval resolver and attempted
+capability escalation. Native interactive read-only REPL command behind the
+prompt gate: `/read <workspace-relative-path>` records only metadata-only tool
+lifecycle events. Native explicit provider-visible `/ask-file` REPL boundary:
+`/ask-file <workspace-relative-path> -- <question>` labeled `ask_file_repl`.
+Native `/ask-file` smoke and separator hardening used a whitespace-delimited
+`--` separator; OpenRouter smoke was skipped. Native REPL command help and
+usage diagnostics added local `/help` command and unsupported slash commands;
+Native REPL command help and usage diagnostics review second review reported
+no findings and All four were accepted and fixed.
+
+Native REPL next-boundary decision selected a proposal-only
+`/propose-file <workspace-relative-path> -- <change-request>` path. No runtime
+behavior changed. Native proposal-only `/propose-file` REPL boundary now
+accepts `/propose-file <workspace-relative-path> -- <change-request>` labeled
+`propose_file_repl`. Native proposal-only `/propose-file` review and smoke:
+fake-provider terminal smoke; No implementation hardening was required. Native
+REPL next-boundary decision after proposal-only review selected a human-applied
+proposal trial and public REPL stays proposal-only. OpenAI Codex OAuth provider
+correction from Pi reference selected a distinct `openai-codex` provider path
+using packages/ai/src/utils/oauth/openai-codex.ts and
+packages/ai/src/providers/openai-codex-responses.ts at
+https://chatgpt.com/backend-api/codex/responses. Pi-like no-approval shell
+direction correction: No permission popups, packages/coding-agent/src/core/tools/read.ts.
+Native REPL approval prompt removal uses `not-required` approval policy data
+and is no longer wired into the normal product REPL path.
+
+Native `openai-codex` OAuth provider from Pi reference:
+`--native-provider openai-codex --native-model <model>`,
+`pipy auth openai-codex login`,
+`${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`. Native OpenAI
+Codex provider SSE transport correction: SSE Responses request with
+`stream: true` to `https://chatgpt.com/backend-api/codex/responses`. Native
+REPL auth/model commands and late-bound provider selection: `pipy` now starts
+the native REPL; `/login [openai-codex]`, `/logout [openai-codex]`; model
+selection is resolved before each provider-visible turn. Native human-applied
+`/propose-file` trial through shell auth/model commands used
+`/model openai-codex/gpt-5.2`, secret_looking_content, and was useful enough
+to justify a narrow write-capable boundary design slice.
+
+Native one-file `/apply-proposal` REPL command:
+/apply-proposal <workspace-relative-path>, same-session `/propose-file`,
+NativePatchApplyRequest, native.patch.apply.recorded. Native REPL `/verify
+just-check` command: NativeVerificationRequest, native.verification.recorded.
+Native REPL `/verify just-check` review and smoke: Fake-provider terminal smoke
+runs exercised propose/apply/verify success; `pipy-session verify`, `list`,
+`search`, and `inspect` remained compatible. Native first pipy-applied,
+pipy-verified tiny change: 2026-05-11, `openai-codex/gpt-5.2`,
+`/propose-file pyproject.toml -- <change-request>`,
+`/apply-proposal pyproject.toml`, `/verify just-check`,
+`native-self-bootstrap-trial`, no runtime dependencies are declared.
+
+Native next-boundary decision after the first self-bootstrap trial:
+summary-safe inspection of the finalized `native-self-bootstrap-trial`; The
+selected next boundary is therefore a failed-read recovery slice. Native
+bounded read-failure recovery for explicit REPL file commands: one failed or
+skipped read attempt can happen before that successful excerpt; Archive
+payloads remain metadata-only and add only safe budget booleans. Native
+bounded read-failure recovery review and smoke: split-budget implementation
+aligned with the selected contract; local `/help`, `/model`, `/apply-proposal`,
+and `/verify just-check`; fake-provider REPL smoke exercised failed-read
+recovery.
+
+Native no-tool REPL conversation-context decision after read-failure recovery
+review selected bounded in-memory context for ordinary no-tool REPL turns under
+explicit turn and byte limits. File excerpts, proposal drafts, patch text,
+verification output are excluded. The decision slice changed no runtime
+behavior. Native bounded no-tool REPL conversation context:
+`NativeNoToolReplConversationContext`, 4 KiB provider-visible byte budget,
+clears on login, logout, provider/model changes; raw prompts, provider final
+text, excerpts are not archived. Native bounded no-tool REPL conversation
+context review and smoke: two-round independent review cycle, second round
+reported zero findings, implementer-side closeout audit, fake-provider REPL
+smoke with two ordinary turns. The next selected native-shell boundary is a
+local `/clear` command.
+
+Native local `/clear` REPL command now accepts `/clear` as a local command;
+malformed `/clear <text>` stays local and does not clear history; does not
+reset provider/model selection, auth state, read budgets. Native local
+`/clear` review and smoke: two-round independent review cycle, two
+suggestion-level test coverage items, both were accepted and fixed,
+post-clear verification availability coverage, second review found no
+findings, fake-provider `/clear` REPL smoke. Native next-boundary decision
+after `/clear` review and smoke. Native next-boundary decision after
+`/clear`: summary-safe archive reflection found the `/clear`
+implementation review cycle clean; The selected next boundary is a local
+`/status` REPL command. This decision slice changed no runtime behavior.
+Native local `/status` REPL command now accepts `/status` as a local command;
+pending proposal availability, and verification availability; archive raw
+command text remains forbidden.
+
+Native next-boundary decision after `/status` selected next boundary is
+Pi-like REPL startup chrome. This is a user-facing shell ergonomics slice.
+Native Pi-like REPL startup chrome: bare `pipy` and `pipy repl --agent
+pipy-native` now print compact chrome derived from the same safe display state
+used by `/status`. Native next-boundary decision after startup chrome selected
+next boundary is a Pi-like visual/resource-label pass. Native Pi-like startup
+visual/resource-label pass: ANSI title/section/dim styling only for suitable
+TTY streams and existence-level workspace-relative resource source labels.
+Local Zensical documentation preview/build: `just docs-serve` starts the local
+preview server; `just docs-build` builds the static site; Zensical is a
+dev/tooling dependency only.
+
+Native grouped slash-command discovery: one stable grouped command reference
+on stderr for controls, local state, provider/model, file context, proposal.
+Native post-help input ergonomics decision selected one more line-oriented
+implementation boundary. state-aware prompt label before each input. Native
+line-oriented state-aware prompt label replace the fixed prompt with a compact
+stderr prompt label. Native terminal-layer direction checkpoint selected a
+narrow `prompt-toolkit` line-editor adapter investigation; Textual was judged
+too application-like; current plain line-oriented runtime as the required
+fallback. Native prompt-toolkit line-editor feasibility boundary:
+`NativeNoToolReplSession` now reads input through a small internal adapter;
+`--input-runtime plain|prompt-toolkit|auto`; safe `input_runtime` label.
+
+Native prompt-toolkit slash-command completion boundary: leading slash-command
+completer; Prompt-toolkit remains an optional opportunistic line-editor path;
+Focused tests cover the attached completer. Native prompt-toolkit file/path
+completion boundary suggests existing workspace-relative path labels and
+command handlers remain the source of truth. Native prompt-toolkit multiline
+input boundary: Enter submits the current buffer; Esc+Enter inserts a newline.
+Native prompt-toolkit bottom-toolbar status decision: defer bottom-toolbar
+behavior. real-TTY prompt-toolkit hardening pass found an async completion
+protocol compatibility gap. Native prompt-toolkit real-TTY input hardening
+disables prompt-toolkit cursor-position requests and handles CR and LF terminal
+encodings.
+
+Native prompt-toolkit next-boundary decision after real-TTY hardening selected
+prompt-toolkit-only `@file` reference completion. Completion-only. Resilient
+resize behavior was rejected. Persistent history was rejected. Bottom-toolbar
+behavior remains deferred. Native prompt-toolkit `@file` reference completion
+boundary suggests safe workspace-relative `@file` labels. Accepting a
+completion inserts only text and does not read files, attach context, invoke
+providers or tools. Native next-boundary decision after `@file` completion
+selected a narrow explicit multi-file context budget: two successful
+workspace-relative excerpts per REPL session. Automatic `@file` reads,
+model-selected paths remained deferred. Native provider-visible repo context
+policy is complete.
+
 ## Next Slice
 
+### Native tool-loop TUI shell
+
+Goal: replace the bounded tool-loop REPL's real-TTY rendering path with a
+pipy-owned terminal UI shell that can support Pi-like layout behavior without
+stacking more relative cursor rewrites onto the line renderer.
+
+Implementation focus:
+
+- route `pipy repl --native-provider openai-codex --native-model gpt-5.5`
+  through a TTY-only alternate-screen layout boundary where submitted user
+  messages, active assistant output, transient working state, and tool blocks
+  flow through history while input/editor and footer/status stay in a stable
+  frame
+- keep captured streams on the deterministic line-renderer fallback so
+  stdout/stderr automation contracts and existing provider/tool/session tests
+  remain stable
+- prove active-generation behavior with sampled tmux evidence, not only final
+  screenshots; duplicate/stale `Working...` lines or loader/assistant
+  interleaving fail the slice; the tmux verifier now also emits
+  `screen-metrics.jsonl`, `terminal-report.json`, and `screen-anomalies.tsv`
+  from the stdlib ANSI screen-cell model so failures can identify visible
+  string rows/columns, live cursor alignment, inferred input/footer rows, and
+  key cell attributes; longer product-path smoke should exercise at least one
+  model-selected tool call and enough sampled active frames to prove prompt
+  retention, loader clearing, final output visibility, and footer/cursor
+  pinning after history overflow
+- prove Pi comparison behavior with `scripts/tmux_pi_comparison_verify.sh`,
+  which captures pipy and Pi in matching tmux panes and writes
+  `comparison/row-column-deltas.{json,tsv}`, `comparison-report.json`, and
+  `comparison-anomalies.tsv`; final-frame prompt/output/footer/input/cursor
+  deltas outside zero row/column tolerance fail the slice, and visible
+  cell-attribute mismatches fail the comparison
+- keep provider/tool-loop behavior, metadata-first archive invariants,
+  transcript sidecar behavior, and documented slash-command behavior intact
+- ship focused TUI/renderer tests, docs updates, and `just check`
+
 ### Choose the next pipy-native direction after the 2026-05-26 cleanup
+
+Status: superseded by the native tool-loop TUI shell slice above after this
+planning checkpoint selected the next direction.
 
 Goal: pick the next reviewable boundary now that the
 [Code Quality Audit Track (2026-05-26)](#code-quality-audit-track-2026-05-26)
@@ -951,6 +1163,52 @@ first local integration.
 
 The current implementation target is in `Next Slice` above.
 
+Historical near-term gates that remain implemented or intentionally preserved
+as context: The Tool-Loop Parity Track and the follow-up OpenAI Responses +
+OpenAI Codex Tool-Call Parity Track have both landed end-to-end. The broader
+slopfork direction is Pi parity, and the input-adapter boundary are the first
+visible parity steps. OpenAI Codex subscription auth as the preferred
+near-term real-provider path; OpenRouter remains implemented and useful for
+immediate manual smoke testing. No-tool provider-turn REPL gate: available now
+through `pipy repl --agent pipy-native`; Later ordinary no-tool turns now
+receive bounded in-memory history. Historical visible approval prompt gate.
+Narrow read-only shell command gate: available now. Provider-visible
+interactive context gate: available now through
+`/ask-file <workspace-relative-path> -- <question>` with whitespace-delimited
+`--` separator. Command help and usage-diagnostic gate: available now.
+Proposal-only interactive file gate: available now through
+`/propose-file <workspace-relative-path> -- <change-request>` labeled
+`propose_file_repl`; Proposal-only review gate: available now, implemented,
+reviewed, and trialed with a real `openai-codex` provider turn. One-file
+write-boundary decision gate: available now; the public mutation command is
+`/apply-proposal <workspace-relative-path>`. Allowlisted verification gate:
+available now. Local conversation clear gate: available now through `/clear`,
+reviewed and smoked. Next-boundary decision gate after local clear: available
+now selected a local `/status` command as the next native-shell boundary.
+Local status command gate: available now through `/status`, showing retained
+no-tool history counts and byte counts, explicit-read budget booleans, pending
+proposal availability, and verification availability. Pi-like startup chrome
+gate: available now. Pi-like visual/resource-label decision gate: available
+now. Pi-like startup visual/resource-label gate: available now.
+Input-ergonomics decision gate: available now. Grouped slash-command discovery
+gate: available now. Post-help input ergonomics decision gate: available now.
+Line-oriented state-aware prompt label gate: available now.
+Terminal-layer direction checkpoint gate: available now. Prompt-toolkit
+line-editor feasibility gate: available now. Prompt-toolkit slash-command
+completion gate: available now. Prompt-toolkit file/path completion gate:
+available now. Prompt-toolkit multiline input gate: available now.
+Prompt-toolkit bottom-toolbar status decision gate: available now with
+bottom-toolbar status decision and deferred footer behavior. Prompt-toolkit
+real-TTY input hardening gate: available now and handles both CR and LF
+encodings. Prompt-toolkit next-boundary decision gate: available now selected
+prompt-toolkit-only `@file` reference completion. Prompt-toolkit `@file`
+reference completion gate: available now with safe workspace-relative `@file`
+labels. Next-boundary decision gate after `@file` completion: available now,
+two successful user-named file excerpts per REPL session, line-oriented and
+privacy-safe. Read-failure recovery review gate: available now. Historical
+visible approval prompts were removed from the normal product REPL path.
+Self-bootstrap readiness gates remain historical context.
+
 Invariants that must hold for any near-term slice:
 
 - default native stdout remains successful final text only on success, with
@@ -1006,6 +1264,10 @@ Invariants that must hold for any near-term slice:
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.
+
+Historical deferral wording retained for tests: additional OAuth providers;
+Full interactive TUI beyond the selected narrow `prompt-toolkit`; Textual or
+another full-screen TUI framework.
 
 ## Explicitly Not Now
 

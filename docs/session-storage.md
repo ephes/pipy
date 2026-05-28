@@ -586,3 +586,43 @@ The application core should depend on these ports, while CLI, Textual, web, and 
 
 For task-slice ordering, use `docs/backlog.md`; this document remains the
 source of truth for archive lifecycle and privacy constraints.
+
+## Historical Native Runtime Archive Boundaries
+
+Approval and sandbox records must stay metadata-only. The first native visible
+approval prompt foundation does not add a JSONL event; it normalized decision
+labels `pending`, `allowed`, `denied`, `skipped`, and `failed`, sandbox modes
+`no-workspace-access`, `read-only-workspace`, and `mutating-workspace`, and the
+capability booleans `workspace_read_allowed`,
+`filesystem_mutation_allowed`, `shell_execution_allowed`, and
+`network_access_allowed`. Read-only tools produce provider-visible repo context,
+write tools or patch application may mutate only through explicit boundaries,
+and verification commands. The current native verification boundary supports
+only the `just-check` label mapped internally to `just check`. Approval
+required/resolved booleans, `tool_request_id`, `turn_index`,
+`duration_seconds`, exit codes, safe command labels, and storage booleans are
+archive-safe; full file contents, shell commands, command output, raw args, and
+attempted capability escalation must fail closed.
+read-only tools produce provider-visible repo context.
+approval required/resolved booleans.
+
+Provider-visible repo context is not archive content. bounded explicit file
+excerpts, bounded search-result excerpts, explicit per-turn workspace summaries,
+and sanitized tool-observation summaries may be forwarded in memory only;
+broad repo maps, unbounded file contents, and model-selected paths are dropped
+or skipped before provider visibility. JSONL/Markdown/catalog surfaces record
+metadata-only context fields, never raw excerpt text. The direct native explicit
+file excerpt tool keeps successful excerpt text in memory only, and the runtime
+may forward that text only to the one bounded follow-up provider turn.
+
+The direct native explicit file excerpt tool keeps successful excerpt text in
+memory only. The explicit file excerpt tool keeps successful excerpt text in
+memory only and excludes raw excerpt text from the archive.
+
+The proposal-only REPL boundary is available through
+`/propose-file <workspace-relative-path> -- <change-request>` and labels its
+provider turn `propose_file_repl`. It records a metadata-only
+`native.patch.proposal.recorded` event, follows
+`native.tool.observation.recorded native.provider.started # label
+propose_file_repl`, must not apply edits, and must not be copied into provider
+lifecycle payloads.

@@ -1,0 +1,30 @@
+
+ [1m[38;2;138;190;183mpi[0m[38;2;102;102;102m v0.75.5[39m                                                                                         
+ [38;2;102;102;102mescape[38;2;128;128;128m interrupt · [38;2;102;102;102mctrl+c/ctrl+d[38;2;128;128;128m clear/exit · [38;2;102;102;102m/[38;2;128;128;128m commands · [38;2;102;102;102m![38;2;128;128;128m bash · [38;2;102;102;102mctrl+o[38;2;128;128;128m more[39m                    
+ [38;2;102;102;102mPress ctrl+o to show full startup help and loaded resources.[39m                                       
+                                                                                                    
+ [38;2;102;102;102mPi can explain its own features and look up its docs. Ask it how to use or extend Pi.[39m              
+
+
+[38;2;240;198;116m[Context][39m                                                                                           
+[38;2;102;102;102m  ~/.pi/agent/AGENTS.md, ~/projects/AGENTS.md, AGENTS.md[39m                                            
+
+[38;2;240;198;116m[Skills][39m                                                                                            
+[38;2;102;102;102m  commit-ready, commit-workflow, review-handoff[39m                                                     
+
+
+[48;2;52;53;65m                                                                                                    
+ [38;2;212;212;212mhello world[39m                                                                                        
+                                                                                                    
+
+[49m Hello!                                                                                             
+
+ [38;2;138;190;183m⠴[39m [38;2;128;128;128mWorking...[39m                                                                                       
+
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────
+[7m[39m [0m                                                                                                   
+[38;2;178;148;187m────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;102;102;102m~/projects/pipy (main)
+$0.000 (sub) 0.0%/272k (auto)                                          (openai-codex) gpt-5.5 • high
+
+

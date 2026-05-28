@@ -1,0 +1,321 @@
+label	frame	needle	count	rows
+pipy	0	Reply exactly: Hello!	1	16
+pipy	0	Working...	1	19
+pipy	0	Hello!	1	16
+pipy	0	$0.000 (sub) 0.0%/272k	1	25
+pi	0	Reply exactly: Hello!	1	22
+pi	0	Working...	0	
+pi	0	Hello!	1	22
+pi	0	$0.000 (sub) 0.0%/272k	1	25
+pipy	1	Reply exactly: Hello!	1	16
+pipy	1	Working...	1	19
+pipy	1	Hello!	1	16
+pipy	1	$0.000 (sub) 0.0%/272k	1	25
+pi	1	Reply exactly: Hello!	1	22
+pi	1	Working...	1	25
+pi	1	Hello!	1	22
+pi	1	$0.000 (sub) 0.0%/272k	1	31
+pipy	2	Reply exactly: Hello!	1	16
+pipy	2	Working...	1	19
+pipy	2	Hello!	1	16
+pipy	2	$0.000 (sub) 0.0%/272k	1	25
+pi	2	Reply exactly: Hello!	1	22
+pi	2	Working...	1	25
+pi	2	Hello!	1	22
+pi	2	$0.000 (sub) 0.0%/272k	1	31
+pipy	3	Reply exactly: Hello!	1	16
+pipy	3	Working...	1	19
+pipy	3	Hello!	1	16
+pipy	3	$0.000 (sub) 0.0%/272k	1	25
+pi	3	Reply exactly: Hello!	1	22
+pi	3	Working...	1	25
+pi	3	Hello!	1	22
+pi	3	$0.000 (sub) 0.0%/272k	1	31
+pipy	4	Reply exactly: Hello!	1	16
+pipy	4	Working...	1	19
+pipy	4	Hello!	1	16
+pipy	4	$0.000 (sub) 0.0%/272k	1	25
+pi	4	Reply exactly: Hello!	1	22
+pi	4	Working...	1	25
+pi	4	Hello!	1	22
+pi	4	$0.000 (sub) 0.0%/272k	1	31
+pipy	5	Reply exactly: Hello!	1	16
+pipy	5	Working...	1	19
+pipy	5	Hello!	1	16
+pipy	5	$0.000 (sub) 0.0%/272k	1	25
+pi	5	Reply exactly: Hello!	1	22
+pi	5	Working...	1	25
+pi	5	Hello!	1	22
+pi	5	$0.000 (sub) 0.0%/272k	1	31
+pipy	6	Reply exactly: Hello!	1	16
+pipy	6	Working...	1	19
+pipy	6	Hello!	1	16
+pipy	6	$0.000 (sub) 0.0%/272k	1	25
+pi	6	Reply exactly: Hello!	1	22
+pi	6	Working...	1	25
+pi	6	Hello!	1	22
+pi	6	$0.000 (sub) 0.0%/272k	1	31
+pipy	7	Reply exactly: Hello!	1	16
+pipy	7	Working...	1	19
+pipy	7	Hello!	1	16
+pipy	7	$0.000 (sub) 0.0%/272k	1	25
+pi	7	Reply exactly: Hello!	1	22
+pi	7	Working...	1	25
+pi	7	Hello!	1	22
+pi	7	$0.000 (sub) 0.0%/272k	1	31
+pipy	8	Reply exactly: Hello!	1	16
+pipy	8	Working...	1	19
+pipy	8	Hello!	1	16
+pipy	8	$0.000 (sub) 0.0%/272k	1	25
+pi	8	Reply exactly: Hello!	1	22
+pi	8	Working...	1	25
+pi	8	Hello!	1	22
+pi	8	$0.000 (sub) 0.0%/272k	1	31
+pipy	9	Reply exactly: Hello!	1	16
+pipy	9	Working...	1	19
+pipy	9	Hello!	1	16
+pipy	9	$0.000 (sub) 0.0%/272k	1	25
+pi	9	Reply exactly: Hello!	1	22
+pi	9	Working...	1	25
+pi	9	Hello!	1	22
+pi	9	$0.000 (sub) 0.0%/272k	1	31
+pipy	10	Reply exactly: Hello!	1	16
+pipy	10	Working...	1	19
+pipy	10	Hello!	1	16
+pipy	10	$0.000 (sub) 0.0%/272k	1	25
+pi	10	Reply exactly: Hello!	1	22
+pi	10	Working...	1	25
+pi	10	Hello!	1	22
+pi	10	$0.000 (sub) 0.0%/272k	1	31
+pipy	11	Reply exactly: Hello!	1	16
+pipy	11	Working...	1	19
+pipy	11	Hello!	1	16
+pipy	11	$0.000 (sub) 0.0%/272k	1	25
+pi	11	Reply exactly: Hello!	1	22
+pi	11	Working...	1	27
+pi	11	Hello!	1	22
+pi	11	$0.000 (sub) 0.0%/272k	1	33
+pipy	12	Reply exactly: Hello!	1	16
+pipy	12	Working...	1	19
+pipy	12	Hello!	1	16
+pipy	12	$0.000 (sub) 0.0%/272k	1	25
+pi	12	Reply exactly: Hello!	1	22
+pi	12	Working...	0	
+pi	12	Hello!	2	22,25
+pi	12	$0.000 (sub) 0.0%/272k	0	
+pipy	13	Reply exactly: Hello!	1	16
+pipy	13	Working...	1	19
+pipy	13	Hello!	1	16
+pipy	13	$0.000 (sub) 0.0%/272k	1	25
+pi	13	Reply exactly: Hello!	1	22
+pi	13	Working...	0	
+pi	13	Hello!	2	22,25
+pi	13	$0.000 (sub) 0.0%/272k	0	
+pipy	14	Reply exactly: Hello!	1	16
+pipy	14	Working...	1	19
+pipy	14	Hello!	1	16
+pipy	14	$0.000 (sub) 0.0%/272k	1	25
+pi	14	Reply exactly: Hello!	1	22
+pi	14	Working...	0	
+pi	14	Hello!	2	22,25
+pi	14	$0.000 (sub) 0.0%/272k	0	
+pipy	15	Reply exactly: Hello!	1	16
+pipy	15	Working...	1	19
+pipy	15	Hello!	1	16
+pipy	15	$0.000 (sub) 0.0%/272k	1	25
+pi	15	Reply exactly: Hello!	1	22
+pi	15	Working...	0	
+pi	15	Hello!	2	22,25
+pi	15	$0.000 (sub) 0.0%/272k	0	
+pipy	16	Reply exactly: Hello!	1	16
+pipy	16	Working...	1	19
+pipy	16	Hello!	1	16
+pipy	16	$0.000 (sub) 0.0%/272k	1	25
+pi	16	Reply exactly: Hello!	1	22
+pi	16	Working...	0	
+pi	16	Hello!	2	22,25
+pi	16	$0.000 (sub) 0.0%/272k	0	
+pipy	17	Reply exactly: Hello!	1	16
+pipy	17	Working...	1	21
+pipy	17	Hello!	2	16,19
+pipy	17	$0.000 (sub) 0.0%/272k	1	27
+pi	17	Reply exactly: Hello!	1	22
+pi	17	Working...	0	
+pi	17	Hello!	2	22,25
+pi	17	$0.000 (sub) 0.0%/272k	0	
+pipy	18	Reply exactly: Hello!	1	16
+pipy	18	Working...	0	
+pipy	18	Hello!	2	16,19
+pipy	18	$0.000 (sub) 0.0%/272k	0	
+pi	18	Reply exactly: Hello!	1	22
+pi	18	Working...	0	
+pi	18	Hello!	2	22,25
+pi	18	$0.000 (sub) 0.0%/272k	0	
+pipy	19	Reply exactly: Hello!	1	16
+pipy	19	Working...	0	
+pipy	19	Hello!	2	16,19
+pipy	19	$0.000 (sub) 0.0%/272k	0	
+pi	19	Reply exactly: Hello!	1	22
+pi	19	Working...	0	
+pi	19	Hello!	2	22,25
+pi	19	$0.000 (sub) 0.0%/272k	0	
+pipy	20	Reply exactly: Hello!	1	16
+pipy	20	Working...	0	
+pipy	20	Hello!	2	16,19
+pipy	20	$0.000 (sub) 0.0%/272k	0	
+pi	20	Reply exactly: Hello!	1	22
+pi	20	Working...	0	
+pi	20	Hello!	2	22,25
+pi	20	$0.000 (sub) 0.0%/272k	0	
+pipy	21	Reply exactly: Hello!	1	16
+pipy	21	Working...	0	
+pipy	21	Hello!	2	16,19
+pipy	21	$0.000 (sub) 0.0%/272k	0	
+pi	21	Reply exactly: Hello!	1	22
+pi	21	Working...	0	
+pi	21	Hello!	2	22,25
+pi	21	$0.000 (sub) 0.0%/272k	0	
+pipy	22	Reply exactly: Hello!	1	16
+pipy	22	Working...	0	
+pipy	22	Hello!	2	16,19
+pipy	22	$0.000 (sub) 0.0%/272k	0	
+pi	22	Reply exactly: Hello!	1	22
+pi	22	Working...	0	
+pi	22	Hello!	2	22,25
+pi	22	$0.000 (sub) 0.0%/272k	0	
+pipy	23	Reply exactly: Hello!	1	16
+pipy	23	Working...	0	
+pipy	23	Hello!	2	16,19
+pipy	23	$0.000 (sub) 0.0%/272k	0	
+pi	23	Reply exactly: Hello!	1	22
+pi	23	Working...	0	
+pi	23	Hello!	2	22,25
+pi	23	$0.000 (sub) 0.0%/272k	0	
+pipy	24	Reply exactly: Hello!	1	16
+pipy	24	Working...	0	
+pipy	24	Hello!	2	16,19
+pipy	24	$0.000 (sub) 0.0%/272k	0	
+pi	24	Reply exactly: Hello!	1	22
+pi	24	Working...	0	
+pi	24	Hello!	2	22,25
+pi	24	$0.000 (sub) 0.0%/272k	0	
+pipy	25	Reply exactly: Hello!	1	16
+pipy	25	Working...	0	
+pipy	25	Hello!	2	16,19
+pipy	25	$0.000 (sub) 0.0%/272k	0	
+pi	25	Reply exactly: Hello!	1	22
+pi	25	Working...	0	
+pi	25	Hello!	2	22,25
+pi	25	$0.000 (sub) 0.0%/272k	0	
+pipy	26	Reply exactly: Hello!	1	16
+pipy	26	Working...	0	
+pipy	26	Hello!	2	16,19
+pipy	26	$0.000 (sub) 0.0%/272k	0	
+pi	26	Reply exactly: Hello!	1	22
+pi	26	Working...	0	
+pi	26	Hello!	2	22,25
+pi	26	$0.000 (sub) 0.0%/272k	0	
+pipy	27	Reply exactly: Hello!	1	16
+pipy	27	Working...	0	
+pipy	27	Hello!	2	16,19
+pipy	27	$0.000 (sub) 0.0%/272k	0	
+pi	27	Reply exactly: Hello!	1	22
+pi	27	Working...	0	
+pi	27	Hello!	2	22,25
+pi	27	$0.000 (sub) 0.0%/272k	0	
+pipy	28	Reply exactly: Hello!	1	16
+pipy	28	Working...	0	
+pipy	28	Hello!	2	16,19
+pipy	28	$0.000 (sub) 0.0%/272k	0	
+pi	28	Reply exactly: Hello!	1	22
+pi	28	Working...	0	
+pi	28	Hello!	2	22,25
+pi	28	$0.000 (sub) 0.0%/272k	0	
+pipy	29	Reply exactly: Hello!	1	16
+pipy	29	Working...	0	
+pipy	29	Hello!	2	16,19
+pipy	29	$0.000 (sub) 0.0%/272k	0	
+pi	29	Reply exactly: Hello!	1	22
+pi	29	Working...	0	
+pi	29	Hello!	2	22,25
+pi	29	$0.000 (sub) 0.0%/272k	0	
+pipy	30	Reply exactly: Hello!	1	16
+pipy	30	Working...	0	
+pipy	30	Hello!	2	16,19
+pipy	30	$0.000 (sub) 0.0%/272k	0	
+pi	30	Reply exactly: Hello!	1	22
+pi	30	Working...	0	
+pi	30	Hello!	2	22,25
+pi	30	$0.000 (sub) 0.0%/272k	0	
+pipy	31	Reply exactly: Hello!	1	16
+pipy	31	Working...	0	
+pipy	31	Hello!	2	16,19
+pipy	31	$0.000 (sub) 0.0%/272k	0	
+pi	31	Reply exactly: Hello!	1	22
+pi	31	Working...	0	
+pi	31	Hello!	2	22,25
+pi	31	$0.000 (sub) 0.0%/272k	0	
+pipy	32	Reply exactly: Hello!	1	16
+pipy	32	Working...	0	
+pipy	32	Hello!	2	16,19
+pipy	32	$0.000 (sub) 0.0%/272k	0	
+pi	32	Reply exactly: Hello!	1	22
+pi	32	Working...	0	
+pi	32	Hello!	2	22,25
+pi	32	$0.000 (sub) 0.0%/272k	0	
+pipy	33	Reply exactly: Hello!	1	16
+pipy	33	Working...	0	
+pipy	33	Hello!	2	16,19
+pipy	33	$0.000 (sub) 0.0%/272k	0	
+pi	33	Reply exactly: Hello!	1	22
+pi	33	Working...	0	
+pi	33	Hello!	2	22,25
+pi	33	$0.000 (sub) 0.0%/272k	0	
+pipy	34	Reply exactly: Hello!	1	16
+pipy	34	Working...	0	
+pipy	34	Hello!	2	16,19
+pipy	34	$0.000 (sub) 0.0%/272k	0	
+pi	34	Reply exactly: Hello!	1	22
+pi	34	Working...	0	
+pi	34	Hello!	2	22,25
+pi	34	$0.000 (sub) 0.0%/272k	0	
+pipy	35	Reply exactly: Hello!	1	16
+pipy	35	Working...	0	
+pipy	35	Hello!	2	16,19
+pipy	35	$0.000 (sub) 0.0%/272k	0	
+pi	35	Reply exactly: Hello!	1	22
+pi	35	Working...	0	
+pi	35	Hello!	2	22,25
+pi	35	$0.000 (sub) 0.0%/272k	0	
+pipy	36	Reply exactly: Hello!	1	16
+pipy	36	Working...	0	
+pipy	36	Hello!	2	16,19
+pipy	36	$0.000 (sub) 0.0%/272k	0	
+pi	36	Reply exactly: Hello!	1	22
+pi	36	Working...	0	
+pi	36	Hello!	2	22,25
+pi	36	$0.000 (sub) 0.0%/272k	0	
+pipy	37	Reply exactly: Hello!	1	16
+pipy	37	Working...	0	
+pipy	37	Hello!	2	16,19
+pipy	37	$0.000 (sub) 0.0%/272k	0	
+pi	37	Reply exactly: Hello!	1	22
+pi	37	Working...	0	
+pi	37	Hello!	2	22,25
+pi	37	$0.000 (sub) 0.0%/272k	0	
+pipy	38	Reply exactly: Hello!	1	16
+pipy	38	Working...	0	
+pipy	38	Hello!	2	16,19
+pipy	38	$0.000 (sub) 0.0%/272k	0	
+pi	38	Reply exactly: Hello!	1	22
+pi	38	Working...	0	
+pi	38	Hello!	2	22,25
+pi	38	$0.000 (sub) 0.0%/272k	0	
+pipy	39	Reply exactly: Hello!	1	16
+pipy	39	Working...	0	
+pipy	39	Hello!	2	16,19
+pipy	39	$0.000 (sub) 0.0%/272k	0	
+pi	39	Reply exactly: Hello!	1	22
+pi	39	Working...	0	
+pi	39	Hello!	2	22,25
+pi	39	$0.000 (sub) 0.0%/272k	0	
