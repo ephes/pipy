@@ -31,7 +31,7 @@ loc:
 
 # Serve the local documentation site. Example: just docs-serve localhost:8001
 docs-serve dev_addr="localhost:8000":
-    uv run zensical serve --dev-addr "{{dev_addr}}"
+    addr="{{dev_addr}}"; uv run zensical serve --dev-addr "${addr#dev_addr=}"
 
 # Build the local documentation site.
 docs-build:

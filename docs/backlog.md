@@ -49,19 +49,68 @@ The broad parity ladder, applied with small-slice discipline:
   adapter, and Workspace-relative path completion remain part of the
   input-parity ladder.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
-  plus workspace/global skill, prompt-template, and custom-command discovery,
   with metadata-only archive behavior. Runtime slash commands for loading
-  those resources, extensions, and broader model/provider defaults remain
-  later parity work.
-- Tool parity: read, edit/write, bash/shell, verification, and follow-up tool
-  observations behind pipy-owned boundaries, explicit scopes, and privacy
-  invariants.
+  skills, prompt templates, custom commands, extensions, themes, and broader
+  model/provider defaults remain later parity work; exposing the existing
+  `/settings` and `/model` surfaces inside the product TUI is a separate
+  near-term UI gap below. The current `[Skills]` and `[Extensions]` chrome
+  sections are display-only directory labels, not runtime loaders.
+- Tool parity: the bounded multi-step model/tool loop has landed; the remaining
+  gaps are tool breadth inside that loop, bash/shell execution behind a real
+  sandbox, broader verification, arbitrary `@file` content injection, and
+  follow-up tool observations behind pipy-owned boundaries, explicit scopes,
+  and privacy invariants.
 - Session workflow parity: durable sessions, resume/search/inspect surfaces,
   compaction/summarization, branch/fork-style exploration, and review-cycle
   learning.
 - Extension/RPC parity: extension APIs, custom commands/UI, headless protocol,
   and richer integration points after the core shell/tool/session model is
   stable.
+
+### Prioritized Pi Gap Queue (2026-05-28)
+
+This queue reflects the 2026-05-28 multi-agent comparison against the local Pi
+reference plus the existing summary-safe parity history. It is a planning order,
+not a promise to skip review when a smaller, safer slice appears.
+
+1. Product-TUI reasoning italics. Pi renders thinking/reasoning in italic.
+   Pipy's captured-stream renderer already does this, but the product TUI maps
+   reasoning rows to dim-only chrome styling. This is the smallest high-signal
+   visible parity fix and is the selected next slice.
+2. Product-TUI settings/model/provider controls. `/settings`, `/model`,
+   `/login`, and `/logout` are no-tool REPL commands today; the product TUI
+   slash menu intentionally exposes only `help`, `exit`, and `quit` until more
+   commands are executable in that path. The next larger UX boundary should be a
+   read-only settings/status overlay, followed by model/provider selection.
+3. Full interactive TUI ergonomics. The product TUI now owns an alternate-screen
+   frame with prompt/footer, slash menu, spinner, tool panels, active Escape,
+   and Pi-shaped submitted prompts. Pi still leads on undo/redo, prompt history,
+   bracketed paste, resize/SIGWINCH handling, selectors, overlays, and richer
+   keyboard behavior.
+4. Extension and resource runtime. Pi has first-class extensions, command/theme
+   registration, prompt templates, skills, and UI hooks. Pipy currently has no
+   runtime extension/package loader; display-only chrome labels are not a
+   substrate. Start with one executable custom-command or prompt-template path
+   before designing a broad extension API.
+5. Session workflows. Pipy remains metadata-first with optional raw transcript
+   sidecars, search/inspect/export, and metadata-only `resume-info`. Live
+   runtime resume, branch/fork, compaction, and Pi-native tree inspection remain
+   deferred.
+6. Tool breadth, shell, and verification. The bounded multi-step loop is real;
+   the gap is `bash`/shell sandboxing, broader verification than
+   `/verify just-check`, and additional model-visible tools or policies inside
+   the existing loop.
+7. User-directed context and attachments. Workspace instruction files are
+   auto-loaded into the system prompt, and repeated bounded file reads can load
+   multiple text files across turns. Still missing are arbitrary `@file` content
+   reads, pasted image/binary attachments, richer context pickers, and broader
+   repo/resource maps.
+8. Active-turn cancellation fidelity. Escape now matches Pi visibly by showing
+   red `Operation aborted` and suppressing late chunks, but the provider HTTP
+   request is not cancelled and a daemon worker may finish in the background.
+9. RPC, multi-agent orchestration, indexing, and local-provider maturity. These
+   remain product-maturity work after the core shell, tool, session, and
+   settings surfaces settle.
 
 Textual, prompt-toolkit, curses, and a small custom terminal layer were
 compared at the terminal-layer checkpoint. The current direction is a narrow
@@ -1044,118 +1093,44 @@ workspace-relative excerpts per REPL session. Automatic `@file` reads,
 model-selected paths remained deferred. Native provider-visible repo context
 policy is complete.
 
+Native tool-loop TUI shell: real-TTY tool-loop sessions now use a pipy-owned
+alternate-screen terminal UI with retained startup/context rows, submitted
+prompt bands, active assistant output, transient working state, compact shaded
+model-selected tool rows, footer/status pinning, slash-menu input behavior, and
+active provider-turn Escape that renders red `Operation aborted` while
+suppressing late chunks. The product TUI slash menu now lists only executable
+local tool-loop commands (`help`, `exit`, `quit`). The slice shipped with
+stdlib ANSI screen-cell verification, tmux product-path artifacts, Pi comparison
+artifacts, focused TUI/renderer tests, docs updates, `just check`, and a clean
+second review after the inert-command menu finding was fixed.
+
 ## Next Slice
 
-### Native tool-loop TUI shell
+### Product TUI reasoning italics
 
-Goal: replace the bounded tool-loop REPL's real-TTY rendering path with a
-pipy-owned terminal UI shell that can support Pi-like layout behavior without
-stacking more relative cursor rewrites onto the line renderer.
-
-Implementation focus:
-
-- route `pipy repl --native-provider openai-codex --native-model gpt-5.5`
-  through a TTY-only alternate-screen layout boundary where submitted user
-  messages, active assistant output, transient working state, and tool blocks
-  flow through history while input/editor and footer/status stay in a stable
-  frame
-- keep captured streams on the deterministic line-renderer fallback so
-  stdout/stderr automation contracts and existing provider/tool/session tests
-  remain stable
-- prove active-generation behavior with sampled tmux evidence, not only final
-  screenshots; duplicate/stale `Working...` lines or loader/assistant
-  interleaving fail the slice; the tmux verifier now also emits
-  `screen-metrics.jsonl`, `terminal-report.json`, and `screen-anomalies.tsv`
-  from the stdlib ANSI screen-cell model so failures can identify visible
-  string rows/columns, live cursor alignment, inferred input/footer rows, and
-  key cell attributes; longer product-path smoke should exercise at least one
-  model-selected tool call and enough sampled active frames to prove prompt
-  retention, loader clearing, final output visibility, and footer/cursor
-  pinning after history overflow
-- prove Pi comparison behavior with `scripts/tmux_pi_comparison_verify.sh`,
-  which captures pipy and Pi in matching tmux panes and writes
-  `comparison/row-column-deltas.{json,tsv}`,
-  `comparison/final-viewport-deltas.{json,tsv}`, `comparison-report.json`, and
-  `comparison-anomalies.tsv`; final-frame prompt/output/footer/input/cursor
-  deltas outside zero row/column tolerance fail the slice, visible
-  cell-attribute mismatches fail the comparison, and normalized final-viewport
-  text differences fail so unconstrained prompts cannot hide answer wording or
-  retained-chrome drift behind a matching expected-output marker; final prompt
-  background-band rows are also compared so screenshot-only shaded-block drift
-  fails the machine gate. The screen metrics now also emit named visual-region
-  rows for submitted prompts, tool calls/results, slash-menu rows and
-  Pi-style arrow selection highlights, separators, cursor cells, and footer/status rows; the
-  comparison reports active/final visual-region deltas as anomalies when text
-  stays present but color or emphasis drifts. `scripts/tmux_tui_input_verify.sh`
-  separately exercises the real product command without submitting a provider
-  turn and fails on Escape/slash-menu row, cursor, text, or style regressions.
-  Active provider-turn Escape now has separate tmux audit evidence requiring
-  `Operation aborted` to replace `Working...` without late streamed text.
-  The current gate covers default 100x30 geometry, the short 100x24 regression
-  class where prompt/output rows previously shifted above Pi, and a
-  model-selected read-tool smoke where the compact shaded `read <path>` row,
-  prompt, answer, and footer must line up with Pi
-- keep provider/tool-loop behavior, metadata-first archive invariants,
-  transcript sidecar behavior, and documented slash-command behavior intact
-- ship focused TUI/renderer tests, docs updates, and `just check`
-
-### Choose the next pipy-native direction after the 2026-05-26 cleanup
-
-Status: superseded by the native tool-loop TUI shell slice above after this
-planning checkpoint selected the next direction.
-
-Goal: pick the next reviewable boundary now that the
-[Code Quality Audit Track (2026-05-26)](#code-quality-audit-track-2026-05-26)
-has dropped the locked 50-feature score from 49/50 to 41/50 by
-honestly removing dormant helpers that had been pinned only by
-`test -f path` or directory `grep -rq` checks (D4 skills, D5 prompt
-templates, D6 custom slash commands, D7 themes, D8 image
-attachments, E2 session compaction, E3 session branching, E5
-dynamic provider swap; B7 bash stays red, deferred behind a real
-shell sandbox). The streaming closure (C14) and the SDK module
-(E7) stay green.
-The implementation track for the next slice is intentionally not
-selected here; the goal is to use the current archive signals and
-the audit's Track CQ-B through CQ-F items to choose the next
-small `pipy-native` boundary.
+Goal: close the smallest confirmed visible Pi mismatch from the 2026-05-28
+comparison by rendering streamed reasoning/thinking rows in the product TUI
+with italic emphasis, matching Pi and pipy's captured-stream fallback renderer.
 
 Implementation focus:
 
-- inspect summary-safe archive signals with targeted
-  `pipy-session search`, `pipy-session list`, and
-  `pipy-session inspect` queries before picking a direction
-  (`pipy-session reflect` was removed in the 2026-05-26 cleanup)
-- prioritize next-boundary candidates from the audit's
-  [Code Quality Audit Track (2026-05-26)](#code-quality-audit-track-2026-05-26)
-  tracks CQ-B (provider consolidation), CQ-C (bad-state-impossible
-  refactors), CQ-D (structural simplification), CQ-E (correctness
-  fixes), and CQ-F (deduplication)
-- consider streaming text deltas in `--repl-mode no-tool` and
-  `--repl-mode tool-loop` (today `--stream` is wired only for
-  `pipy run`)
-- consider the B7 `bash` shell-sandbox investigation; production
-  registration of any `bash`-style tool stays blocked until the
-  sandbox lands with safety tests and docs
-- the previously-listed image-attachment, compaction, and
-  branching helpers were removed in the 2026-05-26 cleanup
-  (Track CQ-A); re-introducing them is justified only when a
-  runtime consumer exists first
-- document the selected next slice in this backlog and, when
-  architectural behavior changes, in `docs/harness-spec.md`
-- keep metadata-first archive contracts, `.git` default-deny
-  posture, `/verify just-check` scope, the no-tool REPL, the
-  tool-loop REPL, the opt-in `--archive-transcript` sidecar, the
-  existing slash commands, the workspace-context system-prompt
-  wiring, the `--stream` flag, and the SDK module unchanged in
-  this planning slice
-
-The Tool-Loop Parity Track, the OpenAI Responses + OpenAI Codex
-Tool-Call Parity Track, the Workspace Context Loading Parity
-Track, and the Streaming Output Parity Track are all complete.
-The remaining parity surface is live runtime wiring for the
-helpers above, plus the deferred shell-sandbox investigation; the
-named track for the next slice is intentionally chosen by the
-review/reflection step, not pre-committed here.
+- add an italic style path to `pipy_harness.native.chrome.ChromeStyle` that
+  respects the existing TTY/`NO_COLOR`/theme behavior and composes cleanly with
+  dim secondary text
+- use that style for `reasoning` rows in
+  `pipy_harness.native.tui.ToolLoopTerminalUi` while preserving current
+  reasoning text normalization and wrapping
+- keep metadata-first archive behavior unchanged: displayed reasoning summaries
+  must not become archived prompt, model-output, or transcript payload unless
+  the existing opt-in transcript sidecar already covers that stream
+- keep captured-stream rendering behavior unchanged except for any shared style
+  helper reuse that preserves the existing ANSI output
+- add focused tests for the TUI/chrome style path and, if practical, extend the
+  ANSI screen-cell or tmux verifier coverage so reasoning visual-region rows can
+  detect missing italic emphasis; if the screen-cell model does not yet track
+  SGR italic attributes, pin the emitted escape sequence in a unit test instead
+- update `docs/pi-parity.md` and this backlog when the slice lands, and run the
+  focused tests plus `just check`
 
 ## Near Term
 
@@ -1274,10 +1249,9 @@ Invariants that must hold for any near-term slice:
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
   explicit per-round versus cumulative scope, review round number, and optional
   cycle identity so `reflect` can avoid double-counting iterative reviews.
-- Full interactive TUI beyond the selected narrow `prompt-toolkit` input-adapter
-  investigation, including Textual, curses, a custom terminal layer,
-  alternate-screen behavior, overlays, selectors, and persistent footer
-  ownership.
+- Full interactive TUI behavior beyond the shipped product TUI shell, including
+  richer editor semantics, resize/SIGWINCH handling, prompt history, bracketed
+  paste, overlays, selectors, and theme/extension UI hooks.
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.

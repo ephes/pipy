@@ -28,3 +28,6 @@ packages = ["src/pipy_session", "src/pipy_harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.slopscope]
+exclude_dirs = ["docs"]
