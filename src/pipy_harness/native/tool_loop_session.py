@@ -38,10 +38,11 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.clipboard import ClipboardResult, copy_to_clipboard
 from pipy_harness.native.chrome import (
     BottomStatusFields,
     chrome_width,
@@ -366,6 +367,7 @@ class NativeToolReplSession:
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
+    clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -572,14 +574,33 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
+            if stripped == "/copy":
+                # Local-only command: copies the most recent assistant answer
+                # through a safe OS/terminal clipboard path. It never invokes
+                # the provider, tools, login/logout, or model switching.
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    self._copy_last_answer(messages, error_stream=error_stream),
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
             if stripped.startswith("/"):
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /settings, /exit, "
-                        "/quit. Other prompts are sent to the model."
+                        "supported local commands are /help, /settings, /copy, "
+                        "/exit, /quit. Other prompts are sent to the model."
                     ),
                 )
                 if legacy_footer_enabled():
@@ -1040,6 +1061,33 @@ class NativeToolReplSession:
             terminal_ui.add_notice(message)
             return
         print(message, file=error_stream)
+
+    def _copy_last_answer(
+        self, messages: list[LoopMessage], *, error_stream: TextIO
+    ) -> str:
+        """Copy the most recent assistant answer; return a local status line.
+
+        This is a purely local operation: it reads the in-memory conversation,
+        copies through the injected clipboard path, and reports what happened.
+        It never invokes the provider, tools, login/logout, or model switching.
+        """
+
+        answer = self._last_assistant_answer(messages)
+        if not answer:
+            return "pipy: nothing to copy yet (no assistant answer in this session)."
+        result = self.clipboard_copy(answer, terminal_stream=error_stream)
+        if result.copied:
+            return f"pipy: copied last answer to clipboard ({result.detail})."
+        return f"pipy: could not copy last answer — {result.detail}."
+
+    @staticmethod
+    def _last_assistant_answer(messages: list[LoopMessage]) -> str:
+        for message in reversed(messages):
+            if isinstance(message, AssistantMessage):
+                content = message.content.strip()
+                if content:
+                    return message.content
+        return ""
 
     def _invoke(
         self,

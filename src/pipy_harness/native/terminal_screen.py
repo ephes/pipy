@@ -678,6 +678,7 @@ def _looks_like_slash_menu_row(stripped: str) -> bool:
         "/clear",
         "/status",
         "/settings",
+        "/copy",
         "/login",
         "/logout",
         "/model",

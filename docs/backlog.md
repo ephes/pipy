@@ -86,14 +86,22 @@ not a promise to skip review when a smaller, safer slice appears.
    and `/logout` remain no-tool REPL commands only; the remaining work is
    interactive model/provider selection inside the product TUI, after which
    login/logout follow.
-3. Full interactive TUI ergonomics. The product TUI now owns an alternate-screen
-   frame with prompt/footer, slash menu, spinner, tool panels, active Escape,
-   and Pi-shaped submitted prompts. Pi still leads on undo/redo, prompt history,
-   bracketed paste, resize/SIGWINCH handling, selectors, overlays, and richer
-   keyboard behavior. Concrete observed gaps to preserve for this track:
-   `/copy` does not work in pipy; scrolling does not work in either a zellij
-   pane or a native Ghostty terminal; and when a full-sized window is
-   available, pipy uses only the upper half of the terminal.
+3. Full interactive TUI ergonomics. The product TUI now renders inline (no
+   alternate screen): finalized blocks commit once into the terminal's normal
+   buffer so the host terminal/multiplexer keeps them in native scrollback, and
+   only a small live region (bounded stream tail + separator/input/separator
+   frame + slash menu + two footer rows) is redrawn in place, pinned at the
+   bottom. This landed the three previously observed gaps: `/copy` is now an
+   executable local command (safe OS clipboard / OSC 52, no provider turn);
+   scrolling to review prior output works in both a native Ghostty terminal and
+   a zellij pane because native scrollback is no longer suppressed; and a
+   full-size window uses its full height (content fills down to the bottom-
+   pinned input/footer) instead of only the upper half. Verified by real-PTY
+   product-path tests at 100x40 and 80x24 (`tests/test_native_tool_loop_tui_pty.py`)
+   plus tmux captures. Pi still leads on undo/redo, prompt history, bracketed
+   paste, resize/SIGWINCH handling, in-app `/model` selection (then
+   `/login`/`/logout`), selectors/overlays, and richer keyboard behavior — these
+   remain the open items for this track.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Pipy currently has no
    runtime extension/package loader; display-only chrome labels are not a

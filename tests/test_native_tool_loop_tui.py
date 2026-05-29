@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -12,6 +12,7 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderToolCall
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.terminal_screen import parse_ansi_screen
@@ -395,7 +396,11 @@ def test_tui_reasoning_row_drops_italic_under_no_color(
     ui.paint()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
-    assert "\x1b[3" not in output
+    # The italic SGR is `\x1b[3;…m` / `\x1b[3m`; assert that specific sequence is
+    # absent rather than the bare `\x1b[3` prefix, which now also appears in
+    # relative cursor moves (e.g. `\x1b[3A`) in the inline renderer.
+    assert "\x1b[3;" not in output
+    assert "\x1b[3m" not in output
     assert "Thinking about this." in output
 
 
@@ -485,6 +490,36 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
     assert "pipy native REPL settings:" in painted
 
 
+def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
+    from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+
+    assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
+        "/help",
+        "/settings",
+        "/copy",
+        "/exit",
+        "/quit",
+    )
+    for not_yet_executable in ("/model", "/login", "/logout"):
+        assert not_yet_executable not in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+
+    ui = _ui(tmp_path)
+    assert ui.command_names == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    assert ui.command_descriptions.get("/copy")
+
+
+def test_tui_slash_menu_shows_copy_command(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui._insert_input_text("/co")
+
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    assert ui.slash_menu_open is True
+    assert "copy" in rendered
+
+
 def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     ui = _ui(tmp_path)
 
@@ -545,15 +580,26 @@ def test_tui_input_cursor_can_move_within_typed_text(tmp_path: Path):
     assert ui.input_cursor == 2
 
 
-def test_tui_start_uses_alternate_screen_and_close_restores(tmp_path: Path):
+def test_tui_start_is_inline_and_close_restores_cursor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "24")
     ui = _ui(tmp_path)
+    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
 
     ui.start()
     ui.close()
 
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
-    assert "\x1b[?1049h" in output
-    assert "\x1b[?1049l" in output
+    # Inline scrollback model: no alternate screen, so native terminal
+    # scrollback in Ghostty/zellij can review prior committed content.
+    assert "\x1b[?1049h" not in output
+    assert "\x1b[?1049l" not in output
+    # Startup chrome is printed into the normal buffer.
+    assert "escape interrupt" in output
+    # The cursor is shown again when the session ends.
+    assert "\x1b[?25h" in output
 
 
 def test_tui_paint_uses_explicit_carriage_returns_for_raw_mode(tmp_path: Path):
@@ -566,22 +612,73 @@ def test_tui_paint_uses_explicit_carriage_returns_for_raw_mode(tmp_path: Path):
     assert "\x1b[K\n" not in output
 
 
-def test_tui_paint_places_live_cursor_on_input_row(tmp_path: Path):
+def test_tui_paint_places_live_cursor_on_input_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "24")
     ui = _ui(tmp_path)
+    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) status")
     ui.submit_user_message("hello world!")
-    ui.set_working("⠋ Working...")
     ui.input_text = "next"
 
     ui.paint()
 
-    width, height = ui._dimensions()
-    frame = ui._frame_lines(width=width, height=height, pad=False)
-    expected_row = next(
-        index + 1 for index, line in enumerate(frame) if line.kind == "input"
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(), columns=80, rows=24
     )
-    output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
-    cursor_moves = re.findall(r"\x1b\[(\d+);(\d+)H", output)
-    assert cursor_moves[-1] == (str(expected_row), "5")
+    input_row = next(
+        index for index, line in enumerate(snapshot.viewport) if line.startswith("next")
+    )
+    assert snapshot.cursor_x == 4
+    assert snapshot.cursor_y == input_row
+
+
+def test_tui_paint_does_not_reprint_committed_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "40")
+    ui = _ui(tmp_path)
+    ui.start()
+    ui.submit_user_message("UNIQUE_MARKER_X")
+    terminal = cast(_TtyBuffer, ui.terminal_stream)
+    boundary = len(terminal.getvalue())
+
+    # A later paint that adds no new history must not reprint the committed
+    # block: it lives in the terminal's native scrollback, not in the frame.
+    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
+    ui.paint()
+
+    delta = terminal.getvalue()[boundary:]
+    assert "UNIQUE_MARKER_X" not in delta
+
+
+def test_tui_paint_uses_full_height_and_scrolls_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "20")
+    ui = _ui(tmp_path)
+    ui.set_footer_text("~/projects/pipy (main)\n$0.000 (sub) status")
+    ui.start()
+    for index in range(8):
+        ui.submit_user_message(f"message number {index}")
+    ui.input_text = "typing"
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(), columns=80, rows=20
+    )
+    joined = "\n".join(snapshot.viewport)
+
+    # Full height: content overflowed and scrolled into native scrollback
+    # instead of being capped to the upper half of the window.
+    assert snapshot.viewport_y > 0
+    assert "message number 0" not in joined
+    assert "message number 7" in joined
+    # The input/footer frame stays pinned at the bottom of the window.
+    assert "~/projects/pipy" in "\n".join(snapshot.viewport[-3:])
 
 
 class _CountingProvider:
@@ -658,6 +755,147 @@ def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
     assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in rendered
     # The TUI footer must not advertise commands it cannot execute yet.
     assert "/model, /login, and /logout are not yet available" in rendered
+
+
+class _ClipboardRecorder:
+    def __init__(self) -> None:
+        self.copies: list[str] = []
+
+    def __call__(self, text: str, **kwargs: object) -> ClipboardResult:
+        self.copies.append(text)
+        return ClipboardResult(
+            copied=True,
+            method="pbcopy",
+            byte_count=len(text.encode("utf-8")),
+            detail="copied",
+        )
+
+
+class _AnswerProvider:
+    name = "fake"
+    model_id = "fake-native-bootstrap"
+    supports_tool_calls = True
+
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+        self.completions = 0
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:
+        del reasoning_sink
+        self.completions += 1
+        if stream_sink is not None:
+            stream_sink(self.answer)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=self.answer,
+            tool_calls=(),
+        )
+
+
+def test_tui_copy_command_is_local_only_when_nothing_to_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    recorder = _ClipboardRecorder()
+    scripted = iter(["/copy\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        clipboard_copy=recorder,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    # Local command only: no provider turn, no tool invocation, no copy.
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
+    assert provider.completions == 0
+    assert recorder.copies == []
+    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    assert any("nothing to copy" in " ".join(lines).lower() for lines in notices)
+
+
+def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    provider = _AnswerProvider("Final answer ABC")
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    recorder = _ClipboardRecorder()
+    scripted = iter(["hello\n", "/copy\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    # The active-turn Escape watcher needs a real fd; this in-process test
+    # drives StringIO, so wait for the worker and report "not aborted". Real
+    # cancellation is covered by the PTY tests.
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "wait_for_active_turn_interrupt",
+        lambda self, done_event, abort_event, **kwargs: (
+            done_event.wait(5),
+            False,
+        )[1],
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        clipboard_copy=recorder,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    # Exactly one provider turn (the answer); /copy creates no further turn.
+    assert provider.completions == 1
+    assert result.user_turn_count == 1
+    assert result.tool_invocation_count == 0
+    assert recorder.copies == ["Final answer ABC"]
+    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    assert any("copied" in " ".join(lines).lower() for lines in notices)
 
 
 def test_tool_loop_plain_settings_command_is_read_only(

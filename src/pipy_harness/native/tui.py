@@ -17,6 +17,7 @@ import shutil
 import sys
 import termios
 import textwrap
+import threading
 import tty
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -42,7 +43,13 @@ _TOOL_PANEL_HISTORY_VIEW_LINES = 23
 _OVERFLOW_BOTTOM_GUTTER_LINES = 2
 _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
-TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = ("/help", "/settings", "/exit", "/quit")
+TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
+    "/help",
+    "/settings",
+    "/copy",
+    "/exit",
+    "/quit",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +87,15 @@ class ToolLoopTerminalUi:
     slash_menu_selection: int = 0
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
-    _entered_alt_screen: bool = False
     _closed: bool = False
+    # Inline scrollback rendering state: committed history is printed once into
+    # the terminal's normal buffer (so native scrollback in Ghostty/zellij can
+    # review it), and only the live region (transient stream + input/footer) is
+    # redrawn in place below it.
+    _painted_block_count: int = 0
+    _live_height: int = 0
+    _live_input_row: int = 0
+    _paint_lock: Any = field(default_factory=threading.Lock)
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -98,11 +112,15 @@ class ToolLoopTerminalUi:
         return hasattr(input_stream, "fileno")
 
     def start(self) -> None:
-        """Initialize the shell history and paint the first frame."""
+        """Initialize the shell history and paint the first frame.
+
+        The TUI runs inline (no alternate screen): startup chrome and every
+        finalized block are committed into the terminal's normal buffer so the
+        host terminal/multiplexer keeps them in native scrollback.
+        """
 
         if not self._history_blocks:
             self._history_blocks.extend(self._startup_blocks())
-        self._enter_terminal_screen()
         self.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
@@ -199,8 +217,16 @@ class ToolLoopTerminalUi:
             return
         self._closed = True
         try:
-            suffix = "\x1b[?1049l" if self._entered_alt_screen else ""
-            self.terminal_stream.write(f"\x1b[?25h{suffix}\n")
+            out: list[str] = []
+            # Move below the live region so the next shell prompt does not
+            # overwrite the footer, then restore the cursor.
+            if self._live_height > 0:
+                lines_below = (self._live_height - 1) - self._live_input_row
+                if lines_below > 0:
+                    out.append(f"\x1b[{lines_below}B")
+                out.append("\r")
+            out.append("\x1b[?25h\n")
+            self.terminal_stream.write("".join(out))
             self.terminal_stream.flush()
         except (OSError, ValueError):
             return
@@ -438,31 +464,117 @@ class ToolLoopTerminalUi:
     def paint(self) -> None:
         if self._closed:
             return
+        with self._paint_lock:
+            self._paint_locked()
+
+    def _paint_locked(self) -> None:
         width, height = self._dimensions()
-        lines = self._frame_lines(width=width, height=height, pad=False)
         style = chrome_style_for(self.terminal_stream)
-        output: list[str] = ["\x1b[?25l\x1b[H"]
-        for index, line in enumerate(lines):
-            rendered = self._styled_line(line, style=style, width=width)
-            output.append(rendered)
+        output: list[str] = ["\x1b[?25l"]
+        # 1. Return to the top of the previously drawn live region and erase it
+        #    (and anything below). Committed history above is left untouched so
+        #    it stays in the terminal's native scrollback.
+        if self._live_height > 0:
+            if self._live_input_row > 0:
+                output.append(f"\x1b[{self._live_input_row}A")
+            output.append("\r\x1b[J")
+        else:
+            output.append("\r")
+        # 2. Commit any newly finalized history blocks into the normal buffer.
+        #    Raw-mode input disables LF-to-CRLF translation, so use explicit
+        #    carriage returns to keep each row starting in column 1.
+        for kind, block_lines in self._history_blocks[self._painted_block_count :]:
+            for frame_line in self._block_frame_lines(kind, block_lines, width=width):
+                output.append(self._styled_line(frame_line, style=style, width=width))
+                output.append("\x1b[K\r\n")
+        self._painted_block_count = len(self._history_blocks)
+        # 3. Draw the live region (bounded transient stream + input/footer).
+        live = self._live_region_lines(width=width, height=height)
+        last_index = len(live) - 1
+        for index, frame_line in enumerate(live):
+            output.append(self._styled_line(frame_line, style=style, width=width))
             output.append("\x1b[K")
-            if index != len(lines) - 1:
-                # Raw-mode input disables the terminal's LF-to-CRLF output
-                # translation. Use an explicit carriage return so each
-                # repainted row starts in column 1 while the editor is active.
+            if index != last_index:
                 output.append("\r\n")
+        # 4. Park the visible cursor on the input cell with relative moves; an
+        #    absolute row would be wrong once the buffer has scrolled.
         input_index = next(
-            (index for index, line in enumerate(lines) if line.kind == "input"),
-            len(lines) - 1,
+            (index for index, frame_line in enumerate(live) if frame_line.kind == "input"),
+            last_index,
         )
-        cursor_row = min(height, input_index + 1)
-        cursor_col = min(width, self._effective_input_cursor() + 1)
-        output.append(f"\x1b[J\x1b[{cursor_row};{cursor_col}H\x1b[?25h")
+        lines_up = last_index - input_index
+        if lines_up > 0:
+            output.append(f"\x1b[{lines_up}A")
+        output.append("\r")
+        cursor_col = min(max(0, width - 1), self._effective_input_cursor())
+        if cursor_col > 0:
+            output.append(f"\x1b[{cursor_col}C")
+        output.append("\x1b[?25h")
+        self._live_height = len(live)
+        self._live_input_row = input_index
         try:
             self.terminal_stream.write("".join(output))
             self.terminal_stream.flush()
         except (OSError, ValueError):
             return
+
+    def _live_region_lines(self, *, width: int, height: int) -> list[_FrameLine]:
+        """Compose the pinned bottom region drawn below committed history.
+
+        Layout (top to bottom): the in-progress streaming tail (assistant,
+        reasoning, working spinner), a separator, the input line, a separator,
+        an optional slash-command menu, and the two footer rows. The transient
+        tail is bounded so the live region never exceeds the screen height; the
+        full streamed answer commits to scrollback once it settles.
+        """
+
+        menu_lines = self._slash_menu_frame_lines(
+            width=width,
+            max_rows=max(1, height - 7),
+        )
+        # Chrome below the transient tail: two separators + input + menu rows
+        # + two footer rows.
+        chrome_height = 3 + len(menu_lines) + 2
+        transient_budget = max(0, height - chrome_height - 1)
+        transient = self._transient_tail_lines(width)
+        if len(transient) > transient_budget:
+            transient = transient[len(transient) - transient_budget :]
+        separator = "─" * width
+        input_line = self._clip(self.input_text + " ", width)
+        lines: list[_FrameLine] = [
+            *transient,
+            _FrameLine(separator, "separator"),
+            _FrameLine(input_line, "input"),
+            _FrameLine(separator, "separator"),
+            *menu_lines,
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        return lines
+
+    def _transient_tail_lines(self, width: int) -> list[_FrameLine]:
+        lines: list[_FrameLine] = []
+        if self.assistant_text:
+            lines.extend(
+                self._block_frame_lines(
+                    "assistant",
+                    self.assistant_text.splitlines() or [""],
+                    width=width,
+                )
+            )
+        if self.reasoning_text:
+            lines.extend(
+                self._block_frame_lines(
+                    "reasoning",
+                    self.reasoning_text.splitlines() or [""],
+                    width=width,
+                )
+            )
+        if self.working_text:
+            lines.extend(
+                self._block_frame_lines("working", (self.working_text,), width=width)
+            )
+        return lines
 
     def _styled_line(self, line: _FrameLine, *, style: Any, width: int) -> str:
         text = line.text.rstrip()
@@ -523,16 +635,6 @@ class ToolLoopTerminalUi:
         if line.kind == "user":
             return style.user_message(text, width=width)
         return text
-
-    def _enter_terminal_screen(self) -> None:
-        if self._entered_alt_screen:
-            return
-        self._entered_alt_screen = True
-        try:
-            self.terminal_stream.write("\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l")
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
 
     def _restore_terminal_mode(self) -> None:
         if self._old_termios is None:

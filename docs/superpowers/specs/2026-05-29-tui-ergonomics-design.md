@@ -50,8 +50,8 @@ mode):
   terminal/multiplexer that has scrollback, because we no longer suppress it.
 - **Live region** — pinned at the bottom and redrawn in place on each update:
   the in-progress streaming tail (reasoning / assistant / working spinner,
-  bounded to fit the screen), then the separator / input / separator /
-  [slash menu] / two footer rows.
+  bounded to fit the screen), then the separator / input / separator / optional
+  slash menu / two footer rows.
 
 ### Rendering algorithm (`paint`)
 

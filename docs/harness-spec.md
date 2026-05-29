@@ -421,12 +421,27 @@ stderr are real TTY streams and the input runtime is `auto`. That boundary is
 `pipy_harness.native.tui.ToolLoopTerminalUi`: it stores chat history,
 submitted user-message blocks, the active assistant-output buffer, transient
 working text, slash-command menu state, the input/editor line, and the two-row
-footer/status, then composes whole alternate-screen terminal frames from that
-state. Typing `/` in the product TUI opens the same command-list/description
+footer/status. It renders inline (no alternate screen): each finalized block —
+startup chrome, submitted prompts, settled assistant turns, settled reasoning,
+tool call/result rows, notices, and settings overlays — is committed once into
+the terminal's normal buffer, so the host terminal/multiplexer keeps it in
+native scrollback. The user can scroll up to review prior output in both a
+native terminal (e.g. Ghostty) and inside a multiplexer pane (e.g. zellij)
+because the renderer no longer holds the alternate screen. Only a small live
+region — the bounded in-progress stream tail, the separator/input/separator
+frame, the optional slash menu, and the two footer rows — is redrawn in place
+below the committed history, pinned at the bottom of the window. As a session
+produces output the committed history fills the full window height with the
+input/footer at the bottom rather than capping the frame to the upper half.
+Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `settings`, `exit`, `quit`); Up/Down moves the selected row,
-Tab or Enter accepts the selected command, and Escape closes the menu without
-exiting the session. `/settings` opens a read-only settings/status overlay
+locally (`help`, `settings`, `copy`, `exit`, `quit`); Up/Down moves the selected
+row, Tab or Enter accepts the selected command, and Escape closes the menu
+without exiting the session. `/copy` is a local-only command: it copies the
+most recent assistant answer through a safe OS clipboard command (`pbcopy` on
+macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
+reports a local status notice, and never invokes the provider, tools,
+login/logout, or model switching. `/settings` opens a read-only settings/status overlay
 (`ToolLoopTerminalUi.show_settings`) rendered as a settings history block
 through the same whole-frame paint path. It reuses the shared no-tool
 `settings_overlay_lines` builder, so it shows the same safe active selection,
@@ -437,19 +452,21 @@ creates a provider turn. `/model`, `/login`, and `/logout` are not yet
 executable in the tool-loop path, so the overlay footer says so rather than
 advertising them.
 Submitted
-messages, streamed assistant text, and the loader flow through the history
-area so tmux history does not accumulate stale repaint rows; the input and
-footer remain stable frame rows. Streamed reasoning is accumulated into one
-active reasoning block instead of one block per token, and model-selected tool
-commands/results render as Pi-style shaded rows with a bounded result preview.
-Model-selected `read` calls use Pi's compact shaded `read <path>` row in the
-TUI and suppress the excerpt body from the viewport while still passing the
-observation back to the model. Tool overflow keeps the submitted prompt,
-newest result tail, final answer, and footer visible in the same 100x30 frame.
-When terminal height forces history trimming, the compositor keeps enough startup
-context before the
-submitted prompt to match Pi's retained-chrome shape, including the 100x24
-simple prompt flow. Captured streams and explicit non-TTY input runtimes
+messages and settled assistant text are committed into native scrollback while
+streamed assistant text and the loader live in the redrawn live region; the
+input and footer remain stable frame rows pinned at the bottom. Streamed
+reasoning is accumulated into one active reasoning block instead of one block
+per token, and model-selected tool commands/results render as Pi-style shaded
+rows with a bounded result preview. Model-selected `read` calls use Pi's compact
+shaded `read <path>` row in the TUI and suppress the excerpt body from the
+viewport while still passing the observation back to the model. Because finalized
+output lives in scrollback rather than a fixed-height frame, long tool output
+and answers scroll up out of the live viewport and stay reviewable; the live
+input/footer frame keeps its shape regardless of how much history precedes it.
+The logical full-screen composition is still available through
+`ToolLoopTerminalUi.render_lines()` for unit tests, but the real paint path and
+its scroll/full-height behavior are verified through PTY captures and the ANSI
+screen-cell model rather than `render_lines()` alone. Captured streams and explicit non-TTY input runtimes
 continue to use the deterministic line-oriented fallback so stdout/stderr
 automation contracts and tests remain stable. The TUI shell is a presentation
 boundary only; provider calls, bounded tool-loop behavior, transcript
