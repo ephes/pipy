@@ -85,7 +85,13 @@ not a promise to skip review when a smaller, safer slice appears.
    lists `settings` alongside `help`, `exit`, and `quit`. `/model`, `/login`,
    and `/logout` remain no-tool REPL commands only; the remaining work is
    interactive model/provider selection inside the product TUI, after which
-   login/logout follow.
+   login/logout follow. Observed 2026-05-29 parity gap: Pi presents
+   `/settings` as an interactive, scrollable dialog with highlighted rows,
+   editable booleans and numeric settings, and bottom-key affordances such as
+   `Enter`/`Space` to change and `Esc` to cancel. Pipy currently shows a plain
+   text settings/status block, so the next settings slice should compare the
+   full dialog behavior and decide which controls are product settings versus
+   provider/model/auth controls.
 3. Full interactive TUI ergonomics. The product TUI now renders inline (no
    alternate screen): finalized blocks commit once into the terminal's normal
    buffer so the host terminal/multiplexer keeps them in native scrollback, and
