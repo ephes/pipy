@@ -1117,7 +1117,11 @@ suppressing late chunks. The product TUI slash menu now lists only executable
 local tool-loop commands (`help`, `exit`, `quit`). The slice shipped with
 stdlib ANSI screen-cell verification, tmux product-path artifacts, Pi comparison
 artifacts, focused TUI/renderer tests, docs updates, `just check`, and a clean
-second review after the inert-command menu finding was fixed.
+second review after the inert-command menu finding was fixed. (This shell was
+later reworked into the inline-scrollback model with full-height use, native
+scrolling, and the `/copy` command — see Pi Gap Queue item 3 above for the
+current behavior; the menu now lists `help`, `settings`, `copy`, `exit`,
+`quit`.)
 
 ## Next Slice
 

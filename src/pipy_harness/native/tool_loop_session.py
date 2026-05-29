@@ -1044,9 +1044,10 @@ class NativeToolReplSession:
     @staticmethod
     def _help_text() -> str:
         return (
-            "pipy: tool-loop mode supports `/help`, `/settings`, `/exit`, "
-            "`/quit` locally. `/settings` shows a read-only provider/model "
-            "overlay. Other input is sent to the model. The model can call "
+            "pipy: tool-loop mode supports `/help`, `/settings`, `/copy`, "
+            "`/exit`, `/quit` locally. `/settings` shows a read-only "
+            "provider/model overlay; `/copy` copies the last answer to the "
+            "clipboard. Other input is sent to the model. The model can call "
             "bounded `read`, `ls`, `grep`, `find`, `write`, `edit`, "
             "`edit_diff`, and `truncate` tools (budget per user turn)."
         )

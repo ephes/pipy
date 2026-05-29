@@ -803,6 +803,12 @@ class _AnswerProvider:
         )
 
 
+def test_tool_loop_help_text_lists_copy_command():
+    help_text = NativeToolReplSession._help_text()
+    for command in ("/help", "/settings", "/copy", "/exit", "/quit"):
+        assert command in help_text, f"help text omits {command}"
+
+
 def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
