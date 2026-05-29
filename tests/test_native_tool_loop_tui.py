@@ -365,6 +365,38 @@ def test_tui_settles_reasoning_before_turn_reset(tmp_path: Path):
     assert ui.reasoning_text == ""
 
 
+def test_tui_reasoning_row_emits_italic_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # parse_ansi_screen does not track the italic SGR (code 3), so pin the
+    # raw escape: reasoning text must be preceded by the italic-prefixed
+    # secondary-dim color, matching the captured-stream fallback renderer.
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+
+    ui.append_reasoning("Thinking about this.")
+    ui.paint()
+
+    output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    assert "\x1b[3;38;2;128;128;128m Thinking about this.\x1b[0m" in output
+
+
+def test_tui_reasoning_row_drops_italic_under_no_color(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+
+    ui.append_reasoning("Thinking about this.")
+    ui.paint()
+
+    output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    assert "\x1b[3" not in output
+    assert "Thinking about this." in output
+
+
 def test_tui_tool_call_uses_pi_command_background(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

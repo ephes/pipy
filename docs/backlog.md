@@ -73,10 +73,11 @@ This queue reflects the 2026-05-28 multi-agent comparison against the local Pi
 reference plus the existing summary-safe parity history. It is a planning order,
 not a promise to skip review when a smaller, safer slice appears.
 
-1. Product-TUI reasoning italics. Pi renders thinking/reasoning in italic.
-   Pipy's captured-stream renderer already does this, but the product TUI maps
-   reasoning rows to dim-only chrome styling. This is the smallest high-signal
-   visible parity fix and is the selected next slice.
+1. Product-TUI reasoning italics. Implemented. `ChromeStyle.dim_italic`
+   composes the italic SGR (`3`) with the existing secondary-dim color while
+   respecting TTY/`NO_COLOR`/truecolor behavior, and `ToolLoopTerminalUi`
+   renders `reasoning` rows with it so the product TUI matches Pi and pipy's
+   captured-stream fallback renderer.
 2. Product-TUI settings/model/provider controls. `/settings`, `/model`,
    `/login`, and `/logout` are no-tool REPL commands today; the product TUI
    slash menu intentionally exposes only `help`, `exit`, and `quit` until more
@@ -1106,31 +1107,30 @@ second review after the inert-command menu finding was fixed.
 
 ## Next Slice
 
-### Product TUI reasoning italics
+### Product TUI reasoning italics (landed)
 
-Goal: close the smallest confirmed visible Pi mismatch from the 2026-05-28
-comparison by rendering streamed reasoning/thinking rows in the product TUI
-with italic emphasis, matching Pi and pipy's captured-stream fallback renderer.
+Closed the smallest confirmed visible Pi mismatch from the 2026-05-28
+comparison: streamed reasoning/thinking rows in the product TUI now render with
+italic emphasis, matching Pi and pipy's captured-stream fallback renderer.
 
-Implementation focus:
+What landed:
 
-- add an italic style path to `pipy_harness.native.chrome.ChromeStyle` that
-  respects the existing TTY/`NO_COLOR`/theme behavior and composes cleanly with
-  dim secondary text
-- use that style for `reasoning` rows in
-  `pipy_harness.native.tui.ToolLoopTerminalUi` while preserving current
-  reasoning text normalization and wrapping
-- keep metadata-first archive behavior unchanged: displayed reasoning summaries
-  must not become archived prompt, model-output, or transcript payload unless
-  the existing opt-in transcript sidecar already covers that stream
-- keep captured-stream rendering behavior unchanged except for any shared style
-  helper reuse that preserves the existing ANSI output
-- add focused tests for the TUI/chrome style path and, if practical, extend the
-  ANSI screen-cell or tmux verifier coverage so reasoning visual-region rows can
-  detect missing italic emphasis; if the screen-cell model does not yet track
-  SGR italic attributes, pin the emitted escape sequence in a unit test instead
-- update `docs/pi-parity.md` and this backlog when the slice lands, and run the
-  focused tests plus `just check`
+- `pipy_harness.native.chrome.ChromeStyle.dim_italic` composes the italic SGR
+  (`3`) with the existing secondary-dim color, respecting the established
+  TTY/`NO_COLOR`/truecolor behavior and returning plain text when styling is
+  disabled
+- `pipy_harness.native.tui.ToolLoopTerminalUi` renders `reasoning` rows with
+  `dim_italic`, leaving reasoning text normalization, wrapping, settling, and
+  history behavior unchanged
+- captured-stream fallback rendering is unchanged and now has a pinned italic
+  escape assertion alongside the existing bold/dim assertions
+- metadata-first archive behavior is unchanged: displayed reasoning summaries
+  are still only chrome, not archived payload
+- the ANSI screen-cell model does not track SGR italic, so the emitted escape
+  is pinned directly in focused chrome and product-TUI unit tests
+
+The next slice is item 2 in the Prioritized Pi Gap Queue: a read-only
+product-TUI settings/status overlay.
 
 ## Near Term
 

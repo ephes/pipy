@@ -469,7 +469,7 @@ class ToolLoopTerminalUi:
         if line.kind == "working":
             return style.secondary_dim(text)
         if line.kind == "reasoning":
-            return style.secondary_dim(text)
+            return style.dim_italic(text)
         if line.kind == "error":
             return style.error(text)
         if line.kind == "tool":

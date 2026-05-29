@@ -778,8 +778,10 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "pipy's captured-stream fallback renderer" in compact_next_slice
     assert "pipy_harness.native.chrome.ChromeStyle" in next_slice
     assert "pipy_harness.native.tui.ToolLoopTerminalUi" in next_slice
-    assert "metadata-first archive behavior unchanged" in compact_next_slice
-    assert "focused tests plus `just check`" in compact_next_slice
+    assert "metadata-first archive behavior is unchanged" in compact_next_slice
+    assert "pinned directly in focused chrome and product-TUI unit tests" in (
+        compact_next_slice
+    )
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

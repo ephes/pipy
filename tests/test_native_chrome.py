@@ -195,3 +195,30 @@ def test_print_bottom_status_block_emits_two_dim_rows() -> None:
     output = stream.getvalue()
     rows = [row for row in output.splitlines() if row.strip()]
     assert rows == ["/tmp/foo", "$0.000 (sub) ..."]
+
+
+def test_dim_italic_truecolor_combines_italic_with_secondary_dim() -> None:
+    style = chrome.ChromeStyle(enabled=True, truecolor=True)
+    assert style.dim_italic("thinking") == "\x1b[3;38;2;128;128;128mthinking\x1b[0m"
+
+
+def test_dim_italic_fallback_combines_italic_with_dim() -> None:
+    style = chrome.ChromeStyle(enabled=True, truecolor=False)
+    assert style.dim_italic("thinking") == "\x1b[3;2mthinking\x1b[0m"
+
+
+def test_dim_italic_disabled_returns_plain_text() -> None:
+    style = chrome.ChromeStyle(enabled=False)
+    assert style.dim_italic("thinking") == "thinking"
+
+
+def test_dim_italic_respects_no_color(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    class _Tty(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    style = chrome.chrome_style_for(_Tty())
+    assert style.dim_italic("thinking") == "thinking"

@@ -308,6 +308,7 @@ def test_renderer_streams_reasoning_with_bold_titles():
     assert "**" not in rendered
     assert "\x1b[1m" in rendered  # bold escape present
     assert "\x1b[2m" in rendered  # dim escape present
+    assert "\x1b[3m" in rendered  # italic escape present
 
 
 def test_renderer_reasoning_routes_to_error_stream_not_output():

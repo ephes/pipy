@@ -111,6 +111,14 @@ class ChromeStyle:
     def secondary_dim(self, text: str) -> str:
         return self._wrap(text, _PI_SECONDARY_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
 
+    def dim_italic(self, text: str) -> str:
+        # Italic + secondary dim, mirroring the captured-stream fallback
+        # renderer so streamed reasoning reads as Pi's italic prose voice.
+        if not self.enabled:
+            return text
+        code = _PI_SECONDARY_DIM_TRUECOLOR if self.truecolor else _PI_DIM_FALLBACK
+        return f"\x1b[3;{code}m{text}\x1b[0m"
+
     def error(self, text: str) -> str:
         return self._wrap(text, _PI_ERROR_TRUECOLOR, _PI_ERROR_FALLBACK)
 
