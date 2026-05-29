@@ -20,6 +20,7 @@ import pty
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TextIO, cast
 
 import pytest
@@ -27,6 +28,12 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.clipboard import ClipboardResult
+from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl_state import (
+    NativeReplProviderState,
+    StaticNativeReplProviderState,
+)
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -1064,3 +1071,375 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
     assert "\x1b[?1049h" not in captured
     assert prompts == ["line one\nline two!"]
+
+
+def _start_pty_repl_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    provider: ProviderPort,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    store: PromptHistoryStore,
+    winsize: tuple[int, int] | None = None,
+) -> SimpleNamespace:
+    """Spawn one real-PTY product-TUI session in a worker thread.
+
+    Returns a namespace with the master fds, the live-output chunk buffer, the
+    worker thread, and a result holder. ``winsize`` (cols, rows) sets the slave
+    terminal size via TIOCSWINSZ when given (used by the resize test); callers
+    that pin COLUMNS/LINES can omit it.
+    """
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    if winsize is not None:
+        _set_winsize(err_slave, winsize[1], winsize[0])
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        prompt_history_store=store,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+    result_holder: list[object] = []
+
+    def _run() -> None:
+        result_holder.append(
+            session.run(
+                workspace_root=tmp_path,
+                input_stream=cast(TextIO, stdin),
+                output_stream=cast(TextIO, terminal),
+                error_stream=cast(TextIO, terminal),
+            )
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    return SimpleNamespace(
+        in_master=in_master,
+        err_master=err_master,
+        err_slave=err_slave,
+        stdin=stdin,
+        terminal=terminal,
+        err_thread=err_thread,
+        err_chunks=err_chunks,
+        worker=worker,
+        result_holder=result_holder,
+        ui=ui,
+    )
+
+
+def _finish_pty_repl_session(ctx: SimpleNamespace) -> str:
+    ctx.worker.join(timeout=8.0)
+    for byte in (b"\x03", b"\x04"):
+        try:
+            os.write(ctx.in_master, byte)
+        except OSError:
+            pass
+    try:
+        ctx.terminal.flush()
+        ctx.terminal.close()
+    except OSError:
+        pass
+    try:
+        ctx.stdin.close()
+    except OSError:
+        pass
+    ctx.err_thread.join(timeout=8.0)
+    os.close(ctx.in_master)
+    os.close(ctx.err_master)
+    return b"".join(ctx.err_chunks).decode("utf-8", errors="replace")
+
+
+def _native_state_logged_out(
+    tmp_path: Path, provider: ProviderPort
+) -> NativeReplProviderState:
+    from pipy_harness.native import NativeModelSelection
+
+    return NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda selection: provider,
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+
+
+def _highlighted_row(viewport: list[str]) -> str | None:
+    for line in viewport:
+        stripped = line.strip()
+        if stripped.startswith("→"):
+            return stripped
+    return None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [((100, 40), (80, 24)), ((80, 24), (100, 40))],
+)
+def test_pty_settings_dialog_live_navigate_toggle_clear_and_resize(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    start: tuple[int, int],
+    end: tuple[int, int],
+):
+    """Drive the interactive `/settings` dialog over a real PTY end-to-end.
+
+    Opens the dialog, inspects the live overlay before any action, navigates
+    between actionable rows, toggles persistent prompt history, clears it, and
+    resizes the terminal while the dialog is still open — asserting at the
+    fragile live intermediate screen (not only after final submission) that the
+    inline contract holds: no alternate screen, the highlighted row is correct,
+    the overlay re-renders coherently with a footer and no stale rows after the
+    resize, and Esc returns to a separator-framed input. No provider turn or
+    tool call runs from any `/settings` action.
+    """
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    start_cols, start_rows = start
+    end_cols, end_rows = end
+
+    store = PromptHistoryStore(tmp_path / "history.json")
+    store.set_enabled(True)
+    store.record("seeded-entry")
+
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    provider_state = _native_state_logged_out(tmp_path, provider)
+    ctx = _start_pty_repl_session(
+        monkeypatch,
+        tmp_path,
+        provider=provider,
+        provider_state=provider_state,
+        store=store,
+        winsize=start,
+    )
+
+    sep_end = "─" * end_cols
+    before_snapshot = None
+    after_snapshot = None
+    try:
+        assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup chrome missing"
+        assert _wait_for(ctx.err_chunks, "─" * start_cols), "initial separator missing"
+        os.write(ctx.in_master, b"/settings\n")
+        assert _wait_for(ctx.err_chunks, "Settings —"), "settings dialog never opened"
+        # Inspect the live overlay BEFORE any action.
+        before_snapshot = parse_ansi_screen(
+            b"".join(ctx.err_chunks).decode("utf-8", errors="replace"),
+            columns=start_cols,
+            rows=start_rows,
+        )
+        before_view = before_snapshot.viewport
+        before_joined = "\n".join(before_view)
+        assert "Provider / model" in before_joined
+        assert "Authentication" in before_joined
+        assert "Prompt history" in before_joined
+        assert "persistent prompt history: on" in before_joined
+        assert "clear persisted history (1 saved)" in before_joined
+        # The first actionable row (provider/model) is highlighted on open.
+        assert _highlighted_row(before_view) == "→ change provider/model…"
+        # Windowing: at the short 80x24 size the row list overflows and shows a
+        # scroll indicator; at 100x40 it fits without one.
+        if start == (80, 24):
+            import re as _re
+
+            assert _re.search(r"\(\d+/\d+\)", before_joined), "scroll indicator missing"
+
+        # Navigate down across actionable rows (skipping headers/status) to the
+        # persistent-history toggle, then toggle it OFF with Space.
+        os.write(ctx.in_master, b"\x1b[B")  # → login
+        os.write(ctx.in_master, b"\x1b[B")  # → toggle
+        assert _wait_for(ctx.err_chunks, "→ persistent prompt history"), "nav failed"
+        os.write(ctx.in_master, b" ")  # space activates the toggle
+        assert _wait_for(
+            ctx.err_chunks, "persistent prompt history: off"
+        ), "toggle did not flip live"
+
+        # Navigate to the clear row and clear with Enter.
+        os.write(ctx.in_master, b"\x1b[B")  # → clear
+        assert _wait_for(ctx.err_chunks, "→ clear persisted history"), "nav to clear failed"
+        os.write(ctx.in_master, b"\r")  # enter clears
+        assert _wait_for(
+            ctx.err_chunks, "clear persisted history (0 saved)"
+        ), "clear did not update live"
+
+        # Resize while the dialog is still open.
+        _set_winsize(ctx.err_slave, end_rows, end_cols)
+        assert _wait_for(ctx.err_chunks, "\x1b[2J"), "resize did not trigger a redraw"
+        after_snapshot = parse_ansi_screen(
+            b"".join(ctx.err_chunks).decode("utf-8", errors="replace"),
+            columns=end_cols,
+            rows=end_rows,
+        )
+
+        # Close the dialog with Esc; the separator-framed input returns at the
+        # new size.
+        os.write(ctx.in_master, b"\x1b")
+        assert _wait_for(ctx.err_chunks, sep_end), "input frame did not return after esc"
+        # Let the resumed read_line re-enter raw mode before the exit keystroke
+        # so the byte is read as ctrl-d rather than racing the mode transition.
+        time.sleep(0.3)
+        os.write(ctx.in_master, b"\x04")  # ctrl-d exits on the empty prompt
+    finally:
+        captured = _finish_pty_repl_session(ctx)
+
+    assert not ctx.worker.is_alive(), "settings dialog session did not exit"
+    # Inline model preserved throughout: never the alternate screen.
+    assert "\x1b[?1049h" not in captured
+
+    # The post-resize overlay is a single coherent frame: the title and the
+    # cleared row each appear exactly once (no stale pre-resize rows), the
+    # correct row stays highlighted, and a footer is present below the list.
+    assert after_snapshot is not None
+    after_view = after_snapshot.viewport
+    after_joined = "\n".join(after_view)
+    assert after_joined.count("Settings —") == 1, "stale dialog title after resize"
+    assert after_joined.count("clear persisted history (0 saved)") == 1, "stale rows"
+    assert _highlighted_row(after_view) == "→ clear persisted history (0 saved)"
+    title_rows = [i for i, line in enumerate(after_view) if "Settings —" in line]
+    assert title_rows, "dialog title missing after resize"
+    assert any(line.strip() for line in after_view[title_rows[0] + 1 :]), (
+        "footer/rows missing below the resized dialog"
+    )
+
+    # No provider turn and no tool call ran from any /settings action.
+    assert provider._call_counter[0] == 0
+    result = ctx.result_holder[0]
+    assert getattr(result, "status") == HarnessStatus.SUCCEEDED
+    assert getattr(result, "user_turn_count") == 0
+    assert getattr(result, "tool_invocation_count") == 0
+
+    # The local toggle/clear mutated only the local store.
+    assert store.enabled is False
+    assert store.entries() == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_settings_persistent_history_cross_session_recall(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Prove persistent prompt history end to end across fresh product sessions.
+
+    Session 1 enables persistence from `/settings` and submits a prompt.
+    Session 2 (a fresh TUI process) recalls that prompt with Up, then disables
+    and clears persistence from `/settings`. Session 3 (fresh again) proves the
+    prompt is no longer recalled. The store file is the only cross-session state
+    and is never the metadata-first session archive.
+    """
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    history_path = tmp_path / "state" / "history.json"
+    token = "recall-me-token"
+
+    # --- Session 1: enable persistence via /settings, then submit a prompt. ---
+    seen1: list[tuple[str, str]] = []
+    provider1 = _RecordingProvider("fake", "fake-native-bootstrap", seen1)
+    store1 = PromptHistoryStore(history_path)
+    assert store1.enabled is False  # off by default
+    ctx1 = _start_pty_repl_session(
+        monkeypatch, tmp_path, provider=provider1, provider_state=None, store=store1
+    )
+    try:
+        assert _wait_for(ctx1.err_chunks, "escape interrupt")
+        os.write(ctx1.in_master, b"/settings\n")
+        assert _wait_for(ctx1.err_chunks, "Settings —"), "session1 dialog never opened"
+        # With the static single-provider state the toggle is the first
+        # actionable row, so it is highlighted on open.
+        assert _wait_for(ctx1.err_chunks, "→ persistent prompt history: off")
+        os.write(ctx1.in_master, b" ")  # enable
+        assert _wait_for(ctx1.err_chunks, "persistent prompt history: on")
+        os.write(ctx1.in_master, b"\x1b")  # esc closes the dialog
+        # Let the resumed read_line re-enter raw mode before submitting, so the
+        # prompt is not consumed by the still-closing dialog.
+        time.sleep(0.3)
+        # Submit a real prompt; it should be persisted.
+        os.write(ctx1.in_master, token.encode("utf-8") + b"\n")
+        assert _wait_for(ctx1.err_chunks, "RESPONSE_MARKER_DONE"), "turn never ran"
+        time.sleep(0.1)
+        os.write(ctx1.in_master, b"\x04")  # exit on empty prompt
+    finally:
+        captured1 = _finish_pty_repl_session(ctx1)
+    assert not ctx1.worker.is_alive()
+    assert "\x1b[?1049h" not in captured1
+
+    reloaded = PromptHistoryStore(history_path)
+    assert reloaded.enabled is True
+    assert reloaded.entries() == [token]
+
+    # --- Session 2: fresh session recalls with Up, then disables + clears. ---
+    seen2: list[tuple[str, str]] = []
+    provider2 = _RecordingProvider("fake", "fake-native-bootstrap", seen2)
+    store2 = PromptHistoryStore(history_path)
+    ctx2 = _start_pty_repl_session(
+        monkeypatch, tmp_path, provider=provider2, provider_state=None, store=store2
+    )
+    try:
+        assert _wait_for(ctx2.err_chunks, "escape interrupt")
+        # The fresh session seeded recall from disk; Up surfaces the prompt.
+        os.write(ctx2.in_master, b"\x1b[A")
+        assert _wait_for(ctx2.err_chunks, token), "prompt was not recalled in a fresh session"
+        # Clear the recalled text, then disable + clear persistence via /settings.
+        os.write(ctx2.in_master, b"\x15")  # ctrl-u kills to line start
+        os.write(ctx2.in_master, b"/settings\n")
+        assert _wait_for(ctx2.err_chunks, "Settings —"), "session2 dialog never opened"
+        assert _wait_for(ctx2.err_chunks, "→ persistent prompt history: on")
+        os.write(ctx2.in_master, b" ")  # disable
+        assert _wait_for(ctx2.err_chunks, "persistent prompt history: off")
+        os.write(ctx2.in_master, b"\x1b[B")  # → clear row
+        assert _wait_for(ctx2.err_chunks, "→ clear persisted history")
+        os.write(ctx2.in_master, b"\r")  # clear
+        assert _wait_for(ctx2.err_chunks, "clear persisted history (0 saved)")
+        os.write(ctx2.in_master, b"\x1b")  # esc closes the dialog
+        time.sleep(0.3)
+        os.write(ctx2.in_master, b"\x04")  # exit on empty prompt
+    finally:
+        captured2 = _finish_pty_repl_session(ctx2)
+    assert not ctx2.worker.is_alive()
+    assert "\x1b[?1049h" not in captured2
+    # /settings actions ran no provider turn.
+    assert seen2 == []
+
+    reloaded2 = PromptHistoryStore(history_path)
+    assert reloaded2.enabled is False
+    assert reloaded2.entries() == []
+
+    # --- Session 3: fresh session must NOT recall the cleared prompt. ---
+    seen3: list[tuple[str, str]] = []
+    provider3 = _RecordingProvider("fake", "fake-native-bootstrap", seen3)
+    store3 = PromptHistoryStore(history_path)
+    ctx3 = _start_pty_repl_session(
+        monkeypatch, tmp_path, provider=provider3, provider_state=None, store=store3
+    )
+    try:
+        assert _wait_for(ctx3.err_chunks, "escape interrupt")
+        os.write(ctx3.in_master, b"\x1b[A")  # Up — nothing to recall
+        # Give the (empty) recall a moment; there is nothing to surface.
+        time.sleep(0.3)
+        os.write(ctx3.in_master, b"\x04")  # exit on empty prompt
+    finally:
+        captured3 = _finish_pty_repl_session(ctx3)
+    assert not ctx3.worker.is_alive()
+    assert "\x1b[?1049h" not in captured3
+    # The cleared prompt is not recalled in the fresh, disabled session.
+    assert token not in captured3
+    assert seen3 == []

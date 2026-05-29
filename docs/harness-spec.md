@@ -423,7 +423,7 @@ submitted user-message blocks, the active assistant-output buffer, transient
 working text, slash-command menu state, the input/editor line, and the two-row
 footer/status. It renders inline (no alternate screen): each finalized block —
 startup chrome, submitted prompts, settled assistant turns, settled reasoning,
-tool call/result rows, notices, and settings overlays — is committed once into
+tool call/result rows, and notices — is committed once into
 the terminal's normal buffer, so the host terminal/multiplexer keeps it in
 native scrollback. The user can scroll up to review prior output in both a
 native terminal (e.g. Ghostty) and inside a multiplexer pane (e.g. zellij)
@@ -443,14 +443,26 @@ windows to six visible rows with a scroll indicator when more match. `/copy` is 
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
-login/logout, or model switching. `/settings` opens a read-only settings/status overlay
-(`ToolLoopTerminalUi.show_settings`) rendered as a settings history block
-through the same whole-frame paint path. It reuses the shared no-tool
-`settings_overlay_lines` builder, so it shows the same safe active selection,
-registered defaults, and per-provider local availability reasons as the no-tool
-`/settings` command; it is strictly read-only and never switches
-models/providers, starts login/logout, mutates auth state, invokes tools, or
-creates a provider turn.
+login/logout, or model switching. `/settings` opens an interactive in-frame
+settings/control dialog (`ToolLoopTerminalUi.run_settings_dialog`) — a live
+overlay drawn in the pinned live region (not a committed history block), like
+the `/model` selector. It lists section headers, read-only status rows (the
+active provider/model and per-provider local availability reasons, the same safe
+information the no-tool `settings_overlay_lines` builder exposes), and actionable
+rows. Up/Down move the highlight between actionable rows (skipping headers and
+status rows, wrapping), Enter/Space activate the highlighted row, the list
+windows with a scroll indicator when it overflows the height, and
+Esc/Ctrl-C/Ctrl-D close the dialog and return to the input. A resize while the
+dialog is open repaints it coherently through the same inline contract (no
+alternate screen). The dialog runs **no** provider turn and **no** tool call.
+Its actions are: change provider/model (reuses the `/model` selector and the
+`NativeReplProviderState.select_model` boundary), openai-codex auth (reuses the
+`/login`/`/logout` auth boundary, showing the current logged-in/out status), and
+two prompt-history controls described below (toggle persistent prompt history,
+clear persisted history). Provider/model and auth actions return to the dialog
+afterward so the user can keep adjusting settings; the prompt-history toggles are
+applied in place without leaving the dialog. The captured-stream (non-TTY)
+fallback keeps printing the shared read-only `settings_overlay_lines` text.
 
 `/model` is an executable interactive provider/model selector in the product
 TUI. Bare `/model` opens an in-frame selector (`ToolLoopTerminalUi.run_model_selector`)
@@ -486,16 +498,27 @@ the local default. After either, the session clears the in-memory conversation,
 rebinds the live provider and usage meter, refreshes the footer/status label, and
 the refreshed `model_options()` availability takes effect on the next `/model`
 view or turn. Auth URLs, prompts, tokens, and credentials render only on the live
-terminal and never reach the session archive; the `/settings` overlay footer now
-points at `/login`/`/logout` instead of saying they are unavailable.
+terminal and never reach the session archive; the `/settings` dialog surfaces
+`/login`/`/logout` as actionable openai-codex auth rows (and the captured-stream
+fallback footer points at them) instead of saying they are unavailable.
 
 The TUI input editor provides daily-driver ergonomics built on the same
 raw-mode read loop. Up/Down recall an in-memory, session-scoped prompt history
 (submitted, non-blank, consecutively de-duplicated entries) with a preserved
 in-progress draft restored when stepping past the newest entry; the menu takes
-priority over history while it is open. History is never written to disk — it
-lives only in process memory — so no prompts, pasted text, or command bodies are
-persisted, consistent with the metadata-first archive contract. ANSI bracketed
+priority over history while it is open. Optional persistent cross-session prompt
+history is available behind the `/settings` "persistent prompt history" toggle
+(off by default). When enabled, submitted prompts are saved to a local-only
+pipy state file (`PromptHistoryStore`, `~/.local/state/pipy/prompt-history.json`,
+overridable via `PIPY_PROMPT_HISTORY_PATH`) — capped, blank/consecutive-duplicate
+suppressed, written atomically with owner-only permissions — and a fresh session
+seeds its Up/Down recall buffer from those saved prompts. The store is
+independent of the metadata-first session archive: only genuine prompts (never
+slash commands) are saved, and prompt bodies never enter the archive. When the
+toggle is off, nothing is persisted and a fresh session does not seed from disk;
+"clear persisted history" in `/settings` wipes the saved entries so a later fresh
+session recalls nothing (it leaves the current session's in-memory recall buffer
+intact). The in-memory per-session recall always works regardless of the toggle. ANSI bracketed
 paste is enabled in raw mode (`ESC[?2004h`); a paste is read whole between the
 `ESC[200~`/`ESC[201~` markers, normalized to `\n` line breaks, and inserted as a
 single literal edit, so multi-line pastes never submit on an embedded newline and

@@ -46,8 +46,9 @@ The broad parity ladder, applied with small-slice discipline:
   the core daily-driver editor ergonomics: in-memory Up/Down prompt history,
   ANSI bracketed paste (literal multi-line insert, no accidental submission),
   Ctrl-Z/Ctrl-Y undo/redo, and poll-based terminal resize handling that keeps
-  the inline frame coherent at 80x24 and 100x40. Persistent cross-session
-  history and a fuller TUI are still on the ladder.
+  the inline frame coherent at 80x24 and 100x40. Optional persistent
+  cross-session prompt history now ships too (behind the `/settings` toggle,
+  off by default, local-only state file). A fuller TUI is still on the ladder.
   The input-adapter boundary preserves plain captured-stream fallback.
   The stdlib-only `slash-menu` raw-mode line editor, stdlib `readline`
   adapter, and Workspace-relative path completion remain part of the
@@ -55,10 +56,10 @@ The broad parity ladder, applied with small-slice discipline:
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
   with metadata-only archive behavior. Runtime slash commands for loading
   skills, prompt templates, custom commands, extensions, themes, and broader
-  model/provider defaults remain later parity work; the `/settings` (read-only)
-  and `/model` (interactive selector) surfaces are now exposed inside the
-  product TUI, and `/login`/`/logout` are now executable inside the TUI too
-  (through the same auth boundary, with no provider turn). The current
+  model/provider defaults remain later parity work; the `/settings` (interactive
+  control dialog) and `/model` (interactive selector) surfaces are now exposed
+  inside the product TUI, and `/login`/`/logout` are now executable inside the
+  TUI too (through the same auth boundary, with no provider turn). The current
   `[Skills]` and `[Extensions]` chrome sections are display-only directory
   labels, not runtime loaders.
 - Tool parity: the bounded multi-step model/tool loop has landed; the remaining
@@ -108,15 +109,20 @@ not a promise to skip review when a smaller, safer slice appears.
    the live provider/footer (logout resets the selection to the local default).
    Interactive login output (the OAuth URL/prompt) renders only on the live
    terminal — the inline frame is suspended around it and repainted afterward —
-   and never reaches the session archive. Observed 2026-05-29 parity gap (still
-   open): Pi presents
-   `/settings` as an interactive, scrollable dialog with highlighted rows,
-   editable booleans and numeric settings, and bottom-key affordances such as
-   `Enter`/`Space` to change and `Esc` to cancel. Pipy's `/settings` is still a
-   read-only text/status block (the interactive dialog now exists only for
-   provider/model selection via `/model`), so the next settings slice should
-   compare the full dialog behavior and decide which controls are product
-   settings versus provider/model/auth controls.
+   and never reaches the session archive. 2026-05-29 parity gap (now closed):
+   `/settings` is an interactive in-frame control dialog
+   (`ToolLoopTerminalUi.run_settings_dialog`) drawn in the live region, matching
+   Pi's shape — highlighted actionable rows, scroll/windowing when the list
+   overflows, bottom-key affordances (`↑/↓ move · enter/space act · esc close`),
+   and Esc/Ctrl-C/Ctrl-D cancel. It exposes read-only status rows (active
+   selection and per-provider availability) plus actionable rows: change
+   provider/model (reuses the `/model` selector), openai-codex auth (reuses the
+   `/login`/`/logout` boundary), toggle persistent prompt history, and clear
+   persisted history. All actions run no provider turn and no tool call; the
+   provider/model and auth actions reuse the existing `NativeReplProviderState`
+   boundaries. Verified by real-PTY product-path tests at 80x24 and 100x40 that
+   open the dialog, inspect the live overlay before any action, navigate/toggle/
+   clear, resize while the dialog is open, and cancel back to the input.
 3. Full interactive TUI ergonomics. The product TUI now renders inline (no
    alternate screen): finalized blocks commit once into the terminal's normal
    buffer so the host terminal/multiplexer keeps them in native scrollback, and
@@ -136,10 +142,16 @@ not a promise to skip review when a smaller, safer slice appears.
    insert with no accidental submission), Ctrl-Z/Ctrl-Y undo/redo, and
    poll-based resize/SIGWINCH handling now ship and are covered by real-PTY
    keystroke tests (history recall, paste, undo/redo, fake-auth login/logout
-   without a provider turn, and TIOCSWINSZ resize at 80x24 and 100x40). Pi still
-   leads on persistent cross-session history, broader selectors/overlays, and
-   richer keyboard behavior (e.g. mouse selection) — these remain the open items
-   for this track.
+   without a provider turn, and TIOCSWINSZ resize at 80x24 and 100x40). Optional
+   persistent cross-session prompt history has since landed too: behind the
+   `/settings` "persistent prompt history" toggle (off by default), submitted
+   prompts are saved to a local-only, capped, owner-private state file
+   (`PromptHistoryStore`, `~/.local/state/pipy/prompt-history.json`, overridable
+   via `PIPY_PROMPT_HISTORY_PATH`; never the metadata-first session archive) and
+   a fresh session seeds Up/Down recall from them; "clear persisted history"
+   wipes it. Covered by store unit tests and a cross-session real-PTY recall
+   test. Pi still leads on broader selectors/overlays and richer keyboard
+   behavior (e.g. mouse selection) — these remain the open items for this track.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Pipy currently has no
    runtime extension/package loader; display-only chrome labels are not a
@@ -507,8 +519,9 @@ it lands. They are not later slices of this track:
 - Live session resume, branch/fork, compaction, and share. A metadata-only
   resume reader shipped later.
 - Full TUI and persistent cross-session history. (Resize handling, in-memory
-  prompt history, bracketed paste, and undo/redo have since shipped in the
-  product TUI.)
+  prompt history, bracketed paste, undo/redo, an interactive `/settings` control
+  dialog, and optional persistent cross-session prompt history have since shipped
+  in the product TUI.)
 - Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
@@ -1167,8 +1180,10 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ### Product TUI interactive provider/model selector (landed)
 
-Advanced item 2 of the Prioritized Pi Gap Queue past the read-only `/settings`
-overlay: the product tool-loop TUI now exposes interactive provider/model
+Advanced item 2 of the Prioritized Pi Gap Queue past the then-read-only
+`/settings` overlay (since superseded by the interactive `/settings` dialog —
+see the landed subsection below): the product tool-loop TUI now exposes
+interactive provider/model
 selection through `/model`, so a user can switch provider/model without leaving
 the TUI.
 
@@ -1238,10 +1253,49 @@ without a provider turn, a TIOCSWINSZ resize while a slash overlay is open, and 
 resize with a multi-line paste in the editor that asserts a single coherent
 post-resize frame — and one after a further keypress — with no stale rows before
 the literal prompt is submitted).
-The remaining work on item 2 is the interactive-`/settings`-dialog comparison
-(deciding which controls are product settings versus provider/model/auth
-controls); broader selectors/overlays and persistent cross-session history stay
-deferred.
+The interactive-`/settings`-dialog work on item 2 has since landed (see the
+subsection below); broader selectors/overlays and mouse selection stay deferred.
+
+### Product TUI interactive `/settings` dialog + persistent prompt history (landed)
+
+Closed the remaining item-2 work and the previously-deferred persistent
+cross-session history:
+
+- `pipy_harness.native.tui.ToolLoopTerminalUi.run_settings_dialog` renders an
+  interactive in-frame settings/control dialog in the live region (not a
+  committed history block), through the same inline-scrollback paint path as the
+  `/model` selector: a title/affordance row, section headers, read-only status
+  rows (active selection and per-provider availability), and actionable rows.
+  Up/Down move the highlight between actionable rows only (skipping headers/
+  status, wrapping), Enter/Space activate, the list windows with a scroll
+  indicator when it overflows the height, the cursor stays hidden, and
+  Esc/Ctrl-C/Ctrl-D cancel back to the input. A resize while the dialog is open
+  repaints it coherently (no alternate screen).
+- Actions: change provider/model (reuses `run_model_selector` and the
+  `NativeReplProviderState.select_model` boundary), openai-codex auth
+  (reuses the `/login`/`/logout` auth boundary, showing logged-in/out status),
+  toggle persistent prompt history, and clear persisted history. All run no
+  provider turn and no tool call; provider/model and auth reuse the existing
+  state boundaries and return to the dialog afterward, while the prompt-history
+  toggles apply in place.
+- `pipy_harness.native.prompt_history.PromptHistoryStore` is a local-only,
+  opt-in store (off by default) at `~/.local/state/pipy/prompt-history.json`
+  (overridable via `PIPY_PROMPT_HISTORY_PATH`), written atomically with
+  owner-only permissions. When enabled, `NativeToolReplSession` records submitted
+  prompts (genuine prompts only — never slash commands), capped and
+  blank/consecutive-duplicate suppressed, and seeds a fresh TUI session's Up/Down
+  recall buffer from the saved prompts. When disabled, nothing is persisted and a
+  fresh session does not seed; "clear persisted history" wipes the saved entries
+  (leaving the current session's in-memory recall intact). In-memory per-session
+  recall always works. The store is independent of the metadata-first session
+  archive: prompt bodies never enter the archive.
+- Pinned by store unit tests (`tests/test_prompt_history.py`), session-level
+  wiring/privacy tests (`tests/test_native_tool_loop_tui.py`: persistence on/off,
+  recall seeding, dialog toggle/clear with no provider turn, and the persisted
+  prompt staying out of the metadata result/archive), and real-PTY product-path
+  tests (`tests/test_native_tool_loop_tui_pty.py`: the live `/settings` dialog at
+  80x24 and 100x40 with navigation/toggle/clear/resize/cancel, and a
+  cross-session enable→submit→fresh-recall→disable/clear→fresh-no-recall test).
 
 ## Near Term
 
@@ -1361,10 +1415,11 @@ Invariants that must hold for any near-term slice:
   explicit per-round versus cumulative scope, review round number, and optional
   cycle identity so `reflect` can avoid double-counting iterative reviews.
 - Full interactive TUI behavior beyond the shipped product TUI shell. Prompt
-  history, bracketed paste, undo/redo, and resize/SIGWINCH handling now ship in
-  the product TUI; still deferred are richer editor semantics, persistent
-  cross-session history, additional overlays/selectors, and theme/extension UI
-  hooks.
+  history, bracketed paste, undo/redo, resize/SIGWINCH handling, an interactive
+  `/settings` control dialog, and optional persistent cross-session prompt
+  history (off by default, local-only state file) now ship in the product TUI;
+  still deferred are richer editor semantics, additional overlays/selectors,
+  mouse selection, and theme/extension UI hooks.
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.

@@ -46,7 +46,7 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/help": "Show pipy command reference",
     "/clear": "Clear local conversation context",
     "/status": "Show REPL state (read-only)",
-    "/settings": "Show provider settings (read-only)",
+    "/settings": "Settings and status",
     "/copy": "Copy the last answer to the clipboard (local)",
     "/login": "Log in (openai-codex OAuth)",
     "/logout": "Log out (openai-codex OAuth)",

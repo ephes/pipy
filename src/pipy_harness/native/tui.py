@@ -20,7 +20,7 @@ import termios
 import textwrap
 import threading
 import tty
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -100,6 +100,24 @@ class ModelSelectorOption:
 
 
 @dataclass(frozen=True, slots=True)
+class SettingsRow:
+    """One row in the interactive ``/settings`` dialog.
+
+    ``kind`` is ``"header"`` (a non-selectable section label), ``"status"`` (a
+    non-selectable read-only line), or ``"action"`` (an actionable row).
+    ``action`` is the identifier handed back to the caller when an action row
+    is activated with Enter/Space; it is ``None`` for headers/status rows.
+    Only rows with a non-``None`` ``action`` are navigable and choosable, so the
+    highlight always rests on something the user can act on while read-only
+    status rows stay visible for context.
+    """
+
+    label: str
+    kind: str = "status"
+    action: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _FrameLine:
     text: str
     kind: str = "normal"
@@ -135,6 +153,9 @@ class ToolLoopTerminalUi:
     model_selector_open: bool = False
     model_selector_options: tuple[ModelSelectorOption, ...] = ()
     model_selector_selection: int = 0
+    settings_dialog_open: bool = False
+    settings_dialog_rows: tuple[SettingsRow, ...] = ()
+    settings_dialog_selection: int = 0
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
     _closed: bool = False
@@ -370,6 +391,123 @@ class ToolLoopTerminalUi:
         self.model_selector_selection = 0
         self.paint()
 
+    def run_settings_dialog(
+        self,
+        rows: Sequence[SettingsRow],
+        *,
+        on_local_action: Callable[[str], Sequence[SettingsRow]],
+        exit_actions: frozenset[str] = frozenset(),
+        current_index: int | None = None,
+    ) -> str | None:
+        """Drive the interactive ``/settings`` dialog as a live overlay.
+
+        Renders the supplied rows in the live region and reads raw keys: up/down
+        move the highlight between actionable rows (wrapping, skipping headers
+        and read-only status rows), and ``Enter``/``Space`` activate the
+        highlighted action row. ``Esc`` / ``Ctrl-C`` / ``Ctrl-D`` / EOF close the
+        dialog and return ``None``.
+
+        Activating an action whose identifier is in ``exit_actions`` closes the
+        dialog and returns that identifier so the caller can run a flow that
+        needs the terminal itself (the provider/model selector, or interactive
+        auth). Any other action is *local*: ``on_local_action`` is invoked with
+        the identifier and must return the rebuilt rows, and the dialog stays
+        open and re-renders in place. This method never invokes the provider,
+        tools, or a model turn; it is pure local navigation/state toggling that
+        the caller acts on afterwards.
+        """
+
+        self.settings_dialog_rows = tuple(rows)
+        if not self.settings_dialog_rows:
+            return None
+        self.settings_dialog_open = True
+        self.settings_dialog_selection = self._initial_settings_selection(
+            current_index
+        )
+        self.paint()
+        fd = self.input_stream.fileno()
+        try:
+            self._enter_raw_mode()
+            while True:
+                key = self._read_key_polling_resize(fd)
+                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
+                    self._close_settings_dialog()
+                    return None
+                if key == "paste":
+                    self._pending_paste = ""
+                    continue
+                if key in {"up", "down"}:
+                    self._navigate_settings_dialog(key)
+                    continue
+                if key in {"enter", " "}:
+                    if not (0 <= self.settings_dialog_selection < len(self.settings_dialog_rows)):
+                        continue
+                    row = self.settings_dialog_rows[self.settings_dialog_selection]
+                    if row.action is None:
+                        continue
+                    if row.action in exit_actions:
+                        self._close_settings_dialog()
+                        return row.action
+                    rebuilt = on_local_action(row.action)
+                    self.settings_dialog_rows = tuple(rebuilt)
+                    if not self.settings_dialog_rows:
+                        self._close_settings_dialog()
+                        return None
+                    self.settings_dialog_selection = self._clamp_settings_selection(
+                        self.settings_dialog_selection
+                    )
+                    self.paint()
+                    continue
+        finally:
+            self._restore_terminal_mode()
+
+    def _actionable_settings_indices(self) -> list[int]:
+        return [
+            index
+            for index, row in enumerate(self.settings_dialog_rows)
+            if row.action is not None
+        ]
+
+    def _initial_settings_selection(self, current_index: int | None) -> int:
+        actionable = self._actionable_settings_indices()
+        if not actionable:
+            return 0
+        if current_index is not None and current_index in actionable:
+            return current_index
+        return actionable[0]
+
+    def _clamp_settings_selection(self, selection: int) -> int:
+        actionable = self._actionable_settings_indices()
+        if not actionable:
+            return min(max(0, selection), max(0, len(self.settings_dialog_rows) - 1))
+        if selection in actionable:
+            return selection
+        # The previously highlighted action may have shifted; land on the
+        # nearest actionable row at or after the old position.
+        for index in actionable:
+            if index >= selection:
+                return index
+        return actionable[-1]
+
+    def _navigate_settings_dialog(self, key: str) -> None:
+        actionable = self._actionable_settings_indices()
+        if not actionable:
+            return
+        delta = -1 if key == "up" else 1
+        if self.settings_dialog_selection in actionable:
+            position = actionable.index(self.settings_dialog_selection)
+            position = (position + delta) % len(actionable)
+        else:
+            position = 0 if delta > 0 else len(actionable) - 1
+        self.settings_dialog_selection = actionable[position]
+        self.paint()
+
+    def _close_settings_dialog(self) -> None:
+        self.settings_dialog_open = False
+        self.settings_dialog_rows = ()
+        self.settings_dialog_selection = 0
+        self.paint()
+
     def close(self) -> None:
         self._restore_terminal_mode()
         self._remove_resize_handler()
@@ -554,11 +692,18 @@ class ToolLoopTerminalUi:
             history_lines.extend(
                 self._block_frame_lines("working", (self.working_text,), width=width)
             )
-        if self.model_selector_open:
-            # The selector overlay replaces the input/menu region; keep as much
-            # trailing history as fits above it so render_lines() agrees with the
-            # paint() live region.
-            selector = self._model_selector_region_lines(width=width, height=height)
+        if self.settings_dialog_open or self.model_selector_open:
+            # The overlay replaces the input/menu region; keep as much trailing
+            # history as fits above it so render_lines() agrees with the paint()
+            # live region.
+            if self.settings_dialog_open:
+                selector = self._settings_dialog_region_lines(
+                    width=width, height=height
+                )
+            else:
+                selector = self._model_selector_region_lines(
+                    width=width, height=height
+                )
             max_history_lines = max(0, height - len(selector))
             if len(history_lines) > max_history_lines:
                 history_lines = history_lines[len(history_lines) - max_history_lines :]
@@ -690,10 +835,10 @@ class ToolLoopTerminalUi:
         if lines_up > 0:
             output.append(f"\x1b[{lines_up}A")
         output.append("\r")
-        # The model selector has no editable input cell, so keep the terminal
-        # cursor hidden (it was hidden at the top of the paint) instead of
-        # parking and revealing it on a non-input row.
-        if not self.model_selector_open:
+        # The selector/settings overlays have no editable input cell, so keep
+        # the terminal cursor hidden (it was hidden at the top of the paint)
+        # instead of parking and revealing it on a non-input row.
+        if not (self.model_selector_open or self.settings_dialog_open):
             # Park on the cursor's column *within the visible (possibly
             # horizontally scrolled) input slice*, so the hardware cursor and
             # the drawn cursor cell agree for over-wide input.
@@ -724,6 +869,8 @@ class ToolLoopTerminalUi:
         footer rows pinned at the bottom).
         """
 
+        if self.settings_dialog_open:
+            return self._settings_dialog_region_lines(width=width, height=height)
         if self.model_selector_open:
             return self._model_selector_region_lines(width=width, height=height)
         menu_lines = self._slash_menu_frame_lines(
@@ -805,6 +952,75 @@ class ToolLoopTerminalUi:
                 _FrameLine(
                     self._clip(
                         f"  ({self.model_selector_selection + 1}/{total})", width
+                    ),
+                    "slash_menu_scroll",
+                )
+            )
+        lines.extend(footer)
+        return lines
+
+    def _settings_dialog_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        """Compose the interactive ``/settings`` dialog overlay.
+
+        Layout (top to bottom): a title/affordance row, a windowed list of
+        rows (section headers as labels, read-only status rows dimmed, and
+        actionable rows with a ``→`` marker on the highlighted one), an optional
+        scroll indicator when the list overflows, and the two footer rows. The
+        window is centered on the highlighted row so navigation/scroll stays
+        coherent at any height, mirroring the provider/model selector overlay.
+        """
+
+        rows = self.settings_dialog_rows
+        footer = [
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        title = _FrameLine(
+            self._clip(
+                " Settings — ↑/↓ move · enter/space act · esc close",
+                width,
+            ),
+            "selector_title",
+        )
+        # Reserve the title, the two footer rows, and one row for the optional
+        # scroll indicator so the visible window always fits the live region.
+        max_rows = max(1, height - 4)
+        total = len(rows)
+        visible_count = min(total, max_rows)
+        start = max(
+            0,
+            min(
+                self.settings_dialog_selection - (visible_count // 2),
+                max(0, total - visible_count),
+            ),
+        )
+        visible = rows[start : start + visible_count]
+        rendered_rows: list[_FrameLine] = []
+        for offset, row in enumerate(visible, start=start):
+            selected = offset == self.settings_dialog_selection
+            if row.kind == "header":
+                rendered_rows.append(
+                    _FrameLine(self._clip(f"  {row.label}", width), "selector_title")
+                )
+                continue
+            prefix = "→ " if selected else "  "
+            if selected:
+                kind = "selector_option_selected"
+            elif row.action is not None:
+                kind = "selector_option"
+            else:
+                kind = "selector_option_disabled"
+            rendered_rows.append(
+                _FrameLine(self._clip(f"{prefix}{row.label}", width), kind)
+            )
+        lines = [title, *rendered_rows]
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  ({self.settings_dialog_selection + 1}/{total})", width
                     ),
                     "slash_menu_scroll",
                 )

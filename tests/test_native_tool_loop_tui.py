@@ -19,7 +19,7 @@ from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelOption
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import SettingsRow, ToolLoopTerminalUi
 
 
 class _TtyBuffer:
@@ -556,10 +556,10 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert ui.slash_menu_open is True
     assert "→ help" in rendered
     assert "Show pipy command reference" in rendered
-    # The read-only settings overlay and the auth commands are executable in
+    # The interactive settings dialog and the auth commands are executable in
     # tool-loop mode, so the menu advertises them in the leading rows.
     assert "  settings" in rendered
-    assert "Show provider settings (read-only)" in rendered
+    assert "Settings and status" in rendered
     assert "  login" in rendered
     assert "  logout" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
@@ -1050,7 +1050,7 @@ def test_model_selector_rows_mark_current_non_default_model(tmp_path: Path):
     )
 
 
-def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
+def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     provider = _CountingProvider()
@@ -1062,6 +1062,18 @@ def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
         "read_line",
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
+
+    captured_rows: list[tuple[SettingsRow, ...]] = []
+
+    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+        del on_local_action, current_index
+        captured_rows.append(tuple(rows))
+        # Immediately cancel (Esc) — proving /settings opens an interactive
+        # dialog rather than committing a static text block.
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
     session = NativeToolReplSession(
         provider=provider,
         provider_state=provider_state,
@@ -1085,19 +1097,345 @@ def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
     assert result.user_turn_count == 0
     assert result.tool_invocation_count == 0
     assert provider.completions == 0
-    assert any(kind == "settings" for kind, _lines in ui._history_blocks)
+    # It is an interactive overlay, NOT a committed settings text block.
+    assert not any(kind == "settings" for kind, _lines in ui._history_blocks)
 
-    rendered = "\n".join(ui.render_lines(width=88, height=44, pad=False))
-    assert "pipy native REPL settings:" in rendered
+    assert captured_rows, "/settings did not open the interactive dialog"
+    labels = [row.label for row in captured_rows[0]]
+    actions = {row.action for row in captured_rows[0] if row.action}
+    # The dialog exposes provider/model, auth, and prompt-history actions plus
+    # safe read-only status rows.
+    assert any("active: fake/fake-native-bootstrap" in label for label in labels)
+    assert "model" in actions
+    assert "login" in actions  # openai-codex is logged out in this fixture
+    assert "toggle_history" in actions
+    assert "clear_history" in actions
+    assert any("persistent prompt history: off" in label for label in labels)
+
+
+def _settings_dialog_rows() -> tuple[SettingsRow, ...]:
+    return (
+        SettingsRow(label="Provider / model", kind="header"),
+        SettingsRow(label="active: fake/fake-native-bootstrap", kind="status"),
+        SettingsRow(label="change provider/model…", kind="action", action="model"),
+        SettingsRow(label="Prompt history", kind="header"),
+        SettingsRow(
+            label="persistent prompt history: off — toggle",
+            kind="action",
+            action="toggle_history",
+        ),
+        SettingsRow(
+            label="clear persisted history (0 saved)",
+            kind="action",
+            action="clear_history",
+        ),
+    )
+
+
+def test_tui_settings_dialog_renders_rows_with_highlight_and_affordances(
+    tmp_path: Path,
+):
+    ui = _ui(tmp_path)
+    ui.settings_dialog_open = True
+    ui.settings_dialog_rows = _settings_dialog_rows()
+    # Highlight the toggle action row (index 4).
+    ui.settings_dialog_selection = 4
+
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    # The dialog overlay (title + rows) replaces the normal input/menu area and
+    # advertises its key affordances at the top.
+    assert "Settings" in rendered
+    assert "esc" in rendered
+    assert "enter" in rendered
+    # Section headers are shown for grouping.
+    assert "Provider / model" in rendered
+    assert "Prompt history" in rendered
+    # The highlighted actionable row carries the cursor marker; others do not.
+    assert "→ persistent prompt history: off — toggle" in rendered
+    assert "  change provider/model…" in rendered
+    # Read-only status rows stay visible without a marker.
     assert "active: fake/fake-native-bootstrap" in rendered
-    assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in rendered
-    # The TUI footer is honest: /model, /login, and /logout are all executable
-    # here, so it points at them to manage provider/model and OAuth. (The long
-    # line wraps in the frame, so assert on stable fragments rather than the
-    # whole.)
-    assert "use /model to switch provider/model" in rendered
-    assert "/login" in rendered
-    assert "/logout" in rendered
+
+
+def test_tui_settings_dialog_navigation_skips_non_actionable_rows(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.settings_dialog_open = True
+    ui.settings_dialog_rows = _settings_dialog_rows()
+    ui.settings_dialog_selection = ui._initial_settings_selection(None)
+
+    # Initial selection lands on the first actionable row (the model action).
+    assert ui.settings_dialog_selection == 2
+
+    ui._navigate_settings_dialog("down")
+    # Skips the "Prompt history" header to the toggle action.
+    assert ui.settings_dialog_selection == 4
+    ui._navigate_settings_dialog("down")
+    assert ui.settings_dialog_selection == 5
+    ui._navigate_settings_dialog("down")
+    # Wraps back to the first actionable row.
+    assert ui.settings_dialog_selection == 2
+    ui._navigate_settings_dialog("up")
+    # Wraps backward to the last actionable row.
+    assert ui.settings_dialog_selection == 5
+
+
+def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: Path):
+    from pipy_harness.native.tui import SettingsRow
+
+    rows = [SettingsRow(label="header", kind="header")]
+    rows.extend(
+        SettingsRow(label=f"action {index}", kind="action", action=f"a{index}")
+        for index in range(20)
+    )
+    ui = _ui(tmp_path)
+    ui.settings_dialog_open = True
+    ui.settings_dialog_rows = tuple(rows)
+    ui.settings_dialog_selection = 10
+
+    frame = ui._frame_lines(width=88, height=14, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    # The list is windowed to fit the short frame and shows a scroll indicator.
+    assert f"/{len(rows)})" in rendered
+    # The frame never exceeds the requested height.
+    assert len(frame) <= 14
+
+
+def test_tui_settings_dialog_keeps_cursor_hidden(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.settings_dialog_open = True
+    ui.settings_dialog_rows = _settings_dialog_rows()
+    ui.settings_dialog_selection = 2
+
+    ui.paint()
+    painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    # Like the model selector, the settings dialog has no editable input cell:
+    # the cursor is hidden and never re-shown while the overlay is open.
+    assert "\x1b[?25l" in painted
+    assert "\x1b[?25h" not in painted
+
+
+def _history_recording_provider(seen: list[tuple[str, str]]) -> ProviderPort:
+    return cast(ProviderPort, _RecordingProvider("openai", "gpt-5.5", seen))
+
+
+def test_persistent_history_records_prompt_when_enabled(tmp_path: Path):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    store = PromptHistoryStore(tmp_path / "history.json")
+    store.set_enabled(True)
+    seen: list[tuple[str, str]] = []
+    session = NativeToolReplSession(
+        provider=_history_recording_provider(seen),
+        tool_registry={},
+        prompt_history_store=store,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, io.StringIO("remember me\n")),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert store.entries() == ["remember me"]
+    # A fresh store instance recalls the persisted prompt across sessions.
+    assert PromptHistoryStore(tmp_path / "history.json").entries() == ["remember me"]
+
+
+def test_persistent_history_skips_recording_when_disabled(tmp_path: Path):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    store = PromptHistoryStore(tmp_path / "history.json")  # disabled by default
+    seen: list[tuple[str, str]] = []
+    session = NativeToolReplSession(
+        provider=_history_recording_provider(seen),
+        tool_registry={},
+        prompt_history_store=store,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, io.StringIO("do not remember\n")),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert store.entries() == []
+    assert not (tmp_path / "history.json").exists()
+
+
+def test_persistent_history_seeds_tui_recall_when_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    store = PromptHistoryStore(tmp_path / "history.json")
+    store.set_enabled(True)
+    store.record("earlier prompt")
+    store.record("later prompt")
+
+    ui = _ui(tmp_path)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: "",  # immediate EOF
+    )
+    seen: list[tuple[str, str]] = []
+    session = NativeToolReplSession(
+        provider=_history_recording_provider(seen),
+        tool_registry={},
+        prompt_history_store=store,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    # The fresh TUI session seeds its in-memory recall buffer from disk.
+    assert ui.input_history == ["earlier prompt", "later prompt"]
+
+
+def test_disabled_store_does_not_seed_tui_recall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    store = PromptHistoryStore(tmp_path / "history.json")
+    store.set_enabled(True)
+    store.record("saved")
+    store.set_enabled(False)
+
+    ui = _ui(tmp_path)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: "",
+    )
+    seen: list[tuple[str, str]] = []
+    session = NativeToolReplSession(
+        provider=_history_recording_provider(seen),
+        tool_registry={},
+        prompt_history_store=store,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    # Disabled persistence: the fresh session does not recall the saved prompt.
+    assert ui.input_history == []
+
+
+def test_settings_dialog_toggle_and_clear_mutate_store_locally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    store = PromptHistoryStore(tmp_path / "history.json")
+    store.set_enabled(True)
+    store.record("old prompt")
+
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    # Seed the live in-memory recall as a fresh enabled session would.
+    ui.input_history = list(store.entries())
+    scripted = iter(["/settings\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+
+    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+        del rows, exit_actions, current_index
+        # Simulate the user toggling persistence off, then clearing history.
+        on_local_action("toggle_history")
+        on_local_action("clear_history")
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        prompt_history_store=store,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.completions == 0  # no provider turn from /settings actions
+    # Toggle disabled persistence; clear wiped the disk store.
+    assert store.enabled is False
+    assert store.entries() == []
+    # The current session's in-memory recall keeps working (clear only wipes the
+    # persisted store, not the live recall buffer).
+    assert ui.input_history == ["old prompt"]
+
+
+def test_persistent_history_contents_stay_out_of_session_archive(tmp_path: Path):
+    from pipy_harness.native.prompt_history import PromptHistoryStore
+
+    history_path = tmp_path / "state" / "history.json"
+    store = PromptHistoryStore(history_path)
+    store.set_enabled(True)
+    seen: list[tuple[str, str]] = []
+    session = NativeToolReplSession(
+        provider=_history_recording_provider(seen),
+        tool_registry={},
+        prompt_history_store=store,
+    )
+
+    secret_prompt = "my-secret-prompt-body-XYZZY"
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, io.StringIO(f"{secret_prompt}\n")),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    # The metadata-first result carries only counters/labels — never the prompt.
+    assert secret_prompt not in repr(result)
+    # The prompt lives only in the dedicated local prompt-history file, which is
+    # not part of the session archive.
+    files_with_prompt = [
+        path
+        for path in tmp_path.rglob("*")
+        if path.is_file() and secret_prompt in path.read_text(encoding="utf-8", errors="ignore")
+    ]
+    assert files_with_prompt == [history_path]
 
 
 class _ClipboardRecorder:

@@ -28,7 +28,8 @@ terminal application:
    local status, and never invokes the provider, tools, login/logout, or
    model switching.
 4. Keep the slash menu honest (only executable product-TUI commands;
-   `/model`, `/login`, `/logout` stay absent until executable).
+   `/model`, `/login`, `/logout` stay absent until executable). *(Historical:
+   later slices made all three executable — see the status banner above.)*
 
 ## Root cause
 
@@ -137,7 +138,8 @@ message history) and reports a local notice
 `TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS` becomes
 `("/help", "/settings", "/copy", "/exit", "/quit")`; a `/copy` description is
 added to `DEFAULT_REPL_COMMAND_DESCRIPTIONS`. `/model`, `/login`, `/logout`
-remain absent. The unhandled-slash diagnostic lists `/copy` too. The
+remained absent *in this slice only* — later slices made all three executable
+(see the status banner above). The unhandled-slash diagnostic lists `/copy` too. The
 verification helper's slash-row classifier learns `/copy`.
 
 ## Preserved behavior

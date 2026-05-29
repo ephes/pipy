@@ -69,7 +69,12 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
-from pipy_harness.native.tui import ModelSelectorOption, ToolLoopTerminalUi
+from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.tui import (
+    ModelSelectorOption,
+    SettingsRow,
+    ToolLoopTerminalUi,
+)
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
     AssistantMessage,
@@ -370,6 +375,7 @@ class NativeToolReplSession:
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
+    prompt_history_store: PromptHistoryStore | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -427,6 +433,13 @@ class NativeToolReplSession:
             error_stream=error_stream,
             workspace=cwd,
         )
+        # Local-only persistent prompt-history store (independent of the
+        # metadata-first session archive). Built once per session; the
+        # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
+        # session seeds its in-memory recall buffer from the saved prompts.
+        prompt_history_store = self.prompt_history_store or PromptHistoryStore()
+        if terminal_ui is not None and prompt_history_store.enabled:
+            terminal_ui.input_history = list(prompt_history_store.entries())
         renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
         if terminal_ui is not None:
             renderer = _TuiToolLoopRenderer(ui=terminal_ui)
@@ -686,11 +699,15 @@ class NativeToolReplSession:
                     )
                 continue
             if stripped == "/settings":
-                overlay_lines = self._settings_overlay_lines()
                 if terminal_ui is not None:
-                    terminal_ui.show_settings(overlay_lines)
+                    self._drive_settings_dialog(
+                        terminal_ui,
+                        prompt_history_store,
+                        apply_model_selection=apply_model_selection,
+                        apply_auth_change=apply_auth_change,
+                    )
                 else:
-                    for overlay_line in overlay_lines:
+                    for overlay_line in self._settings_overlay_lines():
                         print(overlay_line, file=error_stream)
                 if legacy_footer_enabled():
                     self._print_footer(
@@ -826,6 +843,12 @@ class NativeToolReplSession:
                 continue
             messages.append(UserMessage(content=user_input))
             user_turn_count += 1
+            # Persist the prompt for cross-session recall when the user has
+            # enabled it from /settings. record() is a no-op when disabled and
+            # writes only to the local prompt-history file — never the
+            # metadata-first session archive. Slash commands never reach here,
+            # so only genuine prompts are persisted.
+            prompt_history_store.record(user_input)
             if self.transcript_sink is not None:
                 self.transcript_sink.append("user", {"content": user_input})
 
@@ -1256,6 +1279,174 @@ class NativeToolReplSession:
             )
         return lines
 
+    def _drive_settings_dialog(
+        self,
+        terminal_ui: ToolLoopTerminalUi,
+        prompt_history_store: PromptHistoryStore,
+        *,
+        apply_model_selection: Callable[[str], tuple[bool, str]],
+        apply_auth_change: Callable[[str, str], str],
+    ) -> None:
+        """Open the live ``/settings`` dialog and act on the user's choices.
+
+        Local toggles (persistent prompt-history on/off, clear persisted
+        history) are handled in place by the dialog without leaving it.
+        Provider/model and auth actions reuse the existing
+        ``NativeReplProviderState`` boundaries (``apply_model_selection`` /
+        ``apply_auth_change``) and run **no** provider or tool turn; afterward
+        the dialog re-opens so the user can keep adjusting settings. The dialog
+        closes on Esc/Ctrl-C/Ctrl-D.
+        """
+
+        state = self.provider_state or StaticNativeReplProviderState(self.provider)
+        is_native = isinstance(state, NativeReplProviderState)
+        exit_actions = (
+            frozenset({"model", "login", "logout"}) if is_native else frozenset()
+        )
+
+        def _rows() -> list[SettingsRow]:
+            return self._settings_dialog_rows(
+                state,
+                prompt_history_store,
+                in_memory_depth=len(terminal_ui.input_history),
+            )
+
+        def _local_action(action: str) -> list[SettingsRow]:
+            if action == "toggle_history":
+                prompt_history_store.set_enabled(not prompt_history_store.enabled)
+            elif action == "clear_history":
+                # Wipe only the persisted store; the current session's in-memory
+                # Up/Down recall keeps working (the goal only requires that a
+                # *fresh* session not recall cleared prompts, and record() never
+                # re-persists the existing recall buffer — only new prompts).
+                prompt_history_store.clear()
+            return _rows()
+
+        while True:
+            action = terminal_ui.run_settings_dialog(
+                _rows(),
+                on_local_action=_local_action,
+                exit_actions=exit_actions,
+            )
+            if action is None:
+                return
+            if action == "model" and isinstance(state, NativeReplProviderState):
+                ui_options, selections = self._model_selector_rows(state)
+                current = state.current_selection()
+                current_index = next(
+                    (
+                        index
+                        for index, selection in enumerate(selections)
+                        if selection.provider_name == current.provider_name
+                        and selection.model_id == current.model_id
+                    ),
+                    0,
+                )
+                chosen = terminal_ui.run_model_selector(
+                    ui_options, current_index=current_index
+                )
+                if chosen is not None:
+                    _ok, message = apply_model_selection(selections[chosen].reference)
+                    terminal_ui.add_notice(message)
+                continue
+            if action in {"login", "logout"}:
+                message = apply_auth_change(action, "")
+                terminal_ui.add_notice(message)
+                continue
+
+    def _settings_dialog_rows(
+        self,
+        state: "NativeReplProviderState | StaticNativeReplProviderState",
+        prompt_history_store: PromptHistoryStore,
+        *,
+        in_memory_depth: int,
+    ) -> list[SettingsRow]:
+        """Build the interactive ``/settings`` dialog rows.
+
+        Strictly local/read-only construction: it probes the current
+        selection, openai-codex auth availability, and prompt-history state but
+        runs no provider turn, tool call, or auth/model mutation. Actionable
+        rows carry an identifier the dialog hands back when activated; headers
+        and read-only status rows stay visible for context but are not
+        choosable.
+        """
+
+        current = state.current_selection()
+        rows: list[SettingsRow] = [
+            SettingsRow(label="Provider / model", kind="header"),
+            SettingsRow(
+                label=f"active: {sanitize_text(current.reference)}", kind="status"
+            ),
+        ]
+        if isinstance(state, NativeReplProviderState):
+            rows.append(
+                SettingsRow(
+                    label="change provider/model…", kind="action", action="model"
+                )
+            )
+            rows.append(SettingsRow(label="Authentication", kind="header"))
+            if state.provider_available("openai-codex"):
+                rows.append(
+                    SettingsRow(
+                        label="openai-codex: logged in — log out",
+                        kind="action",
+                        action="logout",
+                    )
+                )
+            else:
+                rows.append(
+                    SettingsRow(
+                        label="openai-codex: logged out — log in",
+                        kind="action",
+                        action="login",
+                    )
+                )
+        rows.append(SettingsRow(label="Prompt history", kind="header"))
+        enabled = prompt_history_store.enabled
+        rows.append(
+            SettingsRow(
+                label=(
+                    "persistent prompt history: "
+                    f"{'on' if enabled else 'off'} — toggle"
+                ),
+                kind="action",
+                action="toggle_history",
+            )
+        )
+        rows.append(
+            SettingsRow(
+                label=(
+                    "clear persisted history "
+                    f"({len(prompt_history_store.entries())} saved)"
+                ),
+                kind="action",
+                action="clear_history",
+            )
+        )
+        rows.append(
+            SettingsRow(
+                label=f"in-memory recall this session: {in_memory_depth} prompts",
+                kind="status",
+            )
+        )
+        rows.append(SettingsRow(label="Providers (read-only)", kind="header"))
+        for option in state.model_options():
+            availability = (
+                "available"
+                if option.available
+                else f"unavailable ({option.reason or 'unknown'})"
+            )
+            rows.append(
+                SettingsRow(
+                    label=(
+                        f"{sanitize_text(option.selection.reference)} "
+                        f"[{availability}]"
+                    ),
+                    kind="status",
+                )
+            )
+        return rows
+
     def _model_selector_rows(
         self, state: NativeReplProviderState
     ) -> tuple[list[ModelSelectorOption], list[NativeModelSelection]]:
@@ -1346,8 +1537,9 @@ class NativeToolReplSession:
             "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
             "`/login`, `/logout`, `/copy`, `/exit`, `/quit` locally. `/model` "
             "opens an interactive provider/model selector (or "
-            "`/model <provider>/<model>` switches directly); `/settings` shows a "
-            "read-only provider/model overlay; `/login [openai-codex]` and "
+            "`/model <provider>/<model>` switches directly); `/settings` opens an "
+            "interactive settings dialog (provider/model, openai-codex auth, and "
+            "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
             "`/copy` copies the last answer to the clipboard. Other input is "
             "sent to the model. The model can call bounded `read`, `ls`, "
