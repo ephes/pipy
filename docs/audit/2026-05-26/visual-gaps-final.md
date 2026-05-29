@@ -26,7 +26,7 @@ or recorded as an intentional product difference.
 | Read line range from `offset`/`limit`| Implemented | `_read_range_label` |
 | Drop `assistant > ` stream prefix    | Implemented | `_handle_stream_chunk` |
 | Startup chrome wording (`escape interrupt`, `! bash`, ctrl+o cue, tagline) | Implemented | `chrome.print_startup_chrome` |
-| Startup chrome spacing (leading blank, trailing blank after [Skills]) | Implemented | `chrome.print_startup_chrome` |
+| Startup chrome spacing (leading blank, trailing blank after Skills section) | Implemented | `chrome.print_startup_chrome` |
 
 ## Documented intentional differences
 
@@ -46,7 +46,7 @@ These reflect deliberate product-level choices, not chrome gaps.
 Both products, given the same prompt, now:
 
 - show identical startup chrome shape (title row, controls strip,
-  ctrl+o hint, tagline, [Context]/[Skills] sections, separator-framed
+  ctrl+o hint, tagline, Context/Skills sections, separator-framed
   input area, two-row bottom block).
 - stream the same kind of reasoning prose between tool blocks.
 - render tool calls as `<tool> <args>` (or `read resource …` for

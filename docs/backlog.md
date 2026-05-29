@@ -136,7 +136,7 @@ landed as a named conventional commit with focused tests, `just check`,
 updated docs, and a stop for review. OpenRouter was the first real
 provider with `supports_tool_calls=True`; OpenAI Responses and OpenAI
 Codex parsers now ship through the separate
-[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track).
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses-openai-codex-tool-call-parity-track).
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`Native Tool-Loop Parity Track`) and the parity-map
@@ -334,7 +334,7 @@ These hold throughout the track, not as later deferrals:
 ## Workspace Context Loading Parity Track
 
 The named Pi-parity track after the
-[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses--openai-codex-tool-call-parity-track)
+[OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses-openai-codex-tool-call-parity-track)
 added AGENTS.md / CLAUDE.md discovery and injection into the native
 pipy system prompt and has now shipped end-to-end across the
 one-shot runner, the `--repl-mode no-tool` REPL, and the

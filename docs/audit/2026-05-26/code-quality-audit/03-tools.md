@@ -150,7 +150,7 @@ The tools layer carries roughly 4,800 lines of Python where pi-mono's equivalent
 - **Where**: `src/pipy_harness/native/tools/messages.py:78-129` and `src/pipy_harness/native/tools/base.py:166-208`
 - **Symptom**: `ToolResultMessage` has fields `tool_request_id`, `output_text`, `is_error`, `provider_correlation_id`, `OUTPUT_TEXT_MAX_LENGTH = 64*1024`. `ToolExecutionResult` has exactly the same four fields and the same length cap. The docstring at `messages.py:80-91` explains "this is the serialization view of a tool result and is deliberately distinct from `ToolExecutionResult` (the tool boundary return value the loop already has in memory)". The loop must construct one from the other (`messages.py:90-91`) — a no-op copy.
 - **Article principle**: "Redundant abstractions"; "volume = noise".
-- **Pi comparison**: pi-mono has one type for tool output (`{content: TextContent[], details?: T}`) that flows through both the tool boundary and the provider message envelope.
+- **Pi comparison**: pi-mono has one type for tool output (`{content: array of TextContent, details?: T}`) that flows through both the tool boundary and the provider message envelope.
 - **Suggested fix**: Drop `ToolResultMessage`. The envelope can carry `ToolExecutionResult` directly. If a serialization view truly differs from the boundary type, it should differ in fields, not just in name.
 - **Severity**: medium
 
@@ -169,7 +169,7 @@ The tools layer carries roughly 4,800 lines of Python where pi-mono's equivalent
 - **Symptom**: `ResolvedToolPath(resolved, root, relative_label, display_label, is_workspace)`. `relative_label = resolved.relative_to(root).as_posix()`, `display_label = relative_label if is_workspace else f"{root.name}/{relative_label}"`, `is_workspace = (root == workspace)`. All three of `relative_label`, `display_label`, `is_workspace` are pure functions of `resolved` and `root`.
 - **Article principle**: "Volume = noise"; redundant state to maintain in lock-step.
 - **Pi comparison**: pi-mono's resolution returns just `string` (an absolute path) from `resolveToCwd` — no record type.
-- **Suggested fix**: Reduce to `ResolvedToolPath(resolved, root)` with `@property` accessors for the derived labels. Or just return `tuple[Path, Path]` and compute labels at the call site.
+- **Suggested fix**: Reduce to `ResolvedToolPath(resolved, root)` with `@property` accessors for the derived labels. Or just return a `(Path, Path)` tuple and compute labels at the call site.
 - **Severity**: low
 
 ### F17: Mutation tools fold archive-event semantics into the model-driven tool boundary via `stderr_sink`
