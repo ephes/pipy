@@ -90,7 +90,10 @@ not a promise to skip review when a smaller, safer slice appears.
    frame with prompt/footer, slash menu, spinner, tool panels, active Escape,
    and Pi-shaped submitted prompts. Pi still leads on undo/redo, prompt history,
    bracketed paste, resize/SIGWINCH handling, selectors, overlays, and richer
-   keyboard behavior.
+   keyboard behavior. Concrete observed gaps to preserve for this track:
+   `/copy` does not work in pipy; scrolling does not work in either a zellij
+   pane or a native Ghostty terminal; and when a full-sized window is
+   available, pipy uses only the upper half of the terminal.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Pipy currently has no
    runtime extension/package loader; display-only chrome labels are not a
