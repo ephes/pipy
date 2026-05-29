@@ -441,8 +441,9 @@ def settings_overlay_lines(
 
     The builder deliberately emits no command-availability footer. Each
     caller appends a footer honest for its own command surface (the no-tool
-    REPL can run ``/model``/``/login``/``/logout``; the tool-loop TUI cannot
-    yet), so neither surface advertises a command it cannot execute.
+    REPL can run ``/model``/``/login``/``/logout``; the tool-loop TUI can run
+    ``/model`` but not ``/login``/``/logout`` yet), so neither surface
+    advertises a command it cannot execute.
     """
 
     current = provider_state.current_selection()

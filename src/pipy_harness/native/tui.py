@@ -19,7 +19,7 @@ import termios
 import textwrap
 import threading
 import tty
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -45,11 +45,28 @@ _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
 TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/help",
+    "/model",
     "/settings",
     "/copy",
     "/exit",
     "/quit",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ModelSelectorOption:
+    """One row offered by the interactive provider/model selector.
+
+    ``label`` is the fully composed display string (provider/model plus an
+    availability annotation); ``selectable`` is ``False`` for rows that are
+    visible-but-not-choosable (unavailable provider, or a provider that does
+    not advertise tool-call support in tool-loop mode). The selector keeps
+    such rows navigable so their reason stays readable, but ``Enter`` cannot
+    choose them.
+    """
+
+    label: str
+    selectable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +102,9 @@ class ToolLoopTerminalUi:
     )
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
+    model_selector_open: bool = False
+    model_selector_options: tuple[ModelSelectorOption, ...] = ()
+    model_selector_selection: int = 0
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
     _closed: bool = False
@@ -210,6 +230,67 @@ class ToolLoopTerminalUi:
             return False
         finally:
             self._restore_terminal_mode()
+
+    def run_model_selector(
+        self,
+        options: Sequence[ModelSelectorOption],
+        *,
+        current_index: int = 0,
+    ) -> int | None:
+        """Drive the interactive provider/model selector; return a chosen index.
+
+        Renders the supplied rows in the live region and reads raw keys: up/down
+        move the highlight (wrapping), ``Enter`` chooses the highlighted row when
+        it is selectable, and ``Esc`` / ``Ctrl-C`` / ``Ctrl-D`` / EOF cancel.
+        Returns the chosen index, or ``None`` when cancelled or when no row is
+        selectable. This method never invokes the provider, tools, or a model
+        turn; it is pure local navigation that the caller acts on afterwards.
+        """
+
+        self.model_selector_options = tuple(options)
+        if not self.model_selector_options:
+            return None
+        self.model_selector_open = True
+        self.model_selector_selection = max(
+            0, min(current_index, len(self.model_selector_options) - 1)
+        )
+        self.paint()
+        fd = self.input_stream.fileno()
+        try:
+            self._enter_raw_mode()
+            while True:
+                key = self._read_key(fd)
+                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
+                    self._close_model_selector()
+                    return None
+                if key in {"up", "down"}:
+                    self._navigate_model_selector(key)
+                    continue
+                if key == "enter":
+                    index = self.model_selector_selection
+                    option = self.model_selector_options[index]
+                    if option.selectable:
+                        self._close_model_selector()
+                        return index
+                    continue
+        finally:
+            self._restore_terminal_mode()
+
+    def _navigate_model_selector(self, key: str) -> None:
+        total = len(self.model_selector_options)
+        if total == 0:
+            return
+        delta = -1 if key == "up" else 1
+        self.model_selector_selection = (
+            self.model_selector_selection + delta
+        ) % total
+        self.paint()
+
+    def _close_model_selector(self) -> None:
+        self.model_selector_open = False
+        self.model_selector_options = ()
+        self.model_selector_selection = 0
+        self.paint()
 
     def close(self) -> None:
         self._restore_terminal_mode()
@@ -394,6 +475,30 @@ class ToolLoopTerminalUi:
             history_lines.extend(
                 self._block_frame_lines("working", (self.working_text,), width=width)
             )
+        if self.model_selector_open:
+            # The selector overlay replaces the input/menu region; keep as much
+            # trailing history as fits above it so render_lines() agrees with the
+            # paint() live region.
+            selector = self._model_selector_region_lines(width=width, height=height)
+            max_history_lines = max(0, height - len(selector))
+            if len(history_lines) > max_history_lines:
+                history_lines = history_lines[len(history_lines) - max_history_lines :]
+            frame = [*history_lines, *selector]
+            if pad:
+                padded = [
+                    _FrameLine(self._pad(line.text, width), line.kind, line.meta)
+                    for line in frame[:height]
+                ]
+                if len(padded) < height:
+                    padded.extend(
+                        _FrameLine(" " * width, "normal")
+                        for _ in range(height - len(padded))
+                    )
+                return padded
+            return [
+                _FrameLine(line.text[:width], line.kind, line.meta)
+                for line in frame[:height]
+            ]
         menu_lines = self._slash_menu_frame_lines(
             width=width,
             max_rows=max(1, height - 7),
@@ -506,10 +611,14 @@ class ToolLoopTerminalUi:
         if lines_up > 0:
             output.append(f"\x1b[{lines_up}A")
         output.append("\r")
-        cursor_col = min(max(0, width - 1), self._effective_input_cursor())
-        if cursor_col > 0:
-            output.append(f"\x1b[{cursor_col}C")
-        output.append("\x1b[?25h")
+        # The model selector has no editable input cell, so keep the terminal
+        # cursor hidden (it was hidden at the top of the paint) instead of
+        # parking and revealing it on a non-input row.
+        if not self.model_selector_open:
+            cursor_col = min(max(0, width - 1), self._effective_input_cursor())
+            if cursor_col > 0:
+                output.append(f"\x1b[{cursor_col}C")
+            output.append("\x1b[?25h")
         self._live_height = len(live)
         self._live_input_row = input_index
         try:
@@ -526,8 +635,14 @@ class ToolLoopTerminalUi:
         an optional slash-command menu, and the two footer rows. The transient
         tail is bounded so the live region never exceeds the screen height; the
         full streamed answer commits to scrollback once it settles.
+
+        While the interactive provider/model selector is open it replaces the
+        transient/input/menu rows with the selector overlay (and keeps the two
+        footer rows pinned at the bottom).
         """
 
+        if self.model_selector_open:
+            return self._model_selector_region_lines(width=width, height=height)
         menu_lines = self._slash_menu_frame_lines(
             width=width,
             max_rows=max(1, height - 7),
@@ -550,6 +665,68 @@ class ToolLoopTerminalUi:
             _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
             _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
         ]
+        return lines
+
+    def _model_selector_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        """Compose the interactive provider/model selector overlay.
+
+        Layout (top to bottom): a title/affordance row, a windowed list of
+        provider/model rows (the highlighted row carries a ``→`` marker, an
+        optional scroll indicator when the list overflows), and the two footer
+        rows. Unselectable rows are dimmed; the highlighted row is accented.
+        """
+
+        options = self.model_selector_options
+        footer = [
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        title = _FrameLine(
+            self._clip(
+                " Select provider/model — ↑/↓ move · enter select · esc cancel",
+                width,
+            ),
+            "selector_title",
+        )
+        # Reserve the title, the two footer rows, and one row for the optional
+        # scroll indicator so the visible window always fits the live region.
+        max_rows = max(1, height - 4)
+        total = len(options)
+        visible_count = min(total, max_rows)
+        start = max(
+            0,
+            min(
+                self.model_selector_selection - (visible_count // 2),
+                max(0, total - visible_count),
+            ),
+        )
+        visible = options[start : start + visible_count]
+        rows: list[_FrameLine] = []
+        for offset, option in enumerate(visible, start=start):
+            selected = offset == self.model_selector_selection
+            prefix = "→ " if selected else "  "
+            if selected:
+                kind = "selector_option_selected"
+            elif option.selectable:
+                kind = "selector_option"
+            else:
+                kind = "selector_option_disabled"
+            rows.append(
+                _FrameLine(self._clip(f"{prefix}{option.label}", width), kind)
+            )
+        lines = [title, *rows]
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  ({self.model_selector_selection + 1}/{total})", width
+                    ),
+                    "slash_menu_scroll",
+                )
+            )
+        lines.extend(footer)
         return lines
 
     def _transient_tail_lines(self, width: int) -> list[_FrameLine]:
@@ -604,6 +781,14 @@ class ToolLoopTerminalUi:
             return style.tool_read(text, width=width)
         if line.kind == "tool_result":
             return style.tool_result(text, width=width)
+        if line.kind == "selector_title":
+            return style.section_label(text)
+        if line.kind == "selector_option_selected":
+            return style.menu_selection(text)
+        if line.kind == "selector_option":
+            return text
+        if line.kind == "selector_option_disabled":
+            return style.secondary_dim(text)
         if line.kind == "slash_menu_selected":
             return style.menu_selection(text)
         if line.kind == "slash_menu":
@@ -1036,7 +1221,7 @@ class ToolLoopTerminalUi:
         matches = self._filtered_commands()
         if not self.slash_menu_open or not matches or max_rows <= 0:
             return []
-        visible_count = min(len(matches), max_rows, 5)
+        visible_count = min(len(matches), max_rows, 6)
         start = max(
             0,
             min(

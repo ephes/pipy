@@ -773,17 +773,20 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Product TUI read-only settings overlay" in next_slice
     assert (
-        "the same safe provider/model/status information and availability reasons"
+        "### Product TUI interactive provider/model selector (landed)" in next_slice
+    )
+    assert (
+        "the next provider turn is constructed with the new provider/model"
         in compact_next_slice
     )
-    assert "pipy_harness.native.repl_state.settings_overlay_lines" in next_slice
     assert (
-        "pipy_harness.native.tui.ToolLoopTerminalUi.show_settings" in next_slice
+        "pipy_harness.native.tui.ToolLoopTerminalUi.run_model_selector" in next_slice
     )
+    assert "NativeReplProviderState.select_model" in next_slice
+    assert "No provider turn runs during" in compact_next_slice
     assert "metadata-first archive behavior is unchanged" in compact_next_slice
-    assert "real product TUI rendering path" in compact_next_slice
+    assert "real-PTY product-path test" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

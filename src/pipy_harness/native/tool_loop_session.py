@@ -63,11 +63,12 @@ from pipy_harness.native.repl_input import (
     native_repl_input_for,
 )
 from pipy_harness.native.repl_state import (
+    NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import ModelSelectorOption, ToolLoopTerminalUi
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
     AssistantMessage,
@@ -452,6 +453,64 @@ class NativeToolReplSession:
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
+        def apply_model_selection(reference: str) -> tuple[bool, str]:
+            """Select ``reference`` through the provider-state boundary.
+
+            Mirrors the no-tool ``/model`` path: on success it rebinds the live
+            provider, clears the in-memory conversation context, rebinds the
+            usage meter, and refreshes the footer/status model label so the next
+            provider turn is constructed with the new provider/model. The switch
+            is refused (and the previous selection restored) when the chosen
+            provider does not advertise tool-call support, which tool-loop mode
+            requires. No provider turn happens here.
+            """
+
+            nonlocal effective_provider_name, effective_model_id
+            nonlocal usage_accumulator, messages
+            state = self.provider_state
+            if not isinstance(state, NativeReplProviderState):
+                return False, (
+                    "pipy: /model is unavailable for this REPL provider state."
+                )
+            previous_selection = state.current_selection()
+            ok, message = state.select_model(reference)
+            if not ok:
+                return False, message
+            new_provider = state.current_provider()
+            if not getattr(new_provider, "supports_tool_calls", False):
+                # Restore the prior selection directly rather than via
+                # select_model(): the previous selection may be an explicit,
+                # tool-capable provider that is not "available" under the
+                # env-credential probe (e.g. an injected provider), in which
+                # case re-selecting it would fail and silently leave the
+                # rejected selection (and persisted default) in place.
+                state.selection = previous_selection
+                state._save_default(previous_selection)
+                return False, (
+                    f"pipy: {reference} does not support tool calls in "
+                    "tool-loop mode; selection unchanged."
+                )
+            self.provider = new_provider
+            selection = state.current_selection()
+            effective_provider_name = selection.provider_name
+            effective_model_id = selection.model_id
+            messages = []
+            usage_accumulator = _UsageAccumulator()
+            usage_accumulator.bind(effective_provider_name, effective_model_id)
+            if terminal_ui is not None:
+                terminal_ui.set_footer_text(
+                    self._footer_text(
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        error_stream=error_stream,
+                        usage_accumulator=usage_accumulator,
+                    )
+                )
+            return True, message
+
         repl_input = (
             terminal_ui
             if terminal_ui is not None
@@ -593,14 +652,60 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
+            if stripped == "/model" or stripped.startswith("/model "):
+                argument = stripped[len("/model") :].strip()
+                state = self.provider_state
+                if not isinstance(state, NativeReplProviderState):
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        "pipy: /model is unavailable for this REPL provider state.",
+                    )
+                elif argument:
+                    _ok, message = apply_model_selection(argument)
+                    self._emit_diagnostic(terminal_ui, error_stream, message)
+                elif terminal_ui is not None:
+                    ui_options, selections = self._model_selector_rows(state)
+                    current = state.current_selection()
+                    current_index = next(
+                        (
+                            index
+                            for index, selection in enumerate(selections)
+                            if selection.provider_name == current.provider_name
+                            and selection.model_id == current.model_id
+                        ),
+                        0,
+                    )
+                    chosen = terminal_ui.run_model_selector(
+                        ui_options, current_index=current_index
+                    )
+                    if chosen is not None:
+                        _ok, message = apply_model_selection(
+                            selections[chosen].reference
+                        )
+                        terminal_ui.add_notice(message)
+                else:
+                    for overlay_line in self._settings_overlay_lines():
+                        print(overlay_line, file=error_stream)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
             if stripped.startswith("/"):
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /settings, /copy, "
-                        "/exit, /quit. Other prompts are sent to the model."
+                        "supported local commands are /help, /model, /settings, "
+                        "/copy, /exit, /quit. Other prompts are sent to the model."
                     ),
                 )
                 if legacy_footer_enabled():
@@ -1025,18 +1130,105 @@ class NativeToolReplSession:
 
         Reuses the shared no-tool ``/settings`` builder so the tool-loop TUI
         shows the same safe provider/model/status information and availability
-        reasons, then appends a footer honest for the tool-loop surface (which
-        cannot yet run ``/model``/``/login``/``/logout``). When no provider
-        state is wired, a single-provider static view is shown.
+        reasons, then appends a footer honest for the tool-loop surface (where
+        ``/model`` is executable but ``/login``/``/logout`` are not yet). When no
+        provider state is wired, a single-provider static view is shown.
         """
 
         state = self.provider_state or StaticNativeReplProviderState(self.provider)
         lines = settings_overlay_lines(state)
-        lines.append(
-            "  read-only view; /model, /login, and /logout are not yet "
-            "available in tool-loop mode."
-        )
+        if isinstance(state, NativeReplProviderState):
+            lines.append(
+                "  read-only view; use /model to switch provider/model. "
+                "/login and /logout are not yet available in tool-loop mode."
+            )
+        else:
+            lines.append(
+                "  read-only view; /model, /login, and /logout are not "
+                "available for this REPL provider state."
+            )
         return lines
+
+    def _model_selector_rows(
+        self, state: NativeReplProviderState
+    ) -> tuple[list[ModelSelectorOption], list[NativeModelSelection]]:
+        """Build the interactive selector rows from the provider-state options.
+
+        Returns the display rows (parallel to ``selections``) and the matching
+        ``NativeModelSelection`` list so the caller can map a chosen index back
+        to a provider/model reference. A row is selectable only when the
+        provider is locally available *and* the built provider advertises
+        tool-call support, which tool-loop mode requires. Unavailable or
+        non-tool-capable rows stay visible with a reason but are not choosable,
+        so the selector never lets a user pick a provider as if it were usable.
+        """
+
+        current = state.current_selection()
+
+        def _matches_current(selection: NativeModelSelection) -> bool:
+            return (
+                selection.provider_name == current.provider_name
+                and selection.model_id == current.model_id
+            )
+
+        ui_options: list[ModelSelectorOption] = []
+        selections: list[NativeModelSelection] = []
+        # The active selection may use a non-default model (explicit
+        # --native-model or a prior /model <provider>/<custom-model>), which is
+        # not present in model_options(). Surface it as the first row so the
+        # selector can mark it "(current)" and start the highlight on it. The
+        # active provider is tool-capable by the tool-loop invariant, so the row
+        # is selectable.
+        if not any(_matches_current(option.selection) for option in state.model_options()):
+            selections.append(current)
+            ui_options.append(
+                ModelSelectorOption(
+                    label=f"{current.reference}  [available] (current)",
+                    selectable=True,
+                )
+            )
+        for option in state.model_options():
+            selection = option.selection
+            selectable = option.available
+            reason = option.reason
+            if selectable and not self._selection_supports_tool_calls(
+                state, selection
+            ):
+                selectable = False
+                reason = "no tool-call support"
+            if selectable:
+                status = "available"
+            else:
+                status = f"unavailable: {reason or 'unknown'}"
+            label = f"{selection.reference}  [{status}]"
+            if _matches_current(selection):
+                label = f"{label} (current)"
+            ui_options.append(
+                ModelSelectorOption(label=label, selectable=selectable)
+            )
+            selections.append(selection)
+        return ui_options, selections
+
+    @staticmethod
+    def _selection_supports_tool_calls(
+        state: NativeReplProviderState, selection: NativeModelSelection
+    ) -> bool:
+        """Return whether the provider for ``selection`` advertises tool calls.
+
+        Builds the provider through the state's factory (cheap, side-effect-free
+        construction) only to read ``supports_tool_calls``. Any construction
+        failure is treated as "not tool-capable" so a broken selection is never
+        offered as choosable.
+        """
+
+        factory = getattr(state, "provider_factory", None)
+        if factory is None:
+            return False
+        try:
+            provider = factory(selection)
+        except Exception:
+            return False
+        return bool(getattr(provider, "supports_tool_calls", False))
 
     def _print_help(self, error_stream: TextIO) -> None:
         print(self._help_text(), file=error_stream)
@@ -1044,12 +1236,14 @@ class NativeToolReplSession:
     @staticmethod
     def _help_text() -> str:
         return (
-            "pipy: tool-loop mode supports `/help`, `/settings`, `/copy`, "
-            "`/exit`, `/quit` locally. `/settings` shows a read-only "
-            "provider/model overlay; `/copy` copies the last answer to the "
-            "clipboard. Other input is sent to the model. The model can call "
-            "bounded `read`, `ls`, `grep`, `find`, `write`, `edit`, "
-            "`edit_diff`, and `truncate` tools (budget per user turn)."
+            "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
+            "`/copy`, `/exit`, `/quit` locally. `/model` opens an interactive "
+            "provider/model selector (or `/model <provider>/<model>` switches "
+            "directly); `/settings` shows a read-only provider/model overlay; "
+            "`/copy` copies the last answer to the clipboard. Other input is "
+            "sent to the model. The model can call bounded `read`, `ls`, "
+            "`grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate` "
+            "tools (budget per user turn)."
         )
 
     @staticmethod

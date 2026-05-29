@@ -202,6 +202,163 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     assert "answer line 00" not in final_viewport
 
 
+class _RecordingProvider:
+    """Tool-capable provider recording the (provider, model) of each turn."""
+
+    def __init__(
+        self, provider_name: str, model_id: str, seen: list[tuple[str, str]]
+    ) -> None:
+        self._provider_name = provider_name
+        self.model_id = model_id
+        self._seen = seen
+        self.supports_tool_calls = True
+
+    @property
+    def name(self) -> str:
+        return self._provider_name
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink
+        self._seen.append((request.provider_name, request.model_id))
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="RESPONSE_MARKER_DONE",
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_inline_tui_model_selector_selects_and_rebinds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Drive the real product `/model` selector over a PTY end-to-end.
+
+    Proves the acceptance path: opening `/model` shows a keyboard-navigable
+    selector with availability state, no provider turn happens during selection,
+    choosing an available provider updates the footer model label, and the very
+    next prompt's provider turn is constructed with the newly selected
+    provider/model.
+    """
+
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    seen: list[tuple[str, str]] = []
+
+    def factory(selection: NativeModelSelection) -> _RecordingProvider:
+        return _RecordingProvider(selection.provider_name, selection.model_id, seen)
+
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("openrouter", "openai/gpt-5.1-codex"),
+        provider_factory=factory,
+        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    result_holder: list[object] = []
+
+    def _run() -> None:
+        result_holder.append(
+            session.run(
+                workspace_root=tmp_path,
+                input_stream=cast(TextIO, stdin),
+                output_stream=cast(TextIO, terminal),
+                error_stream=cast(TextIO, terminal),
+            )
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Open the interactive selector.
+        os.write(in_master, b"/model\n")
+        assert _wait_for(err_chunks, "Select provider/model"), "selector never opened"
+        # The selector lists availability state and reasons.
+        assert _wait_for(err_chunks, "[available]"), "availability state missing"
+        # Opening the selector runs no provider turn.
+        assert seen == [], "selector opened a provider turn"
+        # Navigate up from the current openrouter row to the openai row, then
+        # choose it. (model_options order: fake, openai-codex, openai,
+        # openrouter, ... — current is openrouter, one step up is openai.)
+        os.write(in_master, b"\x1b[A")  # up arrow
+        os.write(in_master, b"\r")  # enter selects the highlighted available row
+        assert _wait_for(
+            err_chunks, "selected model openai/gpt-5.5"
+        ), "selection notice never shown"
+        # No provider turn during selection.
+        assert seen == [], "selection itself ran a provider turn"
+        # The next prompt is constructed with the newly selected provider/model.
+        os.write(in_master, b"hi\n")
+        assert _wait_for(err_chunks, "RESPONSE_MARKER_DONE"), "turn never ran"
+        os.write(in_master, b"\x04")  # ctrl-d on an empty prompt ends the loop
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "selector session did not exit"
+    assert result_holder, "selector session produced no result"
+    result = result_holder[0]
+    assert getattr(result, "status") == HarnessStatus.SUCCEEDED
+    assert getattr(result, "provider_name") == "openai"
+    assert getattr(result, "model_id") == "gpt-5.5"
+
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    # Inline model: never the alternate screen.
+    assert "\x1b[?1049h" not in captured
+    # Exactly one provider turn ran, and it used the newly selected selection.
+    assert seen == [("openai", "gpt-5.5")]
+
+    # The footer/status model label updated to the new selection.
+    snapshot = parse_ansi_screen(captured, columns=100, rows=40)
+    footer_text = "\n".join(snapshot.viewport)
+    assert "gpt-5.5" in footer_text
+
+
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_inline_tui_slash_menu_is_honest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -267,9 +424,10 @@ def test_pty_inline_tui_slash_menu_is_honest(
 
     menu_text = "\n".join(snapshot.viewport)
     assert provider._call_counter[0] == 0  # opening the menu runs no turn
-    # Honest menu: the executable local commands are offered...
-    for executable in ("help", "settings", "copy", "exit", "quit"):
+    # Honest menu: the executable local commands are offered (including the
+    # now-interactive /model selector)...
+    for executable in ("help", "model", "settings", "copy", "exit", "quit"):
         assert executable in menu_text, f"menu missing /{executable}"
     # ...and the not-yet-executable provider/auth commands are absent.
-    for absent in ("/model", "/login", "/logout"):
+    for absent in ("/login", "/logout"):
         assert absent not in menu_text

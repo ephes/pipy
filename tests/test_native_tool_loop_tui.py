@@ -495,12 +495,15 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
 
     assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
         "/help",
+        "/model",
         "/settings",
         "/copy",
         "/exit",
         "/quit",
     )
-    for not_yet_executable in ("/model", "/login", "/logout"):
+    # /model is now an executable interactive selector; /login and /logout
+    # remain not-yet-executable in tool-loop mode and stay out of the menu.
+    for not_yet_executable in ("/login", "/logout"):
         assert not_yet_executable not in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     ui = _ui(tmp_path)
@@ -554,8 +557,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     assert ui.slash_menu_selection == 1
 
     ui._accept_slash_menu_selection()
-    assert ui.input_text == "/settings"
-    assert ui.input_cursor == len("/settings")
+    # Menu order is help(0), model(1), settings(2), ...; one step down lands
+    # on the now-executable /model selector command.
+    assert ui.input_text == "/model"
+    assert ui.input_cursor == len("/model")
     assert ui.slash_menu_open is False
 
     ui.input_text = "/"
@@ -567,6 +572,68 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     frame = "\n".join(ui.render_lines(width=88, height=24, pad=False))
     assert "→ help" not in frame
     assert ui.input_text == "/"
+
+
+def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
+    tmp_path: Path,
+):
+    from pipy_harness.native.tui import ModelSelectorOption
+
+    ui = _ui(tmp_path)
+    ui.model_selector_open = True
+    ui.model_selector_options = (
+        ModelSelectorOption("openrouter/openai/gpt  [available] (current)", True),
+        ModelSelectorOption("openai/gpt-5.5  [available]", True),
+        ModelSelectorOption("fake/fake  [unavailable: no tool-call support]", False),
+    )
+    ui.model_selector_selection = 1
+
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    # The selector overlay (title + rows) replaces the normal input/menu area.
+    assert "Select provider/model" in rendered
+    # The highlighted row carries the cursor marker; others do not.
+    assert "→ openai/gpt-5.5  [available]" in rendered
+    assert "  openrouter/openai/gpt  [available] (current)" in rendered
+    # Unavailable rows stay visible with their reason.
+    assert "fake/fake  [unavailable: no tool-call support]" in rendered
+
+
+def test_tui_model_selector_navigation_wraps(tmp_path: Path):
+    from pipy_harness.native.tui import ModelSelectorOption
+
+    ui = _ui(tmp_path)
+    ui.model_selector_open = True
+    ui.model_selector_options = (
+        ModelSelectorOption("a", True),
+        ModelSelectorOption("b", True),
+        ModelSelectorOption("c", False),
+    )
+    ui.model_selector_selection = 0
+
+    ui._navigate_model_selector("down")
+    assert ui.model_selector_selection == 1
+    ui._navigate_model_selector("up")
+    ui._navigate_model_selector("up")
+    # Wrapping: up from index 0 lands on the last row.
+    assert ui.model_selector_selection == 2
+
+
+def test_tui_model_selector_keeps_cursor_hidden(tmp_path: Path):
+    from pipy_harness.native.tui import ModelSelectorOption
+
+    ui = _ui(tmp_path)
+    ui.model_selector_open = True
+    ui.model_selector_options = (ModelSelectorOption("a  [available]", True),)
+    ui.model_selector_selection = 0
+
+    ui.paint()
+    painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    # The selector has no editable input cell: the paint hides the cursor and
+    # never re-shows it (unlike the normal input frame, which parks + shows it).
+    assert "\x1b[?25l" in painted
+    assert "\x1b[?25h" not in painted
 
 
 def test_tui_input_cursor_can_move_within_typed_text(tmp_path: Path):
@@ -712,6 +779,252 @@ def _read_only_provider_state(tmp_path: Path, provider: ProviderPort):
     )
 
 
+class _RecordingProvider:
+    """Tool-capable provider that records the (provider, model) of each turn."""
+
+    def __init__(
+        self,
+        provider_name: str,
+        model_id: str,
+        seen: list[tuple[str, str]],
+        *,
+        supports_tool_calls: bool = True,
+    ) -> None:
+        self._provider_name = provider_name
+        self.model_id = model_id
+        self._seen = seen
+        self.supports_tool_calls = supports_tool_calls
+
+    @property
+    def name(self) -> str:
+        return self._provider_name
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:
+        del stream_sink, reasoning_sink
+        self._seen.append((request.provider_name, request.model_id))
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="ok",
+            tool_calls=(),
+        )
+
+
+def _recording_provider_state(
+    tmp_path: Path,
+    seen: list[tuple[str, str]],
+    *,
+    provider_name: str,
+    model_id: str,
+    env: dict[str, str],
+):
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+
+    def factory(selection):
+        # `fake` mirrors production (no tool-call support); everything else is
+        # a tool-capable recording provider.
+        return _RecordingProvider(
+            selection.provider_name,
+            selection.model_id,
+            seen,
+            supports_tool_calls=selection.provider_name != "fake",
+        )
+
+    return NativeReplProviderState(
+        selection=NativeModelSelection(provider_name, model_id),
+        provider_factory=factory,
+        env=env,
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+
+
+def test_model_selector_rows_gate_unavailable_and_non_tool_capable(tmp_path: Path):
+    seen: list[tuple[str, str]] = []
+    # Use the registered default model so the current selection matches the
+    # option row and is marked "(current)".
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt-5.1-codex",
+        env={"OPENROUTER_API_KEY": "k"},
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+
+    ui_options, selections = session._model_selector_rows(provider_state)
+
+    by_provider = {
+        sel.provider_name: option for sel, option in zip(selections, ui_options)
+    }
+    # `fake` is credential-available but not tool-capable → visible, not choosable.
+    assert by_provider["fake"].selectable is False
+    assert "no tool-call support" in by_provider["fake"].label
+    # An env-credentialed, tool-capable provider is choosable and marked current.
+    assert by_provider["openrouter"].selectable is True
+    assert "(current)" in by_provider["openrouter"].label
+    # A provider without credentials is visible but not choosable.
+    assert by_provider["openai"].selectable is False
+    assert "unavailable" in by_provider["openai"].label
+
+
+def test_model_command_direct_reference_rebinds_next_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt",
+        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    # Captured-stream path (no TUI): switch via `/model <ref>`, then one turn.
+    input_stream = io.StringIO("/model openai/gpt-5.5\nhello\n")
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    # The /model command ran no provider turn; only the post-switch prompt did,
+    # and it was constructed with the newly selected provider/model.
+    assert seen == [("openai", "gpt-5.5")]
+    assert result.provider_name == "openai"
+    assert result.model_id == "gpt-5.5"
+    assert result.user_turn_count == 1
+
+
+def test_model_command_refuses_non_tool_capable_selection(
+    tmp_path: Path,
+):
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt",
+        env={"OPENROUTER_API_KEY": "k"},
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    error_stream = io.StringIO()
+    # `fake` is available but not tool-capable: the switch must be refused and
+    # the previous selection preserved.
+    input_stream = io.StringIO("/model fake/fake-native-bootstrap\nhello\n")
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert "does not support tool calls" in error_stream.getvalue()
+    # Selection unchanged: the turn still ran on the original provider/model.
+    assert seen == [("openrouter", "openai/gpt")]
+    assert result.provider_name == "openrouter"
+    assert provider_state.current_selection().provider_name == "openrouter"
+
+
+def test_model_command_refusal_restores_unavailable_previous_selection(
+    tmp_path: Path,
+):
+    # The active provider is explicit/tool-capable but NOT env-available
+    # (no OPENAI_API_KEY), so a naive revert via select_model() — which
+    # re-checks availability — would fail and leave the rejected selection in
+    # place. The refusal must restore the previous selection regardless.
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openai",
+        model_id="gpt-5.5",
+        env={},  # openai is unavailable per env checks; fake is always available
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    error_stream = io.StringIO()
+    input_stream = io.StringIO("/model fake/fake-native-bootstrap\nhello\n")
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert "does not support tool calls" in error_stream.getvalue()
+    # Selection restored to the original provider/model, not left on fake.
+    assert provider_state.current_selection().provider_name == "openai"
+    assert provider_state.current_selection().model_id == "gpt-5.5"
+    # The turn still ran on the original provider/model.
+    assert seen == [("openai", "gpt-5.5")]
+    assert result.provider_name == "openai"
+
+
+def test_model_selector_rows_mark_current_non_default_model(tmp_path: Path):
+    # A current selection on a non-default model is not present in
+    # model_options(); the selector must still surface it, mark it "(current)",
+    # and keep it selectable so the highlight can start on the active row.
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/custom-model",
+        env={"OPENROUTER_API_KEY": "k"},
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+
+    ui_options, selections = session._model_selector_rows(provider_state)
+
+    current_rows = [option for option in ui_options if "(current)" in option.label]
+    assert len(current_rows) == 1
+    assert "openrouter/openai/custom-model" in current_rows[0].label
+    assert current_rows[0].selectable is True
+    # The current selection is represented in the parallel selections list so
+    # the dispatcher can resolve a correct initial highlight index.
+    assert any(
+        sel.provider_name == "openrouter" and sel.model_id == "openai/custom-model"
+        for sel in selections
+    )
+
+
 def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -753,8 +1066,12 @@ def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
     assert "pipy native REPL settings:" in rendered
     assert "active: fake/fake-native-bootstrap" in rendered
     assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in rendered
-    # The TUI footer must not advertise commands it cannot execute yet.
-    assert "/model, /login, and /logout are not yet available" in rendered
+    # The TUI footer is honest: /model is now executable here; /login and
+    # /logout remain not-yet-executable in tool-loop mode. (The long line wraps
+    # in the frame, so assert on the stable fragments rather than the whole.)
+    assert "use /model to switch provider/model" in rendered
+    assert "/login" in rendered
+    assert "/logout" in rendered
 
 
 class _ClipboardRecorder:

@@ -435,9 +435,9 @@ produces output the committed history fills the full window height with the
 input/footer at the bottom rather than capping the frame to the upper half.
 Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `settings`, `copy`, `exit`, `quit`); Up/Down moves the selected
-row, Tab or Enter accepts the selected command, and Escape closes the menu
-without exiting the session. `/copy` is a local-only command: it copies the
+locally (`help`, `model`, `settings`, `copy`, `exit`, `quit`); Up/Down moves the
+selected row, Tab or Enter accepts the selected command, and Escape closes the
+menu without exiting the session. `/copy` is a local-only command: it copies the
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
@@ -448,9 +448,32 @@ through the same whole-frame paint path. It reuses the shared no-tool
 registered defaults, and per-provider local availability reasons as the no-tool
 `/settings` command; it is strictly read-only and never switches
 models/providers, starts login/logout, mutates auth state, invokes tools, or
-creates a provider turn. `/model`, `/login`, and `/logout` are not yet
-executable in the tool-loop path, so the overlay footer says so rather than
-advertising them.
+creates a provider turn.
+
+`/model` is an executable interactive provider/model selector in the product
+TUI. Bare `/model` opens an in-frame selector (`ToolLoopTerminalUi.run_model_selector`)
+built from `NativeReplProviderState.model_options()`: each row shows the
+`provider/model` reference and its availability state (`[available]`, or
+`[unavailable: <reason>]` for missing credentials or a provider that does not
+advertise tool-call support, which tool-loop mode requires), the active
+selection is marked `(current)`, Up/Down move the highlight (wrapping), Enter
+chooses the highlighted row only when it is selectable, and Esc/Ctrl-C/Ctrl-D
+cancel. The selector runs no provider turn while it is open. On a successful
+choice the session calls `NativeReplProviderState.select_model` (the same
+provider-state boundary the no-tool `/model` uses), rebinds the live provider,
+clears the in-memory conversation context, rebinds the usage meter, refreshes
+the footer/status model label, and persists the non-secret default; the next
+provider turn is constructed with the new provider/model. A direct
+`/model <provider>/<model>` (or `<model>`) form switches without opening the
+selector and works in both the product TUI and the captured-stream fallback. A
+switch to a provider that does not advertise tool-call support is refused and
+the previous selection restored. Unavailable providers stay visible with a
+reason but cannot be chosen as if available. The selector reads and mutates only
+the in-memory provider state and the non-secret defaults file (provider name and
+model id); it adds no auth material, provider payloads, prompts, model output,
+command text, or secrets to the metadata archive. `/login` and `/logout` are not
+yet executable in the tool-loop path, so the `/settings` overlay footer says so
+rather than advertising them.
 Submitted
 messages and settled assistant text are committed into native scrollback while
 streamed assistant text and the loader live in the redrawn live region; the

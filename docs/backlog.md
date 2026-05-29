@@ -51,10 +51,11 @@ The broad parity ladder, applied with small-slice discipline:
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
   with metadata-only archive behavior. Runtime slash commands for loading
   skills, prompt templates, custom commands, extensions, themes, and broader
-  model/provider defaults remain later parity work; exposing the existing
-  `/settings` and `/model` surfaces inside the product TUI is a separate
-  near-term UI gap below. The current `[Skills]` and `[Extensions]` chrome
-  sections are display-only directory labels, not runtime loaders.
+  model/provider defaults remain later parity work; the `/settings` (read-only)
+  and `/model` (interactive selector) surfaces are now exposed inside the
+  product TUI, and `/login`/`/logout` inside the TUI is the remaining near-term
+  UI gap below. The current `[Skills]` and `[Extensions]` chrome sections are
+  display-only directory labels, not runtime loaders.
 - Tool parity: the bounded multi-step model/tool loop has landed; the remaining
   gaps are tool breadth inside that loop, bash/shell execution behind a real
   sandbox, broader verification, arbitrary `@file` content injection, and
@@ -78,20 +79,32 @@ not a promise to skip review when a smaller, safer slice appears.
    respecting TTY/`NO_COLOR`/truecolor behavior, and `ToolLoopTerminalUi`
    renders `reasoning` rows with it so the product TUI matches Pi and pipy's
    captured-stream fallback renderer.
-2. Product-TUI settings/model/provider controls. A read-only `/settings`
-   status overlay has landed in the product TUI: it renders the same safe
-   provider/model/status information and availability reasons as the no-tool
-   `/settings` command through `settings_overlay_lines`, and the slash menu now
-   lists `settings` alongside `help`, `exit`, and `quit`. `/model`, `/login`,
-   and `/logout` remain no-tool REPL commands only; the remaining work is
-   interactive model/provider selection inside the product TUI, after which
-   login/logout follow. Observed 2026-05-29 parity gap: Pi presents
+2. Product-TUI settings/model/provider controls. Interactive provider/model
+   selection has landed in the product TUI alongside the existing read-only
+   `/settings` overlay. `/model` opens a keyboard-navigable selector
+   (`ToolLoopTerminalUi.run_model_selector`) built from
+   `NativeReplProviderState.model_options()`: rows show the `provider/model`
+   reference plus availability state and reasons, the active selection is marked
+   `(current)`, Up/Down move the highlight (wrapping), Enter chooses an
+   available row, and Esc cancels. Unavailable providers — and providers that do
+   not advertise tool-call support, which tool-loop mode requires — stay visible
+   with a reason but cannot be chosen. A successful choice switches through
+   `NativeReplProviderState.select_model`, rebinds the live provider, clears the
+   in-memory conversation context, refreshes the footer/status model label,
+   persists the non-secret default, and constructs the next provider turn with
+   the new provider/model; selection runs no provider turn. A direct
+   `/model <provider>/<model>` form also switches (and works in the
+   captured-stream fallback). The slash menu now lists `model` alongside `help`,
+   `settings`, `copy`, `exit`, and `quit`. `/login` and `/logout` remain no-tool
+   REPL commands only; the remaining work on this item is wiring them into the
+   product TUI. Observed 2026-05-29 parity gap (still open): Pi presents
    `/settings` as an interactive, scrollable dialog with highlighted rows,
    editable booleans and numeric settings, and bottom-key affordances such as
-   `Enter`/`Space` to change and `Esc` to cancel. Pipy currently shows a plain
-   text settings/status block, so the next settings slice should compare the
-   full dialog behavior and decide which controls are product settings versus
-   provider/model/auth controls.
+   `Enter`/`Space` to change and `Esc` to cancel. Pipy's `/settings` is still a
+   read-only text/status block (the interactive dialog now exists only for
+   provider/model selection via `/model`), so the next settings slice should
+   compare the full dialog behavior and decide which controls are product
+   settings versus provider/model/auth controls.
 3. Full interactive TUI ergonomics. The product TUI now renders inline (no
    alternate screen): finalized blocks commit once into the terminal's normal
    buffer so the host terminal/multiplexer keeps them in native scrollback, and
@@ -104,10 +117,11 @@ not a promise to skip review when a smaller, safer slice appears.
    full-size window uses its full height (content fills down to the bottom-
    pinned input/footer) instead of only the upper half. Verified by real-PTY
    product-path tests at 100x40 and 80x24 (`tests/test_native_tool_loop_tui_pty.py`)
-   plus tmux captures. Pi still leads on undo/redo, prompt history, bracketed
-   paste, resize/SIGWINCH handling, in-app `/model` selection (then
-   `/login`/`/logout`), selectors/overlays, and richer keyboard behavior — these
-   remain the open items for this track.
+   plus tmux captures. In-app `/model` selection has since landed as an
+   interactive keyboard-navigable selector (see Pi Gap Queue item 2). Pi still
+   leads on undo/redo, prompt history, bracketed paste, resize/SIGWINCH
+   handling, in-app `/login`/`/logout`, broader selectors/overlays, and richer
+   keyboard behavior — these remain the open items for this track.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Pipy currently has no
    runtime extension/package loader; display-only chrome labels are not a
@@ -1125,44 +1139,64 @@ stdlib ANSI screen-cell verification, tmux product-path artifacts, Pi comparison
 artifacts, focused TUI/renderer tests, docs updates, `just check`, and a clean
 second review after the inert-command menu finding was fixed. (This shell was
 later reworked into the inline-scrollback model with full-height use, native
-scrolling, and the `/copy` command — see Pi Gap Queue item 3 above for the
-current behavior; the menu now lists `help`, `settings`, `copy`, `exit`,
-`quit`.)
+scrolling, the `/copy` command, and the interactive `/model` selector — see Pi
+Gap Queue items 2 and 3 above for the current behavior; the menu now lists
+`help`, `model`, `settings`, `copy`, `exit`, `quit`.)
 
 ## Next Slice
 
-### Product TUI read-only settings overlay (landed)
+### Product TUI interactive provider/model selector (landed)
 
-Closed item 2 of the Prioritized Pi Gap Queue at its first safe boundary: the
-product tool-loop TUI now exposes a read-only `/settings` overlay from the same
-command flow as `/help`, showing the same safe provider/model/status
-information and availability reasons as the no-tool `/settings` command.
+Advanced item 2 of the Prioritized Pi Gap Queue past the read-only `/settings`
+overlay: the product tool-loop TUI now exposes interactive provider/model
+selection through `/model`, so a user can switch provider/model without leaving
+the TUI.
 
 What landed:
 
-- `pipy_harness.native.repl_state.settings_overlay_lines` is a shared,
-  read-only builder for the settings/status display; both the no-tool
-  `_print_repl_settings` command and the product-TUI overlay render from it, so
-  the active selection, registered defaults, and per-provider local
-  availability (with reasons) stay identical across surfaces
-- `pipy_harness.native.tui.ToolLoopTerminalUi.show_settings` renders the
-  overlay as a settings history block through the existing whole-frame paint
-  path; `/settings` joins `/help` in the tool-loop command dispatch and in the
-  slash menu so the menu advertises only commands the dispatcher can execute
-- the overlay is strictly read-only: it does not switch models/providers, start
-  login/logout, mutate auth state, invoke tools, or create a provider turn, and
-  its footer is honest for the tool-loop surface (it states that `/model`,
-  `/login`, and `/logout` are not yet available there)
-- existing no-tool `/settings`, `/model`, `/login`, and `/logout` behavior is
-  unchanged, pinned by a byte-stable no-tool `/settings` characterization test
-- metadata-first archive behavior is unchanged: settings/status display data is
-  chrome only and adds no prompts, model output, credentials, auth payloads, or
-  transcript bodies to session records
-- behavior is pinned through the real product TUI rendering path
-  (`render_lines`/`paint`) plus the no-tool and shared-builder unit tests
+- `pipy_harness.native.tui.ToolLoopTerminalUi.run_model_selector` renders an
+  in-frame, keyboard-navigable selector through the existing whole-frame paint
+  path: a title/affordance row, one row per `NativeReplProviderState.model_options()`
+  entry showing the `provider/model` reference and availability state (with
+  reasons), the active selection marked `(current)`, Up/Down highlight movement
+  (wrapping), Enter to choose a selectable row, and Esc/Ctrl-C/Ctrl-D to cancel.
+  The selector has no editable input cell, so the cursor stays hidden while it
+  is open. `render_lines()` and `paint()` agree on the overlay
+- `NativeToolReplSession` dispatches `/model`: bare `/model` opens the selector
+  in the product TUI (and prints the read-only options in the captured-stream
+  fallback); `/model <provider>/<model>` (or `<model>`) switches directly in
+  both surfaces. Selection goes through the existing
+  `NativeReplProviderState.select_model` boundary — the same one the no-tool
+  `/model` uses
+- a successful choice rebinds the live provider, clears the in-memory
+  conversation context, rebinds the usage meter, refreshes the footer/status
+  model label, and persists the non-secret default; the next provider turn is
+  constructed with the new provider/model. No provider turn runs during
+  selection
+- rows for unavailable providers, and for providers that do not advertise
+  tool-call support (which tool-loop mode requires), stay visible with a reason
+  but cannot be chosen; a direct `/model` switch to a non-tool-capable provider
+  is refused and the previous selection restored
+- the slash menu now lists `model` alongside `help`, `settings`, `copy`,
+  `exit`, and `quit`, so the menu still advertises only commands the dispatcher
+  can execute. The `/settings` overlay footer is updated: it states that
+  `/model` switches provider/model here, while `/login` and `/logout` are not
+  yet available in tool-loop mode
+- metadata-first archive behavior is unchanged: the selector reads and mutates
+  only the in-memory provider state and the non-secret defaults file (provider
+  name and model id) and adds no prompts, model output, provider payloads,
+  command text, credentials, auth payloads, or transcript bodies to session
+  records
+- behavior is pinned by focused unit tests (selector render, navigation
+  wrap, hidden cursor, option gating, direct-reference rebind, and
+  non-tool-capable refusal) plus a real-PTY product-path test
+  (`tests/test_native_tool_loop_tui_pty.py`) that drives keyboard navigation,
+  selection, the footer/status update, no provider turn during selection, and
+  next-turn provider/model use against the hermetic fake provider
 
-The next slice is the remainder of item 2 in the Prioritized Pi Gap Queue:
-interactive model/provider selection inside the product TUI.
+The next slice on item 2 is wiring `/login` and `/logout` into the product TUI
+(after which the interactive-`/settings`-dialog comparison in item 2 can decide
+which controls are product settings versus provider/model/auth controls).
 
 ## Near Term
 
