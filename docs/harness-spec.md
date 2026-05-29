@@ -1047,7 +1047,46 @@ CR and LF encodings.
 
 ### Native Prompt-Toolkit File Reference Completion Boundary
 
-This is an input-editor feature, not a read/context feature. completion-only `@file` references insert safe workspace-relative labels.
+The prompt-toolkit completion itself is an input-editor feature: it inserts
+safe workspace-relative `@file` labels into the editor buffer.
+
+(Historical note: this completion originally shipped as completion-only with no
+read/context behavior.) User-directed `@file` *context* now ships as a separate
+boundary: see [Native User-Directed @file Context](#native-user-directed-file-context).
+
+### Native User-Directed @file Context
+
+A genuine user prompt (not a slash command) that names workspace files with
+`@path` loads bounded UTF-8 excerpts for those files into the next provider
+request. It ships in both `pipy repl --agent pipy-native` (no-tool) and
+`--repl-mode tool-loop`, and applies to every input runtime — including the
+product TUI and the captured-stream fallback — because resolution happens on
+the submitted prompt after `read_line`, not in any runtime-specific path.
+
+Boundaries:
+
+- References are parsed from the submitted prompt (anchored so `foo@bar`-style
+  text and bare `@` are not treated as references), de-duplicated in first-seen
+  order, and capped per turn (`MAX_FILE_REFERENCES_PER_TURN`) with a bounded
+  total context budget.
+- Each reference resolves through the existing bounded `read` tool policy
+  (`pipy_harness.native.file_references` calls `ReadTool`), reusing the
+  workspace resolution plus the `.git`/`.gitignore`, binary, oversized,
+  non-UTF-8, and secret-shaped defenses. No new reader or path policy is
+  introduced. The tool-loop REPL also passes its `--read-root` reference roots,
+  so absolute references under a configured read-root resolve there; the
+  no-tool REPL resolves workspace-relative references only, matching its other
+  reads (`/read`, `/ask-file`, `/propose-file`), which carry no reference roots.
+- Failures fail closed: missing, ignored, binary, oversized, secret-shaped, and
+  out-of-workspace references load no content and produce a safe local
+  diagnostic. One bad reference never blocks a good one and never leaks unsafe
+  content into the prompt.
+- The user's literal prompt text is preserved verbatim; bounded excerpts are
+  appended as a clearly labeled read-only context block. The no-tool rolling
+  conversation context stores the literal prompt, not the excerpt appendix.
+- Only safe counters (`file_reference_count`, `file_reference_loaded_count`,
+  `file_reference_failed_count`) cross the archive boundary. No raw paths, file
+  contents, provider payloads, or secrets are recorded.
 
 ### Native Explicit Multi-File Context Budget
 

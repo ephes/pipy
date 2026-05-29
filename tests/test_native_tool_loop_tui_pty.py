@@ -702,6 +702,39 @@ def test_pty_undo_redo_restores_line_before_submit(
     assert prompts == ["hi", "a"]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_at_file_reference_loads_bounded_context_into_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A typed `@file` reference in the product TUI loads bounded context.
+
+    This drives the real `ToolLoopTerminalUi.read_line` over a PTY (not the
+    captured-stream fallback used by the adapter-level test), proving the
+    user-directed `@file` context resolves on the same submitted-prompt path the
+    TUI uses: the user's literal text is preserved and the bounded excerpt is
+    appended into the provider turn.
+    """
+
+    (tmp_path / "notes.txt").write_text(
+        "AT_FILE_TUI_ALPHA\nAT_FILE_TUI_BETA\n", encoding="utf-8"
+    )
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, b"summarize @notes.txt please\n")
+        assert _wait_for(chunks, "TURN_1_DONE"), "turn with @file never ran"
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    assert len(prompts) == 1
+    # The user's literal prompt text is preserved, and the bounded excerpt for
+    # the @file reference is loaded into the provider turn.
+    assert "summarize @notes.txt please" in prompts[0]
+    assert "AT_FILE_TUI_ALPHA" in prompts[0]
+    assert "AT_FILE_TUI_BETA" in prompts[0]
+
+
 class _FileBackedAuthManager:
     """Fake openai-codex auth manager backed by a credentials file."""
 

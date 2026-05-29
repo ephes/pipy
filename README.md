@@ -188,6 +188,15 @@ prompt-toolkit line editor on real TTYs when the package is available
 multiline editing). Prompt-toolkit is optional and not a declared runtime
 dependency.
 
+A genuine user prompt that names workspace files with `@path` (one or more
+references) loads bounded UTF-8 excerpts for those files into the next provider
+request in both `pipy repl --agent pipy-native` and `--repl-mode tool-loop`
+(including the product TUI). The references resolve through the same bounded
+reader as `/read` and the model-selected `read` tool, so missing, ignored,
+binary, oversized, secret-shaped, and out-of-workspace paths fail closed with
+safe local diagnostics; the user's literal prompt text is preserved and only
+safe counters reach the session archive.
+
 ### What pipy-native records — and doesn't
 
 By default the harness stores only safe lifecycle metadata: agent, adapter,

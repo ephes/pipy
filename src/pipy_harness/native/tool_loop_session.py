@@ -76,6 +76,7 @@ from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
 )
 from pipy_harness.native.transcripts import TranscriptSink
+from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.tools import (
     AssistantMessage,
     LoopMessage,
@@ -344,6 +345,9 @@ class NativeToolReplResult:
     malformed_argument_count: int = 0
     consecutive_malformed_streak: int = 0
     budget_exhausted_count: int = 0
+    file_reference_count: int = 0
+    file_reference_loaded_count: int = 0
+    file_reference_failed_count: int = 0
     error_type: str | None = None
     error_message: str | None = None
 
@@ -464,6 +468,9 @@ class NativeToolReplSession:
         malformed_argument_count = 0
         consecutive_malformed_streak = 0
         budget_exhausted_count = 0
+        file_reference_count = 0
+        file_reference_loaded_count = 0
+        file_reference_failed_count = 0
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
@@ -841,13 +848,34 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            messages.append(UserMessage(content=user_input))
+            # User-directed file context: a genuine prompt may name workspace
+            # files with ``@path``. Resolve them through the shared bounded
+            # reader (reusing this loop's ``read`` policy and reference roots),
+            # append the bounded excerpts to the provider-visible user message,
+            # and keep the literal prompt for the rendered panel, prompt
+            # history, and the sidecar transcript.
+            provider_user_input = user_input
+            file_references = resolve_file_references(
+                user_input,
+                workspace_root=cwd,
+                reference_roots=self.reference_roots,
+            )
+            if file_references.reference_count:
+                file_reference_count += file_references.reference_count
+                file_reference_loaded_count += file_references.loaded_count
+                file_reference_failed_count += file_references.failed_count
+                for diagnostic in file_references.diagnostics():
+                    self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
+                if file_references.used:
+                    provider_user_input = file_references.augmented_prompt(user_input)
+            messages.append(UserMessage(content=provider_user_input))
             user_turn_count += 1
             # Persist the prompt for cross-session recall when the user has
             # enabled it from /settings. record() is a no-op when disabled and
             # writes only to the local prompt-history file — never the
             # metadata-first session archive. Slash commands never reach here,
-            # so only genuine prompts are persisted.
+            # so only genuine prompts are persisted. The literal prompt (not the
+            # @file-augmented variant) is recorded so history stays user text.
             prompt_history_store.record(user_input)
             if self.transcript_sink is not None:
                 self.transcript_sink.append("user", {"content": user_input})
@@ -863,7 +891,7 @@ class NativeToolReplSession:
                 )
                 provider_request = ProviderRequest(
                     system_prompt=system_prompt,
-                    user_prompt=user_input,
+                    user_prompt=provider_user_input,
                     provider_name=effective_provider_name,
                     model_id=effective_model_id,
                     cwd=cwd,
@@ -1040,6 +1068,9 @@ class NativeToolReplSession:
                         malformed_argument_count=malformed_argument_count,
                         consecutive_malformed_streak=consecutive_malformed_streak,
                         budget_exhausted_count=budget_exhausted_count,
+                        file_reference_count=file_reference_count,
+                        file_reference_loaded_count=file_reference_loaded_count,
+                        file_reference_failed_count=file_reference_failed_count,
                         error_type="NativeToolLoopMalformedFatal",
                         error_message=(
                             f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
@@ -1064,6 +1095,9 @@ class NativeToolReplSession:
             malformed_argument_count=malformed_argument_count,
             consecutive_malformed_streak=consecutive_malformed_streak,
             budget_exhausted_count=budget_exhausted_count,
+            file_reference_count=file_reference_count,
+            file_reference_loaded_count=file_reference_loaded_count,
+            file_reference_failed_count=file_reference_failed_count,
         )
 
     def _build_repl_input(

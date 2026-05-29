@@ -800,12 +800,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Native Explicit Multi-File Context Budget" in spec
     assert "bottom-toolbar decision defers footer behavior" in collapse_whitespace(spec)
     assert "disables prompt-toolkit cursor-position requests" in spec
-    assert "completion-only `@file` references" in spec
+    assert "Native User-Directed @file Context" in spec
+    assert "originally shipped as completion-only" in collapse_whitespace(spec)
     assert "raises the successful explicit file-excerpt budget from one to two" in (
         collapse_whitespace(spec)
     )
-    assert "This is an input-editor feature, not a read/context feature" in (
-        collapse_whitespace(spec)
+    assert (
+        "loads bounded UTF-8 excerpts for those files into the next provider request"
+        in collapse_whitespace(spec)
     )
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term

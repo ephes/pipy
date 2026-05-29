@@ -62,11 +62,13 @@ The broad parity ladder, applied with small-slice discipline:
   TUI too (through the same auth boundary, with no provider turn). The current
   `[Skills]` and `[Extensions]` chrome sections are display-only directory
   labels, not runtime loaders.
-- Tool parity: the bounded multi-step model/tool loop has landed; the remaining
-  gaps are tool breadth inside that loop, bash/shell execution behind a real
-  sandbox, broader verification, arbitrary `@file` content injection, and
-  follow-up tool observations behind pipy-owned boundaries, explicit scopes,
-  and privacy invariants.
+- Tool parity: the bounded multi-step model/tool loop has landed; user-directed
+  `@file` content injection has shipped (a submitted prompt's `@path`
+  references load bounded excerpts through the shared bounded reader in both
+  REPL modes); the remaining gaps are tool breadth inside that loop, bash/shell
+  execution behind a real sandbox, broader verification, and follow-up tool
+  observations behind pipy-owned boundaries, explicit scopes, and privacy
+  invariants.
 - Session workflow parity: durable sessions, resume/search/inspect surfaces,
   compaction/summarization, branch/fork-style exploration, and review-cycle
   learning.
@@ -166,10 +168,12 @@ not a promise to skip review when a smaller, safer slice appears.
    `/verify just-check`, and additional model-visible tools or policies inside
    the existing loop.
 7. User-directed context and attachments. Workspace instruction files are
-   auto-loaded into the system prompt, and repeated bounded file reads can load
-   multiple text files across turns. Still missing are arbitrary `@file` content
-   reads, pasted image/binary attachments, richer context pickers, and broader
-   repo/resource maps.
+   auto-loaded into the system prompt, repeated bounded file reads can load
+   multiple text files across turns, and user-directed `@file` references in a
+   submitted prompt now load bounded excerpts (multiple per turn, de-duped,
+   fail-closed) into the next provider request in both REPL modes through the
+   shared bounded reader. Still missing are pasted image/binary attachments,
+   richer context pickers, and broader repo/resource maps.
 8. Active-turn cancellation fidelity. Escape now matches Pi visibly by showing
    red `Operation aborted` and suppressing late chunks, but the provider HTTP
    request is not cancelled and a daemon worker may finish in the background.
@@ -288,7 +292,10 @@ shipped in later parity work:
 - RPC mode and SDK embedding.
 - Extensions, package loading, theme integration, and slash-command loading for
   skills and prompt templates. A pure theme registry shipped later.
-- Automatic `@file` content reads from completion-only references.
+- ~~Automatic `@file` content reads from completion-only references.~~
+  (Historical: was out of scope for this track. User-directed `@file` content
+  reads subsequently shipped — a submitted prompt's `@path` references load
+  bounded excerpts through the shared bounded reader in both REPL modes.)
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
   Shipped later for the eight providers listed in `docs/parity-criterion.md`.
@@ -385,8 +392,8 @@ These hold throughout the track, not as later deferrals:
 
 - Generalizing `/verify` beyond `just check`, session
   resume/branch/compaction, RPC mode, SDK embedding, extensions,
-  theme/package loading, automatic `@file` content reads, persistent
-  history, and a full TUI.
+  theme/package loading, persistent history, and a full TUI. (User-directed
+  `@file` content reads were once out of scope here and have since shipped.)
 - Removing the no-tool REPL or redesigning the tool-loop contracts.
 
 ## Workspace Context Loading Parity Track
@@ -1158,8 +1165,10 @@ completion inserts only text and does not read files, attach context, invoke
 providers or tools. Native next-boundary decision after `@file` completion
 selected a narrow explicit multi-file context budget: two successful
 workspace-relative excerpts per REPL session. Automatic `@file` reads,
-model-selected paths remained deferred. Native provider-visible repo context
-policy is complete.
+model-selected paths remained deferred at that point. Native provider-visible
+repo context policy is complete. (Update: user-directed `@file` context has
+since shipped — a submitted prompt's `@path` references load bounded excerpts
+through the shared bounded reader in both REPL modes and the product TUI.)
 
 Native tool-loop TUI shell: real-TTY tool-loop sessions now use a pipy-owned
 alternate-screen terminal UI with retained startup/context rows, submitted

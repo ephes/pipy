@@ -28,6 +28,7 @@ from pipy_harness.native.conversation import (
     NativeTurnMetadata,
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
+from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
@@ -882,6 +883,9 @@ class NativeNoToolReplSession:
         apply_proposal_command_used = False
         verification_command_used = False
         provider_visible_context_used = False
+        file_reference_count = 0
+        file_reference_loaded_count = 0
+        file_reference_failed_count = 0
         no_tool_context = NativeNoToolReplConversationContext.empty(max_exchanges=self.max_turns)
         pending_apply_draft: _PendingReplPatchApplyDraft | None = None
         verify_after_apply_available = False
@@ -1317,6 +1321,25 @@ class NativeNoToolReplSession:
                 continue
 
             pending_apply_draft = None
+            # User-directed file context: a genuine prompt may name workspace
+            # files with ``@path``. Resolve them through the shared bounded
+            # reader (workspace-only here; same read policy as ``/read``),
+            # append the bounded excerpts to the provider-visible prompt, and
+            # keep the user's literal text as the stored conversation turn.
+            provider_user_prompt = user_prompt
+            file_references = resolve_file_references(
+                user_prompt,
+                workspace_root=run_input.cwd,
+            )
+            if file_references.reference_count:
+                file_reference_count += file_references.reference_count
+                file_reference_loaded_count += file_references.loaded_count
+                file_reference_failed_count += file_references.failed_count
+                for diagnostic in file_references.diagnostics():
+                    print(diagnostic, file=error_stream)
+                if file_references.used:
+                    provider_user_prompt = file_references.augmented_prompt(user_prompt)
+                    provider_visible_context_used = True
             provider_turn_label = (
                 INITIAL_PROVIDER_TURN_LABEL
                 if conversation_state.provider_turn_count == 0
@@ -1332,13 +1355,23 @@ class NativeNoToolReplSession:
                 self.max_turns,
                 extra_safe_metadata=instruction_metadata,
             )
+            if file_references.reference_count:
+                event_sink.emit(
+                    "native.file_reference.resolved",
+                    summary=(
+                        "Native @file references resolved: "
+                        f"loaded={file_references.loaded_count}, "
+                        f"failed={file_references.failed_count}."
+                    ),
+                    payload={**safe_context, **file_references.safe_metadata()},
+                )
             provider = provider_state.current_provider()
             provider_result, provider_usage = _call_provider_turn(
                 provider,
                 current_run_input,
                 event_sink,
                 safe_context,
-                user_prompt=user_prompt,
+                user_prompt=provider_user_prompt,
                 provider_turn=provider_turn,
                 tool_observation=None,
                 archive_provider_metadata=False,
@@ -1394,6 +1427,9 @@ class NativeNoToolReplSession:
                 "apply_proposal_command_used": apply_proposal_command_used,
                 "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
+                "file_reference_count": file_reference_count,
+                "file_reference_loaded_count": file_reference_loaded_count,
+                "file_reference_failed_count": file_reference_failed_count,
                 "input_runtime": repl_input.runtime_label,
                 **no_tool_context.safe_retained_metadata(),
                 "exit_reason": exit_reason,
