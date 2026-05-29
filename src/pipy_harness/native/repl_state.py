@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TextIO
 
+from pipy_harness.capture import sanitize_text
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
@@ -423,6 +424,46 @@ class StaticNativeReplProviderState:
 
     def logout(self, provider_name: str) -> tuple[bool, str]:
         return False, "pipy: /logout is unavailable for this REPL provider state."
+
+
+def settings_overlay_lines(
+    provider_state: "NativeReplProviderState | StaticNativeReplProviderState",
+) -> list[str]:
+    """Build the read-only settings/status display lines.
+
+    Shared by the no-tool ``/settings`` command and the product-TUI
+    ``/settings`` overlay so both surface the same safe selection, the
+    registered defaults, and the local availability (with reasons) of each
+    supported provider. It is strictly read-only: it neither switches
+    models/providers, starts login/logout, mutates auth state, invokes
+    tools, nor creates a provider turn. Availability is derived from local
+    environment and credential-file probes only.
+
+    The builder deliberately emits no command-availability footer. Each
+    caller appends a footer honest for its own command surface (the no-tool
+    REPL can run ``/model``/``/login``/``/logout``; the tool-loop TUI cannot
+    yet), so neither surface advertises a command it cannot execute.
+    """
+
+    current = provider_state.current_selection()
+    lines = [
+        "pipy native REPL settings:",
+        f"  active: {sanitize_text(current.provider_name)}/{sanitize_text(current.model_id)}",
+        "  registered providers:",
+    ]
+    for option in provider_state.model_options():
+        availability = (
+            "available"
+            if option.available
+            else f"unavailable ({option.reason or 'unknown'})"
+        )
+        lines.append(
+            "    "
+            f"{sanitize_text(option.selection.provider_name)}/"
+            f"{sanitize_text(option.selection.model_id)} "
+            f"[{availability}]"
+        )
+    return lines
 
 
 def default_native_defaults_path() -> Path:

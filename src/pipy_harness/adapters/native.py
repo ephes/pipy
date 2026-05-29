@@ -347,6 +347,7 @@ class PipyNativeToolReplAdapter:
         )
         session = NativeToolReplSession(
             provider=provider,
+            provider_state=self.provider_state,
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
             transcript_sink=self.transcript_sink,

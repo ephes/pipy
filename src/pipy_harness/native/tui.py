@@ -42,7 +42,7 @@ _TOOL_PANEL_HISTORY_VIEW_LINES = 23
 _OVERFLOW_BOTTOM_GUTTER_LINES = 2
 _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
-TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = ("/help", "/exit", "/quit")
+TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = ("/help", "/settings", "/exit", "/quit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +287,20 @@ class ToolLoopTerminalUi:
     def add_notice(self, text: str) -> None:
         self._settle_reasoning()
         self._history_blocks.append(("notice", tuple(text.splitlines() or [""])))
+        self.paint()
+
+    def show_settings(self, lines: Iterable[str]) -> None:
+        """Render a read-only settings/status overlay into the history region.
+
+        The overlay is display-only: it shows safe provider/model/status
+        information and never switches models, mutates auth state, invokes
+        tools, or creates a provider turn. It is rendered through the same
+        whole-frame paint path as every other history block.
+        """
+
+        self._settle_reasoning()
+        self.working_text = ""
+        self._history_blocks.append(("settings", tuple(lines) or ("",)))
         self.paint()
 
     def add_tool_call(self, header: str) -> None:
@@ -624,6 +638,7 @@ class ToolLoopTerminalUi:
             "tool": " $ ",
             "tool_read": " ",
             "tool_result": " ",
+            "settings": " ",
             "notice": "pipy  ",
             "section": "",
             "title": "",
@@ -637,7 +652,7 @@ class ToolLoopTerminalUi:
             rendered.append(_FrameLine("", "user"))
         elif kind in {"tool", "tool_read"}:
             rendered.append(_FrameLine("", "tool_result"))
-        elif kind in {"reasoning", "notice"}:
+        elif kind in {"reasoning", "notice", "settings"}:
             rendered.append(_FrameLine(""))
         for line in block_lines:
             available = max(10, width - len(prefix))
@@ -655,7 +670,7 @@ class ToolLoopTerminalUi:
             rendered.append(_FrameLine("", "tool_result"))
         elif kind == "tool_read":
             rendered.extend((_FrameLine("", "tool_result"), _FrameLine("")))
-        elif kind in {"assistant", "tool_result", "notice", "working"}:
+        elif kind in {"assistant", "tool_result", "notice", "working", "settings"}:
             rendered.append(_FrameLine(""))
             if kind == "tool_result":
                 rendered.append(_FrameLine(""))
@@ -679,6 +694,7 @@ class ToolLoopTerminalUi:
             "tool": "tool",
             "tool_read": "tool_read",
             "tool_result": "tool_result",
+            "settings": "settings",
         }.get(kind, "normal")
 
     @staticmethod

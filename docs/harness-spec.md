@@ -424,9 +424,18 @@ working text, slash-command menu state, the input/editor line, and the two-row
 footer/status, then composes whole alternate-screen terminal frames from that
 state. Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `exit`, `quit`); Up/Down moves the selected row, Tab or Enter
-accepts the selected command, and Escape closes the menu without exiting the
-session.
+locally (`help`, `settings`, `exit`, `quit`); Up/Down moves the selected row,
+Tab or Enter accepts the selected command, and Escape closes the menu without
+exiting the session. `/settings` opens a read-only settings/status overlay
+(`ToolLoopTerminalUi.show_settings`) rendered as a settings history block
+through the same whole-frame paint path. It reuses the shared no-tool
+`settings_overlay_lines` builder, so it shows the same safe active selection,
+registered defaults, and per-provider local availability reasons as the no-tool
+`/settings` command; it is strictly read-only and never switches
+models/providers, starts login/logout, mutates auth state, invokes tools, or
+creates a provider turn. `/model`, `/login`, and `/logout` are not yet
+executable in the tool-loop path, so the overlay footer says so rather than
+advertising them.
 Submitted
 messages, streamed assistant text, and the loader flow through the history
 area so tmux history does not accumulate stale repaint rows; the input and

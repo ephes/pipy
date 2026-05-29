@@ -61,6 +61,11 @@ from pipy_harness.native.repl_input import (
     NativeReplInput,
     native_repl_input_for,
 )
+from pipy_harness.native.repl_state import (
+    NativeReplProviderState,
+    StaticNativeReplProviderState,
+    settings_overlay_lines,
+)
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.tools import (
@@ -360,6 +365,7 @@ class NativeToolReplSession:
     transcript_sink: TranscriptSink | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -549,14 +555,31 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
+            if stripped == "/settings":
+                overlay_lines = self._settings_overlay_lines()
+                if terminal_ui is not None:
+                    terminal_ui.show_settings(overlay_lines)
+                else:
+                    for overlay_line in overlay_lines:
+                        print(overlay_line, file=error_stream)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
             if stripped.startswith("/"):
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /exit, /quit. "
-                        "Other prompts are sent to the model."
+                        "supported local commands are /help, /settings, /exit, "
+                        "/quit. Other prompts are sent to the model."
                     ),
                 )
                 if legacy_footer_enabled():
@@ -976,16 +999,35 @@ class NativeToolReplSession:
             error_stream, cwd_label=cwd_label, status_line=status_line
         )
 
+    def _settings_overlay_lines(self) -> list[str]:
+        """Build the read-only settings/status overlay content.
+
+        Reuses the shared no-tool ``/settings`` builder so the tool-loop TUI
+        shows the same safe provider/model/status information and availability
+        reasons, then appends a footer honest for the tool-loop surface (which
+        cannot yet run ``/model``/``/login``/``/logout``). When no provider
+        state is wired, a single-provider static view is shown.
+        """
+
+        state = self.provider_state or StaticNativeReplProviderState(self.provider)
+        lines = settings_overlay_lines(state)
+        lines.append(
+            "  read-only view; /model, /login, and /logout are not yet "
+            "available in tool-loop mode."
+        )
+        return lines
+
     def _print_help(self, error_stream: TextIO) -> None:
         print(self._help_text(), file=error_stream)
 
     @staticmethod
     def _help_text() -> str:
         return (
-            "pipy: tool-loop mode supports `/help`, `/exit`, `/quit` locally. "
-            "Other input is sent to the model. The model can call bounded "
-            "`read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`, and "
-            "`truncate` tools (budget per user turn)."
+            "pipy: tool-loop mode supports `/help`, `/settings`, `/exit`, "
+            "`/quit` locally. `/settings` shows a read-only provider/model "
+            "overlay. Other input is sent to the model. The model can call "
+            "bounded `read`, `ls`, `grep`, `find`, `write`, `edit`, "
+            "`edit_diff`, and `truncate` tools (budget per user turn)."
         )
 
     @staticmethod

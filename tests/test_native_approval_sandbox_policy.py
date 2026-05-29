@@ -773,15 +773,17 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert "### Product TUI reasoning italics" in next_slice
-    assert "smallest confirmed visible Pi mismatch" in compact_next_slice
-    assert "pipy's captured-stream fallback renderer" in compact_next_slice
-    assert "pipy_harness.native.chrome.ChromeStyle" in next_slice
-    assert "pipy_harness.native.tui.ToolLoopTerminalUi" in next_slice
-    assert "metadata-first archive behavior is unchanged" in compact_next_slice
-    assert "pinned directly in focused chrome and product-TUI unit tests" in (
-        compact_next_slice
+    assert "### Product TUI read-only settings overlay" in next_slice
+    assert (
+        "the same safe provider/model/status information and availability reasons"
+        in compact_next_slice
     )
+    assert "pipy_harness.native.repl_state.settings_overlay_lines" in next_slice
+    assert (
+        "pipy_harness.native.tui.ToolLoopTerminalUi.show_settings" in next_slice
+    )
+    assert "metadata-first archive behavior is unchanged" in compact_next_slice
+    assert "real product TUI rendering path" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

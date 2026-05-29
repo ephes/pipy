@@ -78,11 +78,14 @@ not a promise to skip review when a smaller, safer slice appears.
    respecting TTY/`NO_COLOR`/truecolor behavior, and `ToolLoopTerminalUi`
    renders `reasoning` rows with it so the product TUI matches Pi and pipy's
    captured-stream fallback renderer.
-2. Product-TUI settings/model/provider controls. `/settings`, `/model`,
-   `/login`, and `/logout` are no-tool REPL commands today; the product TUI
-   slash menu intentionally exposes only `help`, `exit`, and `quit` until more
-   commands are executable in that path. The next larger UX boundary should be a
-   read-only settings/status overlay, followed by model/provider selection.
+2. Product-TUI settings/model/provider controls. A read-only `/settings`
+   status overlay has landed in the product TUI: it renders the same safe
+   provider/model/status information and availability reasons as the no-tool
+   `/settings` command through `settings_overlay_lines`, and the slash menu now
+   lists `settings` alongside `help`, `exit`, and `quit`. `/model`, `/login`,
+   and `/logout` remain no-tool REPL commands only; the remaining work is
+   interactive model/provider selection inside the product TUI, after which
+   login/logout follow.
 3. Full interactive TUI ergonomics. The product TUI now owns an alternate-screen
    frame with prompt/footer, slash menu, spinner, tool panels, active Escape,
    and Pi-shaped submitted prompts. Pi still leads on undo/redo, prompt history,
@@ -1107,30 +1110,38 @@ second review after the inert-command menu finding was fixed.
 
 ## Next Slice
 
-### Product TUI reasoning italics (landed)
+### Product TUI read-only settings overlay (landed)
 
-Closed the smallest confirmed visible Pi mismatch from the 2026-05-28
-comparison: streamed reasoning/thinking rows in the product TUI now render with
-italic emphasis, matching Pi and pipy's captured-stream fallback renderer.
+Closed item 2 of the Prioritized Pi Gap Queue at its first safe boundary: the
+product tool-loop TUI now exposes a read-only `/settings` overlay from the same
+command flow as `/help`, showing the same safe provider/model/status
+information and availability reasons as the no-tool `/settings` command.
 
 What landed:
 
-- `pipy_harness.native.chrome.ChromeStyle.dim_italic` composes the italic SGR
-  (`3`) with the existing secondary-dim color, respecting the established
-  TTY/`NO_COLOR`/truecolor behavior and returning plain text when styling is
-  disabled
-- `pipy_harness.native.tui.ToolLoopTerminalUi` renders `reasoning` rows with
-  `dim_italic`, leaving reasoning text normalization, wrapping, settling, and
-  history behavior unchanged
-- captured-stream fallback rendering is unchanged and now has a pinned italic
-  escape assertion alongside the existing bold/dim assertions
-- metadata-first archive behavior is unchanged: displayed reasoning summaries
-  are still only chrome, not archived payload
-- the ANSI screen-cell model does not track SGR italic, so the emitted escape
-  is pinned directly in focused chrome and product-TUI unit tests
+- `pipy_harness.native.repl_state.settings_overlay_lines` is a shared,
+  read-only builder for the settings/status display; both the no-tool
+  `_print_repl_settings` command and the product-TUI overlay render from it, so
+  the active selection, registered defaults, and per-provider local
+  availability (with reasons) stay identical across surfaces
+- `pipy_harness.native.tui.ToolLoopTerminalUi.show_settings` renders the
+  overlay as a settings history block through the existing whole-frame paint
+  path; `/settings` joins `/help` in the tool-loop command dispatch and in the
+  slash menu so the menu advertises only commands the dispatcher can execute
+- the overlay is strictly read-only: it does not switch models/providers, start
+  login/logout, mutate auth state, invoke tools, or create a provider turn, and
+  its footer is honest for the tool-loop surface (it states that `/model`,
+  `/login`, and `/logout` are not yet available there)
+- existing no-tool `/settings`, `/model`, `/login`, and `/logout` behavior is
+  unchanged, pinned by a byte-stable no-tool `/settings` characterization test
+- metadata-first archive behavior is unchanged: settings/status display data is
+  chrome only and adds no prompts, model output, credentials, auth payloads, or
+  transcript bodies to session records
+- behavior is pinned through the real product TUI rendering path
+  (`render_lines`/`paint`) plus the no-tool and shared-builder unit tests
 
-The next slice is item 2 in the Prioritized Pi Gap Queue: a read-only
-product-TUI settings/status overlay.
+The next slice is the remainder of item 2 in the Prioritized Pi Gap Queue:
+interactive model/provider selection inside the product TUI.
 
 ## Near Term
 

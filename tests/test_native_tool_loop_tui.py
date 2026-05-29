@@ -12,6 +12,8 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderToolCall
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import ToolLoopTerminalUi
@@ -456,6 +458,33 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
     assert sum(1 for cell in snapshot.cells[call.row] if cell.attr.bold) == 4
 
 
+def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui.show_settings(
+        [
+            "pipy native REPL settings:",
+            "  active: fake/fake-native-bootstrap",
+            "  registered providers:",
+            "    fake/fake-native-bootstrap [available]",
+            "    openai/gpt-5.5 [unavailable (env-missing)]",
+            "  read-only view; /model, /login, and /logout are not yet "
+            "available in tool-loop mode.",
+        ]
+    )
+
+    rendered = "\n".join(ui.render_lines(width=88, height=40, pad=False))
+    assert "pipy native REPL settings:" in rendered
+    assert "active: fake/fake-native-bootstrap" in rendered
+    assert "openai/gpt-5.5 [unavailable (env-missing)]" in rendered
+    assert "read-only view; /model, /login, and /logout are not yet" in rendered
+
+    # The same content must reach the real terminal stream via paint().
+    ui.paint()
+    painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    assert "pipy native REPL settings:" in painted
+
+
 def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     ui = _ui(tmp_path)
 
@@ -468,7 +497,10 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert "→ help" in rendered
     assert "Show pipy command reference" in rendered
     assert "  exit" in rendered
-    assert "  settings" not in rendered
+    # The read-only settings overlay is executable in tool-loop mode, so the
+    # menu now advertises it alongside help/exit/quit.
+    assert "  settings" in rendered
+    assert "Show provider settings (read-only)" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
     input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
     menu_index = next(
@@ -487,8 +519,8 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     assert ui.slash_menu_selection == 1
 
     ui._accept_slash_menu_selection()
-    assert ui.input_text == "/exit"
-    assert ui.input_cursor == len("/exit")
+    assert ui.input_text == "/settings"
+    assert ui.input_cursor == len("/settings")
     assert ui.slash_menu_open is False
 
     ui.input_text = "/"
@@ -550,6 +582,112 @@ def test_tui_paint_places_live_cursor_on_input_row(tmp_path: Path):
     output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
     cursor_moves = re.findall(r"\x1b\[(\d+);(\d+)H", output)
     assert cursor_moves[-1] == (str(expected_row), "5")
+
+
+class _CountingProvider:
+    name = "fake"
+    model_id = "fake-native-bootstrap"
+    supports_tool_calls = True
+
+    def __init__(self) -> None:
+        self.completions = 0
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+    ) -> ProviderResult:  # pragma: no cover
+        self.completions += 1
+        raise AssertionError("read-only /settings must not create a provider turn")
+
+
+def _read_only_provider_state(tmp_path: Path, provider: ProviderPort):
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+
+    return NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda selection: provider,
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+
+
+def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    scripted = iter(["/settings\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    # Read-only: no provider turn, no tool invocation, no state mutation.
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
+    assert provider.completions == 0
+    assert any(kind == "settings" for kind, _lines in ui._history_blocks)
+
+    rendered = "\n".join(ui.render_lines(width=88, height=44, pad=False))
+    assert "pipy native REPL settings:" in rendered
+    assert "active: fake/fake-native-bootstrap" in rendered
+    assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in rendered
+    # The TUI footer must not advertise commands it cannot execute yet.
+    assert "/model, /login, and /logout are not yet available" in rendered
+
+
+def test_tool_loop_plain_settings_command_is_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("NO_COLOR", "1")
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        input_runtime="plain",
+    )
+    error_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/settings\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.user_turn_count == 0
+    assert provider.completions == 0
+    stderr = error_stream.getvalue()
+    assert "pipy native REPL settings:" in stderr
+    assert "active: fake/fake-native-bootstrap" in stderr
+    assert "openai/gpt-5.5 [unavailable (env-missing)]" in stderr
 
 
 def test_tui_session_does_not_print_legacy_separator(

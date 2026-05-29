@@ -325,6 +325,46 @@ def provider_result(
     )
 
 
+def test_native_no_tool_repl_settings_output_unchanged(tmp_path):
+    """The no-tool /settings output stays byte-stable after the shared refactor."""
+
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda selection: FakeNativeProvider(),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+    error_stream = StringIO()
+
+    NativeNoToolReplSession(provider_state=provider_state, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name="fake",
+            model_id="fake-native-bootstrap",
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO("/settings\n/exit\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    stderr = error_stream.getvalue()
+    assert "pipy native REPL settings:" in stderr
+    assert "  active: fake/fake-native-bootstrap" in stderr
+    assert "  registered providers:" in stderr
+    assert "    fake/fake-native-bootstrap [available]" in stderr
+    assert "    openai-codex/gpt-5.5 [unavailable (login-required)]" in stderr
+    assert "    openai/gpt-5.5 [unavailable (env-missing)]" in stderr
+    # The no-tool footer keeps advertising its locally executable commands.
+    assert (
+        "  /login, /logout, and /model are local; /settings is read-only." in stderr
+    )
+
+
 def test_native_no_tool_repl_stops_at_turn_limit(tmp_path):
     provider = SequentialCapturingProvider(
         results=[

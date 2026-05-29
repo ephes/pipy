@@ -84,6 +84,7 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
+    settings_overlay_lines,
 )
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO, native_repl_input_for
 from pipy_harness.native.tool import ToolPort
@@ -1885,22 +1886,8 @@ def _print_repl_settings(
     they could switch to via /model.
     """
 
-    current = provider_state.current_selection()
-    print("pipy native REPL settings:", file=error_stream)
-    print(
-        f"  active: {sanitize_text(current.provider_name)}/{sanitize_text(current.model_id)}",
-        file=error_stream,
-    )
-    print("  registered providers:", file=error_stream)
-    for option in provider_state.model_options():
-        availability = "available" if option.available else f"unavailable ({option.reason or 'unknown'})"
-        print(
-            "    "
-            f"{sanitize_text(option.selection.provider_name)}/"
-            f"{sanitize_text(option.selection.model_id)} "
-            f"[{availability}]",
-            file=error_stream,
-        )
+    for line in settings_overlay_lines(provider_state):
+        print(line, file=error_stream)
     print(
         "  /login, /logout, and /model are local; /settings is read-only.",
         file=error_stream,
