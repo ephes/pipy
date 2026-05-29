@@ -14,6 +14,7 @@ import os
 import re
 import select
 import shutil
+import signal
 import sys
 import termios
 import textwrap
@@ -47,10 +48,39 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/help",
     "/model",
     "/settings",
+    "/login",
+    "/logout",
     "/copy",
     "/exit",
     "/quit",
 )
+# How long the input loops block on stdin before checking for a terminal
+# resize. Resize handling is poll-based (comparing the live terminal size to
+# the last painted size) so it works on any thread, where installing a
+# SIGWINCH handler is not possible; a best-effort SIGWINCH handler only sets a
+# flag to make idle repaints snappier.
+_RESIZE_POLL_SECONDS = 0.1
+# Cap the per-line undo/redo history so a long editing session cannot grow the
+# stacks without bound. Undo granularity is one edit operation (a single typed
+# character, a delete, a kill-to-start, or a whole bracketed paste).
+_MAX_UNDO_DEPTH = 200
+# Cap the in-memory prompt-recall history so a long session cannot grow it
+# without bound. History is session-scoped and never persisted.
+_MAX_HISTORY_DEPTH = 500
+# ANSI bracketed-paste mode toggles. While enabled the terminal wraps pasted
+# text in ESC[200~ ... ESC[201~ so it can be inserted literally instead of
+# being interpreted keystroke-by-keystroke (which would submit on embedded
+# newlines).
+_BRACKETED_PASTE_ENABLE = "\x1b[?2004h"
+_BRACKETED_PASTE_DISABLE = "\x1b[?2004l"
+_BRACKETED_PASTE_START = "200~"
+_BRACKETED_PASTE_END = "\x1b[201~"
+# Single-width glyph shown in the one-row input cell for a newline carried by a
+# multi-line paste. The buffer keeps the literal "\n" (so the exact multi-line
+# prompt is submitted on Enter); only the rendered cell substitutes the glyph,
+# which keeps the live input row exactly one physical row tall. U+23CE has
+# East-Asian-width "Narrow", so it occupies one terminal cell.
+_INPUT_NEWLINE_GLYPH = "⏎"
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +146,25 @@ class ToolLoopTerminalUi:
     _live_height: int = 0
     _live_input_row: int = 0
     _paint_lock: Any = field(default_factory=threading.Lock)
+    # Editor ergonomics state.
+    #
+    # ``input_history`` is an in-memory, session-scoped ring of submitted
+    # prompts for Up/Down recall. It is never written to disk: keeping it in
+    # process memory only honors the metadata-first archive contract (no
+    # prompts, pasted text, or command bodies persisted by default).
+    input_history: list[str] = field(default_factory=list)
+    _history_nav_index: int | None = None
+    _history_draft: str = ""
+    # Per-line undo/redo stacks of ``(text, cursor)`` snapshots, reset when a
+    # new line begins. Redo is cleared whenever a fresh edit is recorded.
+    _undo_stack: list[tuple[str, int]] = field(default_factory=list)
+    _redo_stack: list[tuple[str, int]] = field(default_factory=list)
+    _pending_paste: str = ""
+    # Resize handling.
+    _resize_pending: bool = False
+    _last_painted_size: tuple[int, int] = (0, 0)
+    _prev_winch_handler: Any = None
+    _bracketed_paste_active: bool = False
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -141,6 +190,7 @@ class ToolLoopTerminalUi:
 
         if not self._history_blocks:
             self._history_blocks.extend(self._startup_blocks())
+        self._install_resize_handler()
         self.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
@@ -153,12 +203,13 @@ class ToolLoopTerminalUi:
         self.input_cursor = 0
         self.slash_menu_open = False
         self.slash_menu_selection = 0
+        self._reset_line_editor_state()
         self.paint()
         fd = self.input_stream.fileno()
         try:
             self._enter_raw_mode()
             while True:
-                key = self._read_key(fd)
+                key = self._read_key_polling_resize(fd)
                 if key is None:
                     return ""
                 if key == "enter":
@@ -167,9 +218,11 @@ class ToolLoopTerminalUi:
                         if self.input_text not in matches:
                             self._accept_slash_menu_selection()
                     submitted = self.input_text
+                    self._record_history(submitted)
                     self.input_text = ""
                     self.input_cursor = 0
                     self.slash_menu_open = False
+                    self._reset_line_editor_state()
                     self.paint()
                     return f"{submitted}\n"
                 if key == "ctrl-c":
@@ -177,6 +230,11 @@ class ToolLoopTerminalUi:
                 if key == "ctrl-d":
                     if not self.input_text:
                         return ""
+                    continue
+                if key == "paste":
+                    self._insert_paste(self._pending_paste)
+                    self._pending_paste = ""
+                    self.paint()
                     continue
                 if key == "backspace":
                     self._delete_before_cursor()
@@ -188,7 +246,10 @@ class ToolLoopTerminalUi:
                         self.paint()
                     continue
                 if key in {"up", "down"}:
-                    self._navigate_slash_menu(key)
+                    if self.slash_menu_open:
+                        self._navigate_slash_menu(key)
+                    else:
+                        self._navigate_history(key)
                     continue
                 if key == "tab":
                     if self.slash_menu_open and self._filtered_commands():
@@ -199,10 +260,15 @@ class ToolLoopTerminalUi:
                     self.paint()
                     continue
                 if key == "ctrl-u":
-                    cursor = self._effective_input_cursor()
-                    self.input_text = self.input_text[cursor:]
-                    self.input_cursor = 0
-                    self._refresh_slash_menu_state()
+                    self._kill_to_line_start()
+                    self.paint()
+                    continue
+                if key == "ctrl-z":
+                    self._undo_edit()
+                    self.paint()
+                    continue
+                if key == "ctrl-y":
+                    self._redo_edit()
                     self.paint()
                     continue
                 if len(key) == 1 and key.isprintable():
@@ -220,7 +286,16 @@ class ToolLoopTerminalUi:
         try:
             self._enter_raw_mode()
             while not done_event.is_set():
+                # Keep the streaming frame coherent if the terminal is resized
+                # mid-turn: streamed chunks repaint at the live size, but a
+                # stalled stream would not, so poll here too.
+                self._poll_resize_repaint()
                 key = self._read_key_if_available(fd, poll_seconds)
+                if key == "paste":
+                    # A paste mid-turn is not editor input; drop it so its body
+                    # does not linger and is never inserted on the next prompt.
+                    self._pending_paste = ""
+                    continue
                 if key == "esc":
                     abort_event.set()
                     return True
@@ -259,10 +334,13 @@ class ToolLoopTerminalUi:
         try:
             self._enter_raw_mode()
             while True:
-                key = self._read_key(fd)
+                key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
                     self._close_model_selector()
                     return None
+                if key == "paste":
+                    self._pending_paste = ""
+                    continue
                 if key in {"up", "down"}:
                     self._navigate_model_selector(key)
                     continue
@@ -294,6 +372,7 @@ class ToolLoopTerminalUi:
 
     def close(self) -> None:
         self._restore_terminal_mode()
+        self._remove_resize_handler()
         if self._closed:
             return
         self._closed = True
@@ -530,7 +609,7 @@ class ToolLoopTerminalUi:
             )
 
         separator = "─" * width
-        input_line = self._clip(self.input_text + " ", width)
+        input_line = self._clip(self._input_view(width)[0] + " ", width)
         if menu_lines:
             frame = [
                 *history_lines,
@@ -615,12 +694,16 @@ class ToolLoopTerminalUi:
         # cursor hidden (it was hidden at the top of the paint) instead of
         # parking and revealing it on a non-input row.
         if not self.model_selector_open:
-            cursor_col = min(max(0, width - 1), self._effective_input_cursor())
+            # Park on the cursor's column *within the visible (possibly
+            # horizontally scrolled) input slice*, so the hardware cursor and
+            # the drawn cursor cell agree for over-wide input.
+            cursor_col = min(max(0, width - 1), self._input_view(width)[1])
             if cursor_col > 0:
                 output.append(f"\x1b[{cursor_col}C")
             output.append("\x1b[?25h")
         self._live_height = len(live)
         self._live_input_row = input_index
+        self._last_painted_size = (width, height)
         try:
             self.terminal_stream.write("".join(output))
             self.terminal_stream.flush()
@@ -655,7 +738,7 @@ class ToolLoopTerminalUi:
         if len(transient) > transient_budget:
             transient = transient[len(transient) - transient_budget :]
         separator = "─" * width
-        input_line = self._clip(self.input_text + " ", width)
+        input_line = self._clip(self._input_view(width)[0] + " ", width)
         lines: list[_FrameLine] = [
             *transient,
             _FrameLine(separator, "separator"),
@@ -810,12 +893,14 @@ class ToolLoopTerminalUi:
         if line.kind == "slash_menu_scroll":
             return style.secondary_dim(text)
         if line.kind == "input":
-            cursor = self._effective_input_cursor()
-            before = self.input_text[:cursor]
-            cursor_char = (
-                self.input_text[cursor] if cursor < len(self.input_text) else " "
-            )
-            after = self.input_text[cursor + 1 :] if cursor < len(self.input_text) else ""
+            # Render from a width-bounded single-line view (see _input_view):
+            # embedded newlines show as one glyph and over-wide input is
+            # horizontally scrolled to keep the cursor visible, so the input
+            # cell is always exactly one physical row and never wraps.
+            visible, col = self._input_view(width)
+            before = visible[:col]
+            cursor_char = visible[col] if col < len(visible) else " "
+            after = visible[col + 1 :] if col < len(visible) else ""
             return style.cursor_cell(before, cursor_char, after)
         if line.kind == "user":
             return style.user_message(text, width=width)
@@ -824,6 +909,7 @@ class ToolLoopTerminalUi:
     def _restore_terminal_mode(self) -> None:
         if self._old_termios is None:
             return
+        self._set_bracketed_paste(False)
         try:
             termios.tcsetattr(
                 self.input_stream.fileno(), termios.TCSADRAIN, self._old_termios
@@ -838,6 +924,51 @@ class ToolLoopTerminalUi:
         fd = self.input_stream.fileno()
         self._old_termios = termios.tcgetattr(fd)
         tty.setraw(fd)
+        self._set_bracketed_paste(True)
+
+    def _set_bracketed_paste(self, enabled: bool) -> None:
+        if enabled == self._bracketed_paste_active:
+            return
+        self._bracketed_paste_active = enabled
+        try:
+            self.terminal_stream.write(
+                _BRACKETED_PASTE_ENABLE if enabled else _BRACKETED_PASTE_DISABLE
+            )
+            self.terminal_stream.flush()
+        except (OSError, ValueError):
+            pass
+
+    def _install_resize_handler(self) -> None:
+        """Best-effort SIGWINCH handler that flags a pending resize.
+
+        Resize *handling* is poll-based (see :meth:`_poll_resize_repaint`) so
+        it works regardless of which thread runs the loop; installing a signal
+        handler only makes idle repaints snappier. ``signal.signal`` raises
+        ``ValueError`` when called off the main thread (e.g. the threaded test
+        harness), which is caught and ignored — polling still covers it.
+        """
+
+        try:
+            self._prev_winch_handler = signal.signal(
+                signal.SIGWINCH, self._on_resize_signal
+            )
+        except (ValueError, OSError, AttributeError):
+            self._prev_winch_handler = None
+
+    def _remove_resize_handler(self) -> None:
+        if self._prev_winch_handler is None:
+            return
+        try:
+            signal.signal(signal.SIGWINCH, self._prev_winch_handler)
+        except (ValueError, OSError, AttributeError):
+            pass
+        self._prev_winch_handler = None
+
+    def _on_resize_signal(self, signum: int, frame: Any) -> None:
+        del signum, frame
+        # Signal handlers must stay async-signal-safe: only flip a flag; the
+        # input loops repaint when they next poll.
+        self._resize_pending = True
 
     def _startup_blocks(self) -> list[tuple[str, tuple[str, ...]]]:
         blocks: list[tuple[str, tuple[str, ...]]] = [
@@ -846,8 +977,8 @@ class ToolLoopTerminalUi:
             (
                 "controls",
                 (
-                    " escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · "
-                    "! bash · ctrl+o more",
+                    " escape interrupt · ctrl+c/ctrl+d clear/exit · ↑↓ history · "
+                    "ctrl+z/ctrl+y undo · / commands · ! bash · ctrl+o more",
                 ),
             ),
             ("dim", (" Press ctrl+o to show full startup help and loaded resources.",)),
@@ -1064,13 +1195,102 @@ class ToolLoopTerminalUi:
     ) -> tuple[int, int]:
         if width is not None and height is not None:
             return max(_MIN_WIDTH, width), max(_MIN_HEIGHT, height)
-        if bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
-            size = shutil.get_terminal_size(_DEFAULT_SIZE)
-            return max(_MIN_WIDTH, size.columns), max(_MIN_HEIGHT, size.lines)
+        live = self._terminal_size()
+        if live is not None:
+            columns, rows = live
+            return max(_MIN_WIDTH, columns), max(_MIN_HEIGHT, rows)
         return (
             max(_MIN_WIDTH, width or _DEFAULT_SIZE[0]),
             max(_MIN_HEIGHT, height or _DEFAULT_SIZE[1]),
         )
+
+    def _terminal_size(self) -> tuple[int, int] | None:
+        """Resolve the live size of the terminal this frame paints to.
+
+        Precedence: an explicit ``COLUMNS``/``LINES`` pair (honored for
+        deterministic tests and CI), then the real ``winsize`` of the output
+        terminal we actually write to (so a SIGWINCH/resize is observed on the
+        very fd we paint, which the resize poll compares against), then the
+        shared ``shutil`` fallback. Returns ``None`` when no size is available
+        (non-TTY capture), so the caller uses its defaults.
+        """
+
+        # Only resolve a live size for a real terminal; a non-TTY capture
+        # stream keeps the caller's defaults (matching the prior behavior and
+        # avoiding COLUMNS/LINES leaking into captured-stream rendering).
+        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
+            return None
+        env_size = self._env_terminal_size()
+        if env_size is not None:
+            return env_size
+        fileno = getattr(self.terminal_stream, "fileno", None)
+        if callable(fileno):
+            try:
+                size = os.get_terminal_size(fileno())
+            except (OSError, ValueError):
+                size = None
+            if size is not None and size.columns > 0 and size.lines > 0:
+                return size.columns, size.lines
+        size = shutil.get_terminal_size(_DEFAULT_SIZE)
+        return size.columns, size.lines
+
+    @staticmethod
+    def _env_terminal_size() -> tuple[int, int] | None:
+        try:
+            columns = int(os.environ.get("COLUMNS", ""))
+            lines = int(os.environ.get("LINES", ""))
+        except ValueError:
+            return None
+        if columns > 0 and lines > 0:
+            return columns, lines
+        return None
+
+    @staticmethod
+    def _display_input_text(text: str) -> str:
+        """Project the literal input buffer onto a single display row.
+
+        Each character maps to exactly one display character so the logical
+        cursor index lines up with the displayed column: a newline becomes the
+        single-width ``⏎`` glyph and any other control character becomes a
+        space. The underlying ``input_text`` is left untouched, so Enter still
+        submits the exact (possibly multi-line) prompt.
+        """
+
+        if not any(ch == "\n" or ord(ch) < 0x20 or ch == "\x7f" for ch in text):
+            return text
+        rendered: list[str] = []
+        for ch in text:
+            if ch == "\n":
+                rendered.append(_INPUT_NEWLINE_GLYPH)
+            elif ord(ch) < 0x20 or ch == "\x7f":
+                rendered.append(" ")
+            else:
+                rendered.append(ch)
+        return "".join(rendered)
+
+    def _input_view(self, width: int) -> tuple[str, int]:
+        """Return the visible input slice and the cursor's column within it.
+
+        The buffer is first projected to a single display row
+        (:meth:`_display_input_text`), then horizontally scrolled so the cursor
+        stays visible within ``width - 1`` columns (one trailing column is
+        reserved so the end-of-text cursor never lands in the terminal's last
+        column, which would arm autowrap). The returned column is the cursor's
+        position *within the slice*; both the input renderer and the paint
+        cursor-parking use this so the drawn text and the hardware cursor agree
+        and the input cell is always exactly one physical row.
+        """
+
+        display = self._display_input_text(self.input_text)
+        cursor = self._effective_input_cursor()
+        capacity = max(1, width - 1)
+        if len(display) <= capacity:
+            return display, cursor
+        start = 0
+        if cursor > capacity - 1:
+            start = cursor - (capacity - 1)
+        start = min(start, len(display) - capacity)
+        return display[start : start + capacity], cursor - start
 
     @staticmethod
     def _clip(text: str, width: int) -> str:
@@ -1091,20 +1311,7 @@ class ToolLoopTerminalUi:
         if ch == "":
             return None
         if ch == "\x1b":
-            next1 = self._read_byte_with_timeout(fd, 0.05)
-            if next1 == "":
-                return "esc"
-            if next1 not in {"["}:
-                return "esc"
-            next2 = self._read_byte_with_timeout(fd, 0.05)
-            return {
-                "A": "up",
-                "B": "down",
-                "C": "right",
-                "D": "left",
-                "H": "home",
-                "F": "end",
-            }.get(next2, "esc")
+            return self._read_escape_sequence(fd)
         if ch in {"\r", "\n"}:
             return "enter"
         if ch == "\t":
@@ -1117,11 +1324,124 @@ class ToolLoopTerminalUi:
             return "ctrl-d"
         if ch == "\x15":
             return "ctrl-u"
+        if ch == "\x19":
+            return "ctrl-y"
+        if ch == "\x1a":
+            return "ctrl-z"
         if ch == "\x01":
             return "home"
         if ch == "\x05":
             return "end"
         return ch
+
+    def _read_escape_sequence(self, fd: int) -> str:
+        """Decode an escape sequence after the leading ESC has been read.
+
+        Handles bare ``Esc``, the CSI arrow/home/end keys, and a CSI
+        bracketed-paste introducer (``ESC[200~``). Parameterized CSI
+        sequences are read up to their final byte (``0x40``–``0x7e``) so a
+        multi-byte introducer like ``200~`` is consumed whole rather than
+        being mistaken for an arrow key.
+        """
+
+        next1 = self._read_byte_with_timeout(fd, 0.05)
+        if next1 == "" or next1 != "[":
+            return "esc"
+        sequence = ""
+        while True:
+            byte = self._read_byte_with_timeout(fd, 0.05)
+            if byte == "":
+                break
+            sequence += byte
+            if "\x40" <= byte <= "\x7e":
+                break
+        if sequence == _BRACKETED_PASTE_START:
+            self._pending_paste = self._read_bracketed_paste(fd)
+            return "paste"
+        return {
+            "A": "up",
+            "B": "down",
+            "C": "right",
+            "D": "left",
+            "H": "home",
+            "F": "end",
+        }.get(sequence, "esc")
+
+    def _read_bracketed_paste(self, fd: int) -> str:
+        """Collect pasted bytes until the ``ESC[201~`` end marker.
+
+        Carriage returns are normalized to newlines so multi-line pastes hold
+        consistent line separators; the result is inserted literally and never
+        triggers command submission.
+        """
+
+        buffer = ""
+        while True:
+            # Pastes arrive as a burst; a bounded read keeps a truncated paste
+            # (no end marker) from blocking an active-turn watcher indefinitely.
+            byte = self._read_byte_with_timeout(fd, 2.0)
+            if byte == "":
+                break
+            buffer += byte
+            if buffer.endswith(_BRACKETED_PASTE_END):
+                buffer = buffer[: -len(_BRACKETED_PASTE_END)]
+                break
+        return buffer.replace("\r\n", "\n").replace("\r", "\n")
+
+    def _read_key_polling_resize(self, fd: int) -> str | None:
+        """Block for the next key, repainting when the terminal is resized.
+
+        Returns the decoded key, or ``None`` on EOF. While waiting it polls the
+        live terminal size every ``_RESIZE_POLL_SECONDS`` and repaints the frame
+        if it changed (or a SIGWINCH flagged a pending resize), so the inline
+        layout stays coherent without entering the alternate screen.
+        """
+
+        while True:
+            self._poll_resize_repaint()
+            readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
+            if fd not in readable:
+                continue
+            return self._read_key(fd)
+
+    def _poll_resize_repaint(self) -> bool:
+        pending = self._resize_pending
+        self._resize_pending = False
+        if pending or self._dimensions() != self._last_painted_size:
+            self._repaint_after_resize()
+            return True
+        return False
+
+    def _repaint_after_resize(self) -> None:
+        """Repaint after a terminal resize without relying on stale geometry.
+
+        A width change can reflow the previously drawn frame (e.g. a
+        full-width separator wraps when the terminal shrinks), so the cached
+        physical live-height/input-row no longer describe the screen and the
+        normal relative-cursor erase would leave stale rows. Instead, clear the
+        visible screen, home the cursor, and redraw the full frame
+        (committed history + live region) fresh at the new size. This is
+        drift-independent and stays inline — it never enters the alternate
+        screen, and committed history stays in native scrollback above
+        (re-rendered at the new width). Resizes are infrequent, so the redraw
+        cost is acceptable for the coherence guarantee.
+        """
+
+        with self._paint_lock:
+            if self._closed:
+                return
+            try:
+                # Clear the visible screen and home the cursor (no \x1b[3J, so
+                # the terminal's scrollback is preserved). Then force a full
+                # redraw by resetting the committed-block and live-region
+                # bookkeeping so _paint_locked re-emits every history block.
+                self.terminal_stream.write("\x1b[2J\x1b[H")
+            except (OSError, ValueError):
+                return
+            self._painted_block_count = 0
+            self._live_height = 0
+            self._live_input_row = 0
+            self._paint_locked()
 
     @staticmethod
     def _read_byte(fd: int) -> str:
@@ -1147,6 +1467,27 @@ class ToolLoopTerminalUi:
         return self._read_key(fd)
 
     def _insert_input_text(self, text: str) -> None:
+        self._snapshot_for_undo()
+        self._reset_history_nav()
+        cursor = self._effective_input_cursor()
+        self.input_text = self.input_text[:cursor] + text + self.input_text[cursor:]
+        self.input_cursor = cursor + len(text)
+        self._refresh_slash_menu_state()
+
+    def _insert_paste(self, text: str) -> None:
+        """Insert pasted text literally as a single undo-able edit.
+
+        Newlines are preserved in the buffer (so a multi-line paste is held
+        verbatim) but never interpreted as Enter, so a paste cannot submit a
+        command on its own. The slash menu only opens for a leading ``/`` with
+        no whitespace, so pasted multi-token or multi-line text leaves it
+        closed.
+        """
+
+        if not text:
+            return
+        self._snapshot_for_undo()
+        self._reset_history_nav()
         cursor = self._effective_input_cursor()
         self.input_text = self.input_text[:cursor] + text + self.input_text[cursor:]
         self.input_cursor = cursor + len(text)
@@ -1156,9 +1497,128 @@ class ToolLoopTerminalUi:
         cursor = self._effective_input_cursor()
         if cursor <= 0:
             return
+        self._snapshot_for_undo()
+        self._reset_history_nav()
         self.input_text = self.input_text[: cursor - 1] + self.input_text[cursor:]
         self.input_cursor = cursor - 1
         self._refresh_slash_menu_state()
+
+    def _kill_to_line_start(self) -> None:
+        cursor = self._effective_input_cursor()
+        if cursor <= 0:
+            return
+        self._snapshot_for_undo()
+        self._reset_history_nav()
+        self.input_text = self.input_text[cursor:]
+        self.input_cursor = 0
+        self._refresh_slash_menu_state()
+
+    def _reset_line_editor_state(self) -> None:
+        """Clear per-line undo/redo and history-recall state for a fresh line."""
+
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._history_nav_index = None
+        self._history_draft = ""
+
+    def _reset_history_nav(self) -> None:
+        self._history_nav_index = None
+        self._history_draft = ""
+
+    def _snapshot_for_undo(self) -> None:
+        self._undo_stack.append((self.input_text, self._effective_input_cursor()))
+        if len(self._undo_stack) > _MAX_UNDO_DEPTH:
+            del self._undo_stack[0]
+        self._redo_stack.clear()
+
+    def _undo_edit(self) -> None:
+        if not self._undo_stack:
+            return
+        self._redo_stack.append((self.input_text, self._effective_input_cursor()))
+        text, cursor = self._undo_stack.pop()
+        self.input_text = text
+        self.input_cursor = cursor
+        self._reset_history_nav()
+        self._refresh_slash_menu_state()
+
+    def _redo_edit(self) -> None:
+        if not self._redo_stack:
+            return
+        self._undo_stack.append((self.input_text, self._effective_input_cursor()))
+        text, cursor = self._redo_stack.pop()
+        self.input_text = text
+        self.input_cursor = cursor
+        self._reset_history_nav()
+        self._refresh_slash_menu_state()
+
+    def _record_history(self, submitted: str) -> None:
+        entry = submitted.strip()
+        if not entry:
+            return
+        if self.input_history and self.input_history[-1] == submitted:
+            return
+        self.input_history.append(submitted)
+        if len(self.input_history) > _MAX_HISTORY_DEPTH:
+            del self.input_history[0]
+
+    def _navigate_history(self, key: str) -> None:
+        if not self.input_history:
+            return
+        if key == "up":
+            if self._history_nav_index is None:
+                self._history_draft = self.input_text
+                self._history_nav_index = len(self.input_history) - 1
+            else:
+                self._history_nav_index = max(0, self._history_nav_index - 1)
+            self._load_history_entry(self.input_history[self._history_nav_index])
+        else:  # down
+            if self._history_nav_index is None:
+                return
+            self._history_nav_index += 1
+            if self._history_nav_index >= len(self.input_history):
+                self._history_nav_index = None
+                self._load_history_entry(self._history_draft)
+                self._history_draft = ""
+            else:
+                self._load_history_entry(self.input_history[self._history_nav_index])
+
+    def _load_history_entry(self, text: str) -> None:
+        # Recall replaces the buffer wholesale and parks the cursor at the end.
+        # The slash menu stays closed during recall so an arrow press reviews
+        # history instead of jumping into command completion.
+        self.input_text = text
+        self.input_cursor = len(text)
+        self.slash_menu_open = False
+        self.slash_menu_selection = 0
+        self.paint()
+
+    def suspend_for_external_io(self) -> None:
+        """Tear down the live region for a blocking interactive flow.
+
+        Used by ``/login`` so the OAuth manager can print its URL/prompt and
+        read a line directly from the terminal in cooked mode. The committed
+        history above is left in native scrollback; the old input/footer rows
+        are erased and the live-region tracking is reset so the next
+        :meth:`paint` redraws a fresh frame below whatever the external flow
+        printed. No prompts, URLs, or credentials touch the session archive —
+        they only render on the live terminal.
+        """
+
+        with self._paint_lock:
+            self._restore_terminal_mode()
+            output: list[str] = []
+            if self._live_height > 0:
+                if self._live_input_row > 0:
+                    output.append(f"\x1b[{self._live_input_row}A")
+                output.append("\r\x1b[J")
+            output.append("\x1b[?25h")
+            try:
+                self.terminal_stream.write("".join(output))
+                self.terminal_stream.flush()
+            except (OSError, ValueError):
+                pass
+            self._live_height = 0
+            self._live_input_row = 0
 
     def _move_input_cursor(self, key: str) -> None:
         cursor = self._effective_input_cursor()

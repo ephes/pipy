@@ -42,8 +42,12 @@ The broad parity ladder, applied with small-slice discipline:
   compact command affordances, and status/footer-style state presentation.
 - Interactive input ergonomics: input-adapter boundary, slash-menu raw-mode
   line editor, optional prompt-toolkit line-editor adapter, stdlib readline
-  fall-through, and plain captured-stream fallback. Resilient terminal resize
-  behavior, persistent history, and a fuller TUI are still on the ladder.
+  fall-through, and plain captured-stream fallback. The product TUI now ships
+  the core daily-driver editor ergonomics: in-memory Up/Down prompt history,
+  ANSI bracketed paste (literal multi-line insert, no accidental submission),
+  Ctrl-Z/Ctrl-Y undo/redo, and poll-based terminal resize handling that keeps
+  the inline frame coherent at 80x24 and 100x40. Persistent cross-session
+  history and a fuller TUI are still on the ladder.
   The input-adapter boundary preserves plain captured-stream fallback.
   The stdlib-only `slash-menu` raw-mode line editor, stdlib `readline`
   adapter, and Workspace-relative path completion remain part of the
@@ -53,9 +57,10 @@ The broad parity ladder, applied with small-slice discipline:
   skills, prompt templates, custom commands, extensions, themes, and broader
   model/provider defaults remain later parity work; the `/settings` (read-only)
   and `/model` (interactive selector) surfaces are now exposed inside the
-  product TUI, and `/login`/`/logout` inside the TUI is the remaining near-term
-  UI gap below. The current `[Skills]` and `[Extensions]` chrome sections are
-  display-only directory labels, not runtime loaders.
+  product TUI, and `/login`/`/logout` are now executable inside the TUI too
+  (through the same auth boundary, with no provider turn). The current
+  `[Skills]` and `[Extensions]` chrome sections are display-only directory
+  labels, not runtime loaders.
 - Tool parity: the bounded multi-step model/tool loop has landed; the remaining
   gaps are tool breadth inside that loop, bash/shell execution behind a real
   sandbox, broader verification, arbitrary `@file` content injection, and
@@ -94,10 +99,17 @@ not a promise to skip review when a smaller, safer slice appears.
    persists the non-secret default, and constructs the next provider turn with
    the new provider/model; selection runs no provider turn. A direct
    `/model <provider>/<model>` form also switches (and works in the
-   captured-stream fallback). The slash menu now lists `model` alongside `help`,
-   `settings`, `copy`, `exit`, and `quit`. `/login` and `/logout` remain no-tool
-   REPL commands only; the remaining work on this item is wiring them into the
-   product TUI. Observed 2026-05-29 parity gap (still open): Pi presents
+   captured-stream fallback). The slash menu now lists `model`, `login`, and
+   `logout` alongside `help`, `settings`, `copy`, `exit`, and `quit`. `/login
+   [openai-codex]` and `/logout [openai-codex]` are now executable in the
+   product TUI through the same `NativeReplProviderState` auth boundary the
+   no-tool REPL uses: they run no provider turn and no tool call, clear the
+   in-memory conversation, refresh `model_options()` availability, and rebind
+   the live provider/footer (logout resets the selection to the local default).
+   Interactive login output (the OAuth URL/prompt) renders only on the live
+   terminal — the inline frame is suspended around it and repainted afterward —
+   and never reaches the session archive. Observed 2026-05-29 parity gap (still
+   open): Pi presents
    `/settings` as an interactive, scrollable dialog with highlighted rows,
    editable booleans and numeric settings, and bottom-key affordances such as
    `Enter`/`Space` to change and `Esc` to cancel. Pipy's `/settings` is still a
@@ -118,10 +130,16 @@ not a promise to skip review when a smaller, safer slice appears.
    pinned input/footer) instead of only the upper half. Verified by real-PTY
    product-path tests at 100x40 and 80x24 (`tests/test_native_tool_loop_tui_pty.py`)
    plus tmux captures. In-app `/model` selection has since landed as an
-   interactive keyboard-navigable selector (see Pi Gap Queue item 2). Pi still
-   leads on undo/redo, prompt history, bracketed paste, resize/SIGWINCH
-   handling, in-app `/login`/`/logout`, broader selectors/overlays, and richer
-   keyboard behavior — these remain the open items for this track.
+   interactive keyboard-navigable selector (see Pi Gap Queue item 2). The core
+   editor-ergonomics gap has since closed too: in-app `/login`/`/logout`,
+   in-memory Up/Down prompt history, ANSI bracketed paste (literal multi-line
+   insert with no accidental submission), Ctrl-Z/Ctrl-Y undo/redo, and
+   poll-based resize/SIGWINCH handling now ship and are covered by real-PTY
+   keystroke tests (history recall, paste, undo/redo, fake-auth login/logout
+   without a provider turn, and TIOCSWINSZ resize at 80x24 and 100x40). Pi still
+   leads on persistent cross-session history, broader selectors/overlays, and
+   richer keyboard behavior (e.g. mouse selection) — these remain the open items
+   for this track.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Pipy currently has no
    runtime extension/package loader; display-only chrome labels are not a
@@ -488,7 +506,9 @@ it lands. They are not later slices of this track:
   later.
 - Live session resume, branch/fork, compaction, and share. A metadata-only
   resume reader shipped later.
-- Full TUI, persistent history, and resize handling.
+- Full TUI and persistent cross-session history. (Resize handling, in-memory
+  prompt history, bracketed paste, and undo/redo have since shipped in the
+  product TUI.)
 - Generalizing `/verify` beyond `just check`.
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
@@ -1177,11 +1197,11 @@ What landed:
   tool-call support (which tool-loop mode requires), stay visible with a reason
   but cannot be chosen; a direct `/model` switch to a non-tool-capable provider
   is refused and the previous selection restored
-- the slash menu now lists `model` alongside `help`, `settings`, `copy`,
-  `exit`, and `quit`, so the menu still advertises only commands the dispatcher
-  can execute. The `/settings` overlay footer is updated: it states that
-  `/model` switches provider/model here, while `/login` and `/logout` are not
-  yet available in tool-loop mode
+- the slash menu now lists `model`, `login`, and `logout` alongside `help`,
+  `settings`, `copy`, `exit`, and `quit`, so the menu still advertises only
+  commands the dispatcher can execute. The `/settings` overlay footer is
+  updated: it points at `/model` to switch provider/model and `/login`/`/logout`
+  to manage openai-codex OAuth (all three are now executable here)
 - metadata-first archive behavior is unchanged: the selector reads and mutates
   only the in-memory provider state and the non-secret defaults file (provider
   name and model id) and adds no prompts, model output, provider payloads,
@@ -1194,9 +1214,34 @@ What landed:
   selection, the footer/status update, no provider turn during selection, and
   next-turn provider/model use against the hermetic fake provider
 
-The next slice on item 2 is wiring `/login` and `/logout` into the product TUI
-(after which the interactive-`/settings`-dialog comparison in item 2 can decide
-which controls are product settings versus provider/model/auth controls).
+`/login [openai-codex]` and `/logout [openai-codex]` are now wired into the
+product TUI (executable through the shared `NativeReplProviderState` auth
+boundary, no provider turn, no tool call, conversation context cleared,
+model-option availability refreshed, and the interactive login output kept off
+the session archive). Alongside them the core editor ergonomics landed:
+in-memory Up/Down prompt history (session-scoped, never persisted), ANSI
+bracketed paste (literal multi-line insert, no accidental submission),
+Ctrl-Z/Ctrl-Y undo/redo, and poll-based resize/SIGWINCH handling that repaints
+the inline frame coherently at 80x24 and 100x40. Two frame-coherence refinements
+followed the first review: multi-line input renders on one physical row (each
+embedded newline shown as a single-width `⏎` glyph; the literal text is still
+submitted) and over-wide input is horizontally scrolled through one shared
+`_input_view` helper so the input cell never wraps; and a resize does a
+drift-independent clear-and-full-redraw (`_repaint_after_resize`) instead of a
+relative-cursor erase, because a width shrink can reflow the previous frame and
+leave stale rows. These are pinned by focused
+unit tests plus real-PTY keystroke tests (`tests/test_native_tool_loop_tui_pty.py`:
+history recall edit/submit, multi-line paste (the live screen is parsed before
+Enter to confirm the pasted newline renders as one `⏎` glyph on a single
+separator-framed input row), undo/redo, fake-auth login/logout
+without a provider turn, a TIOCSWINSZ resize while a slash overlay is open, and a
+resize with a multi-line paste in the editor that asserts a single coherent
+post-resize frame — and one after a further keypress — with no stale rows before
+the literal prompt is submitted).
+The remaining work on item 2 is the interactive-`/settings`-dialog comparison
+(deciding which controls are product settings versus provider/model/auth
+controls); broader selectors/overlays and persistent cross-session history stay
+deferred.
 
 ## Near Term
 
@@ -1315,9 +1360,11 @@ Invariants that must hold for any near-term slice:
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
   explicit per-round versus cumulative scope, review round number, and optional
   cycle identity so `reflect` can avoid double-counting iterative reviews.
-- Full interactive TUI behavior beyond the shipped product TUI shell, including
-  richer editor semantics, resize/SIGWINCH handling, prompt history, bracketed
-  paste, overlays, selectors, and theme/extension UI hooks.
+- Full interactive TUI behavior beyond the shipped product TUI shell. Prompt
+  history, bracketed paste, undo/redo, and resize/SIGWINCH handling now ship in
+  the product TUI; still deferred are richer editor semantics, persistent
+  cross-session history, additional overlays/selectors, and theme/extension UI
+  hooks.
 - RPC mode.
 - Multi-agent task delegation.
 - Long-running dev server.

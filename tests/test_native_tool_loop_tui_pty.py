@@ -424,10 +424,643 @@ def test_pty_inline_tui_slash_menu_is_honest(
 
     menu_text = "\n".join(snapshot.viewport)
     assert provider._call_counter[0] == 0  # opening the menu runs no turn
-    # Honest menu: the executable local commands are offered (including the
-    # now-interactive /model selector)...
-    for executable in ("help", "model", "settings", "copy", "exit", "quit"):
+    # Honest menu: the leading executable local commands are offered — now
+    # including the executable /login and /logout auth commands (the menu
+    # windows to six rows, so /exit and /quit scroll below the fold but are
+    # still reachable; the unit tests cover the full advertised set).
+    for executable in ("help", "model", "settings", "login", "logout", "copy"):
         assert executable in menu_text, f"menu missing /{executable}"
-    # ...and the not-yet-executable provider/auth commands are absent.
-    for absent in ("/login", "/logout"):
-        assert absent not in menu_text
+
+
+class _PromptRecordingProvider:
+    """Tool-capable provider recording each turn's submitted user prompt."""
+
+    name = "fake"
+    model_id = "fake-native-bootstrap"
+    supports_tool_calls = True
+
+    def __init__(self, prompts: list[str]) -> None:
+        self._prompts = prompts
+        self._turn = 0
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink
+        self._prompts.append(request.user_prompt)
+        self._turn += 1
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=f"TURN_{self._turn}_DONE",
+            tool_calls=(),
+        )
+
+
+def _run_editor_pty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    provider,
+    drive,
+    *,
+    columns: int = 100,
+    rows: int = 40,
+):
+    """Drive the real product TUI over a PTY; ``drive(in_master, chunks)``."""
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        drive(in_master, err_chunks)
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "editor session did not exit"
+    return b"".join(err_chunks).decode("utf-8", errors="replace")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_prompt_history_recall_edits_and_submits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, b"recall me\n")
+        assert _wait_for(chunks, "TURN_1_DONE"), "first turn never ran"
+        # Up recalls the prior prompt into the editable buffer; appending text
+        # and submitting proves recall populated the editor (not a fresh line).
+        os.write(in_master, b"\x1b[A again\n")
+        assert _wait_for(chunks, "TURN_2_DONE"), "recalled turn never ran"
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    assert prompts == ["recall me", "recall me again"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_bracketed_paste_inserts_multiline_without_submitting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        # A bracketed paste carrying an embedded newline must insert literally
+        # and must NOT submit on that newline. Only the trailing real Enter
+        # submits, so the provider sees the whole multi-line text as one prompt.
+        os.write(in_master, b"\x1b[200~line one\nline two\x1b[201~")
+        os.write(in_master, b"\n")
+        assert _wait_for(chunks, "TURN_1_DONE"), "pasted prompt never submitted"
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    assert prompts == ["line one\nline two"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    """A multi-line paste sitting in the editor keeps the live frame coherent.
+
+    This parses the real terminal screen *before* Enter is pressed: the pasted
+    newline renders as one visible glyph on a single input row framed by
+    separators with the footer pinned below, so the inline live-region math
+    stays correct. Only then is Enter pressed, and the provider must receive the
+    exact literal multi-line prompt.
+    """
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Paste a multi-line prompt but do NOT submit yet.
+        os.write(in_master, b"\x1b[200~line one\nline two\x1b[201~")
+        assert _wait_for(err_chunks, "line one⏎line two"), "paste glyph never rendered"
+        # Parse the live screen while the paste is still in the editor.
+        before_submit = parse_ansi_screen(
+            b"".join(err_chunks).decode("utf-8", errors="replace"),
+            columns=columns,
+            rows=rows,
+        )
+        viewport = before_submit.viewport
+        input_rows = [
+            index for index, line in enumerate(viewport) if "line one" in line
+        ]
+        assert len(input_rows) == 1, f"{label}: input not on exactly one row"
+        input_index = input_rows[0]
+        # Both halves of the paste live on the SAME physical row (one glyph
+        # joins them) — the newline never spilled the cell onto a second row.
+        assert "line two" in viewport[input_index]
+        assert "line one⏎line two" in viewport[input_index]
+        # The input row is framed by separators with the footer pinned below.
+        assert set(viewport[input_index - 1].strip()) == {"─"}
+        assert set(viewport[input_index + 1].strip()) == {"─"}
+        assert any(line.strip() for line in viewport[input_index + 2 :]), (
+            f"{label}: footer row missing below the input frame"
+        )
+        # Now submit; the provider must receive the exact literal multi-line text.
+        os.write(in_master, b"\n")
+        assert _wait_for(err_chunks, "TURN_1_DONE"), "pasted prompt never submitted"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: paste session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    assert "\x1b[?1049h" not in captured
+    assert prompts == ["line one\nline two"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_undo_redo_restores_line_before_submit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        # Type "hi", undo (ctrl-z) -> "h", redo (ctrl-y) -> "hi", submit.
+        os.write(in_master, b"hi\x1a\x19\n")
+        assert _wait_for(chunks, "TURN_1_DONE"), "first turn never ran"
+        # Type "abx", undo twice -> "a", submit.
+        os.write(in_master, b"abx\x1a\x1a\n")
+        assert _wait_for(chunks, "TURN_2_DONE"), "second turn never ran"
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    assert prompts == ["hi", "a"]
+
+
+class _FileBackedAuthManager:
+    """Fake openai-codex auth manager backed by a credentials file."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def login_interactive(self, *, input_stream, output_stream, open_browser=True):
+        del input_stream, open_browser
+        # Safe status notice only — never an OAuth URL/token in tests.
+        output_stream.write("pipy: completing fake openai-codex login\n")
+        output_stream.flush()
+        self._path.write_text("{}", encoding="utf-8")
+        return None
+
+    def logout(self) -> bool:
+        if self._path.exists():
+            self._path.unlink()
+            return True
+        return False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_login_then_logout_updates_availability_without_provider_turn(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    auth_path = tmp_path / "openai-codex.json"
+    seen: list[tuple[str, str]] = []
+
+    def factory(selection: NativeModelSelection) -> _RecordingProvider:
+        return _RecordingProvider(selection.provider_name, selection.model_id, seen)
+
+    manager = _FileBackedAuthManager(auth_path)
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=factory,
+        auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
+        env={},
+        openai_codex_auth_path=auth_path,
+        persist_defaults=False,
+    )
+
+    def codex_available() -> bool:
+        return next(
+            option.available
+            for option in provider_state.model_options()
+            if option.selection.provider_name == "openai-codex"
+        )
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert codex_available() is False
+        os.write(in_master, b"/login\n")
+        assert _wait_for(err_chunks, "login stored"), "/login notice never shown"
+        assert codex_available() is True, "login did not refresh availability"
+        os.write(in_master, b"/logout\n")
+        assert _wait_for(err_chunks, "credentials removed"), "/logout notice never shown"
+        assert codex_available() is False, "logout did not refresh availability"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "auth session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    # Auth commands never enter the alternate screen and never run a turn.
+    assert "\x1b[?1049h" not in captured
+    assert seen == [], "/login or /logout ran a provider turn"
+
+
+def _set_winsize(fd: int, rows: int, cols: int) -> None:
+    import fcntl
+    import struct
+    import termios
+
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [((100, 40), (80, 24)), ((80, 24), (100, 40))],
+)
+def test_pty_resize_repaints_inline_with_overlay_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    start: tuple[int, int],
+    end: tuple[int, int],
+):
+    """Resize while idle and while the slash overlay is open repaints inline.
+
+    The size is read from the real output terminal's winsize (no COLUMNS/LINES
+    pin here), so a TIOCSWINSZ change is observed by the resize poll. The inline
+    contract holds across the resize: no alternate screen, the input/footer
+    frame stays pinned, and a width-correct separator row is painted at both
+    sizes.
+    """
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    start_cols, start_rows = start
+    end_cols, end_rows = end
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    _set_winsize(err_slave, start_rows, start_cols)
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    sep_start = "─" * start_cols
+    sep_end = "─" * end_cols
+    overlay_snapshot = None
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert _wait_for(err_chunks, sep_start), "initial-size separator missing"
+        # Open the slash overlay, then resize while it is open.
+        os.write(in_master, b"/")
+        assert _wait_for(err_chunks, "copy"), "slash menu never opened"
+        _set_winsize(err_slave, end_rows, end_cols)
+        # The resize repaint clears the screen and redraws the full frame at the
+        # new size; the clear + redraw are flushed together, so observing the
+        # clear means the fresh frame is already in the stream. The clear also
+        # resets the screen model's grid, so the parsed viewport reflects only
+        # the post-resize frame (no reflowed pre-resize rows).
+        assert _wait_for(err_chunks, "\x1b[2J"), "resize did not trigger a redraw"
+        overlay_snapshot = parse_ansi_screen(
+            b"".join(err_chunks).decode("utf-8", errors="replace"),
+            columns=end_cols,
+            rows=end_rows,
+        )
+        os.write(in_master, b"\x03")  # ctrl-c clears the prompt
+        os.write(in_master, b"\x04")  # ctrl-d exits
+        worker.join(timeout=8.0)
+    finally:
+        for byte in (b"\x03", b"\x04"):
+            try:
+                os.write(in_master, byte)
+            except OSError:
+                pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "resize session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    # Inline model preserved across the resize: never the alternate screen.
+    assert "\x1b[?1049h" not in captured
+    # Both width-correct separators were painted (coherent repaint at each size).
+    assert sep_start in captured
+    assert sep_end in captured
+    assert provider._call_counter[0] == 0  # resize/menu never run a turn
+
+    # The post-resize viewport is a single coherent frame: exactly two
+    # separators (above and below the input), the input row between them, the
+    # still-open slash overlay below, and a footer — no stale rows left behind.
+    assert overlay_snapshot is not None
+    viewport = overlay_snapshot.viewport
+    separator_rows = [
+        index
+        for index, line in enumerate(viewport)
+        if line.strip() and set(line.strip()) == {"─"}
+    ]
+    assert len(separator_rows) == 2, f"stale separators: {separator_rows}"
+    input_index = separator_rows[0] + 1
+    assert separator_rows[1] == input_index + 1
+    joined = "\n".join(viewport)
+    assert "copy" in joined  # the overlay is still open at the new width
+    assert any(line.strip() for line in viewport[separator_rows[1] + 1 :]), (
+        "footer row missing below the resized frame"
+    )
+
+
+def _separator_rows(viewport: list[str]) -> list[int]:
+    return [
+        index
+        for index, line in enumerate(viewport)
+        if line.strip() and set(line.strip()) == {"─"}
+    ]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [((100, 40), (80, 24)), ((80, 24), (100, 40))],
+)
+def test_pty_resize_after_multiline_paste_single_coherent_frame(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    start: tuple[int, int],
+    end: tuple[int, int],
+):
+    """Resize with a multi-line paste in the editor leaves no stale rows.
+
+    This is the regression case for a width shrink after a multi-line paste:
+    the old (wider) frame would reflow and the relative-cursor erase would leave
+    a stale ``line one⏎line two`` row behind the live frame. The resize repaint
+    now clears and redraws the whole frame, so the post-resize viewport — and
+    the viewport after a further keypress — is a single coherent frame with one
+    input row, and Enter still submits the exact literal multi-line prompt.
+    """
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    start_cols, start_rows = start
+    end_cols, end_rows = end
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    _set_winsize(err_slave, start_rows, start_cols)
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+
+    def assert_single_input_row(needle: str) -> None:
+        snapshot = parse_ansi_screen(
+            b"".join(err_chunks).decode("utf-8", errors="replace"),
+            columns=end_cols,
+            rows=end_rows,
+        )
+        viewport = snapshot.viewport
+        rows_with_paste = [i for i, line in enumerate(viewport) if "line one" in line]
+        assert len(rows_with_paste) == 1, f"stale/duplicate paste rows: {rows_with_paste}"
+        input_index = rows_with_paste[0]
+        # The whole paste sits on one physical row joined by the ⏎ glyph.
+        assert needle in viewport[input_index]
+        separators = _separator_rows(viewport)
+        assert len(separators) == 2, f"stale separators: {separators}"
+        assert separators[0] == input_index - 1
+        assert separators[1] == input_index + 1
+
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"\x1b[200~line one\nline two\x1b[201~")
+        assert _wait_for(err_chunks, "line one⏎line two"), "paste never rendered"
+        # Resize while the multi-line paste is sitting in the editor.
+        _set_winsize(err_slave, end_rows, end_cols)
+        assert _wait_for(err_chunks, "\x1b[2J"), "resize did not trigger a redraw"
+        assert_single_input_row("line one⏎line two")
+        # After another keypress the frame is still a single coherent row.
+        os.write(in_master, b"!")
+        assert _wait_for(err_chunks, "line one⏎line two!"), "keypress never rendered"
+        assert_single_input_row("line one⏎line two!")
+        # Enter submits the exact literal multi-line prompt (glyph is display-only).
+        os.write(in_master, b"\n")
+        assert _wait_for(err_chunks, "TURN_1_DONE"), "prompt never submitted"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "resize/paste session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    assert "\x1b[?1049h" not in captured
+    assert prompts == ["line one\nline two!"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO, cast
@@ -15,6 +16,7 @@ from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl_state import NativeModelOption
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import ToolLoopTerminalUi
@@ -473,8 +475,8 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
             "  registered providers:",
             "    fake/fake-native-bootstrap [available]",
             "    openai/gpt-5.5 [unavailable (env-missing)]",
-            "  read-only view; /model, /login, and /logout are not yet "
-            "available in tool-loop mode.",
+            "  read-only view; use /model to switch provider/model and "
+            "/login or /logout to manage openai-codex OAuth.",
         ]
     )
 
@@ -482,7 +484,7 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
     assert "pipy native REPL settings:" in rendered
     assert "active: fake/fake-native-bootstrap" in rendered
     assert "openai/gpt-5.5 [unavailable (env-missing)]" in rendered
-    assert "read-only view; /model, /login, and /logout are not yet" in rendered
+    assert "read-only view; use /model to switch" in rendered
 
     # The same content must reach the real terminal stream via paint().
     ui.paint()
@@ -497,18 +499,38 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/help",
         "/model",
         "/settings",
+        "/login",
+        "/logout",
         "/copy",
         "/exit",
         "/quit",
     )
-    # /model is now an executable interactive selector; /login and /logout
-    # remain not-yet-executable in tool-loop mode and stay out of the menu.
-    for not_yet_executable in ("/login", "/logout"):
-        assert not_yet_executable not in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    # /login and /logout are now executable in tool-loop mode, so the menu
+    # advertises them alongside the rest of the executable command set.
+    for executable in ("/login", "/logout"):
+        assert executable in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     ui = _ui(tmp_path)
     assert ui.command_names == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
     assert ui.command_descriptions.get("/copy")
+    assert ui.command_descriptions.get("/login")
+    assert ui.command_descriptions.get("/logout")
+
+
+def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui._insert_input_text("/log")
+
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    rendered = "\n".join(line.text for line in frame)
+
+    assert ui.slash_menu_open is True
+    # Both auth commands match the /log prefix and render together.
+    assert "login" in rendered
+    assert "logout" in rendered
+    assert "Log in (openai-codex OAuth)" in rendered
+    assert "Log out (openai-codex OAuth)" in rendered
 
 
 def test_tui_slash_menu_shows_copy_command(tmp_path: Path):
@@ -534,11 +556,12 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert ui.slash_menu_open is True
     assert "→ help" in rendered
     assert "Show pipy command reference" in rendered
-    assert "  exit" in rendered
-    # The read-only settings overlay is executable in tool-loop mode, so the
-    # menu now advertises it alongside help/exit/quit.
+    # The read-only settings overlay and the auth commands are executable in
+    # tool-loop mode, so the menu advertises them in the leading rows.
     assert "  settings" in rendered
     assert "Show provider settings (read-only)" in rendered
+    assert "  login" in rendered
+    assert "  logout" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
     input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
     menu_index = next(
@@ -546,7 +569,9 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    assert "(1/3)" not in rendered
+    # Eight commands match the bare "/" prefix but the menu windows to six
+    # rows, so a scroll indicator appears.
+    assert "(1/8)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
@@ -1066,9 +1091,10 @@ def test_tui_settings_command_renders_read_only_overlay_without_provider_turn(
     assert "pipy native REPL settings:" in rendered
     assert "active: fake/fake-native-bootstrap" in rendered
     assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in rendered
-    # The TUI footer is honest: /model is now executable here; /login and
-    # /logout remain not-yet-executable in tool-loop mode. (The long line wraps
-    # in the frame, so assert on the stable fragments rather than the whole.)
+    # The TUI footer is honest: /model, /login, and /logout are all executable
+    # here, so it points at them to manage provider/model and OAuth. (The long
+    # line wraps in the frame, so assert on stable fragments rather than the
+    # whole.)
     assert "use /model to switch provider/model" in rendered
     assert "/login" in rendered
     assert "/logout" in rendered
@@ -1122,7 +1148,15 @@ class _AnswerProvider:
 
 def test_tool_loop_help_text_lists_copy_command():
     help_text = NativeToolReplSession._help_text()
-    for command in ("/help", "/settings", "/copy", "/exit", "/quit"):
+    for command in (
+        "/help",
+        "/settings",
+        "/login",
+        "/logout",
+        "/copy",
+        "/exit",
+        "/quit",
+    ):
         assert command in help_text, f"help text omits {command}"
 
 
@@ -1277,3 +1311,423 @@ def test_tui_session_does_not_print_legacy_separator(
     assert ui.started is True
     assert ui.closed is True
     assert "─" not in error_stream.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# Editor ergonomics: prompt history, bracketed paste, undo/redo, resize.
+# --------------------------------------------------------------------------- #
+
+
+def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
+    """Feed raw bytes through the real key decoder over an OS pipe."""
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, data)
+    os.close(write_fd)
+    try:
+        return ui._read_key(read_fd)
+    finally:
+        os.close(read_fd)
+
+
+def test_tui_prompt_history_up_down_recall(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._record_history("first prompt")
+    ui._record_history("second prompt")
+
+    # A half-typed draft is preserved when history navigation begins.
+    ui.input_text = "draft"
+    ui.input_cursor = len("draft")
+
+    ui._navigate_history("up")
+    assert ui.input_text == "second prompt"
+    assert ui.input_cursor == len("second prompt")
+
+    ui._navigate_history("up")
+    assert ui.input_text == "first prompt"
+
+    ui._navigate_history("down")
+    assert ui.input_text == "second prompt"
+
+    # Stepping past the newest entry restores the preserved draft.
+    ui._navigate_history("down")
+    assert ui.input_text == "draft"
+    assert ui._history_nav_index is None
+
+
+def test_tui_history_dedupes_and_skips_blank(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._record_history("   ")  # blank-after-strip: ignored
+    ui._record_history("alpha")
+    ui._record_history("alpha")  # consecutive duplicate: ignored
+    ui._record_history("beta")
+    assert ui.input_history == ["alpha", "beta"]
+
+
+def test_tui_history_is_in_memory_only(tmp_path: Path):
+    """History is a plain in-process list — never persisted to disk.
+
+    The metadata-first archive contract forbids persisting prompt bodies by
+    default, so recall state must live only in memory.
+    """
+
+    ui = _ui(tmp_path)
+    before = {entry.name for entry in tmp_path.iterdir()}
+    ui._record_history("super secret prompt")
+    after = {entry.name for entry in tmp_path.iterdir()}
+    assert before == after  # nothing written
+    assert isinstance(ui.input_history, list)
+    assert not hasattr(ui, "history_path")
+
+
+def test_tui_navigate_history_noop_without_entries(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.input_text = "kept"
+    ui._navigate_history("up")
+    assert ui.input_text == "kept"
+    ui._navigate_history("down")
+    assert ui.input_text == "kept"
+
+
+def test_tui_bracketed_paste_decodes_as_literal_multiline(tmp_path: Path):
+    ui = _ui(tmp_path)
+    key = _decode_key(ui, b"\x1b[200~line one\nline two\x1b[201~")
+    assert key == "paste"
+    assert ui._pending_paste == "line one\nline two"
+
+
+def test_tui_bracketed_paste_normalizes_crlf(tmp_path: Path):
+    ui = _ui(tmp_path)
+    key = _decode_key(ui, b"\x1b[200~a\r\nb\rc\x1b[201~")
+    assert key == "paste"
+    assert ui._pending_paste == "a\nb\nc"
+
+
+def test_tui_paste_inserts_without_submission_or_menu(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._insert_paste("/not-a-command and more\nsecond line")
+    # The whole paste is inserted literally, including the newline.
+    assert ui.input_text == "/not-a-command and more\nsecond line"
+    # A paste with whitespace never opens the slash menu (so it cannot be
+    # mistaken for / command completion), and never submits on its own.
+    assert ui.slash_menu_open is False
+
+
+def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
+    ui._insert_paste("line one\nline two")
+
+    frame = ui._frame_lines(width=72, height=16, pad=False)
+    texts = [line.text for line in frame]
+
+    # No raw newline ever leaks into a frame line (which would spill the input
+    # cell onto extra physical rows and desync the live-height/erase math).
+    assert all("\n" not in text for text in texts)
+    # The embedded newline renders as exactly one visible glyph on one row.
+    input_rows = [index for index, line in enumerate(frame) if line.kind == "input"]
+    assert len(input_rows) == 1
+    input_index = input_rows[0]
+    assert "line one⏎line two" in texts[input_index]
+    # The input row stays framed by separators with the footer directly below.
+    assert set(texts[input_index - 1].strip()) == {"─"}
+    assert set(texts[input_index + 1].strip()) == {"─"}
+    assert "~/projects/pipy" in texts[input_index + 2]
+    # The literal buffer is preserved verbatim for submission.
+    assert ui.input_text == "line one\nline two"
+
+    # After another keypress the buffer still holds the literal newline and the
+    # frame still renders exactly one input row with no leaked newline.
+    ui._insert_input_text("!")
+    assert ui.input_text == "line one\nline two!"
+    texts_after = [line.text for line in ui._frame_lines(width=72, height=16, pad=False)]
+    assert all("\n" not in text for text in texts_after)
+    assert sum(line.kind == "input" for line in ui._frame_lines(width=72, height=16))
+
+    # After undoing back to the bare paste, still a single coherent input row.
+    ui._undo_edit()
+    assert ui.input_text == "line one\nline two"
+    undo_frame = ui._frame_lines(width=72, height=16, pad=False)
+    undo_rows = [i for i, line in enumerate(undo_frame) if line.kind == "input"]
+    assert len(undo_rows) == 1
+    assert all("\n" not in line.text for line in undo_frame)
+
+
+def test_tui_long_input_renders_one_row_without_wrapping(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
+    # 120 characters in an 88-column frame would wrap if rendered verbatim.
+    ui.input_text = "".join(str(i % 10) for i in range(120))
+    ui.input_cursor = len(ui.input_text)
+
+    width = 88
+    frame = ui._frame_lines(width=width, height=16, pad=False)
+    texts = [line.text for line in frame]
+
+    # Exactly one input row, and no frame line exceeds the width (no wrap).
+    input_rows = [i for i, line in enumerate(frame) if line.kind == "input"]
+    assert len(input_rows) == 1
+    assert all(len(text) <= width for text in texts)
+
+    # The view is horizontally scrolled to keep the cursor (at end) visible.
+    visible, col = ui._input_view(width)
+    assert len(visible) <= width - 1
+    assert 0 <= col <= width - 1
+    # The tail of the input (near the cursor) is what's shown.
+    assert ui.input_text.endswith(visible)
+
+
+def test_tui_input_view_keeps_cursor_visible_when_scrolled(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.input_text = "x" * 200
+    width = 80
+    # Cursor in the middle: the window must contain that column.
+    ui.input_cursor = 50
+    visible, col = ui._input_view(width)
+    assert len(visible) <= width - 1
+    assert 0 <= col < len(visible)
+    # Cursor at the very start: window anchored at the start.
+    ui.input_cursor = 0
+    visible, col = ui._input_view(width)
+    assert col == 0
+
+
+def test_tui_display_input_text_projects_control_chars_one_to_one(tmp_path: Path):
+    ui = _ui(tmp_path)
+    projected = ui._display_input_text("a\nb\tc")
+    # 1:1 projection keeps the cursor column aligned with the logical index.
+    assert len(projected) == len("a\nb\tc")
+    assert projected == "a⏎b c"
+    # Plain text is returned unchanged (no allocation on the common path).
+    assert ui._display_input_text("plain text") == "plain text"
+
+
+def test_tui_arrow_and_ctrl_keys_decode(tmp_path: Path):
+    ui = _ui(tmp_path)
+    assert _decode_key(ui, b"\x1b[A") == "up"
+    assert _decode_key(ui, b"\x1b[B") == "down"
+    assert _decode_key(ui, b"\x1b[C") == "right"
+    assert _decode_key(ui, b"\x1b[D") == "left"
+    assert _decode_key(ui, b"\x1a") == "ctrl-z"
+    assert _decode_key(ui, b"\x19") == "ctrl-y"
+
+
+def test_tui_undo_redo_restores_line_state(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._reset_line_editor_state()
+    ui._insert_input_text("a")
+    ui._insert_input_text("b")
+    ui._insert_input_text("c")
+    assert ui.input_text == "abc"
+
+    ui._undo_edit()
+    assert ui.input_text == "ab"
+    ui._undo_edit()
+    assert ui.input_text == "a"
+
+    ui._redo_edit()
+    assert ui.input_text == "ab"
+
+    # A fresh edit clears the redo stack.
+    ui._insert_input_text("x")
+    assert ui.input_text == "abx"
+    ui._redo_edit()
+    assert ui.input_text == "abx"
+
+
+def test_tui_undo_treats_paste_as_single_step(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._reset_line_editor_state()
+    ui._insert_paste("hello world")
+    assert ui.input_text == "hello world"
+    ui._undo_edit()
+    assert ui.input_text == ""
+
+
+def _pin_terminal_size(
+    monkeypatch: pytest.MonkeyPatch, columns: int, rows: int
+) -> None:
+    # Clear COLUMNS/LINES so the shutil fallback (which _TtyBuffer lacks a
+    # fileno for) is what resolves the size, then pin that.
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    size = os.terminal_size((columns, rows))
+    monkeypatch.setattr(
+        "pipy_harness.native.tui.shutil.get_terminal_size", lambda *a, **k: size
+    )
+
+
+def test_tui_resize_poll_repaints_on_size_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    ui = _ui(tmp_path)
+    _pin_terminal_size(monkeypatch, 100, 40)
+    ui.paint()  # establishes the painted size at the current dimensions
+    assert ui._last_painted_size == (100, 40)
+    buffer = cast(_TtyBuffer, ui.terminal_stream)
+    before = len(buffer.getvalue())
+
+    _pin_terminal_size(monkeypatch, 80, 24)
+    assert ui._poll_resize_repaint() is True
+    # A real repaint happened at the new size (no alternate screen involved).
+    assert ui._last_painted_size == (80, 24)
+    assert len(buffer.getvalue()) > before
+    assert "\x1b[?1049h" not in buffer.getvalue()
+
+    # No further repaint when the size is unchanged and no SIGWINCH is pending.
+    assert ui._poll_resize_repaint() is False
+
+
+def test_tui_resize_poll_repaints_on_pending_signal_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    ui = _ui(tmp_path)
+    _pin_terminal_size(monkeypatch, 80, 24)
+    ui.paint()
+    assert ui._poll_resize_repaint() is False  # steady state: no repaint
+
+    ui._on_resize_signal(28, None)  # SIGWINCH-style flag flip
+    assert ui._resize_pending is True
+    assert ui._poll_resize_repaint() is True
+    assert ui._resize_pending is False
+
+
+# --------------------------------------------------------------------------- #
+# /login and /logout in the tool-loop TUI (auth boundary, no provider turn).
+# --------------------------------------------------------------------------- #
+
+
+class _FakeOpenAICodexAuthManager:
+    """Records login/logout against a credentials file, no real OAuth."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self.logins = 0
+        self.logouts = 0
+
+    def login_interactive(self, *, input_stream, output_stream, open_browser=True):
+        del input_stream, output_stream, open_browser
+        self.logins += 1
+        self._path.write_text("{}", encoding="utf-8")
+        return None
+
+    def logout(self) -> bool:
+        self.logouts += 1
+        if self._path.exists():
+            self._path.unlink()
+            return True
+        return False
+
+
+def _auth_provider_state(tmp_path: Path, provider: ProviderPort, auth_path: Path):
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
+
+    manager = _FakeOpenAICodexAuthManager(auth_path)
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda selection: provider,
+        auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
+        env={},
+        openai_codex_auth_path=auth_path,
+        persist_defaults=False,
+    )
+    return state, manager
+
+
+def _codex_option(state: object) -> NativeModelOption:
+    return next(
+        option
+        for option in state.model_options()  # type: ignore[attr-defined]
+        if option.selection.provider_name == "openai-codex"
+    )
+
+
+def test_tui_login_refreshes_availability_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    auth_path = tmp_path / "openai-codex.json"
+    provider = _CountingProvider()
+    provider_state, manager = _auth_provider_state(tmp_path, provider, auth_path)
+    ui = _ui(tmp_path)
+    scripted = iter(["/login\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    # Before login, openai-codex is unavailable (no credentials).
+    assert _codex_option(provider_state).available is False
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    # Auth-only command: no provider turn, no tool invocation.
+    assert provider.completions == 0
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
+    # The login ran through the auth boundary and availability refreshed.
+    assert manager.logins == 1
+    assert _codex_option(provider_state).available is True
+    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    assert any("login stored" in " ".join(lines).lower() for lines in notices)
+
+
+def test_tui_logout_removes_credentials_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    auth_path = tmp_path / "openai-codex.json"
+    auth_path.write_text("{}", encoding="utf-8")  # start logged in
+    provider = _CountingProvider()
+    provider_state, manager = _auth_provider_state(tmp_path, provider, auth_path)
+    ui = _ui(tmp_path)
+    scripted = iter(["/logout\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace: ui,
+    )
+
+    assert _codex_option(provider_state).available is True
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.completions == 0
+    assert result.user_turn_count == 0
+    assert manager.logouts == 1
+    assert not auth_path.exists()
+    assert _codex_option(provider_state).available is False
+    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    assert any("removed" in " ".join(lines).lower() for lines in notices)

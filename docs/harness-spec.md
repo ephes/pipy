@@ -435,9 +435,11 @@ produces output the committed history fills the full window height with the
 input/footer at the bottom rather than capping the frame to the upper half.
 Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `model`, `settings`, `copy`, `exit`, `quit`); Up/Down moves the
-selected row, Tab or Enter accepts the selected command, and Escape closes the
-menu without exiting the session. `/copy` is a local-only command: it copies the
+locally (`help`, `model`, `settings`, `login`, `logout`, `copy`, `exit`,
+`quit`); Up/Down moves the selected row, Tab or Enter accepts the selected
+command, and Escape closes the menu without exiting the session. The menu is
+honest — it advertises a command only once the dispatcher can execute it — and
+windows to six visible rows with a scroll indicator when more match. `/copy` is a local-only command: it copies the
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
@@ -471,9 +473,61 @@ the previous selection restored. Unavailable providers stay visible with a
 reason but cannot be chosen as if available. The selector reads and mutates only
 the in-memory provider state and the non-secret defaults file (provider name and
 model id); it adds no auth material, provider payloads, prompts, model output,
-command text, or secrets to the metadata archive. `/login` and `/logout` are not
-yet executable in the tool-loop path, so the `/settings` overlay footer says so
-rather than advertising them.
+command text, or secrets to the metadata archive.
+
+`/login [openai-codex]` and `/logout [openai-codex]` are executable in the
+product TUI through the same `NativeReplProviderState` auth boundary the no-tool
+REPL uses. Both run no provider turn and no tool call. `/login` calls
+`OpenAICodexAuthManager.login_interactive()` (the inline frame is suspended via
+`ToolLoopTerminalUi.suspend_for_external_io()` so the OAuth URL/prompt prints to
+and reads from the terminal in cooked mode, then the frame repaints below it);
+`/logout` removes the stored OpenAI Codex credentials and resets the selection to
+the local default. After either, the session clears the in-memory conversation,
+rebinds the live provider and usage meter, refreshes the footer/status label, and
+the refreshed `model_options()` availability takes effect on the next `/model`
+view or turn. Auth URLs, prompts, tokens, and credentials render only on the live
+terminal and never reach the session archive; the `/settings` overlay footer now
+points at `/login`/`/logout` instead of saying they are unavailable.
+
+The TUI input editor provides daily-driver ergonomics built on the same
+raw-mode read loop. Up/Down recall an in-memory, session-scoped prompt history
+(submitted, non-blank, consecutively de-duplicated entries) with a preserved
+in-progress draft restored when stepping past the newest entry; the menu takes
+priority over history while it is open. History is never written to disk — it
+lives only in process memory — so no prompts, pasted text, or command bodies are
+persisted, consistent with the metadata-first archive contract. ANSI bracketed
+paste is enabled in raw mode (`ESC[?2004h`); a paste is read whole between the
+`ESC[200~`/`ESC[201~` markers, normalized to `\n` line breaks, and inserted as a
+single literal edit, so multi-line pastes never submit on an embedded newline and
+a leading `/` with whitespace never opens the slash menu. The input buffer keeps
+the literal text (so Enter submits the exact multi-line prompt), but the input
+cell renders through a single-line projection (`_display_input_text`) that maps
+each embedded newline to a single-width `⏎` glyph (and any other control
+character to a space), one display character per buffer character. This keeps the
+live input row exactly one physical row tall regardless of pasted newlines, so
+the separator/input/footer frame, the live-height/erase math, and the cursor
+column all stay coherent (the projection is 1:1, so the logical cursor index maps
+directly onto the displayed column). Input wider than the cell is horizontally
+scrolled through one shared `_input_view(width)` helper (used by both the
+renderer and the cursor parking) so the cursor stays visible within `width - 1`
+columns and the input never wraps onto a second physical row; the buffer is still
+submitted in full. Ctrl-Z/Ctrl-Y provide
+per-edit undo/redo over `(text, cursor)` snapshots (a whole paste is one step),
+reset per line. Resize handling is poll-based: the read/selector/active-turn
+loops compare the live output terminal's `winsize` against the last painted size
+every ~100 ms, with a best-effort SIGWINCH handler (which no-ops off the main
+thread) only flagging a pending resize to make idle repaints snappier. On a
+detected size change the renderer does a drift-independent repaint
+(`_repaint_after_resize`): it clears the visible screen, homes the cursor, and
+redraws the full frame (committed history + live region) fresh at the new size,
+rather than trusting the cached physical live-height (which a width change can
+invalidate when a full-width separator reflows). It stays inline — no alternate
+screen, no `ESC[3J`, so committed history remains in native scrollback (and is
+re-rendered above the frame at the new width). A resize while idle, while the
+slash/model overlay is open, or while a turn streams therefore repaints into a
+single coherent frame with no stale or overlapping rows. (Resizes are
+infrequent, so the full redraw is an acceptable cost for that guarantee.)
+
 Submitted
 messages and settled assistant text are committed into native scrollback while
 streamed assistant text and the loader live in the redrawn live region; the

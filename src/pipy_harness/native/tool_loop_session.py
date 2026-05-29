@@ -41,6 +41,7 @@ from pathlib import Path
 from collections.abc import Callable, Mapping
 from typing import Any, ClassVar, TextIO
 
+from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.clipboard import ClipboardResult, copy_to_clipboard
 from pipy_harness.native.chrome import (
@@ -511,6 +512,74 @@ class NativeToolReplSession:
                 )
             return True, message
 
+        def apply_auth_change(action: str, argument: str) -> str:
+            """Run ``/login`` or ``/logout`` through the auth boundary.
+
+            Mirrors the no-tool auth path through the same
+            ``NativeReplProviderState``: it performs no provider turn and no
+            tool call, clears the in-memory conversation, then rebinds the live
+            provider/usage/footer so refreshed model-option availability and the
+            (possibly reset) selection take effect on the next turn. Interactive
+            login output (the OAuth URL/prompt) renders only on the live
+            terminal — never in the session archive — and the TUI live region is
+            suspended around it so the inline frame repaints coherently
+            afterward.
+            """
+
+            nonlocal effective_provider_name, effective_model_id
+            nonlocal usage_accumulator, messages
+            state = self.provider_state
+            if not isinstance(state, NativeReplProviderState):
+                return (
+                    f"pipy: /{action} is unavailable for this REPL provider state."
+                )
+            provider_name = argument or "openai-codex"
+            if action == "login":
+                if terminal_ui is not None:
+                    terminal_ui.suspend_for_external_io()
+                try:
+                    _ok, message = state.login(
+                        provider_name,
+                        input_stream=input_stream,
+                        output_stream=error_stream,
+                    )
+                except Exception as exc:  # noqa: BLE001 - report, never crash REPL
+                    message = (
+                        "pipy: openai-codex login failed with "
+                        f"{type(exc).__name__}: {sanitize_text(str(exc))}"
+                    )
+            else:
+                try:
+                    _ok, message = state.logout(provider_name)
+                except Exception as exc:  # noqa: BLE001 - report, never crash REPL
+                    message = (
+                        "pipy: openai-codex logout failed with "
+                        f"{type(exc).__name__}: {sanitize_text(str(exc))}"
+                    )
+            # Clear context and rebind the live provider regardless of outcome,
+            # so a credential change never leaks prior context or leaves a stale
+            # provider bound (logout resets the selection to the local default).
+            self.provider = state.current_provider()
+            selection = state.current_selection()
+            effective_provider_name = selection.provider_name
+            effective_model_id = selection.model_id
+            messages = []
+            usage_accumulator = _UsageAccumulator()
+            usage_accumulator.bind(effective_provider_name, effective_model_id)
+            if terminal_ui is not None:
+                terminal_ui.set_footer_text(
+                    self._footer_text(
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        error_stream=error_stream,
+                        usage_accumulator=usage_accumulator,
+                    )
+                )
+            return message
+
         repl_input = (
             terminal_ui
             if terminal_ui is not None
@@ -698,6 +767,42 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
+            if stripped == "/login" or stripped.startswith("/login "):
+                # Auth-only command: no provider turn, no tool call. Runs the
+                # OAuth login through the provider-state boundary, refreshes
+                # model-option availability, and clears conversation context.
+                argument = stripped[len("/login") :].strip()
+                message = apply_auth_change("login", argument)
+                self._emit_diagnostic(terminal_ui, error_stream, message)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
+            if stripped == "/logout" or stripped.startswith("/logout "):
+                # Auth-only command: no provider turn, no tool call. Removes the
+                # stored OAuth credentials, resets the selection to the local
+                # default, refreshes availability, and clears context.
+                argument = stripped[len("/logout") :].strip()
+                message = apply_auth_change("logout", argument)
+                self._emit_diagnostic(terminal_ui, error_stream, message)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
             if stripped.startswith("/"):
                 self._emit_diagnostic(
                     terminal_ui,
@@ -705,7 +810,8 @@ class NativeToolReplSession:
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
                         "supported local commands are /help, /model, /settings, "
-                        "/copy, /exit, /quit. Other prompts are sent to the model."
+                        "/login, /logout, /copy, /exit, /quit. Other prompts are "
+                        "sent to the model."
                     ),
                 )
                 if legacy_footer_enabled():
@@ -1131,16 +1237,17 @@ class NativeToolReplSession:
         Reuses the shared no-tool ``/settings`` builder so the tool-loop TUI
         shows the same safe provider/model/status information and availability
         reasons, then appends a footer honest for the tool-loop surface (where
-        ``/model`` is executable but ``/login``/``/logout`` are not yet). When no
-        provider state is wired, a single-provider static view is shown.
+        ``/model``, ``/login``, and ``/logout`` are all executable). When no
+        provider state is wired, a single-provider static view is shown and the
+        footer says those commands are unavailable for that state.
         """
 
         state = self.provider_state or StaticNativeReplProviderState(self.provider)
         lines = settings_overlay_lines(state)
         if isinstance(state, NativeReplProviderState):
             lines.append(
-                "  read-only view; use /model to switch provider/model. "
-                "/login and /logout are not yet available in tool-loop mode."
+                "  read-only view; use /model to switch provider/model and "
+                "/login or /logout to manage openai-codex OAuth."
             )
         else:
             lines.append(
@@ -1237,9 +1344,11 @@ class NativeToolReplSession:
     def _help_text() -> str:
         return (
             "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
-            "`/copy`, `/exit`, `/quit` locally. `/model` opens an interactive "
-            "provider/model selector (or `/model <provider>/<model>` switches "
-            "directly); `/settings` shows a read-only provider/model overlay; "
+            "`/login`, `/logout`, `/copy`, `/exit`, `/quit` locally. `/model` "
+            "opens an interactive provider/model selector (or "
+            "`/model <provider>/<model>` switches directly); `/settings` shows a "
+            "read-only provider/model overlay; `/login [openai-codex]` and "
+            "`/logout [openai-codex]` manage OAuth without a provider turn; "
             "`/copy` copies the last answer to the clipboard. Other input is "
             "sent to the model. The model can call bounded `read`, `ls`, "
             "`grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate` "

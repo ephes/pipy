@@ -2,6 +2,17 @@
 
 Date: 2026-05-29
 
+> **Status (superseded in part):** this is the point-in-time design note for
+> the inline-scrollback + `/copy` slice. The slash-command surface it describes
+> below (e.g. the completions tuple and "`/model`, `/login`, `/logout` stay
+> absent / remain absent") was accurate for *this* slice only. Later slices
+> made all three executable in the product TUI — `/model` is an interactive
+> provider/model selector, and `/login`/`/logout` run through the
+> `NativeReplProviderState` auth boundary — so the menu now advertises
+> `help, model, settings, login, logout, copy, exit, quit`. See
+> `docs/harness-spec.md`, `docs/pi-parity.md`, and `docs/backlog.md` for the
+> current behavior; the body below is preserved as the historical record.
+
 ## Goal
 
 Make the real product command
