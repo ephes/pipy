@@ -44,6 +44,35 @@ SAFE_EVENT_KEYS: tuple[str, ...] = (
     "sequence",
 )
 
+# Allowlisted keys read from the ``resume`` object on a child session's
+# ``session.started`` event. Anything else (including any forged payload-shaped
+# key) is dropped, keeping export lineage to safe labels only.
+SAFE_LINEAGE_KEYS: tuple[str, ...] = (
+    "parent_session_id",
+    "relationship",
+    "branch_label",
+    "fork_timestamp",
+)
+
+
+def safe_resume_lineage(first_event: Mapping[str, Any]) -> dict[str, str] | None:
+    """Return allowlisted resume/branch lineage labels, or None if absent."""
+
+    resume_field = first_event.get("resume")
+    if not isinstance(resume_field, Mapping):
+        return None
+    # Reuse the catalog's terminal-safe, secret-free, bounded label filter so a
+    # forged or foreign record cannot smuggle control bytes or secret-shaped
+    # content into the export metadata.
+    from pipy_session.catalog import _safe_lineage_label
+
+    safe: dict[str, str] = {}
+    for key in SAFE_LINEAGE_KEYS:
+        label = _safe_lineage_label(resume_field.get(key))
+        if label is not None:
+            safe[key] = label
+    return safe or None
+
 
 def export_session(
     record_path_or_stem: str,
@@ -219,6 +248,10 @@ def _metadata_block(
         "goal": first_event.get("goal"),
         "event_count": len(safe_events),
         "event_type_counts": dict(sorted(event_type_counts.items())),
+        "resume": safe_resume_lineage(first_event),
+        "compaction_event_count": event_type_counts.get(
+            "native.session.compacted", 0
+        ),
     }
     return metadata
 

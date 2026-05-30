@@ -95,6 +95,11 @@ class HarnessRunner:
         started_at = _ensure_utc(self.clock())
         workspace = workspace_display(request.cwd)
         initial_fields = _initial_session_fields(run_id, started_at)
+        if request.resume is not None:
+            # Record only safe parent/branch lineage on the new session's
+            # session.started event. The parent record is never read for
+            # mutation and never modified by this run.
+            initial_fields["resume"] = request.resume.archive_payload()
         active_path = self.recorder.init(
             request,
             run_id=run_id,
@@ -127,6 +132,20 @@ class HarnessRunner:
                 ),
                 payload=_base_payload(request, self.adapter.name, workspace, HarnessStatus.RUNNING),
             )
+            if request.resume is not None:
+                lineage = request.resume
+                sink.emit(
+                    "native.session.resumed",
+                    summary=(
+                        "Native session resumed: "
+                        f"relationship={lineage.relationship}, "
+                        f"parent={lineage.parent_session_id}."
+                    ),
+                    payload={
+                        "adapter": self.adapter.name,
+                        **lineage.archive_payload(),
+                    },
+                )
             prepared = self.adapter.prepare(request)
             adapter_result = self.adapter.run(
                 prepared,

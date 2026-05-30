@@ -71,6 +71,14 @@ from pipy_harness.native.repl_state import (
     settings_overlay_lines,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.session_compaction import (
+    compact_tool_loop_messages,
+    should_compact_tool_loop_messages,
+)
+from pipy_harness.native.session_resume import (
+    ResumeContext,
+    compose_resume_status_line,
+)
 from pipy_harness.native.resources import (
     DISPATCH_LIST,
     WorkspaceResources,
@@ -383,6 +391,8 @@ class NativeToolReplResult:
     file_reference_count: int = 0
     file_reference_loaded_count: int = 0
     file_reference_failed_count: int = 0
+    compaction_count: int = 0
+    compaction_dropped_group_count: int = 0
     error_type: str | None = None
     error_message: str | None = None
 
@@ -415,6 +425,8 @@ class NativeToolReplSession:
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
     prompt_history_store: PromptHistoryStore | None = None
+    resume_context: ResumeContext | None = None
+    resume_branch_label: str | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -509,6 +521,13 @@ class NativeToolReplSession:
         file_reference_count = 0
         file_reference_loaded_count = 0
         file_reference_failed_count = 0
+        compaction_count = 0
+        compaction_dropped_group_count_total = 0
+        # Mutable safe summary suffix appended to the system prompt after a
+        # /compact or auto-compaction; the base system prompt itself is never
+        # mutated. base_system_prompt already carries any resume seed block.
+        base_system_prompt = system_prompt
+        compaction_summary = ""
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
@@ -638,6 +657,31 @@ class NativeToolReplSession:
                 )
             return message
 
+        def apply_compaction(trigger: str) -> str:
+            """Compact the in-memory provider history at a user-turn boundary.
+
+            Returns a safe diagnostic string. The cut keeps the most recent
+            turns and replaces the dropped prefix with a metadata-only summary
+            appended to the system prompt; provider/model, usage counters,
+            prompt history, and the TUI frame are all left intact. No tool
+            result is orphaned because the cut is at a UserMessage boundary.
+            """
+
+            nonlocal messages, compaction_summary, compaction_count
+            nonlocal compaction_dropped_group_count_total
+            result = compact_tool_loop_messages(messages)
+            if not result.changed:
+                return "pipy: nothing to compact yet."
+            messages = list(result.messages)
+            compaction_summary = f"\n\n{result.summary_block}"
+            compaction_count += 1
+            compaction_dropped_group_count_total += result.dropped_group_count
+            return (
+                f"pipy: compacted conversation context ({trigger}; dropped "
+                f"{result.dropped_group_count} earlier exchange(s), kept "
+                f"{result.retained_group_count})."
+            )
+
         repl_input = (
             terminal_ui
             if terminal_ui is not None
@@ -650,6 +694,15 @@ class NativeToolReplSession:
         )
         if terminal_ui is None:
             print_startup_chrome(error_stream, cwd=cwd)
+            if self.resume_context is not None:
+                print(
+                    "pipy: "
+                    + compose_resume_status_line(
+                        self.resume_context,
+                        branch_label=self.resume_branch_label,
+                    ),
+                    file=error_stream,
+                )
         else:
             terminal_ui.set_footer_text(
                 self._footer_text(
@@ -663,6 +716,16 @@ class NativeToolReplSession:
                 )
             )
             terminal_ui.start()
+            if self.resume_context is not None:
+                # Safe resumed-state notice committed to scrollback at startup:
+                # prior session id, provider, model, turn count, finalized time
+                # (and branch label) only — never prompts, output, or summary.
+                terminal_ui.add_notice(
+                    compose_resume_status_line(
+                        self.resume_context,
+                        branch_label=self.resume_branch_label,
+                    )
+                )
 
         def legacy_footer_enabled() -> bool:
             return terminal_ui is None and repl_input.runtime_label != "slash-menu"
@@ -773,6 +836,23 @@ class NativeToolReplSession:
                     terminal_ui,
                     error_stream,
                     self._copy_last_answer(messages, error_stream=error_stream),
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
+            if stripped == "/compact":
+                # Local-only command: reduce the provider-visible history while
+                # keeping recent turns plus a safe metadata-only summary. No
+                # provider turn, tool call, or auth change.
+                self._emit_diagnostic(
+                    terminal_ui, error_stream, apply_compaction("manual")
                 )
                 if legacy_footer_enabled():
                     self._print_footer(
@@ -918,7 +998,8 @@ class NativeToolReplSession:
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
                         "supported local commands are /help, /model, /settings, "
-                        "/login, /logout, /copy, /skill, /template, /exit, /quit "
+                        "/login, /logout, /copy, /compact, /skill, /template, "
+                        "/exit, /quit "
                         "(plus any workspace custom commands). Other prompts are "
                         "sent to the model."
                     ),
@@ -985,8 +1066,16 @@ class NativeToolReplSession:
                 available_tools = tuple(
                     tool.definition for tool in self.tool_registry.values()
                 )
+                # Automatic compaction: when the provider-visible history grows
+                # past the threshold, drop the oldest user-turn groups before
+                # building the next request. The cut is at a UserMessage
+                # boundary so no tool result is orphaned, and the safe summary
+                # rides in the system prompt suffix below.
+                if should_compact_tool_loop_messages(messages):
+                    notice = apply_compaction("auto")
+                    self._emit_diagnostic(terminal_ui, error_stream, notice)
                 provider_request = ProviderRequest(
-                    system_prompt=system_prompt,
+                    system_prompt=base_system_prompt + compaction_summary,
                     user_prompt=provider_user_input,
                     provider_name=effective_provider_name,
                     model_id=effective_model_id,
@@ -1168,6 +1257,8 @@ class NativeToolReplSession:
                         file_reference_count=file_reference_count,
                         file_reference_loaded_count=file_reference_loaded_count,
                         file_reference_failed_count=file_reference_failed_count,
+                        compaction_count=compaction_count,
+                        compaction_dropped_group_count=compaction_dropped_group_count_total,
                         error_type="NativeToolLoopMalformedFatal",
                         error_message=(
                             f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
@@ -1196,6 +1287,8 @@ class NativeToolReplSession:
             file_reference_count=file_reference_count,
             file_reference_loaded_count=file_reference_loaded_count,
             file_reference_failed_count=file_reference_failed_count,
+            compaction_count=compaction_count,
+            compaction_dropped_group_count=compaction_dropped_group_count_total,
         )
 
     def _build_repl_input(
@@ -1673,7 +1766,9 @@ class NativeToolReplSession:
     def _help_text() -> str:
         return (
             "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
-            "`/login`, `/logout`, `/copy`, `/exit`, `/quit` locally. `/model` "
+            "`/login`, `/logout`, `/copy`, `/compact`, `/exit`, `/quit` "
+            "locally. `/compact` reduces provider-visible context while keeping "
+            "recent turns plus a safe summary. `/model` "
             "opens an interactive provider/model selector (or "
             "`/model <provider>/<model>` switches directly); `/settings` opens an "
             "interactive settings dialog (provider/model, openai-codex auth, and "

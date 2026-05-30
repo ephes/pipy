@@ -502,12 +502,13 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/login",
         "/logout",
         "/copy",
+        "/compact",
         "/exit",
         "/quit",
     )
     # /login and /logout are now executable in tool-loop mode, so the menu
     # advertises them alongside the rest of the executable command set.
-    for executable in ("/login", "/logout"):
+    for executable in ("/login", "/logout", "/compact"):
         assert executable in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     ui = _ui(tmp_path)
@@ -515,6 +516,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
     assert ui.command_descriptions.get("/copy")
     assert ui.command_descriptions.get("/login")
     assert ui.command_descriptions.get("/logout")
+    assert ui.command_descriptions.get("/compact")
 
 
 def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
@@ -569,9 +571,9 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Eight commands match the bare "/" prefix but the menu windows to six
+    # Nine commands match the bare "/" prefix but the menu windows to six
     # rows, so a scroll indicator appears.
-    assert "(1/8)" in rendered
+    assert "(1/9)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):

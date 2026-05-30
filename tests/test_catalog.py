@@ -538,9 +538,9 @@ def test_format_session_table_prints_header_and_rows(tmp_path):
     table = format_session_table(list_finalized_sessions(root=tmp_path))
 
     assert table.splitlines() == [
-        "started\tmachine\tagent\tslug\tcapture\tsummary\tpath",
+        "started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath",
         (
-            "2026-04-30T13:30:00+00:00\tstudio\tcodex\ttable-work\tpartial\tyes\t"
+            "2026-04-30T13:30:00+00:00\tstudio\tcodex\ttable-work\tpartial\troot\tyes\t"
             f"{record.jsonl_path}"
         ),
     ]
@@ -564,15 +564,16 @@ def test_list_human_output_sanitizes_metadata_table_cells(tmp_path, capsys):
     lines = table.splitlines()
 
     assert len(lines) == 2
-    assert lines[0] == "started\tmachine\tagent\tslug\tcapture\tsummary\tpath"
+    assert lines[0] == "started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath"
     columns = lines[1].split("\t")
-    assert len(columns) == 7
+    assert len(columns) == 8
     assert columns == [
         "2026-04-30T13:30:00+00:00 BAD NEXT",
         "studio west rack",
         "codex cli agent",
         "safe name injected",
         "complete",
+        "root",
         "no",
         str(record_path).replace("\t", " ").replace("\n", " "),
     ]
@@ -584,12 +585,15 @@ def test_list_human_output_sanitizes_metadata_table_cells(tmp_path, capsys):
     assert json.loads(json_output.out) == [
         {
             "agent": "codex\tcli\nagent",
+            "branch_label": None,
             "capture": "complete",
             "has_summary": False,
             "jsonl_path": str(record_path),
             "machine": "studio\twest\nrack",
             "markdown_path": None,
             "partial": False,
+            "relationship": "root",
+            "resume": None,
             "slug": "safe\tname\ninjected",
             "started": "2026-04-30T13:30:00+00:00\tBAD\nNEXT",
         }
@@ -611,8 +615,8 @@ def test_cli_list_supports_table_and_json_output(tmp_path, capsys):
     table_output = capsys.readouterr()
 
     assert table_code == 0
-    assert "started\tmachine\tagent\tslug\tcapture\tsummary\tpath" in table_output.out
-    assert f"\tstudio\tcodex\tcli-list\tcomplete\tyes\t{record.jsonl_path}" in table_output.out
+    assert "started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath" in table_output.out
+    assert f"\tstudio\tcodex\tcli-list\tcomplete\troot\tyes\t{record.jsonl_path}" in table_output.out
 
     json_code = main(["--root", str(tmp_path), "list", "--json"])
     json_output = capsys.readouterr()
@@ -622,12 +626,15 @@ def test_cli_list_supports_table_and_json_output(tmp_path, capsys):
     assert parsed == [
         {
             "agent": "codex",
+            "branch_label": None,
             "capture": "complete",
             "has_summary": True,
             "jsonl_path": str(record.jsonl_path),
             "machine": "studio",
             "markdown_path": str(record.markdown_path),
             "partial": False,
+            "relationship": "root",
+            "resume": None,
             "slug": "cli-list",
             "started": "2026-04-30T13:30:00+00:00",
         }
@@ -650,7 +657,7 @@ def test_cli_list_skips_non_utf8_first_line_in_human_and_json_output(tmp_path, c
     table_output = capsys.readouterr()
 
     assert table_code == 0
-    assert f"\tstudio\tcodex\tvalid-list\tcomplete\tyes\t{record.jsonl_path}" in table_output.out
+    assert f"\tstudio\tcodex\tvalid-list\tcomplete\troot\tyes\t{record.jsonl_path}" in table_output.out
     assert str(non_utf8) not in table_output.out
     assert "\xff" not in table_output.out
     assert "\xfe" not in table_output.out
@@ -664,12 +671,15 @@ def test_cli_list_skips_non_utf8_first_line_in_human_and_json_output(tmp_path, c
     assert parsed == [
         {
             "agent": "codex",
+            "branch_label": None,
             "capture": "complete",
             "has_summary": True,
             "jsonl_path": str(record.jsonl_path),
             "machine": "studio",
             "markdown_path": str(record.markdown_path),
             "partial": False,
+            "relationship": "root",
+            "resume": None,
             "slug": "valid-list",
             "started": "2026-04-30T13:30:00+00:00",
         }
@@ -959,7 +969,7 @@ def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_pa
     assert "started\tmachine\tagent\tslug\tcapture\tmatches\tpath" in human_output.out
     assert f"\tstudio\tcodex\tcli-search\tcomplete\tsummary, markdown\t{record.jsonl_path}" in (
         human_output.out
-    )
+    )  # search table header/columns are unchanged by lineage
     assert "PAYLOAD_SECRET" not in human_output.out
     assert "prompt text" not in human_output.out
     assert "tool output" not in human_output.out
@@ -976,6 +986,7 @@ def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_pa
     assert parsed == [
         {
             "agent": "codex",
+            "branch_label": None,
             "capture": "complete",
             "has_summary": True,
             "jsonl_path": str(record.jsonl_path),
@@ -996,6 +1007,8 @@ def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_pa
                 },
             ],
             "partial": False,
+            "relationship": "root",
+            "resume": None,
             "slug": "cli-search",
             "started": "2026-04-30T13:30:00+00:00",
         }
@@ -1137,7 +1150,9 @@ def test_cli_inspect_json_output_contains_metadata_counts_and_summary(tmp_path, 
     parsed = json.loads(output.out)
     assert parsed == {
         "agent": "codex",
+        "branch_label": None,
         "capture": "complete",
+        "compaction_event_count": 0,
         "event_count": 2,
         "event_types": {
             "session.started": 1,
@@ -1148,6 +1163,8 @@ def test_cli_inspect_json_output_contains_metadata_counts_and_summary(tmp_path, 
         "machine": "studio",
         "markdown_path": str(record.markdown_path),
         "partial": False,
+        "relationship": "root",
+        "resume": None,
         "slug": "cli-inspect-json",
         "started": "2026-04-30T13:30:00+00:00",
         "summary_path": str(record.markdown_path),

@@ -22,6 +22,7 @@ class FinalizedSessionListing:
     partial: bool
     jsonl_path: Path
     markdown_path: Path | None
+    resume: dict[str, str] | None = None
 
     @property
     def capture(self) -> str:
@@ -30,6 +31,16 @@ class FinalizedSessionListing:
     @property
     def has_summary(self) -> bool:
         return self.markdown_path is not None
+
+    @property
+    def relationship(self) -> str:
+        if self.resume is None:
+            return "root"
+        return self.resume.get("relationship", "resume")
+
+    @property
+    def branch_label(self) -> str | None:
+        return self.resume.get("branch_label") if self.resume else None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +53,9 @@ class FinalizedSessionListing:
             "has_summary": self.has_summary,
             "jsonl_path": str(self.jsonl_path),
             "markdown_path": str(self.markdown_path) if self.markdown_path else None,
+            "relationship": self.relationship,
+            "branch_label": self.branch_label,
+            "resume": self.resume,
         }
 
 
@@ -90,6 +104,30 @@ class FinalizedSessionInspection:
     def has_summary(self) -> bool:
         return self.listing.has_summary
 
+    @property
+    def relationship(self) -> str:
+        return self.listing.relationship
+
+    @property
+    def branch_label(self) -> str | None:
+        return self.listing.branch_label
+
+    @property
+    def resume(self) -> dict[str, str] | None:
+        return self.listing.resume
+
+    @property
+    def compaction_event_count(self) -> int:
+        """Number of ``native.session.compacted`` events in the record.
+
+        The no-tool REPL emits one event per compaction, so this is the true
+        compaction count there. The tool-loop path emits a single aggregate
+        event at finalize whose payload ``compaction_count`` holds the real
+        number of compactions; for those records this property is 0 or 1.
+        """
+
+        return int(self.event_types.get("native.session.compacted", 0))
+
     def to_dict(self) -> dict[str, Any]:
         data = self.listing.to_dict()
         data.update(
@@ -98,6 +136,7 @@ class FinalizedSessionInspection:
                 "event_types": dict(self.event_types),
                 "summary_path": str(self.markdown_path) if self.markdown_path else None,
                 "summary_text": self.summary_text,
+                "compaction_event_count": self.compaction_event_count,
             }
         )
         return data
@@ -255,9 +294,12 @@ def search_finalized_sessions(
 def format_session_table(records: list[FinalizedSessionListing]) -> str:
     """Format finalized session records as a compact tab-separated table."""
 
-    lines = ["started\tmachine\tagent\tslug\tcapture\tsummary\tpath"]
+    lines = ["started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath"]
     for record in records:
         summary = "yes" if record.has_summary else "no"
+        lineage = record.relationship
+        if record.branch_label:
+            lineage = f"{lineage}:{record.branch_label}"
         lines.append(
             "\t".join(
                 [
@@ -266,6 +308,7 @@ def format_session_table(records: list[FinalizedSessionListing]) -> str:
                     _table_cell(record.agent),
                     _table_cell(record.slug),
                     _table_cell(record.capture),
+                    _table_cell(lineage),
                     _table_cell(summary),
                     _table_cell(str(record.jsonl_path)),
                 ]
@@ -463,8 +506,16 @@ def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
             else "summary: no"
         ),
         f"event_count: {inspection.event_count}",
-        "event_types:",
+        f"relationship: {_table_cell(inspection.relationship)}",
     ]
+    if inspection.branch_label:
+        lines.append(f"branch_label: {_table_cell(inspection.branch_label)}")
+    if inspection.resume:
+        parent = inspection.resume.get("parent_session_id")
+        if parent:
+            lines.append(f"resumed_from: {_table_cell(parent)}")
+    lines.append(f"compaction_event_count: {inspection.compaction_event_count}")
+    lines.append("event_types:")
     for event_type, count in inspection.event_types.items():
         lines.append(f"  {_table_cell(event_type)}: {count}")
 
@@ -525,6 +576,7 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
         partial=bool(first_event.get("partial", False)),
         jsonl_path=path,
         markdown_path=_safe_markdown_sibling(path),
+        resume=_safe_resume_lineage(first_event),
     )
 
 
@@ -705,8 +757,76 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
         partial=bool(first_event.get("partial", False)),
         jsonl_path=path,
         markdown_path=_safe_markdown_sibling(path),
+        resume=_safe_resume_lineage(first_event),
     )
     return listing, sum(event_types.values()), dict(sorted(event_types.items()))
+
+
+_SAFE_LINEAGE_KEYS: tuple[str, ...] = (
+    "parent_session_id",
+    "relationship",
+    "branch_label",
+    "fork_timestamp",
+)
+
+
+_LINEAGE_LABEL_MAX_LENGTH = 128
+
+
+def _is_secret_shaped(value: str) -> bool:
+    """Return whether ``value`` looks like a secret per the harness detector.
+
+    Imported lazily so the read-only catalog keeps no module-level dependency
+    on ``pipy_harness`` (mirroring the ``resume-info`` boundary): a forged or
+    foreign finalized record could embed a secret-shaped lineage label, and it
+    must not be surfaced by ``list``/``inspect``/``export``.
+    """
+
+    try:
+        from pipy_harness.capture import sanitize_text
+    except Exception:  # pragma: no cover - harness always present in practice
+        return False
+    return sanitize_text(value) == "[REDACTED]"
+
+
+def _safe_lineage_label(value: Any) -> str | None:
+    """Return a terminal-safe, secret-free, short lineage label, or None.
+
+    A finalized record may be forged or foreign, so lineage labels printed by
+    the human ``list``/``inspect`` output must not carry control bytes (e.g. an
+    embedded ``ESC[2J`` clear-screen), secret-shaped content, or unbounded
+    length. Whitespace collapse in ``_table_cell`` does not strip control
+    bytes, so they are dropped here.
+    """
+
+    if not isinstance(value, str) or not value:
+        return None
+    if len(value) > _LINEAGE_LABEL_MAX_LENGTH:
+        return None
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return None
+    if _is_secret_shaped(value):
+        return None
+    return value
+
+
+def _safe_resume_lineage(first_event: dict[str, Any]) -> dict[str, str] | None:
+    """Return allowlisted resume/branch lineage labels from session.started.
+
+    Only string-typed allowlisted keys that are terminal-safe and bounded
+    survive, so a forged ``resume`` object cannot smuggle raw content or
+    control bytes into the catalog projection.
+    """
+
+    resume_field = first_event.get("resume")
+    if not isinstance(resume_field, dict):
+        return None
+    safe: dict[str, str] = {}
+    for key in _SAFE_LINEAGE_KEYS:
+        label = _safe_lineage_label(resume_field.get(key))
+        if label is not None:
+            safe[key] = label
+    return safe or None
 
 
 def _safe_markdown_sibling(record_path: Path) -> Path | None:

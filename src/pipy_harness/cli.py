@@ -17,7 +17,14 @@ from pipy_harness.adapters import (
     SubprocessAdapter,
 )
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import RunRequest, RunResult
+from pipy_harness.models import (
+    RESUME_RELATIONSHIP_BRANCH,
+    RESUME_RELATIONSHIP_RESUME,
+    RunRequest,
+    RunResult,
+    SessionLineage,
+    validate_branch_label,
+)
 from pipy_harness.native import (
     DEFAULT_NATIVE_MODELS,
     SUPPORTED_NATIVE_PROVIDERS,
@@ -250,6 +257,26 @@ def build_parser() -> argparse.ArgumentParser:
             "default. Mutation tools always stay inside the workspace."
         ),
     )
+    repl_parser.add_argument(
+        "--resume",
+        metavar="RECORD",
+        help=(
+            "Resume from a finalized session record (basename or stem). Seeds a "
+            "fresh session with only the safe metadata-only resume context "
+            "(prior provider/model/turn labels). The prior record is never "
+            "modified and no raw transcript is copied."
+        ),
+    )
+    repl_parser.add_argument(
+        "--branch",
+        metavar="LABEL",
+        help=(
+            "Start a child branch from the --resume parent with a safe label. "
+            "The child records safe parent id, branch label, fork timestamp, "
+            "and relationship metadata; the parent record stays immutable. "
+            "Requires --resume."
+        ),
+    )
 
     return parser
 
@@ -333,6 +360,11 @@ def main(argv: list[str] | None = None) -> int:
                 workspace=args.cwd,
             )
             repl_adapter: PipyNativeReplAdapter | PipyNativeToolReplAdapter
+            resume_context, resume_lineage, resume_branch_label = _resolve_repl_resume(
+                resume=args.resume,
+                branch=args.branch,
+                root=args.root,
+            )
             resolved_repl_mode = _resolve_repl_mode(
                 args.repl_mode,
                 native_provider=args.native_provider,
@@ -355,12 +387,16 @@ def main(argv: list[str] | None = None) -> int:
                     archive_transcript=args.archive_transcript,
                     input_runtime=args.input_runtime,
                     reference_roots=reference_roots,
+                    resume_context=resume_context,
+                    resume_branch_label=resume_branch_label,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
                     args.native_provider,
                     args.native_model,
                     input_runtime=args.input_runtime,
+                    resume_context=resume_context,
+                    resume_branch_label=resume_branch_label,
                 )
             request = RunRequest(
                 agent=args.agent,
@@ -372,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
                 capture_policy=CapturePolicy(),
                 native_provider=args.native_provider,
                 native_model=args.native_model,
+                resume=resume_lineage,
             )
             result = HarnessRunner(adapter=repl_adapter).run(request)
             if result.error_type is not None:
@@ -555,6 +592,8 @@ def _repl_adapter_for(
     native_model: str | None,
     *,
     input_runtime: str = "auto",
+    resume_context: Any = None,
+    resume_branch_label: str | None = None,
 ) -> PipyNativeReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -578,6 +617,8 @@ def _repl_adapter_for(
         provider_state=provider_state,
         input_runtime=input_runtime,
         instruction_loader=default_workspace_instruction_loader,
+        resume_context=resume_context,
+        resume_branch_label=resume_branch_label,
     )
 
 
@@ -600,6 +641,56 @@ def _fallback_default_selection(
                 model_id=DEFAULT_NATIVE_MODELS[provider_name],
             )
     return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+
+
+def _resolve_repl_resume(
+    *,
+    resume: str | None,
+    branch: str | None,
+    root: Path | None,
+) -> tuple[Any, SessionLineage | None, str | None]:
+    """Resolve --resume/--branch into a metadata-only context + lineage.
+
+    Returns ``(resume_context, lineage, branch_label)``. The resume context is
+    read read-only from the finalized parent record; the parent is never
+    modified. Raises ``ValueError`` on a missing/malformed parent or an unsafe
+    branch label so the CLI reports it cleanly.
+    """
+
+    if branch is not None and resume is None:
+        raise ValueError("--branch requires --resume")
+    if resume is None:
+        return None, None, None
+
+    from datetime import UTC, datetime
+
+    from pipy_session.recorder import resolve_session_root
+
+    from pipy_harness.native.session_resume import (
+        build_session_lineage,
+        resume_session_from_archive,
+    )
+
+    session_root = resolve_session_root(root)
+    try:
+        context = resume_session_from_archive(resume, session_root=session_root)
+    except LookupError as exc:
+        raise ValueError(f"--resume record not found: {exc}") from exc
+
+    branch_label: str | None = None
+    relationship = RESUME_RELATIONSHIP_RESUME
+    if branch is not None:
+        branch_label = validate_branch_label(branch)
+        relationship = RESUME_RELATIONSHIP_BRANCH
+
+    fork_timestamp = datetime.now(UTC).isoformat()
+    lineage = build_session_lineage(
+        context,
+        relationship=relationship,
+        fork_timestamp=fork_timestamp,
+        branch_label=branch_label,
+    )
+    return context, lineage, branch_label
 
 
 def _resolve_repl_mode(
@@ -641,6 +732,8 @@ def _tool_repl_adapter_for(
     archive_transcript: bool = False,
     input_runtime: str = "auto",
     reference_roots: tuple[Path, ...] = (),
+    resume_context: Any = None,
+    resume_branch_label: str | None = None,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -676,6 +769,8 @@ def _tool_repl_adapter_for(
         instruction_loader=default_workspace_instruction_loader,
         input_runtime=input_runtime,
         reference_roots=reference_roots,
+        resume_context=resume_context,
+        resume_branch_label=resume_branch_label,
     )
 
 

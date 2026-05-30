@@ -23,10 +23,14 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
+from pipy_harness.capture import sanitize_text
 from pipy_session.catalog import resolve_finalized_record
 from pipy_session.recorder import FILENAME_RE
+
+if TYPE_CHECKING:
+    from pipy_harness.models import SessionLineage
 
 # Allowlist of top-level event keys that resume may read. Any other top-level
 # key is ignored, so payload-shaped or hostile keys like ``prompt``,
@@ -59,6 +63,19 @@ SAFE_PAYLOAD_KEYS: tuple[str, ...] = (
     "cwd_sha256",
 )
 
+# Allowlist of keys read from the ``resume`` object recorded on a finalized
+# child session's ``session.started`` event. Anything outside this allowlist is
+# ignored, so a forged ``resume`` object cannot smuggle raw content into the
+# resume projection.
+SAFE_LINEAGE_KEYS: tuple[str, ...] = (
+    "parent_session_id",
+    "relationship",
+    "branch_label",
+    "fork_timestamp",
+)
+
+COMPACTION_EVENT_TYPE = "native.session.compacted"
+
 
 @dataclass(frozen=True, slots=True)
 class ResumeContext:
@@ -79,9 +96,23 @@ class ResumeContext:
     prior_started_at: str
     prior_ended_at: str
     prior_summary: str | None
+    prior_relationship: str | None = None
+    prior_parent_session_id: str | None = None
+    prior_branch_label: str | None = None
+    prior_fork_timestamp: str | None = None
+    prior_compaction_event_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable projection of this context."""
+        """Return a JSON-serializable projection of this context.
+
+        This is the *only* place ``prior_summary`` (the prior run's Markdown
+        summary — a deliberate human-review artifact) escapes the value object.
+        It is safe for ``pipy-session resume-info`` and ``export`` (which both
+        already surface the sibling ``.md``), but it must never be folded into
+        the seeded system prompt, the resumed-state banner, or a metadata-first
+        JSONL archive event. Callers that record archive events must project a
+        safe subset, not this dict.
+        """
 
         return asdict(self)
 
@@ -128,10 +159,20 @@ def resume_session_from_archive(
     if match is None:
         raise ValueError(f"finalized session filename is malformed: {record_path.name}")
 
-    started_at = _safe_string(first_event.get("timestamp")) or match.group("stamp")
+    # Timestamps reach the banner and seeded system prompt, so they are
+    # sanitized like every other label; an unsafe forged timestamp falls back
+    # to the (regex-validated) filename stamp.
+    started_at = _safe_label(first_event.get("timestamp")) or match.group("stamp")
 
     provider_name, model_id, turn_count, workspace_hash, ended_at = (
         _scan_lifecycle_metadata(events, fallback_started_at=started_at)
+    )
+
+    lineage = _safe_lineage(first_event.get("resume"))
+    compaction_event_count = sum(
+        1
+        for event in events
+        if isinstance(event, dict) and event.get("type") == COMPACTION_EVENT_TYPE
     )
 
     markdown_path = record_path.with_suffix(".md")
@@ -148,6 +189,37 @@ def resume_session_from_archive(
         prior_started_at=started_at,
         prior_ended_at=ended_at,
         prior_summary=summary_text,
+        prior_relationship=lineage.get("relationship"),
+        prior_parent_session_id=lineage.get("parent_session_id"),
+        prior_branch_label=lineage.get("branch_label"),
+        prior_fork_timestamp=lineage.get("fork_timestamp"),
+        prior_compaction_event_count=compaction_event_count,
+    )
+
+
+def build_session_lineage(
+    context: ResumeContext,
+    *,
+    relationship: str,
+    fork_timestamp: str,
+    branch_label: str | None = None,
+) -> "SessionLineage":
+    """Build the metadata-only :class:`SessionLineage` for a resumed/forked run.
+
+    Carries only safe parent/provider/model/turn labels from ``context``; never
+    summary text, prompts, or model output.
+    """
+
+    from pipy_harness.models import SessionLineage
+
+    return SessionLineage(
+        parent_session_id=context.prior_session_id,
+        relationship=relationship,
+        fork_timestamp=fork_timestamp,
+        branch_label=branch_label,
+        prior_provider_name=context.prior_provider_name,
+        prior_model_id=context.prior_model_id,
+        prior_turn_count=context.prior_turn_count,
     )
 
 
@@ -168,6 +240,29 @@ def compose_resume_system_block(context: ResumeContext) -> str:
         f"(provider={provider_label}, model={model_label}, "
         f"{context.prior_turn_count} prior turns, "
         f"finalized {finalized_label})."
+    )
+
+
+def compose_resume_status_line(
+    context: ResumeContext,
+    *,
+    branch_label: str | None = None,
+) -> str:
+    """Return a safe one-line resumed-state banner for startup/status UI.
+
+    Carries only safe labels — the prior session id, provider/model selection,
+    prior turn count, finalized timestamp, and (for a branch) the branch label.
+    It never includes prompts, model output, tool payloads, or summary text.
+    """
+
+    provider_label = context.prior_provider_name or "unknown"
+    model_label = context.prior_model_id or "unknown"
+    finalized_label = context.prior_ended_at or context.prior_started_at or "unknown"
+    kind = f"branch {branch_label}" if branch_label else "resume"
+    return (
+        f"Resumed ({kind}) from session {context.prior_session_id}: "
+        f"provider={provider_label}, model={model_label}, "
+        f"{context.prior_turn_count} prior turns, finalized {finalized_label}."
     )
 
 
@@ -214,24 +309,19 @@ def _scan_lifecycle_metadata(
         safe_payload = _safe_payload(event.get("payload"))
 
         event_type = safe_event.get("type")
-        timestamp = safe_event.get("timestamp")
-        if isinstance(timestamp, str) and timestamp:
-            last_timestamp = timestamp
+        safe_timestamp = _safe_label(safe_event.get("timestamp"))
+        if safe_timestamp:
+            last_timestamp = safe_timestamp
 
         if provider_name is None:
             candidate = safe_payload.get("provider") or safe_payload.get("provider_name")
-            if isinstance(candidate, str) and candidate:
-                provider_name = candidate
+            provider_name = _safe_label(candidate)
 
         if model_id is None:
-            candidate_model = safe_payload.get("model_id")
-            if isinstance(candidate_model, str) and candidate_model:
-                model_id = candidate_model
+            model_id = _safe_label(safe_payload.get("model_id"))
 
         if workspace_hash is None:
-            candidate_hash = safe_payload.get("cwd_sha256")
-            if isinstance(candidate_hash, str) and candidate_hash:
-                workspace_hash = candidate_hash
+            workspace_hash = _safe_label(safe_payload.get("cwd_sha256"))
 
         candidate_turns = safe_payload.get("turn_count")
         if (
@@ -268,7 +358,45 @@ def _safe_payload(payload: Any) -> dict[str, Any]:
     return safe
 
 
-def _safe_string(value: Any) -> str | None:
-    if isinstance(value, str) and value:
-        return value
-    return None
+def _safe_lineage(resume_field: Any) -> dict[str, str]:
+    """Extract allowlisted lineage labels from a child session's ``resume`` map.
+
+    Returns only string-typed allowlisted keys; non-string and out-of-allowlist
+    values (including any forged payload-shaped keys) are dropped.
+    """
+
+    if not isinstance(resume_field, Mapping):
+        return {}
+    safe: dict[str, str] = {}
+    for key in SAFE_LINEAGE_KEYS:
+        label = _safe_label(resume_field.get(key))
+        if label is not None:
+            safe[key] = label
+    return safe
+
+
+# Bound on the labels we will carry out of a (possibly forged or foreign)
+# finalized record into the resume context, banner, and seeded system prompt.
+_SAFE_LABEL_MAX_LENGTH = 128
+
+
+def _safe_label(value: Any) -> str | None:
+    """Return ``value`` only if it is a terminal-safe, secret-free short label.
+
+    A finalized record may be corrupt, hand-edited, or written by a foreign
+    tool. Provider/model/lineage labels read from it flow into the new child
+    archive, the resumed-state banner, and the seeded provider system prompt,
+    so they must be sanitized at this boundary — not merely key-allowlisted.
+    Control bytes, over-long values, and secret-shaped content are dropped
+    (the field falls back to ``None``/``"unknown"``), which fails closed.
+    """
+
+    if not isinstance(value, str) or not value:
+        return None
+    if len(value) > _SAFE_LABEL_MAX_LENGTH:
+        return None
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return None
+    if sanitize_text(value) == "[REDACTED]":
+        return None
+    return value

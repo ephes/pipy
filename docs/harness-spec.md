@@ -41,8 +41,11 @@ harness should call it instead of creating a parallel transcript format.
 - Do not replace Codex, Claude Code, Pi, Aider, Goose, or Continue in the first
   slice.
 - Do not implement a full native model/tool loop in the bootstrap slice.
-- Do not add multi-agent orchestration, branching, compaction, repo maps,
-  indexing, long-running daemons, or a web UI yet.
+- Do not add multi-agent orchestration, repo maps, indexing, long-running
+  daemons, or a web UI yet. (Live single-session resume, branch/fork, and
+  in-session compaction have since shipped through pipy-owned boundaries — see
+  the `Native Session Workflow Decision` below — but they remain bounded to one
+  metadata-first session lineage, not a mutable Pi-style session tree.)
 - Do not change the finalized session archive layout documented in
   `docs/session-storage.md`.
 - Do not publish documentation, add docs CI/deploy workflows, or turn the local
@@ -939,6 +942,39 @@ contents, target paths, raw prompts, model output, provider responses,
 provider-native payloads, raw provider metadata, raw tool payloads, stdout,
 stderr, command output, shell commands, auth material, secrets, credentials,
 API keys, tokens, private keys, and sensitive personal data.
+
+### Native Session Workflow Decision
+
+Live resume, branch/fork, and in-session compaction are pipy-owned single-
+lineage workflows, deliberately not a mutable Pi-style session tree. The shape:
+
+- **Resume seeding** reuses the existing metadata-only reader. A fresh session
+  is always a new finalized record seeded with `compose_resume_system_block`
+  (prior provider/model/turn labels only). The parent is read read-only and
+  never mutated; no raw transcript sidecar is copied. Display uses a separate
+  `compose_resume_status_line` banner carrying the same safe labels (and the
+  branch label when forking) — never summary text.
+- **Lineage** is a plain-data `SessionLineage` value object on `RunRequest`, so
+  the runner (not the effectful adapter) writes the safe `resume` object onto
+  `session.started` and emits `native.session.resumed`. Branch labels pass
+  `validate_branch_label` (single-line, non-path, non-secret-shaped, bounded).
+- **Compaction** is a pure transform (`session_compaction`). The tool-loop cut
+  is constrained to `UserMessage` group boundaries so the retained provider
+  history is always protocol-valid (no orphaned tool result, no reordered
+  tool-call/observation pair, no exposed raw tool payload). The summary folded
+  back into the provider system prompt is counts only; the dropped raw context
+  is discarded from memory and never archived. Triggers are an explicit
+  `/compact` command and an automatic threshold in both REPL modes.
+- **Archive metadata** stays counts/labels only: `native.session.compacted`
+  carries drop/retain counts, before/after byte totals, and a trigger label.
+
+Allowed metadata: parent session id (a bare record stem), relationship,
+validated branch label, fork timestamp, prior provider/model/turn counters, and
+compaction counts. Forbidden: prompts, model output, provider responses, tool
+payloads, file contents, diffs, command output, raw Markdown summary text,
+secrets, credentials, tokens, private keys, and sensitive personal data. A
+documented safe-summary policy that surfaced prior model/user text would be a
+separate, separately tested change; none ships today.
 
 ### First Native Self-Bootstrap Trial Outcome
 

@@ -21,6 +21,10 @@ from pipy_harness.native.session import (
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
 )
+from pipy_harness.native.session_resume import (
+    ResumeContext,
+    compose_resume_system_block,
+)
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
@@ -144,6 +148,8 @@ class PipyNativeReplAdapter:
         error_stream: TextIO | None = None,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
+        resume_context: ResumeContext | None = None,
+        resume_branch_label: str | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -154,6 +160,8 @@ class PipyNativeReplAdapter:
         self.error_stream = error_stream or sys.stderr
         self.input_runtime = input_runtime
         self.instruction_loader = instruction_loader
+        self.resume_context = resume_context
+        self.resume_branch_label = resume_branch_label
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -188,6 +196,8 @@ class PipyNativeReplAdapter:
             provider_state=self.provider_state,
             input_runtime=self.input_runtime,
             instruction_loader=self.instruction_loader,
+            resume_context=self.resume_context,
+            resume_branch_label=self.resume_branch_label,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
@@ -257,11 +267,15 @@ class PipyNativeToolReplAdapter:
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
         reference_roots: tuple[Path, ...] = (),
+        resume_context: ResumeContext | None = None,
+        resume_branch_label: str | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
                 "PipyNativeToolReplAdapter requires provider or provider_state"
             )
+        self.resume_context = resume_context
+        self.resume_branch_label = resume_branch_label
         self.provider = provider
         self.provider_state = provider_state
         self.tool_registry = (
@@ -331,6 +345,13 @@ class PipyNativeToolReplAdapter:
         composed_system_prompt = compose_system_prompt(
             base_prompt, discovery
         )
+        if self.resume_context is not None:
+            # Seed the resumed tool-loop session with only the safe
+            # metadata-only resume block; no prior prompts/output/summary text.
+            block = compose_resume_system_block(self.resume_context)
+            if self.resume_branch_label:
+                block += f" Branch: {self.resume_branch_label}."
+            composed_system_prompt = f"{composed_system_prompt}\n\n{block}"
         instruction_metadata = workspace_instruction_safe_metadata(discovery)
         event_sink.emit(
             "native.workspace_context.loaded",
@@ -353,6 +374,8 @@ class PipyNativeToolReplAdapter:
             transcript_sink=self.transcript_sink,
             input_runtime=self.input_runtime,
             reference_roots=self.reference_roots,
+            resume_context=self.resume_context,
+            resume_branch_label=self.resume_branch_label,
         )
         try:
             run_output = session.run(
@@ -367,6 +390,25 @@ class PipyNativeToolReplAdapter:
         finally:
             if self.transcript_sink is not None:
                 self.transcript_sink.close()
+        if run_output.compaction_count:
+            # Aggregate, metadata-only compaction record for the catalog. The
+            # tool-loop session returns counts only; no dropped content leaves
+            # memory.
+            event_sink.emit(
+                "native.session.compacted",
+                summary=(
+                    "Native tool-loop context compacted "
+                    f"{run_output.compaction_count} time(s)."
+                ),
+                payload={
+                    "adapter": self.name,
+                    "repl_mode": "tool-loop",
+                    "compaction_count": run_output.compaction_count,
+                    "compaction_dropped_group_count": (
+                        run_output.compaction_dropped_group_count
+                    ),
+                },
+            )
         return AdapterResult(
             status=run_output.status,
             exit_code=run_output.exit_code,
@@ -385,6 +427,7 @@ class PipyNativeToolReplAdapter:
                 "file_reference_count": run_output.file_reference_count,
                 "file_reference_loaded_count": run_output.file_reference_loaded_count,
                 "file_reference_failed_count": run_output.file_reference_failed_count,
+                "compaction_count": run_output.compaction_count,
                 "error_type": run_output.error_type,
                 "error_message": run_output.error_message,
                 **instruction_metadata,

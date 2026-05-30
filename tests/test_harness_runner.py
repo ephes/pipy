@@ -315,3 +315,42 @@ def _run_git(cwd: Path, *args: str) -> None:
         raise AssertionError("git is required for this test")
     completed = subprocess.run(["git", *args], cwd=cwd, check=False)
     assert completed.returncode == 0
+
+
+def test_runner_records_resume_lineage_into_started_and_event(tmp_path):
+    from pipy_harness.models import RESUME_RELATIONSHIP_BRANCH, SessionLineage
+
+    lineage = SessionLineage(
+        parent_session_id="2026-04-30T133000Z-studio-codex-parent",
+        relationship=RESUME_RELATIONSHIP_BRANCH,
+        fork_timestamp="2026-05-30T00:00:00+00:00",
+        branch_label="explore-idea",
+        prior_provider_name="openai",
+        prior_model_id="gpt-5",
+        prior_turn_count=3,
+    )
+    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-resume").run(
+        RunRequest(
+            agent="pipy-native",
+            slug="resumed",
+            command=[sys.executable, "-c", "print('ok')"],
+            cwd=tmp_path,
+            root=tmp_path / "sessions",
+            resume=lineage,
+        )
+    )
+
+    events = read_jsonl(result.record.jsonl_path)
+    started = events[0]
+    assert started["type"] == "session.started"
+    assert started["resume"]["relationship"] == "branch"
+    assert started["resume"]["branch_label"] == "explore-idea"
+    assert started["resume"]["parent_session_id"].endswith("codex-parent")
+
+    resumed_events = [e for e in events if e["type"] == "native.session.resumed"]
+    assert len(resumed_events) == 1
+    payload = resumed_events[0]["payload"]
+    assert payload["relationship"] == "branch"
+    assert payload["branch_label"] == "explore-idea"
+    assert payload["prior_turn_count"] == 3
+    assert verify_session_archive(root=tmp_path / "sessions").ok is True

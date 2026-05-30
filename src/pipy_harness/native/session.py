@@ -98,6 +98,15 @@ from pipy_harness.native.resources import (
     WorkspaceResources,
     dispatch_resource_command,
 )
+from pipy_harness.native.session_compaction import (
+    compact_no_tool_context,
+    should_compact_no_tool_context,
+)
+from pipy_harness.native.session_resume import (
+    ResumeContext,
+    compose_resume_status_line,
+    compose_resume_system_block,
+)
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
 from pipy_harness.native.workspace_context import (
@@ -302,6 +311,7 @@ NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 CLEAR_REPL_COMMAND = "/clear"
+COMPACT_REPL_COMMAND = "/compact"
 STATUS_REPL_COMMAND = "/status"
 SETTINGS_REPL_COMMAND = "/settings"
 LOGIN_REPL_COMMAND = "/login"
@@ -323,7 +333,7 @@ class _ReplCommandGroup:
 
 _REPL_COMMAND_GROUPS = (
     _ReplCommandGroup("Controls", ("/help",)),
-    _ReplCommandGroup("Local state", ("/clear", "/status", "/settings")),
+    _ReplCommandGroup("Local state", ("/clear", "/compact", "/status", "/settings")),
     _ReplCommandGroup(
         "Provider and model",
         (
@@ -833,6 +843,8 @@ class NativeNoToolReplSession:
     instruction_loader: WorkspaceInstructionLoader = field(
         default=empty_workspace_instruction_loader
     )
+    resume_context: ResumeContext | None = None
+    resume_branch_label: str | None = None
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -857,6 +869,19 @@ class NativeNoToolReplSession:
         composed_system_prompt = compose_system_prompt(
             NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
         )
+        # Resume seeding: a fresh session started with --resume is seeded only
+        # with the safe metadata-only resume block (provider/model/turn labels).
+        # No prompts, model output, tool payloads, or summary text from the
+        # prior run are folded into the system prompt. compaction_summary is a
+        # mutable suffix appended whenever /compact or the auto threshold fires.
+        if self.resume_context is not None:
+            block = compose_resume_system_block(self.resume_context)
+            if self.resume_branch_label:
+                block += f" Branch: {self.resume_branch_label}."
+            composed_system_prompt = f"{composed_system_prompt}\n\n{block}"
+        base_system_prompt = composed_system_prompt
+        compaction_summary = ""
+        compaction_count = 0
         instruction_metadata = workspace_instruction_safe_metadata(discovery)
         current_run_input, safe_context = _current_repl_turn_state(
             provider_state,
@@ -920,6 +945,13 @@ class NativeNoToolReplSession:
             pending_apply_draft=pending_apply_draft,
             verify_after_apply_available=verify_after_apply_available,
         )
+        if self.resume_context is not None:
+            # Safe resumed-state banner: prior session id, provider, model,
+            # turn count, finalized time (and branch label) only.
+            print(
+                f"pipy: {compose_resume_status_line(self.resume_context, branch_label=self.resume_branch_label)}",
+                file=error_stream,
+            )
         # Pi-parity: the slash-menu input adapter draws the persistent bottom
         # status block (cwd + status line) live below the input area, so for
         # interactive TTY sessions the loop does not need a pre-loop frame.
@@ -1007,6 +1039,40 @@ class NativeNoToolReplSession:
                     print("pipy: local conversation context cleared.", file=error_stream)
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, CLEAR_REPL_COMMAND)
+                continue
+            if _is_repl_command_invocation(command, COMPACT_REPL_COMMAND):
+                pending_apply_draft = None
+                if command == COMPACT_REPL_COMMAND:
+                    compact_result = compact_no_tool_context(no_tool_context)
+                    if compact_result.changed:
+                        no_tool_context = compact_result.context
+                        compaction_summary = f"\n\n{compact_result.summary_block}"
+                        compaction_count += 1
+                        event_sink.emit(
+                            "native.session.compacted",
+                            summary=(
+                                "Native REPL context compacted: dropped "
+                                f"{compact_result.dropped_exchange_count} exchange(s)."
+                            ),
+                            payload={
+                                **safe_context,
+                                "compaction_trigger": "manual",
+                                "compaction_count": compaction_count,
+                                **compact_result.safe_metadata(),
+                            },
+                        )
+                        print(
+                            "pipy: compacted conversation context (dropped "
+                            f"{compact_result.dropped_exchange_count} exchange(s); "
+                            f"{compact_result.retained_exchange_count} retained).",
+                            file=error_stream,
+                        )
+                    else:
+                        print(
+                            "pipy: nothing to compact yet.", file=error_stream
+                        )
+                else:
+                    _print_repl_command_usage_diagnostic(error_stream, COMPACT_REPL_COMMAND)
                 continue
             if _is_repl_command_invocation(command, STATUS_REPL_COMMAND):
                 if command == STATUS_REPL_COMMAND:
@@ -1388,6 +1454,19 @@ class NativeNoToolReplSession:
                         "resource_label": resource_dispatch.resource_label,
                     },
                 )
+                # Resource turns share the same automatic compaction + safe
+                # summary suffix as genuine prompts, so a compacted session
+                # stays coherent and the bounded context cannot grow unbounded
+                # across a run of /skill or /template invocations.
+                compaction_count, compaction_summary, no_tool_context = (
+                    _maybe_auto_compact_no_tool(
+                        no_tool_context,
+                        event_sink=event_sink,
+                        safe_context=safe_context,
+                        compaction_count=compaction_count,
+                        compaction_summary=compaction_summary,
+                    )
+                )
                 provider = provider_state.current_provider()
                 provider_result, provider_usage = _call_provider_turn(
                     provider,
@@ -1399,7 +1478,7 @@ class NativeNoToolReplSession:
                     tool_observation=None,
                     archive_provider_metadata=False,
                     no_tool_repl_context=no_tool_context,
-                    system_prompt=composed_system_prompt,
+                    system_prompt=base_system_prompt + compaction_summary,
                 )
                 final_provider_result = provider_result
                 final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -1468,6 +1547,19 @@ class NativeNoToolReplSession:
                     ),
                     payload={**safe_context, **file_references.safe_metadata()},
                 )
+            # Automatic compaction: when the bounded provider-visible context
+            # crosses the threshold, drop the oldest exchanges and append a safe
+            # metadata-only summary to the system prompt before the next turn.
+            compaction_count, compaction_summary, no_tool_context = (
+                _maybe_auto_compact_no_tool(
+                    no_tool_context,
+                    event_sink=event_sink,
+                    safe_context=safe_context,
+                    compaction_count=compaction_count,
+                    compaction_summary=compaction_summary,
+                )
+            )
+            turn_system_prompt = base_system_prompt + compaction_summary
             provider = provider_state.current_provider()
             provider_result, provider_usage = _call_provider_turn(
                 provider,
@@ -1479,7 +1571,7 @@ class NativeNoToolReplSession:
                 tool_observation=None,
                 archive_provider_metadata=False,
                 no_tool_repl_context=no_tool_context,
-                system_prompt=composed_system_prompt,
+                system_prompt=turn_system_prompt,
             )
             final_provider_result = provider_result
             final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -1536,6 +1628,7 @@ class NativeNoToolReplSession:
                 "file_reference_failed_count": file_reference_failed_count,
                 "input_runtime": repl_input.runtime_label,
                 **no_tool_context.safe_retained_metadata(),
+                "compaction_count": compaction_count,
                 "exit_reason": exit_reason,
                 "duration_seconds": _duration_seconds(started_at, ended_at),
             },
@@ -2397,6 +2490,46 @@ NATIVE_TOOL_LOOP_SYSTEM_PROMPT: str = (
 
 def _build_system_prompt() -> str:
     return NATIVE_BOOTSTRAP_SYSTEM_PROMPT
+
+
+def _maybe_auto_compact_no_tool(
+    no_tool_context: NativeNoToolReplConversationContext,
+    *,
+    event_sink: EventSink,
+    safe_context: Mapping[str, object],
+    compaction_count: int,
+    compaction_summary: str,
+) -> tuple[int, str, NativeNoToolReplConversationContext]:
+    """Auto-compact the no-tool context when it crosses the threshold.
+
+    Returns the (possibly updated) ``compaction_count``, the safe
+    metadata-only ``compaction_summary`` suffix to append to the system
+    prompt, and the (possibly trimmed) context. Emits a metadata-only
+    ``native.session.compacted`` event when compaction fires. Shared by the
+    genuine-prompt and resource-invocation provider turns so both stay
+    coherent and bounded after a compaction.
+    """
+
+    if not should_compact_no_tool_context(no_tool_context):
+        return compaction_count, compaction_summary, no_tool_context
+    result = compact_no_tool_context(no_tool_context)
+    if not result.changed:
+        return compaction_count, compaction_summary, no_tool_context
+    compaction_count += 1
+    event_sink.emit(
+        "native.session.compacted",
+        summary=(
+            "Native REPL context compacted: dropped "
+            f"{result.dropped_exchange_count} exchange(s)."
+        ),
+        payload={
+            **safe_context,
+            "compaction_trigger": "auto",
+            "compaction_count": compaction_count,
+            **result.safe_metadata(),
+        },
+    )
+    return compaction_count, f"\n\n{result.summary_block}", result.context
 
 
 def _call_provider_turn(

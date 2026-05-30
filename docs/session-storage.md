@@ -100,6 +100,33 @@ Sync recipes exclude `.in-progress/` and `*.partial`, so mid-session files are n
 
 If a finalized record needs correction, create a new sibling file or append a correction event to a new follow-up JSONL file. Do not edit the finalized original in place.
 
+### Resume, branch, and compaction metadata
+
+Live resume (`pipy repl --resume <stem>`), branch/fork (`--branch <label>`),
+and in-session compaction (`/compact` plus an automatic threshold) preserve the
+metadata-first contract:
+
+- A resumed or forked **child** session is always a brand-new finalized record.
+  The parent record is read read-only and never mutated; no raw transcript
+  sidecar is copied. The child records lineage as a safe `resume` object on its
+  `session.started` event — `{parent_session_id, relationship, branch_label,
+  fork_timestamp}` — plus a `native.session.resumed` lifecycle event carrying
+  the same safe labels and the prior provider/model/turn counters. These are
+  short labels only; prompts, model output, tool payloads, file contents,
+  diffs, and Markdown summary text never enter them.
+- Compaction is recorded only as metadata-only counters via
+  `native.session.compacted` events (drop/retain counts, before/after byte
+  totals, trigger `manual`/`auto`) and a `compaction_count` on the completion
+  payload. The dropped raw context is simply discarded from the in-memory
+  provider-visible history; it is never written to the archive, and the safe
+  summary injected back into the provider system prompt is counts only.
+- The catalog surfaces this read-only: `list` shows the lineage relationship
+  and branch label, `inspect` adds the parent id and `compaction_event_count`,
+  `export` adds a safe `resume` lineage object and `compaction_event_count`,
+  and `resume-info` adds the branch/parent/compaction fields. All of them
+  reject malformed, ambiguous, symlinked, active (`.in-progress`), or
+  out-of-archive records without printing raw bodies or unsafe labels.
+
 Follow-up filenames should keep the original slug and add a suffix:
 
 ```text

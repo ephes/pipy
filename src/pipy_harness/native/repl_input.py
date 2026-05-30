@@ -29,6 +29,7 @@ SUPPORTED_REPL_INPUT_RUNTIMES = (
 DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/help",
     "/clear",
+    "/compact",
     "/status",
     "/settings",
     "/login",
@@ -47,6 +48,7 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
 DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/help": "Show pipy command reference",
     "/clear": "Clear local conversation context",
+    "/compact": "Compact context, keep a safe summary",
     "/status": "Show REPL state (read-only)",
     "/settings": "Settings and status",
     "/copy": "Copy the last answer to the clipboard (local)",

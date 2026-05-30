@@ -107,8 +107,8 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
 | E1 | Session resume (replay from record) | ✅ | `test -f src/pipy_harness/native/session_resume.py \|\| grep -rq 'def resume' src/pipy_harness/native/` |
-| E2 | Session compaction (LLM-summarize transcript) | ❌ | `test -f src/pipy_harness/native/session_compaction.py` (helper removed in 2026-05-26 audit cleanup; could not fire because `MAX_TURNS=8` is below threshold — see backlog Track CQ-A) |
-| E3 | Session branching/forking | ❌ | `test -f src/pipy_harness/native/session_branching.py` (helper removed in 2026-05-26 audit cleanup; no recorder integration — see backlog Track CQ-A) |
+| E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_no_tool_context …/session.py && grep -q compact_tool_loop_messages …/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py` (seeds a temp record; proves `/compact` reduces provider-visible context and tool-loop compaction never orphans a tool result) |
+| E3 | Session branching/forking | ✅ | **behavior check**: `grep -q build_session_lineage …/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py` (seeds a parent, runs `--branch`, proves safe lineage metadata is recorded and the parent stays byte-for-byte immutable) |
 | E4 | Session export/share | ✅ | `uv run pipy-session export --help 2>/dev/null \|\| grep -rq 'def export' src/pipy_session/` |
 | E5 | Dynamic provider/model swap mid-session | ❌ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; was a 140 L wrapper around one `select_model` call — see backlog Track CQ-A) |
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
@@ -119,15 +119,18 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-30, after wiring runtime resource loading):  44
-target  ✅ count for 80% parity:                                       40
-delta beyond 80% target:                                               +4
+current ✅ count (2026-05-30, after wiring live resume/compaction/branching):  46
+target  ✅ count for 80% parity:                                              40
+delta beyond 80% target:                                                      +6
 ```
 
 Red rows remaining: B7 (bash, deferred behind a real sandbox), D7
-(themes), D8 (image attachments), E2 (session compaction), and E3
-(session branching). E5 (dynamic provider swap) passes via its
-`select_model` helper path.
+(themes), D8 (image attachments), and E5 (dynamic provider swap — its
+parity-score row still greps for a removed `dynamic_provider` helper even
+though the capability ships through `NativeReplProviderState.select_model`
+in both REPL modes). E2 (session compaction) and E3 (session branching)
+are now ✅ as **behavior checks** that seed temporary records and prove the
+live `/compact`/`--branch` product paths.
 
 D4 (skills), D5 (prompt templates), and D6 (custom slash commands) were
 red after the 2026-05-26 audit cleanup removed their dormant helper
@@ -188,10 +191,14 @@ For the anti-gaming bar:
   attempts, hermetic test that injects two failures then a success.
 - **session resume (E1)**: a metadata-only reader resolves finalized archive
   records into safe continuation context, exposes it through
-  `pipy-session resume-info <session-id>`, and has focused tests. Live native
-  prompt seeding remains a follow-up.
-- **session compaction (E2)**: a documented compaction pass that summarizes
-  an oversized message envelope back into bounded form, with a test.
+  `pipy-session resume-info <session-id>`, and seeds a fresh live session from
+  it via `pipy repl --resume <stem>` (no-tool and tool-loop), recording only
+  safe lineage metadata while leaving the parent record immutable, with tests.
+- **session compaction (E2)**: a live in-session compaction pass (`/compact`
+  plus an automatic threshold) reduces the provider-visible context back into
+  bounded form while keeping recent turns plus a safe summary; the tool-loop
+  cut preserves provider message-protocol validity (no orphaned tool result),
+  with a behavior check that seeds a temp record and unit tests.
 - **dynamic provider swap (E5)**: helper functions switch provider/model
   selection through `NativeReplProviderState.select_model`, preserving existing
   availability gates and non-secret default persistence, with focused tests.

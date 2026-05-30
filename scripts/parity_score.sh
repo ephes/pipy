@@ -91,8 +91,15 @@ check D8 "Image attachments"         small  "grep -rq --include='*.py' 'image_at
 echo
 echo "── Advanced session features (E1–E7) ───────────────"
 check E1 "Session resume"            big    "test -f src/pipy_harness/native/session_resume.py || grep -rq --include='*.py' 'def resume' src/pipy_harness/native/ 2>/dev/null"
-check E2 "Session compaction"        big    "test -f src/pipy_harness/native/session_compaction.py || grep -rq --include='*.py' 'def compact' src/pipy_harness/native/ 2>/dev/null"
-check E3 "Session branching"         small  "grep -rq --include='*.py' 'def fork\|def branch' src/pipy_harness/native/ 2>/dev/null"
+# E2/E3 are behavior checks, not file-existence rubber-stamps: each runs a
+# helper that seeds a temporary session record and proves the live behavior.
+# E2 proves /compact reduces the provider-visible context (recorded
+# native.session.compacted counters) AND that tool-loop compaction preserves
+# provider message-protocol validity (no orphaned tool result). E3 proves a
+# branch child records safe parent/branch/fork metadata, emits
+# native.session.resumed, and leaves the parent record byte-for-byte immutable.
+check E2 "Session compaction"        big    "grep -q compact_no_tool_context src/pipy_harness/native/session.py && grep -q compact_tool_loop_messages src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py"
+check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py"
 check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
 check E5 "Dynamic provider swap"     big    "test -f src/pipy_harness/native/dynamic_provider.py || grep -rq --include='*.py' 'def swap_provider\|/provider ' src/pipy_harness/native/ 2>/dev/null"
 check E6 "Settings panel"            small  "grep -rq --include='*.py' '/settings' src/pipy_harness/native/session.py 2>/dev/null"

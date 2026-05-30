@@ -23,6 +23,105 @@ class HarnessStatus(StrEnum):
     ABORTED = "aborted"
 
 
+RESUME_RELATIONSHIP_RESUME = "resume"
+RESUME_RELATIONSHIP_BRANCH = "branch"
+_RESUME_RELATIONSHIPS = frozenset({RESUME_RELATIONSHIP_RESUME, RESUME_RELATIONSHIP_BRANCH})
+
+BRANCH_LABEL_MAX_LENGTH = 48
+
+
+def validate_branch_label(label: str) -> str:
+    """Validate and return a safe branch label.
+
+    A branch label is a short, single-line, archive-safe identifier. It must
+    not be a filesystem path, must not contain control characters, and must not
+    look like a secret. The same defenses keep an unsafe label out of the
+    metadata-first archive and the resumed-state UI.
+    """
+
+    if not isinstance(label, str):
+        raise ValueError("branch label must be a string")
+    stripped = label.strip()
+    if not stripped:
+        raise ValueError("branch label must not be empty")
+    if len(stripped) > BRANCH_LABEL_MAX_LENGTH:
+        raise ValueError(
+            f"branch label must be at most {BRANCH_LABEL_MAX_LENGTH} characters"
+        )
+    if any(ord(character) < 32 for character in stripped):
+        raise ValueError("branch label must be a single-line label")
+    if any(separator in stripped for separator in ("/", "\\", "~")):
+        raise ValueError("branch label must not be a filesystem path")
+    if stripped in {".", ".."} or stripped.startswith("."):
+        raise ValueError("branch label must not be a filesystem path")
+    # Defense in depth against secret-shaped labels reaching the archive/UI.
+    from pipy_harness.capture import sanitize_text
+
+    if sanitize_text(stripped) == "[REDACTED]":
+        raise ValueError("branch label must not contain sensitive data")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._- ")
+    if any(character not in allowed for character in stripped):
+        raise ValueError(
+            "branch label may contain only letters, digits, spaces, '.', '_', and '-'"
+        )
+    return stripped
+
+
+@dataclass(frozen=True, slots=True)
+class SessionLineage:
+    """Safe parent/branch lineage metadata for a resumed or forked session.
+
+    Carries only allowlisted labels and counters — a parent record stem, the
+    relationship kind, an optional validated branch label, the fork timestamp,
+    and the prior provider/model/turn counters. It never carries prompts, model
+    text, tool payloads, file contents, diffs, or summary text. The new session
+    records this; the parent record is never mutated.
+    """
+
+    parent_session_id: str
+    relationship: str
+    fork_timestamp: str
+    branch_label: str | None = None
+    prior_provider_name: str | None = None
+    prior_model_id: str | None = None
+    prior_turn_count: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.parent_session_id or "/" in self.parent_session_id or "\\" in self.parent_session_id:
+            raise ValueError("parent_session_id must be a bare record stem")
+        if self.relationship not in _RESUME_RELATIONSHIPS:
+            raise ValueError(
+                f"relationship must be one of {sorted(_RESUME_RELATIONSHIPS)}"
+            )
+        if self.relationship == RESUME_RELATIONSHIP_BRANCH:
+            if self.branch_label is None:
+                raise ValueError("a branch relationship requires a branch_label")
+            object.__setattr__(
+                self, "branch_label", validate_branch_label(self.branch_label)
+            )
+        elif self.branch_label is not None:
+            object.__setattr__(
+                self, "branch_label", validate_branch_label(self.branch_label)
+            )
+        if not isinstance(self.prior_turn_count, int) or isinstance(
+            self.prior_turn_count, bool
+        ) or self.prior_turn_count < 0:
+            raise ValueError("prior_turn_count must be a non-negative integer")
+
+    def archive_payload(self) -> dict[str, Any]:
+        """Return the metadata-only mapping recorded into the new archive."""
+
+        return {
+            "parent_session_id": self.parent_session_id,
+            "relationship": self.relationship,
+            "fork_timestamp": self.fork_timestamp,
+            "branch_label": self.branch_label,
+            "prior_provider_name": self.prior_provider_name,
+            "prior_model_id": self.prior_model_id,
+            "prior_turn_count": self.prior_turn_count,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class RunRequest:
     """User request passed from the CLI into the harness runner."""
@@ -37,6 +136,7 @@ class RunRequest:
     native_provider: str | None = None
     native_model: str | None = None
     native_output: str | None = None
+    resume: SessionLineage | None = None
 
 
 @dataclass(frozen=True, slots=True)

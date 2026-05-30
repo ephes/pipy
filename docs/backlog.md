@@ -166,8 +166,12 @@ not a promise to skip review when a smaller, safer slice appears.
    remain deferred and are intentionally **not** built as part of that track.
 5. Session workflows. Pipy remains metadata-first with optional raw transcript
    sidecars, search/inspect/export, and metadata-only `resume-info`. Live
-   runtime resume, branch/fork, compaction, and Pi-native tree inspection remain
-   deferred.
+   runtime resume (`--resume`), branch/fork (`--branch`), and in-session
+   compaction (`/compact` plus an automatic threshold) have now landed through
+   pipy-owned boundaries (see the Native Session Workflow Track below): a fresh
+   child record is seeded from the metadata-only `ResumeContext`, the parent
+   stays immutable, and only safe lineage/compaction metadata is recorded.
+   Pi-native mutable-tree inspection remains deferred.
 6. Tool breadth, shell, and verification. The bounded multi-step loop is real;
    the gap is `bash`/shell sandboxing, broader verification than
    `/verify just-check`, and additional model-visible tools or policies inside
@@ -293,7 +297,9 @@ shipped in later parity work:
   sandbox preserves secret isolation and `.git` default-deny.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
-  resume reader shipped later.
+  resume reader shipped first; live `--resume`, `--branch`, and `/compact`
+  (plus an automatic compaction threshold) shipped later through the Native
+  Session Workflow Track below.
 - RPC mode and SDK embedding.
 - Extensions, package loading, theme integration, and slash-command loading for
   skills and prompt templates. A pure theme registry shipped later.
@@ -530,7 +536,9 @@ it lands. They are not later slices of this track:
   `/<name>` loading shipped in the Runtime Resource Loading Track below.
   General extensions, package loading, and a theme registry remain deferred.)
 - Live session resume, branch/fork, compaction, and share. A metadata-only
-  resume reader shipped later.
+  resume reader shipped first; live `--resume`, `--branch`, and `/compact`
+  (with an automatic threshold) have since shipped through the Native Session
+  Workflow Track below.
 - Full TUI and persistent cross-session history. (Resize handling, in-memory
   prompt history, bracketed paste, undo/redo, an interactive `/settings` control
   dialog, and optional persistent cross-session prompt history have since shipped
@@ -1506,6 +1514,54 @@ checks are behavior checks (`scripts/parity_score.sh`).
 
 Out of scope (still deferred): a general extension/package loader, themes
 (D7), image attachments (D8), and runtime UI hooks.
+
+## Native Session Workflow Track (landed 2026-05-30)
+
+Closes parity rows E2 (session compaction) and E3 (session branching) with
+real product behavior, and upgrades E1 (session resume) from a metadata-only
+reader to a live runtime resume. Metadata-first archive defaults stay
+mandatory throughout.
+
+What shipped:
+
+- **Live resume.** `pipy repl --agent pipy-native --resume <stem>` seeds a
+  fresh no-tool or tool-loop session from the existing metadata-only
+  `ResumeContext`/`compose_resume_system_block` (prior provider/model/turn
+  labels only). The prior finalized record is never mutated and no raw
+  transcript sidecar is copied. Both REPL surfaces show a safe resumed-state
+  banner; the tool-loop product TUI commits it to scrollback at startup.
+- **Branch/fork.** `pipy repl --resume <stem> --branch <label>` forks a child
+  with a validated safe label (`--branch` requires `--resume`; unsafe labels
+  fail closed via `validate_branch_label`). `pipy_harness.models.SessionLineage`
+  carries the safe parent id, relationship, branch label, fork timestamp, and
+  prior provider/model/turn counters.
+- **Compaction.** `pipy_harness.native.session_compaction` is a pure
+  transformation. `/compact` (and an automatic threshold) reduce the
+  provider-visible context while keeping recent turns plus a safe metadata-only
+  summary appended to the system prompt. The no-tool path compacts its bounded
+  exchange context; the tool-loop cuts the `LoopMessage` history only at
+  `UserMessage` group boundaries, so compaction never orphans a tool result,
+  reorders a tool-call/observation pair, or exposes a raw tool payload.
+- **Archive + catalog.** The runner writes a safe `resume` object onto
+  `session.started` and emits `native.session.resumed`; compaction emits
+  `native.session.compacted` counters. `pipy-session list/inspect/export/
+  resume-info` surface the lineage and compaction metadata read-only and reject
+  malformed/ambiguous/symlinked/active/out-of-archive records without leaking
+  bodies.
+
+Verification: unit tests (compaction trigger/state reduction + protocol
+validity, lineage/branch-label validation, reader safety, runner archive
+wiring); no-tool product tests (`--resume`, `--branch`, `/compact`, automatic
+threshold, rejections, parent immutability); tool-loop product tests
+(resumed/compacted provider requests, valid tool-message history, archive
+non-leak); real-PTY product-TUI tests at 80x24 and 100x40 for resumed-state
+visibility and `/compact`. The E2/E3 parity-score rows are behavior checks
+(`scripts/parity_checks/compaction_behavior.py`,
+`scripts/parity_checks/branching_behavior.py`).
+
+Out of scope (still deferred): Pi-native mutable-tree session inspection, raw
+transcript import, and any documented safe-summary policy that would surface
+prior model/user text (only counts and labels are surfaced today).
 
 ## Maintenance Notes
 

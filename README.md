@@ -159,9 +159,30 @@ max 25) caps invocations per user turn. Filesystem tools refuse generated,
 `bash` is intentionally not exposed in the production model loop until it
 has a real shell sandbox.
 
+#### Resume, branch, and compaction
+
+- `pipy repl --agent pipy-native --resume <stem>` starts a fresh session
+  seeded from a finalized record's safe metadata-only `ResumeContext` (prior
+  provider/model/turn labels only — never prompts, model output, tool
+  payloads, file contents, diffs, or raw Markdown summary text). Both REPL
+  modes show a safe resumed-state banner (prior session id, provider, model,
+  turn count, finalized time). The parent record is never modified and no raw
+  transcript sidecar is copied; the child archive records only a safe `resume`
+  object on `session.started` plus a `native.session.resumed` event.
+- `pipy repl --resume <stem> --branch <label>` forks a child *branch* from the
+  parent with a validated safe label (`--branch` requires `--resume`; unsafe
+  labels fail closed). The child records safe parent id, branch label, fork
+  timestamp, and relationship; the parent stays byte-for-byte immutable.
+- `/compact` reduces the provider-visible context in place (and an automatic
+  threshold does the same) while keeping recent turns plus a safe
+  metadata-only summary. In the tool loop the cut happens at a user-turn
+  boundary, so a tool result is never orphaned and no raw tool payload leaks.
+  `pipy-session list/inspect/export/resume-info` surface the lineage and
+  compaction counters read-only.
+
 The line-oriented mode also exposes these explicit commands:
 
-- `/settings`, `/status`, `/clear`
+- `/settings`, `/status`, `/clear`, `/compact`
 - `/login [openai-codex]`, `/logout [openai-codex]`,
   `/model [<provider>/<model>]`
 - `/skill [<name>]` — list workspace/global skills, or load one named skill's
@@ -295,7 +316,8 @@ uv run pipy-session init --agent codex --slug manual-reconstruction --partial
   for one finalized record (accepts path, basename, or stem).
 - `export <name>` — metadata-only JSON of one record; raw transcript
   sidecar included only with explicit `--include-transcript`.
-- `resume-info <name>` — JSON-only continuation metadata.
+- `resume-info <name>` — JSON-only continuation metadata, including safe
+  resume/branch lineage and compaction-event counts.
 - `verify [--json]` — scans the archive for structural issues (malformed
   first events, orphan Markdown summaries, stray `*.partial` files,
   unexpected files under `pipy/`, ambiguous basenames or stems).
