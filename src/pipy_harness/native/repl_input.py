@@ -34,6 +34,8 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/login",
     "/logout",
     "/model",
+    "/skill",
+    "/template",
     "/read",
     "/ask-file",
     "/propose-file",
@@ -51,6 +53,8 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/login": "Log in (openai-codex OAuth)",
     "/logout": "Log out (openai-codex OAuth)",
     "/model": "Select provider/model",
+    "/skill": "List or load a workspace/global skill",
+    "/template": "List or run a prompt template",
     "/read": "Read a workspace file excerpt",
     "/ask-file": "Ask provider about a file (read-only)",
     "/propose-file": "Propose a patch for a file",
@@ -880,8 +884,18 @@ def native_repl_input_for(
     error_stream: TextIO,
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
     workspace: Path | None = None,
+    command_names: tuple[str, ...] | None = None,
+    command_descriptions: Mapping[str, str] | None = None,
 ) -> NativeReplInput:
-    """Choose the REPL input adapter while preserving plain-stream fallback."""
+    """Choose the REPL input adapter while preserving plain-stream fallback.
+
+    ``command_names`` / ``command_descriptions`` override the slash-menu
+    completion set so the discovered workspace/global custom commands (and
+    the ``/skill`` / ``/template`` entry points) appear in completion. Only
+    the slash-menu adapter (pipy's default TTY runtime) honours the override
+    today; the readline / prompt-toolkit fallbacks keep the static built-in
+    set and still execute custom commands through the dispatcher.
+    """
 
     if input_runtime not in SUPPORTED_REPL_INPUT_RUNTIMES:
         raise ValueError(f"unsupported native REPL input runtime: {input_runtime}")
@@ -906,6 +920,8 @@ def native_repl_input_for(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=workspace,
+            command_names=command_names,
+            command_descriptions=command_descriptions,
         )
 
     if _slash_menu_streams_supported(input_stream, error_stream):
@@ -914,6 +930,8 @@ def native_repl_input_for(
                 input_stream=input_stream,
                 error_stream=error_stream,
                 workspace=workspace,
+                command_names=command_names,
+                command_descriptions=command_descriptions,
             )
         except Exception:
             pass

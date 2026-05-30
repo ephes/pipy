@@ -452,7 +452,25 @@ def discover_loaded_resource_names(
             break
         return tuple(names)
 
-    # Directory-style categories (skills, prompts, extensions): list the
+    if category == "skills":
+        # Honest listing: the names a user can actually load with
+        # `/skill <name>`, sourced from the same loader the dispatcher
+        # uses (workspace `.pipy/skills/*.md` then global
+        # `<config>/skills/*.md`). This supersedes the earlier
+        # display-only subdirectory scan.
+        from pipy_harness.native.skills import discover_workspace_skills
+
+        try:
+            skills, _ = discover_workspace_skills(cwd)
+        except OSError:
+            return tuple(names)
+        for skill in skills:
+            add(skill.name)
+            if len(names) >= max_items:
+                break
+        return tuple(names)
+
+    # Directory-style categories (prompts, extensions): list the
     # immediate child directory names found under each known store.
     for source in global_sources:
         global_dir, _display = _global_candidate_path(source, home)

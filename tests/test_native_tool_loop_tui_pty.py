@@ -131,7 +131,7 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     result_holder: list[object] = []
@@ -294,7 +294,7 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     result_holder: list[object] = []
@@ -391,7 +391,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -501,7 +501,7 @@ def _run_editor_pty(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -619,7 +619,7 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -810,7 +810,7 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -906,7 +906,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -1040,7 +1040,7 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
 
     worker = threading.Thread(
@@ -1144,7 +1144,7 @@ def _start_pty_repl_session(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None: ui,
     )
     result_holder: list[object] = []
 

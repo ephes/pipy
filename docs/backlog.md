@@ -54,14 +54,16 @@ The broad parity ladder, applied with small-slice discipline:
   adapter, and Workspace-relative path completion remain part of the
   input-parity ladder.
 - Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
-  with metadata-only archive behavior. Runtime slash commands for loading
-  skills, prompt templates, custom commands, extensions, themes, and broader
-  model/provider defaults remain later parity work; the `/settings` (interactive
-  control dialog) and `/model` (interactive selector) surfaces are now exposed
-  inside the product TUI, and `/login`/`/logout` are now executable inside the
-  TUI too (through the same auth boundary, with no provider turn). The current
-  `[Skills]` and `[Extensions]` chrome sections are display-only directory
-  labels, not runtime loaders.
+  with metadata-only archive behavior. Runtime resource loading for skills,
+  prompt templates, and custom slash commands has now shipped (see the
+  Runtime Resource Loading Track below): `/skill`, `/template`, and workspace
+  custom `/<name>` commands run through `pipy_harness.native.resources` in
+  both REPL product paths, and the `[Skills]` chrome section lists the
+  loadable skill names. Extensions, themes, and a general package/plugin
+  loader remain later parity work. The `/settings` (interactive control
+  dialog) and `/model` (interactive selector) surfaces are exposed inside the
+  product TUI, and `/login`/`/logout` are executable inside the TUI too
+  (through the same auth boundary, with no provider turn).
 - Tool parity: the bounded multi-step model/tool loop has landed; user-directed
   `@file` content injection has shipped (a submitted prompt's `@path`
   references load bounded excerpts through the shared bounded reader in both
@@ -155,10 +157,13 @@ not a promise to skip review when a smaller, safer slice appears.
    test. Pi still leads on broader selectors/overlays and richer keyboard
    behavior (e.g. mouse selection) — these remain the open items for this track.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
-   registration, prompt templates, skills, and UI hooks. Pipy currently has no
-   runtime extension/package loader; display-only chrome labels are not a
-   substrate. Start with one executable custom-command or prompt-template path
-   before designing a broad extension API.
+   registration, prompt templates, skills, and UI hooks. Runtime resource
+   loading has now landed for the three bounded kinds — skills, prompt
+   templates, and custom slash commands — through `pipy_harness.native.resources`,
+   wired into both REPL product paths (see the Runtime Resource Loading Track
+   below); the `[Skills]` chrome now lists loadable skill names from the real
+   loader. A general extension/package loader, theme registration, and UI hooks
+   remain deferred and are intentionally **not** built as part of that track.
 5. Session workflows. Pipy remains metadata-first with optional raw transcript
    sidecars, search/inspect/export, and metadata-only `resume-info`. Live
    runtime resume, branch/fork, compaction, and Pi-native tree inspection remain
@@ -521,8 +526,9 @@ These remain explicitly deferred while the track lands and after
 it lands. They are not later slices of this track:
 
 - Slash-command loading for skills and prompt templates, extensions, and
-  package loading. Custom-command discovery and a pure theme registry shipped
-  later.
+  package loading. (Resolved later: runtime `/skill`, `/template`, and custom
+  `/<name>` loading shipped in the Runtime Resource Loading Track below.
+  General extensions, package loading, and a theme registry remain deferred.)
 - Live session resume, branch/fork, compaction, and share. A metadata-only
   resume reader shipped later.
 - Full TUI and persistent cross-session history. (Resize handling, in-memory
@@ -1453,6 +1459,53 @@ another full-screen TUI framework.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.
+
+## Runtime Resource Loading Track (landed 2026-05-30)
+
+Closes parity rows D4 (skills), D5 (prompt templates), and D6 (custom slash
+commands) with real runtime behavior, not file-existence rubber-stamps. This
+is deliberately **not** a general extension API: only three bounded resource
+kinds load, through the existing provider/session/tool/archive boundaries.
+
+What shipped:
+
+- `pipy_harness.native._resource_files` (shared discovery), `skills`,
+  `prompt_templates` (with `$ARGUMENTS`/`$1..$9` expansion), and
+  `custom_commands` loaders were reintroduced **with** a runtime consumer.
+  Discovery is workspace-first then global (`PIPY_CONFIG_HOME` →
+  `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`), `*.md` one level deep,
+  deduped by canonical path. Safety policy rejects secret-shaped filenames,
+  binary content (NUL byte), generated/`.gitignore`-matched filenames,
+  oversized bodies (per-file + total byte caps with truncation marker), and
+  symlink-escapes.
+- `pipy_harness.native.resources` is the registry + pure
+  `dispatch_resource_command` consumed by both REPL product paths. `/skill`
+  and `/template` list (bare) or run (named); custom `/<name>` commands run
+  through the same local-command boundary as built-ins and cannot shadow a
+  reserved built-in name. Unknown/unsafe/empty resources fail closed with no
+  provider turn.
+- Wiring: `session.py` (no-tool) and `tool_loop_session.py` (tool loop +
+  product TUI). The TUI slash menu and the no-tool completion set advertise
+  `/skill`, `/template`, and discovered custom commands; no-tool-only
+  commands stay out of the tool-loop menu. The `[Skills]` chrome section now
+  lists loadable skill names from the loader.
+
+Privacy: only safe counters/labels are recorded. The no-tool path emits
+`native.resource.invoked` / `native.resource.rejected` events carrying
+`{resource_kind, name, path_label, sha256, byte_length, truncated}` and a
+`resource_invocation_count` in the completion event; the tool-loop path
+returns `resource_invocation_count` in `NativeToolReplResult`. Resource
+bodies, expanded prompts, and command text never reach JSONL, Markdown
+summaries, `--native-output json`, prompt history, or the transcript sidecar.
+
+Verification: unit tests for parser/discovery/precedence/safety and the
+dispatcher; no-tool and tool-loop product-path tests (incl. archive non-leak);
+real-PTY product-TUI tests at 80x24 and 100x40 for custom-command
+discovery/execution and unsafe-resource rejection. The D4/D5/D6 parity-score
+checks are behavior checks (`scripts/parity_score.sh`).
+
+Out of scope (still deferred): a general extension/package loader, themes
+(D7), image attachments (D8), and runtime UI hooks.
 
 ## Maintenance Notes
 

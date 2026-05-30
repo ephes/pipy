@@ -59,6 +59,7 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
+    DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     REPL_INPUT_RUNTIME_AUTO,
     NativeReplInput,
     native_repl_input_for,
@@ -70,9 +71,15 @@ from pipy_harness.native.repl_state import (
     settings_overlay_lines,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.resources import (
+    DISPATCH_LIST,
+    WorkspaceResources,
+    dispatch_resource_command,
+)
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
+    TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     ToolLoopTerminalUi,
 )
 from pipy_harness.native.transcripts import TranscriptSink
@@ -326,6 +333,33 @@ def production_tool_registry() -> dict[str, ToolPort]:
     }
 
 
+def _tool_loop_command_names(resources: WorkspaceResources) -> tuple[str, ...]:
+    """Tool-loop slash-menu command set, honest to what can execute.
+
+    The static built-in set is augmented with the ``/skill`` and
+    ``/template`` resource entry points (which always at least list) and
+    every discovered, non-reserved custom ``/<name>`` command. The
+    no-tool-only commands (``/read``, ``/ask-file``, ...) stay out so the
+    menu never advertises a command that errors in tool-loop mode.
+    """
+
+    names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
+    insert_at = (names.index("/model") + 1) if "/model" in names else len(names)
+    names[insert_at:insert_at] = ["/skill", "/template"]
+    for slash_name in resources.custom_command_slash_names():
+        if slash_name not in names:
+            names.append(slash_name)
+    return tuple(names)
+
+
+def _tool_loop_command_descriptions(
+    resources: WorkspaceResources,
+) -> dict[str, str]:
+    descriptions = dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    descriptions.update(resources.custom_command_descriptions())
+    return descriptions
+
+
 @dataclass(frozen=True, slots=True)
 class NativeToolReplResult:
     """Bounded result returned by `NativeToolReplSession.run`.
@@ -342,6 +376,7 @@ class NativeToolReplResult:
     model_id: str
     user_turn_count: int = 0
     tool_invocation_count: int = 0
+    resource_invocation_count: int = 0
     malformed_argument_count: int = 0
     consecutive_malformed_streak: int = 0
     budget_exhausted_count: int = 0
@@ -432,10 +467,12 @@ class NativeToolReplSession:
         )
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
+        workspace_resources = WorkspaceResources.discover(cwd)
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=cwd,
+            resources=workspace_resources,
         )
         # Local-only persistent prompt-history store (independent of the
         # metadata-first session archive). Built once per session; the
@@ -463,6 +500,7 @@ class NativeToolReplSession:
 
         started_at = datetime.now(UTC)
         messages: list[LoopMessage] = []
+        resource_invocation_count = 0
         user_turn_count = 0
         tool_invocation_count = 0
         malformed_argument_count = 0
@@ -607,6 +645,7 @@ class NativeToolReplSession:
                 input_stream=input_stream,
                 error_stream=error_stream,
                 workspace=cwd,
+                resources=workspace_resources,
             )
         )
         if terminal_ui is None:
@@ -827,14 +866,60 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            if stripped.startswith("/"):
+            # Resource dispatch (skills, prompt templates, custom commands)
+            # runs through the same local-command boundary as the built-ins,
+            # after them so a custom command can never shadow a built-in.
+            resource_dispatch = dispatch_resource_command(stripped, workspace_resources)
+            resource_provider_text: str | None = None
+            if resource_dispatch is not None and resource_dispatch.kind == DISPATCH_LIST:
+                self._emit_diagnostic(
+                    terminal_ui, error_stream, resource_dispatch.message
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
+            if resource_dispatch is not None and resource_dispatch.is_reject:
+                # Fail closed: diagnostic only, no provider turn, no archive
+                # write, no prompt-history or sidecar entry.
+                self._emit_diagnostic(
+                    terminal_ui, error_stream, resource_dispatch.message
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
+            if resource_dispatch is not None and resource_dispatch.is_run:
+                # The expanded/instruction text becomes the bounded
+                # provider-visible message; it never reaches prompt history,
+                # the sidecar body, or the metadata archive. Only the
+                # invocation counter is surfaced.
+                resource_invocation_count += 1
+                resource_provider_text = resource_dispatch.provider_text or ""
+                self._emit_diagnostic(
+                    terminal_ui, error_stream, resource_dispatch.message
+                )
+            if stripped.startswith("/") and resource_provider_text is None:
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
                         "supported local commands are /help, /model, /settings, "
-                        "/login, /logout, /copy, /exit, /quit. Other prompts are "
+                        "/login, /logout, /copy, /skill, /template, /exit, /quit "
+                        "(plus any workspace custom commands). Other prompts are "
                         "sent to the model."
                     ),
                 )
@@ -854,31 +939,42 @@ class NativeToolReplSession:
             # append the bounded excerpts to the provider-visible user message,
             # and keep the literal prompt for the rendered panel, prompt
             # history, and the sidecar transcript.
-            provider_user_input = user_input
-            file_references = resolve_file_references(
-                user_input,
-                workspace_root=cwd,
-                reference_roots=self.reference_roots,
-            )
-            if file_references.reference_count:
-                file_reference_count += file_references.reference_count
-                file_reference_loaded_count += file_references.loaded_count
-                file_reference_failed_count += file_references.failed_count
-                for diagnostic in file_references.diagnostics():
-                    self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
-                if file_references.used:
-                    provider_user_input = file_references.augmented_prompt(user_input)
+            if resource_provider_text is not None:
+                # Resource turn: the bounded instruction/expansion is the
+                # provider message verbatim. @file augmentation, prompt
+                # history, and the sidecar body are all skipped so the
+                # literal resource text never leaks past the provider.
+                provider_user_input = resource_provider_text
+            else:
+                provider_user_input = user_input
+                file_references = resolve_file_references(
+                    user_input,
+                    workspace_root=cwd,
+                    reference_roots=self.reference_roots,
+                )
+                if file_references.reference_count:
+                    file_reference_count += file_references.reference_count
+                    file_reference_loaded_count += file_references.loaded_count
+                    file_reference_failed_count += file_references.failed_count
+                    for diagnostic in file_references.diagnostics():
+                        self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
+                    if file_references.used:
+                        provider_user_input = file_references.augmented_prompt(
+                            user_input
+                        )
             messages.append(UserMessage(content=provider_user_input))
             user_turn_count += 1
             # Persist the prompt for cross-session recall when the user has
             # enabled it from /settings. record() is a no-op when disabled and
             # writes only to the local prompt-history file — never the
-            # metadata-first session archive. Slash commands never reach here,
-            # so only genuine prompts are persisted. The literal prompt (not the
-            # @file-augmented variant) is recorded so history stays user text.
-            prompt_history_store.record(user_input)
-            if self.transcript_sink is not None:
-                self.transcript_sink.append("user", {"content": user_input})
+            # metadata-first session archive. Slash commands and resource
+            # invocations never reach here, so only genuine prompts are
+            # persisted. The literal prompt (not the @file-augmented variant)
+            # is recorded so history stays user text.
+            if resource_provider_text is None:
+                prompt_history_store.record(user_input)
+                if self.transcript_sink is not None:
+                    self.transcript_sink.append("user", {"content": user_input})
 
             invocations_this_turn = 0
             inner_iteration_cap = self.tool_budget + 2
@@ -1065,6 +1161,7 @@ class NativeToolReplSession:
                         model_id=effective_model_id,
                         user_turn_count=user_turn_count,
                         tool_invocation_count=tool_invocation_count,
+                        resource_invocation_count=resource_invocation_count,
                         malformed_argument_count=malformed_argument_count,
                         consecutive_malformed_streak=consecutive_malformed_streak,
                         budget_exhausted_count=budget_exhausted_count,
@@ -1092,6 +1189,7 @@ class NativeToolReplSession:
             model_id=effective_model_id,
             user_turn_count=user_turn_count,
             tool_invocation_count=tool_invocation_count,
+            resource_invocation_count=resource_invocation_count,
             malformed_argument_count=malformed_argument_count,
             consecutive_malformed_streak=consecutive_malformed_streak,
             budget_exhausted_count=budget_exhausted_count,
@@ -1106,12 +1204,15 @@ class NativeToolReplSession:
         input_stream: TextIO,
         error_stream: TextIO,
         workspace: Path,
+        resources: WorkspaceResources,
     ) -> NativeReplInput:
         return native_repl_input_for(
             input_stream=input_stream,
             error_stream=error_stream,
             input_runtime=self.input_runtime,
             workspace=workspace,
+            command_names=_tool_loop_command_names(resources),
+            command_descriptions=_tool_loop_command_descriptions(resources),
         )
 
     def _build_terminal_ui(
@@ -1120,6 +1221,7 @@ class NativeToolReplSession:
         input_stream: TextIO,
         error_stream: TextIO,
         workspace: Path,
+        resources: WorkspaceResources,
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -1129,6 +1231,8 @@ class NativeToolReplSession:
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
+            command_names=_tool_loop_command_names(resources),
+            command_descriptions=_tool_loop_command_descriptions(resources),
         )
 
     def _complete_provider_turn(
@@ -1575,7 +1679,10 @@ class NativeToolReplSession:
             "interactive settings dialog (provider/model, openai-codex auth, and "
             "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
-            "`/copy` copies the last answer to the clipboard. Other input is "
+            "`/copy` copies the last answer to the clipboard. `/skill [<name>]` "
+            "lists or loads a workspace/global skill, `/template [<name> [args]]` "
+            "lists or runs a prompt template, and any workspace custom slash "
+            "command runs as a bounded provider turn. Other input is "
             "sent to the model. The model can call bounded `read`, `ls`, "
             "`grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate` "
             "tools (budget per user turn)."

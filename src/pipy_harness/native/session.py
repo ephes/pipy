@@ -87,7 +87,17 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
-from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO, native_repl_input_for
+from pipy_harness.native.repl_input import (
+    DEFAULT_REPL_COMMAND_DESCRIPTIONS,
+    DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
+    REPL_INPUT_RUNTIME_AUTO,
+    native_repl_input_for,
+)
+from pipy_harness.native.resources import (
+    DISPATCH_LIST,
+    WorkspaceResources,
+    dispatch_resource_command,
+)
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
 from pipy_harness.native.workspace_context import (
@@ -320,6 +330,13 @@ _REPL_COMMAND_GROUPS = (
             "/login [openai-codex]",
             "/logout [openai-codex]",
             "/model [<provider>/<model>|<model>]",
+        ),
+    ),
+    _ReplCommandGroup(
+        "Resources",
+        (
+            "/skill [<name>]",
+            "/template [<name> [arguments]]",
         ),
     ),
     _ReplCommandGroup(
@@ -847,11 +864,15 @@ class NativeNoToolReplSession:
             self.max_turns,
             extra_safe_metadata=instruction_metadata,
         )
+        workspace_resources = WorkspaceResources.discover(run_input.cwd)
+        resource_invocation_count = 0
         repl_input = native_repl_input_for(
             input_stream=input_stream,
             error_stream=error_stream,
             input_runtime=self.input_runtime,
             workspace=run_input.cwd,
+            command_names=_no_tool_repl_command_names(workspace_resources),
+            command_descriptions=_no_tool_repl_command_descriptions(workspace_resources),
         )
         conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
         event_sink.emit(
@@ -1315,6 +1336,88 @@ class NativeNoToolReplSession:
                     exit_reason = "verification_failed"
                     break
                 continue
+            resource_dispatch = dispatch_resource_command(command, workspace_resources)
+            if resource_dispatch is not None:
+                pending_apply_draft = None
+                if resource_dispatch.kind == DISPATCH_LIST:
+                    print(resource_dispatch.message, file=error_stream)
+                    continue
+                if resource_dispatch.is_reject:
+                    # Fail closed: surface the diagnostic and record only safe
+                    # metadata. No provider turn is issued.
+                    print(resource_dispatch.message, file=error_stream)
+                    event_sink.emit(
+                        "native.resource.rejected",
+                        summary="Native resource invocation rejected (fail-closed).",
+                        payload={
+                            **safe_context,
+                            **(resource_dispatch.safe_metadata or {}),
+                            "resource_label": resource_dispatch.resource_label,
+                        },
+                    )
+                    continue
+                # RUN: a bounded provider-visible turn built from the resource
+                # text. Only safe metadata (name, sha256, byte length, kind) is
+                # archived; the instruction/expanded body never reaches the
+                # event sink.
+                resource_invocation_count += 1
+                provider_user_prompt = resource_dispatch.provider_text or ""
+                print(resource_dispatch.message, file=error_stream)
+                provider_visible_context_used = True
+                provider_turn_label = (
+                    INITIAL_PROVIDER_TURN_LABEL
+                    if conversation_state.provider_turn_count == 0
+                    else NO_TOOL_REPL_PROVIDER_TURN_LABEL
+                )
+                conversation_state, provider_turn = _append_provider_turn(
+                    conversation_state,
+                    provider_turn_label=provider_turn_label,
+                )
+                current_run_input, safe_context = _current_repl_turn_state(
+                    provider_state,
+                    run_input,
+                    self.max_turns,
+                    extra_safe_metadata=instruction_metadata,
+                )
+                event_sink.emit(
+                    "native.resource.invoked",
+                    summary="Native resource invoked through the REPL boundary.",
+                    payload={
+                        **safe_context,
+                        **(resource_dispatch.safe_metadata or {}),
+                        "resource_label": resource_dispatch.resource_label,
+                    },
+                )
+                provider = provider_state.current_provider()
+                provider_result, provider_usage = _call_provider_turn(
+                    provider,
+                    current_run_input,
+                    event_sink,
+                    safe_context,
+                    user_prompt=provider_user_prompt,
+                    provider_turn=provider_turn,
+                    tool_observation=None,
+                    archive_provider_metadata=False,
+                    no_tool_repl_context=no_tool_context,
+                    system_prompt=composed_system_prompt,
+                )
+                final_provider_result = provider_result
+                final_usage = _merge_provider_usage(final_usage, provider_usage)
+                if provider_result.status != HarnessStatus.SUCCEEDED:
+                    no_tool_context = no_tool_context.clear()
+                    status = provider_result.status
+                    exit_code = 130 if status == HarnessStatus.ABORTED else 1
+                    error_type = _safe_optional_text(provider_result.error_type)
+                    error_message = _safe_optional_text(provider_result.error_message)
+                    exit_reason = "provider_failed"
+                    break
+                no_tool_context = no_tool_context.append_successful_exchange(
+                    user_prompt=provider_user_prompt,
+                    provider_final_text=provider_result.final_text,
+                )
+                if provider_result.final_text:
+                    print(provider_result.final_text, file=output_stream, flush=True)
+                continue
             if command.startswith("/"):
                 pending_apply_draft = None
                 _print_repl_command_usage_diagnostic(error_stream, None)
@@ -1427,6 +1530,7 @@ class NativeNoToolReplSession:
                 "apply_proposal_command_used": apply_proposal_command_used,
                 "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
+                "resource_invocation_count": resource_invocation_count,
                 "file_reference_count": file_reference_count,
                 "file_reference_loaded_count": file_reference_loaded_count,
                 "file_reference_failed_count": file_reference_failed_count,
@@ -1664,6 +1768,31 @@ def _matching_repl_command(command: str, command_names: Iterable[str]) -> str | 
         ),
         None,
     )
+
+
+def _no_tool_repl_command_names(
+    resources: WorkspaceResources,
+) -> tuple[str, ...]:
+    """Built-in no-tool completions plus discovered custom commands.
+
+    The ``/skill`` and ``/template`` entry points are already in the static
+    built-in set; discovered custom ``/<name>`` commands are appended so the
+    slash-menu completion surface lists exactly what the dispatcher will run.
+    """
+
+    names = list(DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS)
+    for slash_name in resources.custom_command_slash_names():
+        if slash_name not in names:
+            names.append(slash_name)
+    return tuple(names)
+
+
+def _no_tool_repl_command_descriptions(
+    resources: WorkspaceResources,
+) -> dict[str, str]:
+    descriptions = dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
+    descriptions.update(resources.custom_command_descriptions())
+    return descriptions
 
 
 def _print_repl_command_reference(error_stream: TextIO) -> None:

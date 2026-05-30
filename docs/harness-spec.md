@@ -416,6 +416,57 @@ command text, authorization URLs, prompts, provider responses, tokens, or auth
 material. Successful `/model` selections are persisted as non-secret native
 defaults under local pipy state with only provider and model identifiers.
 `/exit` and `/quit` terminate the session.
+
+#### Runtime resource loading (skills, prompt templates, custom commands)
+
+Both REPL product paths load three bounded resource kinds at runtime through
+`pipy_harness.native.resources`, a pipy-owned registry and pure dispatcher.
+This is **not** a general extension API: only these three kinds load, and they
+reuse the existing provider/session/tool/archive boundaries — no parallel
+provider path and no new privacy policy.
+
+Discovery (`pipy_harness.native._resource_files` + the `skills`,
+`prompt_templates`, and `custom_commands` loaders) reads `*.md` files one level
+deep from pipy-owned stores, workspace-first then global: `<workspace>/.pipy/{skills,templates,commands}/`
+then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
+`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy` (mirroring
+`workspace_context`). Results dedupe by canonical path (first wins). Optional
+`---`-delimited frontmatter declares `name` and `description`; the body is the
+instruction/template text. The per-candidate safety policy skips, silently,
+files whose name looks secret (`capture.looks_sensitive`), whose loaded head
+bytes contain a NUL (binary), or whose bare filename is a generated/`.gitignore`-matched
+artifact (`read_only_tool._is_ignored_or_generated`, applied to the filename so
+the pipy-owned `.pipy/` parent is not itself treated as ignored). Per-file and
+total byte caps bound the body with a deterministic truncation marker; resource
+directories must not be symlinks and resource-file symlinks must resolve inside
+their store.
+
+`dispatch_resource_command` runs **after** the built-in command handlers, so a
+custom command can never shadow a built-in (collisions are dropped from
+discovery). Outcomes:
+
+- `/skill` / `/template` with no argument print a local listing (names +
+  descriptions only; no bodies) and issue no provider turn.
+- `/skill <name>` loads the skill body, `/template <name> [args]` expands the
+  template body (`$ARGUMENTS` / `${ARGUMENTS}` → the full argument string;
+  `$1..$9` / `${1}..${9}` → whitespace-split positional arguments; a
+  placeholder-free body with arguments appends them as inserted prompt text),
+  and a workspace/global custom `/<name> [args]` expands its body the same way.
+  Each becomes one bounded provider-visible message through the same provider
+  boundary as a genuine prompt.
+- Unknown, unsafe, or empty resources fail closed: a diagnostic is printed and
+  no provider turn is issued.
+
+Privacy: the resource body, expanded prompt, and command text are never
+archived. The no-tool path emits `native.resource.invoked` and
+`native.resource.rejected` events whose payload carries only safe metadata
+(`resource_kind`, `name`, `path_label`, `sha256`, `byte_length`, `truncated`,
+`resource_label`), plus a `resource_invocation_count` in the completion event;
+the tool-loop path returns `resource_invocation_count` in
+`NativeToolReplResult`. Resource invocations are excluded from the local prompt
+history and from the opt-in `--archive-transcript` sidecar body. The `[Skills]`
+startup-chrome section lists the loadable skill names from the same loader the
+dispatcher uses.
 The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
 stderr are real TTY streams and the input runtime is `auto`. That boundary is
 `pipy_harness.native.tui.ToolLoopTerminalUi`: it stores chat history,
@@ -435,11 +486,14 @@ produces output the committed history fills the full window height with the
 input/footer at the bottom rather than capping the frame to the upper half.
 Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `model`, `settings`, `login`, `logout`, `copy`, `exit`,
-`quit`); Up/Down moves the selected row, Tab or Enter accepts the selected
+locally (`help`, `model`, `skill`, `template`, `settings`, `login`, `logout`,
+`copy`, `exit`, `quit`, plus any discovered workspace/global custom slash
+commands); Up/Down moves the selected row, Tab or Enter accepts the selected
 command, and Escape closes the menu without exiting the session. The menu is
-honest — it advertises a command only once the dispatcher can execute it — and
-windows to six visible rows with a scroll indicator when more match. `/copy` is a local-only command: it copies the
+honest — it advertises a command only once the dispatcher can execute it, so
+no-tool-only commands (`read`, `ask-file`, `propose-file`, `apply-proposal`,
+`verify`) never appear here — and windows to six visible rows with a scroll
+indicator when more match. `/copy` is a local-only command: it copies the
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,

@@ -164,6 +164,10 @@ The line-oriented mode also exposes these explicit commands:
 - `/settings`, `/status`, `/clear`
 - `/login [openai-codex]`, `/logout [openai-codex]`,
   `/model [<provider>/<model>]`
+- `/skill [<name>]` — list workspace/global skills, or load one named skill's
+  instruction body as a bounded provider turn.
+- `/template [<name> [args]]` — list prompt templates, or run one with
+  `$ARGUMENTS`/`$1..$9` expansion as a bounded provider turn.
 - `/read <path>` — bounded excerpt printed to stdout only; not
   provider-forwarded or archived.
 - `/ask-file <path> -- <question>` — forwards one bounded excerpt plus
@@ -180,6 +184,34 @@ budget per REPL session and never display approval prompts. Workspace
 context (`AGENTS.md` / `CLAUDE.md` ancestors plus the global pipy config
 root) is discovered and composed into the native bootstrap system prompt
 across the real providers, bounded by 64 KiB per file and 256 KiB total.
+
+### Runtime resources: skills, prompt templates, custom commands
+
+Both REPL modes load three bounded resource kinds from pipy-owned Markdown
+stores, workspace-first then global (`<workspace>/.pipy/{skills,templates,commands}/`
+then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
+`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`). Each `*.md`
+file may carry optional `---` frontmatter with `name` and `description`; the
+body is the instruction/template text.
+
+- `/skill <name>` loads a skill body as a bounded provider turn; `/skill`
+  lists available skills.
+- `/template <name> [args]` runs a prompt template, expanding `$ARGUMENTS` /
+  `$1..$9`; `/template` lists templates.
+- A `.pipy/commands/<name>.md` file becomes a `/<name>` custom slash command
+  that runs through the same local-command boundary as the built-ins (it
+  cannot shadow a built-in) and appears in the tool-loop TUI slash menu and
+  no-tool completion. Unknown/unsafe/empty resources fail closed with no
+  provider turn.
+
+Discovery rejects secret-shaped filenames, binary content, generated /
+`.gitignore`-matched filenames, oversized bodies (64 KiB/file, 256 KiB total),
+and symlink-escapes. This is deliberately not a general extension API — only
+these three kinds load, through the existing provider/session/tool/archive
+boundaries. Resource bodies, expanded prompts, and command text never enter
+the metadata archive, prompt history, or transcript sidecar; only safe
+counters/labels (name, path label, sha256, byte length, truncated) are
+recorded.
 
 REPL input goes through `--input-runtime auto|plain|prompt-toolkit`. `auto`
 keeps plain stdin/stderr for captured streams and uses the optional

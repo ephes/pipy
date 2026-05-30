@@ -96,9 +96,9 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | D1 | Parent-walk for instruction files | ✅ | `grep -q 'parent' src/pipy_harness/native/workspace_context.py` |
 | D2 | Per-file + total byte caps | ✅ | `grep -q 'byte_cap' src/pipy_harness/native/workspace_context.py` |
 | D3 | Global config root (PIPY_CONFIG_HOME) | ✅ | `grep -q 'PIPY_CONFIG_HOME' src/pipy_harness/native/workspace_context.py` |
-| D4 | Skills loading (workspace skills) | ❌ | `test -f src/pipy_harness/native/skills.py` (helper removed in 2026-05-26 audit cleanup; never wired to a runtime consumer — see backlog Track CQ-A) |
-| D5 | Prompt templates | ❌ | `test -f src/pipy_harness/native/prompt_templates.py` (helper removed in 2026-05-26 audit cleanup; never wired to a runtime consumer — see backlog Track CQ-A) |
-| D6 | Custom slash commands (user-defined) | ❌ | `grep -rq --include='*.py' 'custom_commands\|user_commands' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; never wired to a dispatcher — see backlog Track CQ-A) |
+| D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by both `session.py` and `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
+| D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/template <name> <args>')` to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. Both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
+| D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
 | D7 | Themes / color schemes | ❌ | `test -f src/pipy_harness/native/themes.py` (helper removed in 2026-05-26 audit cleanup; never wired to chrome — see backlog Track CQ-A) |
 | D8 | Image/binary attachment loading | ❌ | `grep -rq --include='*.py' 'image_attachment\|load_image' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; no provider consumed it — see backlog Track CQ-A) |
 
@@ -119,24 +119,30 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-27, after the code-quality audit cleanup):  41
+current ✅ count (2026-05-30, after wiring runtime resource loading):  44
 target  ✅ count for 80% parity:                                       40
-delta beyond 80% target:                                               +1
+delta beyond 80% target:                                               +4
 ```
 
-Red rows after the 2026-05-26 audit cleanup: B7 (bash, deferred behind
-a real sandbox), D4 (skills), D5 (prompt templates), D6 (custom slash
-commands), D7 (themes), D8 (image attachments), E2 (session compaction),
-E3 (session branching), and E5 (dynamic provider swap). All eight
-non-bash rows were previously pinned by a `test -f path` (or `grep -rq`
-over the directory) rubber-stamp on a helper module with no runtime
-consumer; the audit (`docs/audit/2026-05-26/code-quality-audit/`)
-identified them as dead code and Track CQ-A of `docs/backlog.md` removed
-the helpers. The Verify commands now restrict `grep -r` to `*.py` so
-stale `__pycache__/*.pyc` bytecode no longer satisfies the check.
-Re-introducing the helpers is justified only when a runtime consumer
-exists first; rewriting the per-row Verify commands to test real
-behavior (instead of file existence) is queued.
+Red rows remaining: B7 (bash, deferred behind a real sandbox), D7
+(themes), D8 (image attachments), E2 (session compaction), and E3
+(session branching). E5 (dynamic provider swap) passes via its
+`select_model` helper path.
+
+D4 (skills), D5 (prompt templates), and D6 (custom slash commands) were
+red after the 2026-05-26 audit cleanup removed their dormant helper
+modules (no runtime consumer existed). They are now ✅ because the
+helpers were reintroduced **with** a runtime consumer: the
+`pipy_harness.native.resources` registry/dispatcher is wired into both
+the no-tool REPL (`session.py`) and the bounded tool loop /
+product TUI (`tool_loop_session.py`). Their Verify commands were
+upgraded from `test -f path` / `grep` rubber-stamps to **behavior
+checks** that seed a resource in a temp workspace and assert the
+dispatcher resolves it to a bounded provider turn (see
+`scripts/parity_score.sh`), so recreating a dormant helper file cannot
+satisfy them. The remaining red rows still use file/grep checks;
+rewriting them to behavior checks is justified only once a runtime
+consumer exists for each.
 
 ## How To Verify
 

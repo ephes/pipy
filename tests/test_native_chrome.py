@@ -170,13 +170,23 @@ def test_print_startup_chrome_renders_skills_when_store_populated(
     fake_home.mkdir()
     monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
 
+    # Honest listing: the chrome [Skills] section lists the loadable skill
+    # names (`.pipy/skills/*.md`) a user can run with `/skill <name>`, sourced
+    # from the same loader the dispatcher uses.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
     skills_dir = workspace / ".pipy" / "skills"
     skills_dir.mkdir(parents=True)
-    (skills_dir / "commit-ready").mkdir()
-    (skills_dir / "review-handoff").mkdir()
+    (skills_dir / "commit-ready.md").write_text(
+        "---\nname: commit-ready\ndescription: prep a commit\n---\nbody\n",
+        encoding="utf-8",
+    )
+    (skills_dir / "review-handoff.md").write_text(
+        "---\nname: review-handoff\ndescription: hand off a review\n---\nbody\n",
+        encoding="utf-8",
+    )
 
     stream = io.StringIO()
     chrome.print_startup_chrome(stream, cwd=workspace)
