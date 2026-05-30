@@ -13,6 +13,7 @@ from pipy_harness.models import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.conversation import NativeNoToolReplConversationContext
+    from pipy_harness.native.image_attachment import ProviderImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
     from pipy_harness.native.tools.messages import LoopMessage
 
@@ -146,6 +147,12 @@ class ProviderRequest:
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None
     messages: tuple["LoopMessage", ...] = ()
     available_tools: tuple["ToolDefinition", ...] = ()
+    # Provider-visible image attachments for the *current* user turn (resolved
+    # from ``@image:`` references). Multimodal adapters render these as native
+    # image blocks attached to the latest user message; text-only providers
+    # ignore them. The raw base64 data lives here in memory only and is never
+    # archived — only safe metadata (media type / byte count / sha256) is.
+    attachments: tuple["ProviderImageAttachment", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

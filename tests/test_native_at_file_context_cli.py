@@ -220,3 +220,77 @@ def test_tool_loop_repl_loads_at_file_context_into_provider_messages(
     assert "DELTA_FILE_LINE" in combined
     metadata = result.metadata or {}
     assert metadata["file_reference_loaded_count"] == 1
+
+
+def test_tool_loop_repl_image_attachment_counter_reaches_adapter_metadata(
+    tmp_path,
+) -> None:
+    """The tool-loop adapter forwards safe image-attachment counters.
+
+    Proves the safe counters cross the archive boundary as documented: a
+    ``@image:`` attachment is reflected in ``AdapterResult.metadata`` (which the
+    harness records), while no raw image bytes appear in that metadata.
+    """
+
+    import base64
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 48
+    (tmp_path / "shot.png").write_bytes(png)
+
+    class CapturingToolProvider:
+        name = "fake"
+        supports_tool_calls = True
+
+        def __init__(self) -> None:
+            self.model_id = "fake-native-bootstrap"
+            self.captured: list[ProviderRequest] = []
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: object = None,
+            reasoning_sink: object = None,
+        ) -> ProviderResult:
+            self.captured.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="DONE",
+                tool_calls=(),
+            )
+
+    provider = CapturingToolProvider()
+    adapter = PipyNativeToolReplAdapter(
+        provider=provider,
+        input_stream=StringIO("describe @image:shot.png\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+        tool_budget=3,
+    )
+    prepared = adapter.prepare(
+        RunRequest(
+            agent="pipy-native",
+            slug="test",
+            command=[],
+            cwd=tmp_path,
+            goal="t",
+            capture_policy=CapturePolicy(),
+        )
+    )
+    result = adapter.run(
+        prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
+    )
+
+    assert result.exit_code == 0
+    assert provider.captured and len(provider.captured[0].attachments) == 1
+    metadata = result.metadata or {}
+    assert metadata["image_attachment_loaded_count"] == 1
+    assert metadata["image_attachment_count"] == 1
+    assert metadata["image_attachment_failed_count"] == 0
+    # Safe counters only — never the raw image payload.
+    assert base64.b64encode(png).decode("ascii") not in json.dumps(metadata)

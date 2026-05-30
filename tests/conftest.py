@@ -13,6 +13,8 @@ home directory layout inside the fixture-provided tmp path.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 
@@ -25,3 +27,29 @@ def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyp
     # ``resolve_session_root()`` aligned with the per-test isolation.
     monkeypatch.setenv("HOME", str(fake_home))
     return fake_home
+
+
+@pytest.fixture(autouse=True)
+def _isolated_chrome_theme():  # type: ignore[no-untyped-def]
+    """Keep the chrome theme selection from leaking across tests.
+
+    The ``/theme`` command intentionally mutates ``os.environ["PIPY_THEME"]``
+    so the next chrome render (which re-reads the ambient env) picks up the new
+    palette. ``monkeypatch`` cannot undo a value *set* during a test when the
+    key was originally absent, so a test that drives ``/theme`` would otherwise
+    leak the selected palette into every later test's rendered ANSI. Snapshot
+    and restore the relevant env vars around each test to contain that.
+    """
+
+    saved = {
+        key: os.environ.get(key)
+        for key in ("PIPY_THEME", "PIPY_NATIVE_THEME_PATH")
+    }
+    try:
+        yield
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value

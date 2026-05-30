@@ -170,9 +170,19 @@ def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
         items: list[dict[str, object]] = []
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
+        _attach_images(items, request)
         return items
     if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
-        return request.user_prompt
+        if not request.attachments:
+            return request.user_prompt
+        single: list[dict[str, object]] = [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": request.user_prompt}],
+            }
+        ]
+        _attach_images(single, request)
+        return single
     messages: list[dict[str, object]] = []
     for exchange in request.no_tool_repl_context.exchanges:
         messages.append(
@@ -193,7 +203,37 @@ def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
             "content": [{"type": "input_text", "text": request.user_prompt}],
         }
     )
+    _attach_images(messages, request)
     return messages
+
+
+def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:
+    """Append ``input_image`` data-URL blocks to the latest user message.
+
+    Image attachments belong to the current user turn, so they ride on the last
+    user message. The Responses API accepts ``input_image`` content parts with a
+    base64 ``data:`` URL alongside ``input_text``.
+    """
+
+    if not request.attachments:
+        return
+    for item in reversed(items):
+        if item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            return
+        for attachment in request.attachments:
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": (
+                        f"data:{attachment.media_type};base64,"
+                        f"{attachment.data_base64}"
+                    ),
+                }
+            )
+        return
 
 
 def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:

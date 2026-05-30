@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -29,6 +30,15 @@ from pipy_harness.native.conversation import (
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.file_references import resolve_file_references
+from pipy_harness.native.image_attachment import (
+    ProviderImageAttachment,
+    resolve_image_attachments,
+)
+from pipy_harness.native.themes import (
+    NativeThemeStore,
+    select_theme,
+    theme_status_lines,
+)
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
@@ -317,6 +327,7 @@ SETTINGS_REPL_COMMAND = "/settings"
 LOGIN_REPL_COMMAND = "/login"
 LOGOUT_REPL_COMMAND = "/logout"
 MODEL_REPL_COMMAND = "/model"
+THEME_REPL_COMMAND = "/theme"
 READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
@@ -342,6 +353,7 @@ _REPL_COMMAND_GROUPS = (
             "/model [<provider>/<model>|<model>]",
         ),
     ),
+    _ReplCommandGroup("Appearance", ("/theme [<name>]",)),
     _ReplCommandGroup(
         "Resources",
         (
@@ -1154,6 +1166,22 @@ class NativeNoToolReplSession:
                         extra_safe_metadata=instruction_metadata,
                     )
                 continue
+            if _is_repl_command_invocation(command, THEME_REPL_COMMAND):
+                pending_apply_draft = None
+                theme_reference = command[len(THEME_REPL_COMMAND) :].strip()
+                if not theme_reference:
+                    for line in theme_status_lines(store=NativeThemeStore()):
+                        print(line, file=error_stream)
+                    continue
+                # Selecting a theme only swaps the chrome palette: no provider
+                # turn, no tool call, no archive write. The new palette takes
+                # effect on the next separator/status render via the ambient
+                # PIPY_THEME the switch sets.
+                _ok, message = select_theme(
+                    theme_reference, environ=os.environ, store=NativeThemeStore()
+                )
+                print(message, file=error_stream)
+                continue
             if command in NO_TOOL_REPL_EXIT_COMMANDS:
                 exit_reason = "explicit_exit"
                 break
@@ -1522,6 +1550,23 @@ class NativeNoToolReplSession:
                 if file_references.used:
                     provider_user_prompt = file_references.augmented_prompt(user_prompt)
                     provider_visible_context_used = True
+            # User-directed image attachments: a genuine prompt may attach a
+            # workspace image with ``@image:<path>``. Resolve them through the
+            # bounded, fail-closed loader (same path policy as ``/read``); loaded
+            # images become provider-visible image blocks while the user's
+            # literal text stays the stored conversation turn. Only safe metadata
+            # (counts/types/hashes) is archived — never the raw image bytes.
+            image_attachments = resolve_image_attachments(
+                user_prompt,
+                workspace_root=run_input.cwd,
+            )
+            turn_attachments: tuple[ProviderImageAttachment, ...] = ()
+            if image_attachments.reference_count:
+                for diagnostic in image_attachments.diagnostics():
+                    print(diagnostic, file=error_stream)
+                if image_attachments.used:
+                    turn_attachments = image_attachments.attachments()
+                    provider_visible_context_used = True
             provider_turn_label = (
                 INITIAL_PROVIDER_TURN_LABEL
                 if conversation_state.provider_turn_count == 0
@@ -1546,6 +1591,16 @@ class NativeNoToolReplSession:
                         f"failed={file_references.failed_count}."
                     ),
                     payload={**safe_context, **file_references.safe_metadata()},
+                )
+            if image_attachments.reference_count:
+                event_sink.emit(
+                    "native.image_attachment.resolved",
+                    summary=(
+                        "Native @image attachments resolved: "
+                        f"loaded={image_attachments.loaded_count}, "
+                        f"failed={image_attachments.failed_count}."
+                    ),
+                    payload={**safe_context, **image_attachments.safe_metadata()},
                 )
             # Automatic compaction: when the bounded provider-visible context
             # crosses the threshold, drop the oldest exchanges and append a safe
@@ -1572,6 +1627,7 @@ class NativeNoToolReplSession:
                 archive_provider_metadata=False,
                 no_tool_repl_context=no_tool_context,
                 system_prompt=turn_system_prompt,
+                attachments=turn_attachments,
             )
             final_provider_result = provider_result
             final_usage = _merge_provider_usage(final_usage, provider_usage)
@@ -2545,6 +2601,7 @@ def _call_provider_turn(
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None,
     system_prompt: str | None = None,
     stream_sink: StreamChunkSink | None = None,
+    attachments: tuple[ProviderImageAttachment, ...] = (),
 ) -> tuple[ProviderResult, dict[str, int | float]]:
     effective_system_prompt = (
         system_prompt if system_prompt is not None else _build_system_prompt()
@@ -2585,6 +2642,7 @@ def _call_provider_turn(
                 provider_turn_label=provider_turn_label,
                 tool_observation=tool_observation,
                 no_tool_repl_context=no_tool_repl_context,
+                attachments=attachments,
             ),
             stream_sink=stream_sink,
         )

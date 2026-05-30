@@ -25,6 +25,13 @@ from importlib import metadata
 from pathlib import Path
 from typing import Iterable, TextIO
 
+from pipy_harness.native.themes import (
+    DEFAULT_PALETTE,
+    ChromePalette,
+    NativeThemeStore,
+    resolve_active_theme_name,
+    resolve_palette,
+)
 from pipy_harness.native.workspace_context import (
     INSTRUCTION_CANDIDATE_FILENAMES,
     resolve_global_instruction_root,
@@ -67,112 +74,114 @@ _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
     "skills": ("~/.pipy/skills",),
 }
 
-_PI_TITLE_TRUECOLOR = "1;38;2;138;190;183"
-_PI_ACCENT_TRUECOLOR = "38;2;138;190;183"
-_PI_TITLE_FALLBACK = "1;36"
-_PI_ACCENT_FALLBACK = "36"
-_PI_SECTION_TRUECOLOR = "38;2;240;198;116"
-_PI_SECTION_FALLBACK = "1;33"
-_PI_DIM_TRUECOLOR = "38;2;102;102;102"
-_PI_DIM_FALLBACK = "2"
-_PI_SECONDARY_DIM_TRUECOLOR = "38;2;128;128;128"
-_PI_ERROR_TRUECOLOR = "38;2;204;102;102"
-_PI_ERROR_FALLBACK = "31"
-_PI_USER_MESSAGE_BG_TRUECOLOR = "48;2;52;53;65"
-_PI_USER_MESSAGE_TEXT_TRUECOLOR = "38;2;212;212;212"
-_PI_TOOL_COMMAND_BG_TRUECOLOR = "48;2;40;50;40"
-_PI_SEPARATOR_TRUECOLOR = "38;2;178;148;187"
-_PI_SEPARATOR_FALLBACK = "35"
-
-
 @dataclass(frozen=True, slots=True)
 class ChromeStyle:
-    """Pi-parity color palette for the native REPL chrome.
+    """Themed color palette for the native REPL chrome.
 
-    Colors mirror the reference Pi terminal product: a muted sage for
-    the title, a soft yellow for ``[Section]`` labels, a flat gray for
-    secondary text, and a soft purple for the input separator. Captured
-    streams (non-TTY) receive the plain text fall-through so test logs
-    stay readable.
+    The active ``palette`` decides *which* ANSI color codes are emitted; the
+    default ``pi`` palette mirrors the reference Pi terminal product (a muted
+    sage title, soft-yellow ``[Section]`` labels, flat-gray secondary text, and
+    a soft-purple input separator). A user-selected theme swaps in a different
+    palette without changing any layout. Captured streams (non-TTY) and
+    ``NO_COLOR`` receive the plain text fall-through — ``enabled`` is decided in
+    ``chrome_style_for`` before a palette is consulted, so the theme never
+    overrides the no-color contract.
     """
 
     enabled: bool
     truecolor: bool = False
+    palette: ChromePalette = DEFAULT_PALETTE
 
     def title(self, text: str) -> str:
-        return self._wrap(text, _PI_TITLE_TRUECOLOR, _PI_TITLE_FALLBACK)
+        return self._wrap(text, self.palette.title_truecolor, self.palette.title_fallback)
 
     def section_label(self, text: str) -> str:
-        return self._wrap(text, _PI_SECTION_TRUECOLOR, _PI_SECTION_FALLBACK)
+        return self._wrap(
+            text, self.palette.section_truecolor, self.palette.section_fallback
+        )
 
     def dim(self, text: str) -> str:
-        return self._wrap(text, _PI_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
+        return self._wrap(text, self.palette.dim_truecolor, self.palette.dim_fallback)
 
     def secondary_dim(self, text: str) -> str:
-        return self._wrap(text, _PI_SECONDARY_DIM_TRUECOLOR, _PI_DIM_FALLBACK)
+        return self._wrap(
+            text, self.palette.secondary_dim_truecolor, self.palette.dim_fallback
+        )
 
     def dim_italic(self, text: str) -> str:
         # Italic + secondary dim, mirroring the captured-stream fallback
         # renderer so streamed reasoning reads as Pi's italic prose voice.
         if not self.enabled:
             return text
-        code = _PI_SECONDARY_DIM_TRUECOLOR if self.truecolor else _PI_DIM_FALLBACK
+        code = (
+            self.palette.secondary_dim_truecolor
+            if self.truecolor
+            else self.palette.dim_fallback
+        )
         return f"\x1b[3;{code}m{text}\x1b[0m"
 
     def error(self, text: str) -> str:
-        return self._wrap(text, _PI_ERROR_TRUECOLOR, _PI_ERROR_FALLBACK)
+        return self._wrap(text, self.palette.error_truecolor, self.palette.error_fallback)
 
     def separator(self, text: str) -> str:
-        return self._wrap(text, _PI_SEPARATOR_TRUECOLOR, _PI_SEPARATOR_FALLBACK)
+        return self._wrap(
+            text, self.palette.separator_truecolor, self.palette.separator_fallback
+        )
 
     def user_message(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
+        bg = self.palette.user_message_bg_truecolor
         padded = text + (" " * max(0, width - len(text)))
         if text == "":
-            return f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m{padded}\x1b[0m"
+            return f"\x1b[{bg}m{padded}\x1b[0m"
         return (
-            f"\x1b[{_PI_USER_MESSAGE_BG_TRUECOLOR}m"
-            f"\x1b[{_PI_USER_MESSAGE_TEXT_TRUECOLOR}m{padded}\x1b[0m"
+            f"\x1b[{bg}m"
+            f"\x1b[{self.palette.user_message_text_truecolor}m{padded}\x1b[0m"
         )
 
     def tool_command(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        text_code = _PI_USER_MESSAGE_TEXT_TRUECOLOR if self.truecolor else "37"
+        bg = self.palette.tool_command_bg_truecolor
+        text_code = (
+            self.palette.user_message_text_truecolor if self.truecolor else "37"
+        )
         leading = text[: len(text) - len(text.lstrip(" "))]
         visible = text[len(leading) :]
         padding = " " * max(0, width - len(text))
         return (
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"\x1b[{bg}m"
             f"{leading}\x1b[1;{text_code}m{visible}\x1b[0m"
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
+            f"\x1b[{bg}m{padding}\x1b[0m"
         )
 
     def tool_result(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
+        bg = self.palette.tool_command_bg_truecolor
         padding = " " * max(0, width - len(text))
         if text == "":
-            return f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
-        text_code = _PI_SECONDARY_DIM_TRUECOLOR if self.truecolor else "2"
+            return f"\x1b[{bg}m{padding}\x1b[0m"
+        text_code = self.palette.secondary_dim_truecolor if self.truecolor else "2"
         return (
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"\x1b[{bg}m"
             f"\x1b[{text_code}m{text}\x1b[0m"
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m{padding}\x1b[0m"
+            f"\x1b[{bg}m{padding}\x1b[0m"
         )
 
     def tool_read(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
+        bg = self.palette.tool_command_bg_truecolor
         leading = text[: len(text) - len(text.lstrip(" "))]
         visible = text[len(leading) :]
         verb, separator, rest = visible.partition(" ")
         padding = " " * max(0, width - len(text))
         return (
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
-            f"{leading}\x1b[{_PI_TITLE_TRUECOLOR}m{verb}\x1b[0m"
-            f"\x1b[{_PI_TOOL_COMMAND_BG_TRUECOLOR}m"
+            f"\x1b[{bg}m"
+            f"{leading}\x1b[{self.palette.title_truecolor}m{verb}\x1b[0m"
+            f"\x1b[{bg}m"
             f"{separator}{rest}{padding}\x1b[0m"
         )
 
@@ -184,7 +193,9 @@ class ChromeStyle:
     def menu_selection(self, text: str) -> str:
         if not self.enabled:
             return text
-        return self._wrap(text, _PI_ACCENT_TRUECOLOR, _PI_ACCENT_FALLBACK)
+        return self._wrap(
+            text, self.palette.accent_truecolor, self.palette.accent_fallback
+        )
 
     def cursor_cell(self, before: str, cursor: str = " ", after: str = "") -> str:
         if not self.enabled:
@@ -198,7 +209,18 @@ class ChromeStyle:
         return f"\x1b[{code}m{text}\x1b[0m"
 
 
-def chrome_style_for(error_stream: TextIO) -> ChromeStyle:
+def chrome_style_for(
+    error_stream: TextIO, *, theme_name: str | None = None
+) -> ChromeStyle:
+    """Build a ``ChromeStyle`` for ``error_stream`` honoring the active theme.
+
+    When ``theme_name`` is None the theme is resolved from the ambient
+    environment (``PIPY_THEME``) plus the persisted store, exactly like the
+    other chrome inputs (``NO_COLOR``/``TERM``) are read per render. The
+    NO_COLOR / non-TTY fallback is decided first and always wins: a disabled
+    style emits plain text no matter which palette is selected.
+    """
+
     is_tty = bool(getattr(error_stream, "isatty", lambda: False)())
     term = os.environ.get("TERM", "")
     enabled = is_tty and "NO_COLOR" not in os.environ and term.lower() != "dumb"
@@ -208,7 +230,14 @@ def chrome_style_for(error_stream: TextIO) -> ChromeStyle:
         or "256color" in term.lower()
         or "direct" in term.lower()
     )
-    return ChromeStyle(enabled=enabled, truecolor=truecolor)
+    resolved = (
+        theme_name
+        if theme_name is not None
+        else resolve_active_theme_name(store=NativeThemeStore())
+    )
+    return ChromeStyle(
+        enabled=enabled, truecolor=truecolor, palette=resolve_palette(resolved)
+    )
 
 
 def chrome_width(error_stream: TextIO | None) -> int:

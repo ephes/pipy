@@ -59,8 +59,9 @@ The broad parity ladder, applied with small-slice discipline:
   Runtime Resource Loading Track below): `/skill`, `/template`, and workspace
   custom `/<name>` commands run through `pipy_harness.native.resources` in
   both REPL product paths, and the `[Skills]` chrome section lists the
-  loadable skill names. Extensions, themes, and a general package/plugin
-  loader remain later parity work. The `/settings` (interactive control
+  loadable skill names. Chrome color themes also now ship via `/theme`
+  (`pipy_harness.native.themes`). A general extension/package/plugin loader
+  remains later parity work. The `/settings` (interactive control
   dialog) and `/model` (interactive selector) surfaces are exposed inside the
   product TUI, and `/login`/`/logout` are executable inside the TUI too
   (through the same auth boundary, with no provider turn).
@@ -727,7 +728,10 @@ module is live.
 
 1. Remove `pipy_harness.native.dynamic_provider` (140 L wrapper around
    one `state.select_model` call, used only by its own test).
-   Refs: `02:F18`, `07:F10`.
+   Refs: `02:F18`, `07:F10`. **Done, and the capability (E5) is now
+   ✅** — not by recreating the wrapper, but by verifying the live
+   `/model` swap through the shared `NativeReplProviderState` boundary in
+   both REPL product paths (`scripts/parity_checks/dynamic_provider_behavior.py`).
 2. Remove `pipy_harness.native.approval_prompt` (410 L; ten reasons,
    six statuses, three value objects, zero non-test, non-re-export call
    sites). Refs: `07:F11`.
@@ -741,8 +745,16 @@ module is live.
 5. Remove `pipy_harness.native.image_attachment` (196 L; plumbed through
    `ProviderRequest.image_attachments` but consumed by no provider).
    Refs: `07:F14`. Re-introduce only when an actual provider parses it.
+   **Reintroduced (D8 now ✅)**: a bounded, fail-closed `@image:` loader
+   feeds `ProviderRequest.attachments`, which the Anthropic / OpenAI-Responses
+   / Google adapters now render as native image blocks; both REPL paths
+   wire it in and the archive keeps only safe metadata
+   (`scripts/parity_checks/attachment_behavior.py`).
 6. Remove `pipy_harness.native.themes` and remove the unused theme
-   registry surfaces (test-only). Refs: `06:F22`.
+   registry surfaces (test-only). Refs: `06:F22`. **Reintroduced (D7 now
+   ✅)**: `themes.py` is the palette registry behind `chrome.ChromeStyle`,
+   consumed by a real `/theme` command in both REPLs and resolved per
+   render through `PIPY_THEME` (`scripts/parity_checks/theme_behavior.py`).
 7. Remove `pipy_harness.native.skills`, `prompt_templates`,
    `custom_commands` and the chrome-side wiring that calls into them.
    Refs: `06:F1`. Reintroduce only when a runtime path consumes them.
@@ -1512,8 +1524,10 @@ real-PTY product-TUI tests at 80x24 and 100x40 for custom-command
 discovery/execution and unsafe-resource rejection. The D4/D5/D6 parity-score
 checks are behavior checks (`scripts/parity_score.sh`).
 
-Out of scope (still deferred): a general extension/package loader, themes
-(D7), image attachments (D8), and runtime UI hooks.
+Out of scope for *this* track (skills/templates/commands): a general
+extension/package loader and runtime UI hooks. Themes (D7) and image
+attachments (D8) have since landed on their own — see the Native Session
+Workflow / parity rows and `docs/pi-parity.md`.
 
 ## Native Session Workflow Track (landed 2026-05-30)
 

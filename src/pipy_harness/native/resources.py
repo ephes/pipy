@@ -63,6 +63,7 @@ RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
         "login",
         "logout",
         "model",
+        "theme",
         "read",
         "ask-file",
         "propose-file",

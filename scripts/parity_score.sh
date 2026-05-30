@@ -85,8 +85,19 @@ check D3 "PIPY_CONFIG_HOME"          small  "grep -q PIPY_CONFIG_HOME src/pipy_h
 check D4 "Skills loading"            small  "grep -q dispatch_resource_command src/pipy_harness/native/session.py && grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_SKILL_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'skills'; p.mkdir(parents=True); _=(p/'demo.md').write_text(chr(10).join(['---','name: demo','---','SKILLBODY',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/skill demo',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'SKILLBODY' in x.provider_text else 1)\""
 check D5 "Prompt templates"          small  "grep -q dispatch_resource_command src/pipy_harness/native/session.py && grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_TEMPLATE_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'templates'; p.mkdir(parents=True); _=(p/'rev.md').write_text(chr(10).join(['---','name: rev','---','review ARGS='+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/template rev hello',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'ARGS=hello' in x.provider_text else 1)\""
 check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command src/pipy_harness/native/session.py && grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_COMMAND_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'commands'; p.mkdir(parents=True); _=(p/'dep.md').write_text(chr(10).join(['---','name: dep','---','deploy '+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/dep prod',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'deploy prod' in x.provider_text else 1)\""
-check D7 "Themes"                    small  "test -f src/pipy_harness/native/themes.py"
-check D8 "Image attachments"         small  "grep -rq --include='*.py' 'image_attachment\|load_image' src/pipy_harness/native/ 2>/dev/null"
+# D7 is a behavior check, not a file-existence rubber-stamp: it drives the
+# no-tool REPL product path with a TTY-like stream and a real /theme switch and
+# proves the selected theme changes the rendered chrome styling (default pi
+# separator before the switch, ocean separator after), while NO_COLOR / non-TTY
+# always force plain output regardless of the selected theme.
+check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q THEME_REPL_COMMAND src/pipy_harness/native/session.py && grep -q '\"/theme\"' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py"
+# D8 is a behavior check, not a grep rubber-stamp: it seeds a workspace PNG,
+# drives the no-tool REPL product path with a real @image: prompt, and proves
+# the image reaches the provider as a bounded, type-validated attachment that a
+# multimodal adapter renders as a native image block, that a non-image binary
+# fails closed, and that the metadata-first archive records only safe metadata
+# (media type / byte count / sha256) — never the raw base64 image data.
+check D8 "Image attachments"         small  "grep -q 'def resolve_image_attachments' src/pipy_harness/native/image_attachment.py && grep -q 'attachments=' src/pipy_harness/native/session.py && grep -q 'attachments=' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py"
 
 echo
 echo "── Advanced session features (E1–E7) ───────────────"
@@ -101,7 +112,14 @@ check E1 "Session resume"            big    "test -f src/pipy_harness/native/ses
 check E2 "Session compaction"        big    "grep -q compact_no_tool_context src/pipy_harness/native/session.py && grep -q compact_tool_loop_messages src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py"
 check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py"
 check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
-check E5 "Dynamic provider swap"     big    "test -f src/pipy_harness/native/dynamic_provider.py || grep -rq --include='*.py' 'def swap_provider\|/provider ' src/pipy_harness/native/ 2>/dev/null"
+# E5 is a behavior check, not a file/grep rubber-stamp: it drives BOTH REPL
+# product paths through the shared NativeReplProviderState boundary and proves
+# a mid-session /model switch rebinds the live provider/model in subsequent
+# turns, that the availability gate refuses an unavailable target (prior
+# selection preserved), that the tool-loop path clears the provider-visible
+# conversation on a successful switch and preserves it on a refused one, and
+# that /model itself creates no provider/tool/archive side effects.
+check E5 "Dynamic provider swap"     big    "uv run python scripts/parity_checks/dynamic_provider_behavior.py"
 check E6 "Settings panel"            small  "grep -rq --include='*.py' '/settings' src/pipy_harness/native/session.py 2>/dev/null"
 check E7 "RPC / SDK"                 small  "test -f src/pipy_harness/rpc.py || test -f src/pipy_harness/sdk.py"
 

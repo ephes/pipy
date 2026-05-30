@@ -180,13 +180,45 @@ def _messages_payload(request: ProviderRequest) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         for envelope in request.messages:
             items.append(_envelope_to_message(envelope))
-        return items
-    return [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": request.user_prompt}],
-        }
-    ]
+    else:
+        items = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": request.user_prompt}],
+            }
+        ]
+    _attach_images(items, request)
+    return items
+
+
+def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:
+    """Append base64 image blocks to the latest user message in ``items``.
+
+    Image attachments belong to the current user turn, so they ride on the last
+    user message. Anthropic accepts ``image`` content blocks with a base64
+    source alongside text blocks.
+    """
+
+    if not request.attachments:
+        return
+    for item in reversed(items):
+        if item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            return
+        for attachment in request.attachments:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": attachment.media_type,
+                        "data": attachment.data_base64,
+                    },
+                }
+            )
+        return
 
 
 def _envelope_to_message(envelope: Any) -> dict[str, object]:

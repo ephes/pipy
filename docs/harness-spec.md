@@ -418,6 +418,16 @@ state unless their command contract explicitly says so, and do not archive raw
 command text, authorization URLs, prompts, provider responses, tokens, or auth
 material. Successful `/model` selections are persisted as non-secret native
 defaults under local pipy state with only provider and model identifiers.
+`/theme [<name>]` prints or changes the active chrome color scheme. With no
+argument it lists the registered themes (`pi` default, `high-contrast`,
+`ocean`) and marks the active one; with a known name it switches. The choice
+persists to a non-secret `NativeThemeStore` (theme name only) and sets
+`PIPY_THEME` for the running process, so the next chrome render (re-resolved
+per frame through `chrome_style_for`) repaints with the new palette. Selecting
+a theme only changes *which* ANSI codes are emitted: `chrome_style_for` decides
+color enablement first (NO_COLOR / non-TTY → plain text), so a theme never
+overrides the no-color contract. Like the other local commands, `/theme`
+invokes no provider, consumes no turn, and archives nothing.
 `/exit` and `/quit` terminate the session.
 
 #### Runtime resource loading (skills, prompt templates, custom commands)
@@ -1177,6 +1187,46 @@ Boundaries:
 - Only safe counters (`file_reference_count`, `file_reference_loaded_count`,
   `file_reference_failed_count`) cross the archive boundary. No raw paths, file
   contents, provider payloads, or secrets are recorded.
+
+### Native User-Directed @image: Attachments
+
+A genuine user prompt may attach a workspace image with `@image:<path>` (the
+alias `@img:` is also accepted). Loaded images become *provider-visible image
+content blocks* on the current user message — the multimodal counterpart to the
+text-only `@file` context above. It ships in both REPL product paths and
+applies to every input runtime, because resolution happens on the submitted
+prompt after `read_line`.
+
+Boundaries (`pipy_harness.native.image_attachment`):
+
+- References are parsed and anchored exactly like `@file` (so `me@image:host`
+  prose and bare `@` are not references), de-duplicated, and capped per turn
+  (`MAX_IMAGE_ATTACHMENTS_PER_TURN = 4`), per image
+  (`MAX_IMAGE_ATTACHMENT_BYTES = 5 MiB`), and in aggregate
+  (`MAX_TOTAL_IMAGE_ATTACHMENT_BYTES = 16 MiB`).
+- Path policy is reused from the `read` tool (`resolve_tool_path` plus the
+  `.git`/cache-dir and `.gitignore` defenses), but the text reader's
+  generated-suffix rejection is deliberately *not* applied, since images
+  legitimately carry `.png`/`.jpg`/`.gif` suffixes.
+- Type is validated by magic bytes (PNG/JPEG/GIF/WebP only). Arbitrary binary
+  or non-image content fails closed, as do missing, ignored, oversized, and
+  out-of-workspace references — each with a safe local diagnostic. One bad
+  attachment never blocks a good one.
+- Loaded images travel on `ProviderRequest.attachments` (base64 + media type +
+  byte count + sha256). The Anthropic (`image`), OpenAI-Responses
+  (`input_image` data URL), and Google (`inlineData`) adapters render them as
+  native image blocks attached to the latest user message; in the tool loop the
+  attachment rides only the first provider call of the turn so later tool-result
+  messages are never mis-tagged. Providers without multimodal support ignore
+  the field.
+- The user's literal prompt text is preserved verbatim. Only safe metadata —
+  counts plus each loaded image's media type, byte count, and sha256 — crosses
+  the archive boundary (`native.image_attachment.resolved` in the no-tool path;
+  `image_attachment_count`/`image_attachment_loaded_count`/`image_attachment_failed_count`
+  on `NativeToolReplResult`, forwarded into `AdapterResult.metadata` and thus
+  the finalized record, in the tool loop — alongside the matching
+  `file_reference_*` counters). The raw base64 image bytes are never
+  archived and never written to the opt-in transcript sidecar.
 
 ### Native Explicit Multi-File Context Budget
 

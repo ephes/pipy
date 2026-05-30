@@ -99,8 +99,8 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by both `session.py` and `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
 | D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/template <name> <args>')` to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. Both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
 | D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
-| D7 | Themes / color schemes | ❌ | `test -f src/pipy_harness/native/themes.py` (helper removed in 2026-05-26 audit cleanup; never wired to chrome — see backlog Track CQ-A) |
-| D8 | Image/binary attachment loading | ❌ | `grep -rq --include='*.py' 'image_attachment\|load_image' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; no provider consumed it — see backlog Track CQ-A) |
+| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q THEME_REPL_COMMAND …/session.py && grep -q '"/theme"' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the no-tool REPL with a real `/theme` switch and proves the selected palette changes the rendered chrome — default `pi` separator before, `ocean` after — while NO_COLOR / non-TTY always force plain output) |
+| D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/session.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the no-tool REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the archive records only safe metadata — media type / byte count / sha256 — never the raw base64) |
 
 ### E. Advanced session features (7 features)
 
@@ -110,7 +110,7 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_no_tool_context …/session.py && grep -q compact_tool_loop_messages …/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py` (seeds a temp record; proves `/compact` reduces provider-visible context and tool-loop compaction never orphans a tool result) |
 | E3 | Session branching/forking | ✅ | **behavior check**: `grep -q build_session_lineage …/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py` (seeds a parent, runs `--branch`, proves safe lineage metadata is recorded and the parent stays byte-for-byte immutable) |
 | E4 | Session export/share | ✅ | `uv run pipy-session export --help 2>/dev/null \|\| grep -rq 'def export' src/pipy_session/` |
-| E5 | Dynamic provider/model swap mid-session | ❌ | `grep -rq 'def set_provider\|swap_provider' src/pipy_harness/native/` (helper removed in 2026-05-26 audit cleanup; was a 140 L wrapper around one `select_model` call — see backlog Track CQ-A) |
+| E5 | Dynamic provider/model swap mid-session | ✅ | **behavior check**: `uv run python scripts/parity_checks/dynamic_provider_behavior.py` (drives BOTH REPL product paths through the shared `NativeReplProviderState`; proves a mid-session `/model` switch rebinds the live provider/model in subsequent turns, the availability gate refuses an unavailable target with the prior selection preserved, the tool-loop clears the provider-visible conversation on a successful switch and preserves it on a refused one, and `/model` itself creates no provider/tool/archive side effects) |
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
 | E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
@@ -119,18 +119,21 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 ```
 ✅ count / 50 = parity %
 
-current ✅ count (2026-05-30, after wiring live resume/compaction/branching):  46
+current ✅ count (2026-05-30, after wiring live themes/attachments/provider-swap): 49
 target  ✅ count for 80% parity:                                              40
-delta beyond 80% target:                                                      +6
+delta beyond 80% target:                                                      +9
 ```
 
-Red rows remaining: B7 (bash, deferred behind a real sandbox), D7
-(themes), D8 (image attachments), and E5 (dynamic provider swap — its
-parity-score row still greps for a removed `dynamic_provider` helper even
-though the capability ships through `NativeReplProviderState.select_model`
-in both REPL modes). E2 (session compaction) and E3 (session branching)
-are now ✅ as **behavior checks** that seed temporary records and prove the
-live `/compact`/`--branch` product paths.
+Red rows remaining: only B7 (bash, deferred behind a real sandbox). D7
+(themes), D8 (image attachments), and E5 (dynamic provider swap) are now ✅
+as **behavior checks** that exercise the real product paths: D7 drives a
+`/theme` switch and proves the rendered palette changes while NO_COLOR/TTY
+fallback is preserved; D8 drives an `@image:` prompt and proves the image
+reaches the provider as a native multimodal block while the archive keeps
+only safe metadata; E5 drives a `/model` switch through both REPLs via
+`NativeReplProviderState`. E2 (session compaction) and E3 (session
+branching) are ✅ as **behavior checks** that seed temporary records and
+prove the live `/compact`/`--branch` product paths.
 
 D4 (skills), D5 (prompt templates), and D6 (custom slash commands) were
 red after the 2026-05-26 audit cleanup removed their dormant helper
@@ -143,9 +146,30 @@ upgraded from `test -f path` / `grep` rubber-stamps to **behavior
 checks** that seed a resource in a temp workspace and assert the
 dispatcher resolves it to a bounded provider turn (see
 `scripts/parity_score.sh`), so recreating a dormant helper file cannot
-satisfy them. The remaining red rows still use file/grep checks;
-rewriting them to behavior checks is justified only once a runtime
-consumer exists for each.
+satisfy them.
+
+D7 (themes), D8 (image attachments), and E5 (dynamic provider swap) were
+likewise red after the 2026-05-26 audit cleanup removed their dormant
+helpers. They are now ✅ for the same reason — each ships **with** a
+runtime consumer and a behavior check that exercises it:
+
+- **D7** reintroduces `themes.py` as the palette registry behind
+  `chrome.ChromeStyle`, wires a `/theme` command into both REPLs
+  (persisted via `NativeThemeStore`, resolved per-render through
+  `PIPY_THEME`), and proves a switch changes the rendered palette while
+  NO_COLOR / non-TTY still force plain output.
+- **D8** reintroduces `image_attachment.py` as a bounded, fail-closed
+  `@image:` loader, threads `ProviderRequest.attachments` into the
+  Anthropic / OpenAI-Responses / Google adapters as native image blocks,
+  wires resolution into both REPLs, and proves the archive keeps only
+  safe metadata (media type / byte count / sha256), never raw bytes.
+- **E5** is verified through the existing `NativeReplProviderState`
+  boundary (not a recreated `dynamic_provider` wrapper): the behavior
+  check drives a `/model` switch through both REPL product paths.
+
+The only remaining red row, B7, still uses a registration check;
+rewriting it to a behavior check is justified only once a real sandbox
+runtime consumer exists.
 
 ## How To Verify
 
@@ -199,10 +223,12 @@ For the anti-gaming bar:
   bounded form while keeping recent turns plus a safe summary; the tool-loop
   cut preserves provider message-protocol validity (no orphaned tool result),
   with a behavior check that seeds a temp record and unit tests.
-- **dynamic provider swap (E5)**: helper functions switch provider/model
-  selection through `NativeReplProviderState.select_model`, preserving existing
-  availability gates and non-secret default persistence, with focused tests.
-  The `/provider` dispatcher hook remains a follow-up.
+- **dynamic provider swap (E5)**: a mid-session `/model` switch through
+  `NativeReplProviderState.select_model` rebinds the live provider/model in
+  both REPL product paths, preserving availability gates and non-secret
+  default persistence, clearing/rebinding conversation state and refreshing
+  the visible status/footer, with no provider/tool/archive side effects during
+  selection — proved by a behavior check across both REPLs plus focused tests.
 
 A "big" feature can ONLY count toward the anti-gaming bar after both:
 (a) its Verify command passes, and (b) `just check` is green with its tests.

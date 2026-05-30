@@ -249,6 +249,7 @@ def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
             contents.append(_envelope_to_content(envelope, prior_assistants))
             if isinstance(envelope, AssistantMessage):
                 prior_assistants.append(envelope)
+        _attach_images(contents, request)
         return contents
     if request.no_tool_repl_context is not None:
         for exchange in request.no_tool_repl_context.exchanges:
@@ -267,7 +268,36 @@ def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
     contents.append(
         {"role": "user", "parts": [{"text": request.user_prompt}]}
     )
+    _attach_images(contents, request)
     return contents
+
+
+def _attach_images(contents: list[dict[str, Any]], request: ProviderRequest) -> None:
+    """Append ``inlineData`` image parts to the latest user content.
+
+    Image attachments belong to the current user turn, so they ride on the last
+    user content. Gemini accepts ``inlineData`` parts carrying a base64-encoded
+    payload and its ``mimeType`` alongside text parts.
+    """
+
+    if not request.attachments:
+        return
+    for content in reversed(contents):
+        if content.get("role") != "user":
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            return
+        for attachment in request.attachments:
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": attachment.media_type,
+                        "data": attachment.data_base64,
+                    }
+                }
+            )
+        return
 
 
 def _envelope_to_content(

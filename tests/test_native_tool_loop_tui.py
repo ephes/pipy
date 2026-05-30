@@ -503,6 +503,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/logout",
         "/copy",
         "/compact",
+        "/theme",
         "/exit",
         "/quit",
     )
@@ -571,9 +572,9 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Nine commands match the bare "/" prefix but the menu windows to six
+    # Ten commands match the bare "/" prefix but the menu windows to six
     # rows, so a scroll indicator appears.
-    assert "(1/9)" in rendered
+    assert "(1/10)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):

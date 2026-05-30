@@ -84,6 +84,11 @@ from pipy_harness.native.resources import (
     WorkspaceResources,
     dispatch_resource_command,
 )
+from pipy_harness.native.themes import (
+    NativeThemeStore,
+    select_theme,
+    theme_status_lines,
+)
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
@@ -92,6 +97,10 @@ from pipy_harness.native.tui import (
 )
 from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.file_references import resolve_file_references
+from pipy_harness.native.image_attachment import (
+    ProviderImageAttachment,
+    resolve_image_attachments,
+)
 from pipy_harness.native.tools import (
     AssistantMessage,
     LoopMessage,
@@ -391,6 +400,9 @@ class NativeToolReplResult:
     file_reference_count: int = 0
     file_reference_loaded_count: int = 0
     file_reference_failed_count: int = 0
+    image_attachment_count: int = 0
+    image_attachment_loaded_count: int = 0
+    image_attachment_failed_count: int = 0
     compaction_count: int = 0
     compaction_dropped_group_count: int = 0
     error_type: str | None = None
@@ -521,6 +533,9 @@ class NativeToolReplSession:
         file_reference_count = 0
         file_reference_loaded_count = 0
         file_reference_failed_count = 0
+        image_attachment_count = 0
+        image_attachment_loaded_count = 0
+        image_attachment_failed_count = 0
         compaction_count = 0
         compaction_dropped_group_count_total = 0
         # Mutable safe summary suffix appended to the system prompt after a
@@ -910,6 +925,34 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
+            if stripped == "/theme" or stripped.startswith("/theme "):
+                # Chrome-only command: swap the active color palette. No
+                # provider turn, no tool call, no archive write. The next TUI
+                # frame (and footer) repaints with the new palette because
+                # chrome_style_for re-reads the ambient PIPY_THEME the switch
+                # sets; only the non-secret theme name reaches the store.
+                argument = stripped[len("/theme") :].strip()
+                if not argument:
+                    for line in theme_status_lines(store=NativeThemeStore()):
+                        self._emit_diagnostic(terminal_ui, error_stream, line)
+                else:
+                    _ok, message = select_theme(
+                        argument, environ=os.environ, store=NativeThemeStore()
+                    )
+                    # add_notice repaints the frame, so the new palette takes
+                    # effect immediately on the next rendered frame.
+                    self._emit_diagnostic(terminal_ui, error_stream, message)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
             if stripped == "/login" or stripped.startswith("/login "):
                 # Auth-only command: no provider turn, no tool call. Runs the
                 # OAuth login through the provider-state boundary, refreshes
@@ -1020,6 +1063,7 @@ class NativeToolReplSession:
             # append the bounded excerpts to the provider-visible user message,
             # and keep the literal prompt for the rendered panel, prompt
             # history, and the sidecar transcript.
+            turn_attachments: tuple[ProviderImageAttachment, ...] = ()
             if resource_provider_text is not None:
                 # Resource turn: the bounded instruction/expansion is the
                 # provider message verbatim. @file augmentation, prompt
@@ -1043,6 +1087,22 @@ class NativeToolReplSession:
                         provider_user_input = file_references.augmented_prompt(
                             user_input
                         )
+                # User-directed image attachments (@image:<path>): bounded,
+                # fail-closed image loading that becomes provider-visible image
+                # blocks on the current user message. Raw bytes never reach the
+                # prompt history, the transcript sidecar, or the result.
+                image_attachments = resolve_image_attachments(
+                    user_input,
+                    workspace_root=cwd,
+                    reference_roots=self.reference_roots,
+                )
+                if image_attachments.reference_count:
+                    image_attachment_count += image_attachments.reference_count
+                    image_attachment_loaded_count += image_attachments.loaded_count
+                    image_attachment_failed_count += image_attachments.failed_count
+                    for diagnostic in image_attachments.diagnostics():
+                        self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
+                    turn_attachments = image_attachments.attachments()
             messages.append(UserMessage(content=provider_user_input))
             user_turn_count += 1
             # Persist the prompt for cross-session recall when the user has
@@ -1082,6 +1142,11 @@ class NativeToolReplSession:
                     cwd=cwd,
                     messages=tuple(messages),
                     available_tools=available_tools,
+                    # Image attachments belong to the current user message, so
+                    # they ride only the first provider call of this turn; later
+                    # tool-loop iterations append tool results (also user-role),
+                    # and re-sending would mis-attach the image to those.
+                    attachments=turn_attachments if inner_iterations == 1 else (),
                 )
                 renderer.begin_provider_turn()
                 renderer.show_working()
@@ -1287,6 +1352,9 @@ class NativeToolReplSession:
             file_reference_count=file_reference_count,
             file_reference_loaded_count=file_reference_loaded_count,
             file_reference_failed_count=file_reference_failed_count,
+            image_attachment_count=image_attachment_count,
+            image_attachment_loaded_count=image_attachment_loaded_count,
+            image_attachment_failed_count=image_attachment_failed_count,
             compaction_count=compaction_count,
             compaction_dropped_group_count=compaction_dropped_group_count_total,
         )

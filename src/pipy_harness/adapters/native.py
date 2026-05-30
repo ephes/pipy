@@ -427,6 +427,13 @@ class PipyNativeToolReplAdapter:
                 "file_reference_count": run_output.file_reference_count,
                 "file_reference_loaded_count": run_output.file_reference_loaded_count,
                 "file_reference_failed_count": run_output.file_reference_failed_count,
+                "image_attachment_count": run_output.image_attachment_count,
+                "image_attachment_loaded_count": (
+                    run_output.image_attachment_loaded_count
+                ),
+                "image_attachment_failed_count": (
+                    run_output.image_attachment_failed_count
+                ),
                 "compaction_count": run_output.compaction_count,
                 "error_type": run_output.error_type,
                 "error_message": run_output.error_message,
