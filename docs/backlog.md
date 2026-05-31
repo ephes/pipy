@@ -9,9 +9,12 @@ reviewable change while keeping the source-of-truth design constraints in
 
 ## Current State
 
-Pipy is a native coding-agent runtime with a Pi-shape REPL, eleven stdlib-only
-real providers, a bounded model-driven tool loop, and a metadata-first session
-archive. Specific feature coverage and parity status live in
+Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
+real providers plus the deterministic fake provider, a bounded model-driven
+tool loop, and a metadata-first session archive. The first local model path is
+`ds4` (`antirez/ds4` DeepSeek V4 Flash) through the OpenAI-compatible Chat
+Completions machinery with tool-loop support. Specific feature coverage and
+parity status live in
 [pi-parity.md](pi-parity.md). Code shape lives in
 [architecture.md](architecture.md).
 
@@ -188,9 +191,11 @@ not a promise to skip review when a smaller, safer slice appears.
 8. Active-turn cancellation fidelity. Escape now matches Pi visibly by showing
    red `Operation aborted` and suppressing late chunks, but the provider HTTP
    request is not cancelled and a daemon worker may finish in the background.
-9. RPC, multi-agent orchestration, indexing, and local-provider maturity. These
-   remain product-maturity work after the core shell, tool, session, and
-   settings surfaces settle.
+9. RPC, multi-agent orchestration, indexing, and local-provider maturity. The
+   local ds4 provider now has real large-model one-shot and tool-call smoke
+   coverage; remaining product maturity work is broader local-provider
+   benchmarking after the core shell, tool, session, and settings surfaces
+   settle.
 
 Textual, prompt-toolkit, curses, and a small custom terminal layer were
 compared at the terminal-layer checkpoint. The current direction is a narrow
@@ -1220,6 +1225,30 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
+### Local ds4 native provider (landed)
+
+The provider/model registry now includes `ds4` as a product-path native
+provider for a locally running `antirez/ds4` DeepSeek V4 Flash server. It
+defaults to base URL `http://127.0.0.1:8000/v1` and model
+`deepseek-v4-flash`; `PIPY_DS4_BASE_URL`, `PIPY_DS4_API_KEY`, and
+`--native-model` provide non-code overrides. The implementation reuses the
+OpenAI-compatible Chat Completions provider machinery, requires no API key by
+default, and has a hermetic product-path test against a local stub server that
+pins request shape, tool-call serialization, response parsing, registry wiring,
+base URL/model handling, and metadata-only archive behavior.
+
+Local setup evidence: `antirez/ds4` has been cloned outside this repo at
+`/Users/jochen/src/ds4` and built successfully for this Mac; `ds4-server`
+exists there. The explicit q2-imatrix model download completed through ds4's
+resumable downloader, producing `ds4flash.gguf` -> the 81 GB imatrix GGUF.
+`ds4-server` was launched with `--ctx 100000 --kv-disk-dir /tmp/ds4-kv
+--kv-disk-space-mb 8192`. A real
+`uv run pipy run --agent pipy-native --native-provider ds4 --native-model deepseek-v4-flash ...`
+smoke against the live server returned the expected one-sentence answer for
+the local `antirez/ds4` server. A live Chat Completions probe returned
+OpenAI-style `tool_calls`, and the provider is now registered
+`supports_tool_calls=True` for pipy's bounded tool loop.
+
 ### Product TUI interactive provider/model selector (landed)
 
 Advanced item 2 of the Prioritized Pi Gap Queue past the then-read-only
@@ -1348,17 +1377,18 @@ runtime and not a wrapper around Codex, Claude, Pi, or another agent CLI. The
 product posture is explicitly Pi-like: no permission popups for normal
 interactive use.
 
-Provider access direction: OpenAI Codex subscription auth is the preferred
-near-term real-provider path. The existing `openai` provider remains the
+Provider access direction: OpenAI Codex subscription auth remains the preferred
+near-term hosted real-provider path. The existing `openai` provider remains the
 pay-by-token OpenAI Platform API-key baseline; the subscription path is the
 separate `openai-codex` provider modeled on Pi's PKCE OAuth and
 `chatgpt.com/backend-api/codex/responses` implementation. OpenRouter is useful
 for ad-hoc smoke testing with `OPENROUTER_API_KEY` but is not the preferred
 default. Anthropic subscription access is not a near-term native provider
 target because subscription-backed coding-agent usage is expected to stay
-within Claude Code. Local-model providers (Ollama, llama.cpp, MLX, LM Studio,
-or another runtime) remain deferred until separate benchmark work selects the
-first local integration.
+within Claude Code. The first selected local integration is `ds4`, using
+`deepseek-v4-flash` through a local OpenAI-compatible Chat Completions server;
+it is registered as tool-loop capable after live ds4 smoke proved OpenAI-style
+tool-call round trips with pipy's loop.
 
 The current implementation target is in `Next Slice` above.
 

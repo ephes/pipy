@@ -7,9 +7,11 @@ from typing import cast
 
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_state import (
+    AUTO_DEFAULT_PROVIDER_PRIORITY,
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
+    auto_default_selection,
     settings_overlay_lines,
 )
 
@@ -49,3 +51,36 @@ def test_settings_overlay_lines_reports_availability_reasons(tmp_path: Path):
     # append their own honest footer for their command surface.
     assert "/login" not in body
     assert "read-only" not in body
+
+
+def test_auto_default_priority_preserves_hosted_provider_preference(
+    tmp_path: Path,
+):
+    assert AUTO_DEFAULT_PROVIDER_PRIORITY == (
+        "openai-codex",
+        "openai",
+        "anthropic",
+        "google",
+        "openrouter",
+        "mistral",
+        "amazon-bedrock",
+        "azure-openai",
+        "cloudflare",
+        "google-vertex",
+        "openai-completions",
+    )
+
+    assert auto_default_selection(
+        env={
+            "OPENROUTER_API_KEY": "openrouter-key",
+            "ANTHROPIC_API_KEY": "anthropic-key",
+        },
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    ) == NativeModelSelection("anthropic", "claude-3-5-sonnet-20241022")
+    assert auto_default_selection(
+        env={
+            "OPENROUTER_API_KEY": "openrouter-key",
+            "GEMINI_API_KEY": "gemini-key",
+        },
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    ) == NativeModelSelection("google", "gemini-2.0-flash-exp")

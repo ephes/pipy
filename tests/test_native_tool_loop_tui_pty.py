@@ -321,8 +321,8 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         # Opening the selector runs no provider turn.
         assert seen == [], "selector opened a provider turn"
         # Navigate up from the current openrouter row to the openai row, then
-        # choose it. (model_options order: fake, openai-codex, openai,
-        # openrouter, ... — current is openrouter, one step up is openai.)
+        # choose it. (model_options order: fake, ds4, openai-codex, openai,
+        # openrouter, ... - current is openrouter, one step up is openai.)
         os.write(in_master, b"\x1b[A")  # up arrow
         os.write(in_master, b"\r")  # enter selects the highlighted available row
         assert _wait_for(

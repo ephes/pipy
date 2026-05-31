@@ -150,8 +150,9 @@ Optional:
   Completions server. It defaults to base URL `http://127.0.0.1:8000/v1` and
   model `deepseek-v4-flash`; override them with `PIPY_DS4_BASE_URL` and
   `--native-model`. `PIPY_DS4_API_KEY` is optional and, when set, is sent as a
-  bearer token. The provider is intentionally no-tool in pipy until a real ds4
-  tool-loop smoke proves ds4 tool calls work with pipy's loop.
+  bearer token. The provider advertises `supports_tool_calls=True`; a live ds4
+  smoke verified OpenAI-style `tool_calls` responses and pipy's bounded tool
+  loop.
 
   ```sh
   # Outside the pipy repo. The q2-imatrix download is large and resumes.
@@ -175,8 +176,8 @@ Optional:
 `native-repl`. `--repl-mode` defaults to `auto`: when the selected provider
 advertises `supports_tool_calls=True`, the shell launches the bounded
 model-driven tool loop with `read`, `ls`, `grep`, `find`, `write`, `edit`,
-`edit_diff`, `truncate`, and `bash`; no-tool providers such as `ds4` stay in
-simple prompt mode. Pass `--repl-mode no-tool` or `tool-loop` to force a mode.
+`edit_diff`, `truncate`, and `bash`. Pass `--repl-mode no-tool` or `tool-loop`
+to force a mode.
 `--tool-budget` (default 10,
 max 25) caps invocations per user turn. Filesystem tools refuse generated,
 `.git`, symlink-escaped, and oversized targets.

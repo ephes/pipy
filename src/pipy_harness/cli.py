@@ -46,6 +46,10 @@ from pipy_harness.native import (
     validate_native_repl_input_runtime,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider_registry import (
+    NATIVE_PROVIDER_REGISTRY,
+    native_provider_spec,
+)
 from pipy_harness.native.workspace_context import default_workspace_instruction_loader
 from pipy_harness.runner import HarnessRunner
 
@@ -92,20 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=[
-            "fake",
-            "openai",
-            "openai-completions",
-            "openai-codex",
-            "openrouter",
-            "anthropic",
-            "google",
-            "google-vertex",
-            "mistral",
-            "amazon-bedrock",
-            "azure-openai",
-            "cloudflare",
-        ],
+        choices=tuple(NATIVE_PROVIDER_REGISTRY),
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -171,20 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repl_parser.add_argument(
         "--native-provider",
-        choices=[
-            "fake",
-            "openai",
-            "openai-completions",
-            "openai-codex",
-            "openrouter",
-            "anthropic",
-            "google",
-            "google-vertex",
-            "mistral",
-            "amazon-bedrock",
-            "azure-openai",
-            "cloudflare",
-        ],
+        choices=tuple(NATIVE_PROVIDER_REGISTRY),
         help=(
             "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
         ),
@@ -549,27 +527,17 @@ def _adapter_for(
     if agent == "pipy-native":
         if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
             raise ValueError(f"unsupported native provider: {native_provider}")
-        if native_provider in {
-            "openai",
-            "openai-completions",
-            "openai-codex",
-            "openrouter",
-            "anthropic",
-            "google",
-            "google-vertex",
-            "mistral",
-            "amazon-bedrock",
-            "azure-openai",
-            "cloudflare",
-        }:
-            if not native_model:
+        if native_provider is not None and native_provider != "fake":
+            spec = native_provider_spec(native_provider)
+            if spec is not None and spec.requires_model_for_run and not native_model:
                 raise ValueError(
                     f"--native-model is required for --native-provider {native_provider}"
                 )
+            model_id = native_model or DEFAULT_NATIVE_MODELS[native_provider]
             return PipyNativeAdapter(
                 provider=_native_provider_for_selection(
                     NativeModelSelection(
-                        provider_name=native_provider, model_id=native_model
+                        provider_name=native_provider, model_id=model_id
                     )
                 ),
                 instruction_loader=default_workspace_instruction_loader,
@@ -903,6 +871,10 @@ def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderP
         )
 
         return OpenAIChatCompletionsProvider(model_id=selection.model_id)
+    if selection.provider_name == "ds4":
+        from pipy_harness.native.ds4_provider import Ds4ChatCompletionsProvider
+
+        return Ds4ChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-codex":
         return OpenAICodexResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "openrouter":

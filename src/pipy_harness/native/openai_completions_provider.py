@@ -36,6 +36,8 @@ OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 class UrllibJsonHTTPClient:
     """Standard-library JSON client for OpenAI Chat Completions calls."""
 
+    provider_label: str = "OpenAI API"
+
     def post_json(
         self,
         url: str,
@@ -64,10 +66,17 @@ class UrllibJsonHTTPClient:
                 else "request failed"
             )
             raise OpenAICompletionsTransportError(
-                f"OpenAI API request failed: {reason}"
+                f"{self.provider_label} request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=OpenAICompletionsResponseParseError, provider_label="OpenAI API"))
+        return JsonResponse(
+            status_code=status_code,
+            body=decode_json_object(
+                payload,
+                error_class=OpenAICompletionsResponseParseError,
+                provider_label=self.provider_label,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +98,12 @@ class OpenAIChatCompletionsProvider:
     endpoint: str = OPENAI_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "openai-completions"
+    auth_required: bool = True
 
     @property
     def name(self) -> str:
-        return "openai-completions"
+        return self.provider_name
 
     def complete(
         self,
@@ -110,11 +121,11 @@ class OpenAIChatCompletionsProvider:
                 started_at=started_at,
                 error_type="OpenAICompletionsConfigurationError",
                 error_message=(
-                    "--native-model is required for native provider openai-completions."
+                    f"--native-model is required for native provider {self.name}."
                 ),
             )
         api_key = self.api_key.strip() if self.api_key is not None else ""
-        if not api_key:
+        if not api_key and self.auth_required:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
@@ -122,7 +133,7 @@ class OpenAIChatCompletionsProvider:
                 error_type="OpenAICompletionsAuthError",
                 error_message=(
                     "OpenAI API key is required in the environment for native "
-                    "provider openai-completions."
+                    f"provider {self.name}."
                 ),
             )
 
@@ -135,10 +146,9 @@ class OpenAIChatCompletionsProvider:
             body["tools"] = [
                 serialize_tool_for_chat_completions(tool) for tool in request.available_tools
             ]
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         try:
             response = self.http_client.post_json(

@@ -269,10 +269,10 @@ def test_openai_subscription_auth_decision_is_documented():
     assert "Historical provider priority after the original blocked decision" in (
         compact_decision
     )
-    assert (
-        "Local model provider integrations remained deferred pending benchmark work"
-        in (compact_decision)
-    )
+    assert "first local model integration selected" in compact_decision
+    assert "`ds4` DeepSeek V4 Flash provider" in compact_decision
+    assert "live large-model smoke" in compact_decision
+    assert "tool-loop smoke" in compact_decision
     assert "Anthropic subscription-backed native provider support was not promoted" in (
         compact_decision
     )

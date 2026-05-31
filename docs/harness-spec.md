@@ -321,7 +321,15 @@ The OpenAI provider uses a small injectable standard-library HTTP boundary so
 tests can provide fake responses without live credentials or network access. It
 does not enable built-in tools, function calling, web search, file search, code
 interpreter, computer use, conversation state, background mode, streaming,
-retries, model fallback, OAuth, or a provider registry.
+retries, model fallback, or OAuth.
+
+Native provider/model ids and coarse capability flags are registered in
+`pipy_harness.native.provider_registry`. The registry owns default models,
+credential/local availability checks, whether one-shot `pipy run` can omit
+`--native-model`, auto-default eligibility, and the conservative
+`supports_tool_calls` flag used by the REPL mode resolver and model selector.
+Provider construction remains explicit in the CLI boundary so each concrete
+adapter still decides how to call its upstream API.
 
 The second real provider is the OpenRouter Chat Completions provider. It is
 selected explicitly, reads credentials from `OPENROUTER_API_KEY`, requires
@@ -343,6 +351,26 @@ routing, OAuth, or provider-side tool settings. It does not store raw request
 bodies, raw provider responses, provider response ids, prompts, model output,
 auth material, or provider-native payloads in JSONL, Markdown, or
 `--native-output json`.
+
+The local `ds4` provider is selected explicitly as `--native-provider ds4`.
+It reuses the OpenAI-compatible Chat Completions provider machinery against
+`antirez/ds4`'s `/v1/chat/completions` server. Defaults are base URL
+`http://127.0.0.1:8000/v1` and model `deepseek-v4-flash`; users can override
+the base URL with `PIPY_DS4_BASE_URL`, the model with `--native-model`, and an
+optional bearer token with `PIPY_DS4_API_KEY`. The provider does not require an
+API key and does not hide model download/build work inside tests or normal
+commands. For a 128 GB Mac, ds4's documented target is the q2-imatrix model
+path: clone/build ds4 outside the pipy repo, run
+`./download_model.sh q2-imatrix` explicitly (about 81 GB on disk and resumable
+via `curl -C -`), then start for example
+`./ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192`.
+The recommended context range for 128 GB machines is 100k-300k tokens. ds4's
+README documents OpenAI-compatible `tools`; a live ds4 smoke verified
+OpenAI-style `tool_calls`, so pipy registers ds4 with
+`supports_tool_calls=True` for the bounded tool loop. The hermetic test path uses a local
+OpenAI-compatible stub server to prove request shape, base URL/model handling,
+response parsing, registry availability, and metadata-only archive behavior
+without the real model.
 
 The third real provider is the distinct OpenAI Codex subscription provider. It
 is selected explicitly as `--native-provider openai-codex`, requires
@@ -875,9 +903,10 @@ packages/coding-agent/src/core/auth-storage.ts, and
 packages/ai/src/providers/openai-codex-responses.ts, including
 https://chatgpt.com/backend-api/codex/responses. This provider must also
 continue to reject credential-store scraping. Historical provider priority
-after the original blocked decision: Local model provider integrations remained
-deferred pending benchmark work. Anthropic subscription-backed native provider
-support was not promoted. Required closeout was focused
+after the original blocked decision: The first local model integration selected
+for pipy-native is the `ds4` DeepSeek V4 Flash provider; live large-model smoke
+and tool-loop smoke now gate its promotion. Anthropic subscription-backed
+native provider support was not promoted. Required closeout was focused
 tests for OAuth shape, credential storage, refresh, and manual smoke confirms
 that live login, refresh, provider calls work.
 

@@ -75,6 +75,7 @@ from pipy_harness.native.openai_codex_provider import (
 )
 from pipy_harness.native.anthropic_provider import AnthropicProvider
 from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+from pipy_harness.native.ds4_provider import Ds4ChatCompletionsProvider
 from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
 from pipy_harness.native.mistral_provider import MistralProvider
 from pipy_harness.native.openai_provider import OpenAIResponsesProvider
@@ -87,6 +88,14 @@ from pipy_harness.native.patch_apply import (
     NativePatchApplyTool,
 )
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider_registry import (
+    DS4_API_KEY_ENV,
+    DS4_BASE_URL_ENV,
+    DS4_DEFAULT_BASE_URL,
+    DS4_DEFAULT_MODEL,
+    NATIVE_PROVIDER_REGISTRY,
+    NativeProviderSpec,
+)
 from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptReason,
     NativeExplicitFileExcerptResult,
@@ -152,6 +161,10 @@ __all__ = [
     "FakeNoOpNativeTool",
     "FileOpenAICodexCredentialStore",
     "DEFAULT_NATIVE_MODELS",
+    "DS4_API_KEY_ENV",
+    "DS4_BASE_URL_ENV",
+    "DS4_DEFAULT_BASE_URL",
+    "DS4_DEFAULT_MODEL",
     "NATIVE_TURN_METADATA_KEYS",
     "NATIVE_TURN_PAYLOAD_KEYS",
     "NATIVE_TURN_STORAGE_KEYS",
@@ -169,6 +182,7 @@ __all__ = [
     "NATIVE_VERIFICATION_RECORDED_EVENT",
     "NATIVE_VERIFICATION_STORAGE_KEYS",
     "NativeAgentSession",
+    "NATIVE_PROVIDER_REGISTRY",
     "NativeConversationIdentity",
     "NativeConversationState",
     "NativeConversationTurn",
@@ -183,6 +197,7 @@ __all__ = [
     "NativeNoToolReplConversationContext",
     "NativeNoToolReplExchange",
     "NativeNoToolReplSession",
+    "NativeProviderSpec",
     "NativePatchApplyApprovalDecision",
     "NativePatchApplyGateDecision",
     "NativePatchApplyOperation",
@@ -235,6 +250,7 @@ __all__ = [
     "OpenAICodexResponsesProvider",
     "AnthropicProvider",
     "AmazonBedrockProvider",
+    "Ds4ChatCompletionsProvider",
     "GoogleGenerativeAIProvider",
     "MistralProvider",
     "OpenAIResponsesProvider",
