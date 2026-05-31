@@ -118,12 +118,14 @@ Optional:
 - `--record-files`: after the child exits, record changed git file paths
   only. Without it, changed paths are not recorded.
 - `--native-provider <id>`: native provider for `--agent pipy-native`,
-  defaulting to `fake`. Supported ids: `fake`, `openai`, `openai-codex`,
-  `openrouter`, `anthropic`, `google`, `google-vertex`, `mistral`,
-  `amazon-bedrock`, `azure-openai`, `cloudflare`, `openai-completions`. All
-  real providers are stdlib-only (no third-party SDK dependencies).
-- `--native-model <id>`: model label for the native provider; required for
-  real providers in one-shot `pipy run`.
+  defaulting to `fake`. Supported ids: `fake`, `ds4`, `openai`,
+  `openai-codex`, `openrouter`, `anthropic`, `google`, `google-vertex`,
+  `mistral`, `amazon-bedrock`, `azure-openai`, `cloudflare`,
+  `openai-completions`. All real providers are stdlib-only (no third-party SDK
+  dependencies).
+- `--native-model <id>`: model label for the native provider. Most real
+  providers require it in one-shot `pipy run`; `ds4` defaults to
+  `deepseek-v4-flash`.
 - `--native-output json`: for `--agent pipy-native` only; emits a single
   metadata-only JSON status object instead of provider final text.
 
@@ -143,21 +145,46 @@ Optional:
     --native-provider openrouter \
     --native-model openai/gpt-5.1-codex
   ```
+- `ds4` talks to a locally running
+  [`antirez/ds4`](https://github.com/antirez/ds4) OpenAI-compatible Chat
+  Completions server. It defaults to base URL `http://127.0.0.1:8000/v1` and
+  model `deepseek-v4-flash`; override them with `PIPY_DS4_BASE_URL` and
+  `--native-model`. `PIPY_DS4_API_KEY` is optional and, when set, is sent as a
+  bearer token. The provider is intentionally no-tool in pipy until a real ds4
+  tool-loop smoke proves ds4 tool calls work with pipy's loop.
+
+  ```sh
+  # Outside the pipy repo. The q2-imatrix download is large and resumes.
+  git clone https://github.com/antirez/ds4 ~/src/ds4
+  cd ~/src/ds4
+  make
+  ./download_model.sh q2-imatrix   # about 81 GB; rerun to resume
+  ./ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192
+
+  uv run pipy run --agent pipy-native \
+    --native-provider ds4 \
+    --native-model deepseek-v4-flash \
+    --slug ds4-smoke \
+    --goal "Reply with exactly one sentence explaining what ds4 is."
+  ```
 - `fake` is the deterministic no-credential default.
 
 ### Native REPL
 
 `pipy` and `pipy repl` start the interactive native shell with default slug
 `native-repl`. `--repl-mode` defaults to `auto`: when the selected provider
-advertises `supports_tool_calls=True` (all three real adapters do), the
-shell launches the bounded model-driven tool loop with `read`, `ls`, `grep`,
-`find`, `write`, `edit`, `edit_diff`, and `truncate`. Pass `--repl-mode
-no-tool` or `tool-loop` to force a mode. `--tool-budget` (default 10,
+advertises `supports_tool_calls=True`, the shell launches the bounded
+model-driven tool loop with `read`, `ls`, `grep`, `find`, `write`, `edit`,
+`edit_diff`, `truncate`, and `bash`; no-tool providers such as `ds4` stay in
+simple prompt mode. Pass `--repl-mode no-tool` or `tool-loop` to force a mode.
+`--tool-budget` (default 10,
 max 25) caps invocations per user turn. Filesystem tools refuse generated,
 `.git`, symlink-escaped, and oversized targets.
 
-`bash` is intentionally not exposed in the production model loop until it
-has a real shell sandbox.
+`bash` runs through a shared safe command-execution substrate
+(`pipy_harness.native.command_sandbox`): a no-shell, allowlisted-executable
+boundary that enforces `.git` default-deny, symlink/path-escape refusal,
+secret-shaped output redaction, bounded output, and a timeout/kill ceiling.
 
 #### Resume, branch, and compaction
 
@@ -185,6 +212,9 @@ The line-oriented mode also exposes these explicit commands:
 - `/settings`, `/status`, `/clear`, `/compact`
 - `/login [openai-codex]`, `/logout [openai-codex]`,
   `/model [<provider>/<model>]`
+- `/theme [<name>]` — list available chrome themes, or switch the terminal
+  palette. Selecting a theme only swaps chrome colors; it runs no provider
+  turn and records only the non-secret theme name.
 - `/skill [<name>]` — list workspace/global skills, or load one named skill's
   instruction body as a bounded provider turn.
 - `/template [<name> [args]]` — list prompt templates, or run one with
@@ -249,6 +279,15 @@ reader as `/read` and the model-selected `read` tool, so missing, ignored,
 binary, oversized, secret-shaped, and out-of-workspace paths fail closed with
 safe local diagnostics; the user's literal prompt text is preserved and only
 safe counters reach the session archive.
+
+A prompt may also attach images with `@image:<path>` (one or more references).
+Multimodal-capable adapters (Anthropic, OpenAI Responses, Google Gemini)
+receive bounded, magic-byte-validated (PNG/JPEG/GIF/WebP) images as native
+image blocks on the current user message; non-multimodal providers and
+missing, oversized, out-of-workspace, or mistyped paths fail closed with safe
+local diagnostics. Only safe metadata (reference/loaded/failed counts and, per
+loaded image, media type, byte count, and sha256) reaches the session archive
+— never the raw image bytes.
 
 ### What pipy-native records — and doesn't
 
