@@ -324,11 +324,14 @@ def _detect_git_branch(cwd: Path) -> str | None:
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    `bash` is intentionally not registered here. A shell tool needs a real
-    process/filesystem sandbox before it can satisfy pipy's default-deny
-    `.git` and secret-isolation invariants in the model-visible loop.
+    `bash` runs through the shared safe command-execution substrate
+    (`pipy_harness.native.command_sandbox`): a no-shell, allowlisted-executable
+    boundary that enforces `.git` default-deny, symlink/path-escape refusal,
+    secret-shaped output redaction, bounded output, and timeout/kill. See
+    `pipy_harness.native.tools.bash.BashTool`.
     """
 
+    from pipy_harness.native.tools.bash import BashTool
     from pipy_harness.native.tools.edit import EditTool
     from pipy_harness.native.tools.edit_diff import EditDiffTool
     from pipy_harness.native.tools.find import FindTool
@@ -347,6 +350,7 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "edit": EditTool(),
         "edit_diff": EditDiffTool(),
         "truncate": TruncateTool(),
+        "bash": BashTool(),
     }
 
 

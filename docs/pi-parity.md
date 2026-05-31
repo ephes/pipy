@@ -26,7 +26,7 @@ Status labels are intentionally coarse:
 | --- | --- | --- |
 | Local-first terminal coding agent | Partial | `pipy` and `pipy repl` start a native shell in the current workspace. The bounded tool-loop REPL now enters a pipy-owned inline-scrollback TTY shell: finalized output commits into the terminal's normal buffer (so native scrollback in Ghostty/zellij reviews it) while the input and footer/status stay in a live frame pinned at the bottom, using the full window height. The no-tool REPL and captured-stream fallback remain line-oriented. |
 | Direct provider access | Implemented (11 providers) | `ProviderPort` now supports fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google (Gemini Generative AI), Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI Responses, and Cloudflare Workers AI. All are stdlib-only (urllib + JSON + hashlib/hmac for SigV4); the no-new-runtime-deps invariant is preserved. See `docs/parity-criterion.md` for the locked feature list. |
-| Arbitrary shell execution | Deferred | The `BashTool` helper was removed in the 2026-05-26 code-quality audit cleanup (it was never registered for model-loop use). A real shell sandbox is required before this can land in the production registry. See backlog Track CQ-A. |
+| Arbitrary shell execution | Implemented (bounded) | The model-visible `bash` tool runs through the shared command sandbox (`command_sandbox`): a no-shell, allowlisted-executable boundary with `.git` default-deny, symlink/path-escape refusal, secret-shaped output redaction, bounded output, and timeout/kill. Registered in `production_tool_registry`. |
 | Retry/backoff for transient HTTP errors | Implemented as reusable `RetryPolicy` | `pipy_harness.native.retry.retry_with_backoff` wraps any provider call with exponential backoff + jitter for 429 and 5xx responses. Injectable sleep + jitter for hermetic tests. |
 | Unified-diff edit tool | Implemented as `edit-diff` | `pipy_harness.native.tools.edit_diff.EditDiffTool` parses and applies a unified-diff patch in pure stdlib (no shell-out to `patch(1)`), atomic temp-file rename, and reuses the same `.git`/symlink/pre-read byte-cap defenses as `EditTool`. |
 | Output-shrinking helper | Implemented as `truncate` tool | `pipy_harness.native.tools.truncate.TruncateTool` is a pure-transformation tool the model can use to fold an oversized previous tool result into a head+tail+deterministic-marker form. No I/O. |
@@ -63,7 +63,7 @@ Status labels are intentionally coarse:
 ## Still To Slopfork
 
 The locked 50-feature parity criterion (see `docs/parity-criterion.md`) is now
-46/50 with 8 big features green. D4 (skills loading), D5 (prompt templates),
+50/50 with 10 big features green. D4 (skills loading), D5 (prompt templates),
 and D6 (custom slash commands) went green earlier: the discovery helpers were
 reintroduced **with** a runtime consumer (`pipy_harness.native.resources`)
 wired into both REPL product paths, and their parity-score checks were
@@ -76,19 +76,15 @@ product paths, and their parity-score rows were rewritten from file-existence
 rubber-stamps to behavior checks that seed temporary records and prove the
 runtime behavior (`scripts/parity_checks/compaction_behavior.py` and
 `scripts/parity_checks/branching_behavior.py`).
-The only remaining red row is B7 (`bash`). D7 (themes), D8 (image
-attachments), and E5 (dynamic provider swap) are now ✅ as behavior checks
-that exercise the real product paths (`scripts/parity_checks/theme_behavior.py`,
+All 50 rows are ✅. B7 (`bash`) is green via the shared safe
+command-execution substrate (`command_sandbox`); D7 (themes), D8 (image
+attachments), and E5 (dynamic provider swap) are behavior checks that
+exercise the real product paths (`scripts/parity_checks/bash_behavior.py`,
+`scripts/parity_checks/theme_behavior.py`,
 `scripts/parity_checks/attachment_behavior.py`, and
 `scripts/parity_checks/dynamic_provider_behavior.py`). The boundaries below
 remain Pi-class surfaces that pipy has not yet closed:
 
-- A real production-registered `bash` tool. The standalone `BashTool` helper
-  was removed in the 2026-05-26 code-quality audit cleanup; registering a
-  production shell requires a real process/filesystem sandbox that preserves
-  secret isolation and `.git` default-deny against shell-quoting, glob, and
-  command-substitution bypasses. See `docs/parity-criterion.md` for the
-  documented bar and backlog Track CQ-A for the deletion rationale.
 - Full interactive terminal UI parity beyond the current tool-loop TTY shell:
   richer selectors/overlays and mouse selection. (Prompt history recall,
   bracketed paste, undo/redo, resize handling, an interactive `/settings`
@@ -179,7 +175,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
 | UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Product tool-loop sessions use a pipy-owned inline-scrollback TUI (committed history in native scrollback, live input/footer frame pinned at the bottom, full window height) with prompt/footer ownership, slash menu, submitted prompt bands, tool rows, active assistant output, active-Escape abort rendering, an interactive `/settings` control dialog, an interactive `/model` provider/model selector, executable `/login`/`/logout`, and daily-driver editor ergonomics (prompt history with optional persistent cross-session recall, bracketed paste, undo/redo, resize handling). The no-tool REPL remains line-oriented with compact startup chrome, grouped help, `/status`, `/settings`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, `@file` reference labels, and multiline entry. The `@file` completion inserts labels in the editor; separately, accepted or typed `@path` references in a submitted prompt now load bounded excerpts into the provider request (see "Provider-visible file context"). Broader selectors/overlays and extension UI remain deferred. |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`. Live resume (`--resume`), branch/fork (`--branch`), and in-session compaction (`/compact` + auto threshold) ship through pipy-owned boundaries: a fresh child record is seeded from the metadata-only `ResumeContext`, the parent record stays immutable, and only safe lineage/compaction metadata is recorded (no parent-linked mutable tree, no raw transcript import by default). |
-| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, and `truncate` behind `pipy repl --repl-mode tool-loop`; `bash` is deferred from the production registry pending a real shell sandbox. See the [Tool-Loop Parity Track](backlog.md#tool-loop-parity-track). |
+| Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, `truncate`, and `bash` behind `pipy repl --repl-mode tool-loop`; `bash` runs through the shared command sandbox (`command_sandbox`) with `.git` default-deny and secret-redacted, bounded output. See the [Tool-Loop Parity Track](backlog.md#tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve native provider selections behind `ProviderPort`: fake, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex OAuth, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, and custom slash commands now load at runtime from pipy-owned `.pipy/skills`, `.pipy/templates`, and `.pipy/commands` stores (workspace + global) through `pipy_harness.native.resources`, wired into both REPL product paths; the `[Skills]` chrome section lists the loadable skill names a user can run with `/skill`. Chrome color themes also ship through `/theme` (`pipy_harness.native.themes`). A general extension/package loader and runtime UI hooks remain deferred until a consumer exists. This is deliberately **not** a general extension API — only the bounded resource kinds and the theme palette load, through the existing provider/session/tool/archive boundaries. |

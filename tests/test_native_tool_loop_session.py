@@ -59,9 +59,7 @@ class _FixtureEchoTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         text = str(request.arguments["text"])
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -115,7 +113,7 @@ def _run_session(
 # --------------------- production registry holds safe model tools ----------
 
 
-def test_production_tool_registry_excludes_bash_until_sandboxed():
+def test_production_tool_registry_registers_bash_through_sandbox():
     registry = production_tool_registry()
 
     expected = {
@@ -127,9 +125,10 @@ def test_production_tool_registry_excludes_bash_until_sandboxed():
         "edit",
         "edit_diff",
         "truncate",
+        "bash",
     }
     assert set(registry.keys()) == expected
-    assert "bash" not in registry
+    assert "bash" in registry
     for name in registry:
         assert registry[name].definition.name == name
 
@@ -232,7 +231,9 @@ def test_provider_turn_escape_abort_returns_to_prompt_without_late_streams(
         def abort_provider_turn(self) -> None:
             self.aborted = True
 
-    session = NativeToolReplSession(provider=BlockingProvider(), workspace_root=tmp_path)
+    session = NativeToolReplSession(
+        provider=BlockingProvider(), workspace_root=tmp_path
+    )
     renderer = RecordingRenderer()
 
     result = session._complete_provider_turn(

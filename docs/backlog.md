@@ -68,8 +68,9 @@ The broad parity ladder, applied with small-slice discipline:
 - Tool parity: the bounded multi-step model/tool loop has landed; user-directed
   `@file` content injection has shipped (a submitted prompt's `@path`
   references load bounded excerpts through the shared bounded reader in both
-  REPL modes); the remaining gaps are tool breadth inside that loop, bash/shell
-  execution behind a real sandbox, broader verification, and follow-up tool
+  REPL modes); the model-visible `bash` tool has shipped through the shared
+  safe command-execution substrate (`command_sandbox`); the remaining gaps are
+  tool breadth inside that loop, broader verification, and follow-up tool
   observations behind pipy-owned boundaries, explicit scopes, and privacy
   invariants.
 - Session workflow parity: durable sessions, resume/search/inspect surfaces,
@@ -293,9 +294,12 @@ These hold throughout the track, not as later deferrals:
 These were explicitly deferred for the original tool-loop track; some have now
 shipped in later parity work:
 
-- A `bash` tool or any arbitrary shell execution tool. A standalone helper
-  exists, but production model-loop registration is deferred until a real shell
-  sandbox preserves secret isolation and `.git` default-deny.
+- Arbitrary / unrestricted shell execution. **Update (shipped):** the
+  model-visible `bash` tool now ships as a registered, *bounded* tool through
+  the shared safe command-execution substrate (`command_sandbox`) — a no-shell,
+  allowlisted-executable boundary that preserves secret isolation and `.git`
+  default-deny with symlink/path-escape refusal, bounded output, and
+  timeout/kill. Unrestricted shell execution remains intentionally out of scope.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped first; live `--resume`, `--branch`, and `/compact`
@@ -760,9 +764,12 @@ module is live.
    Refs: `06:F1`. Reintroduce only when a runtime path consumes them.
    Until then, the banner stops advertising `[Skills]`, `[Prompts]`,
    and `[Extensions]` for inert paths.
-8. Remove the `BashTool` module (`pipy_harness/native/tools/bash.py`,
-   391 L, registered=False) until a real shell sandbox lands. Keep
-   the parity-track entry that re-introduces it. Refs: `03:F6`.
+8. ~~Remove the `BashTool` module until a real shell sandbox lands.~~
+   **Done (shipped):** `pipy_harness/native/tools/bash.py` is registered and
+   runs through the shared safe command-execution substrate
+   (`command_sandbox`) — secret isolation and `.git` default-deny preserved,
+   with recursion / directory-listing / symlink-escape / workspace-mutation
+   all refused. B7 is a green behavior check. Refs: `03:F6`.
 9. Remove the `TruncateTool` from the model-visible registry (pi treats
    it as an internal post-processing utility, not a model-facing
    tool). Refs: `03:F5`.
@@ -1423,8 +1430,9 @@ Invariants that must hold for any near-term slice:
   approved tool boundaries. The bounded Pi-shaped slice of this work is now
   planned as the `Tool-Loop Parity Track` above; broader model/tool-loop
   capabilities outside that track stay deferred.
-- A model-driven `bash` tool or any arbitrary-shell tool. The
-  `Tool-Loop Parity Track` deliberately excludes this.
+- Arbitrary-shell execution. **Update (shipped):** a bounded model-driven
+  `bash` tool now ships through the shared command sandbox (`command_sandbox`);
+  unrestricted/arbitrary shell execution remains excluded.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary. The
   `Tool-Loop Parity Track` keeps `/verify just-check` intact and does not
   introduce additional verification commands.

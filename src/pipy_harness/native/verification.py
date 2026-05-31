@@ -12,6 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.command_sandbox import execute_allowlisted_argv
 from pipy_harness.native.models import (
     NATIVE_VERIFICATION_STORAGE_KEYS,
     NativeToolApprovalMode,
@@ -181,13 +182,10 @@ class NativeVerificationTool:
             )
 
         try:
-            completed = self.runner(
+            completed = execute_allowlisted_argv(
                 _JUST_CHECK_ARGV,
-                cwd=self.workspace.resolve(),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
+                cwd=self.workspace,
+                runner=self.runner,
             )
         except OSError:
             return builder.failed(
