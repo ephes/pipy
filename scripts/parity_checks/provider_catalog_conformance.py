@@ -20,12 +20,15 @@ Run:
 
     uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
-Verifies the catalog/helper-layer items of the docs/provider-catalog.md
-"Verification Plan" — items 1-17 plus item 19 (no-secret). It does NOT cover
-Verification-Plan item 18 (product provider-construction paths: catalog-backed
-construction, applied request auth/headers/routing, thinking into
-``ProviderRequest``, direct ``/model`` resolver), which is the accepted fix-up.
-Item numbers below match the plan; there is no "18" here by design:
+Verifies the docs/provider-catalog.md "Verification Plan" items 1-19, including
+item 18 (product provider-construction paths) at the construction/request layer
+with a capturing fake HTTP client: a models.json custom provider runs a real
+turn whose request uses the catalog baseUrl/model/auth/headers, ``--api-key``
+reaches the header, routing reaches the body (OpenRouter ``provider`` / Vercel
+``providerOptions.gateway``), thinking reaches the body (OpenAI ``reasoning_effort``
+/ OpenRouter ``reasoning.effort``), the legacy hardcoded URL is bypassed, and no
+secret leaks into the turn result. The interactive direct-``/model`` resolver and
+product-TUI surfaces are exercised by the focused pytest suites.
 
  1. built-in catalog: multiple rows per implemented provider + real metadata;
  2. exact provider/id matching, ambiguity rejection, bare-id matching;
@@ -44,8 +47,10 @@ Item numbers below match the plan; there is no "18" here by design:
 15. availability gate reflects auth store + models.json keys, not just env;
 16. ds4 resolves as a models.json custom provider; env shim is equivalent;
 17. catalog refresh() picks up a models.json edit + simulated login/logout;
-    (plan item 18 -- product provider-construction paths -- is the accepted
-    follow-up and is intentionally NOT gated here);
+18. product provider-construction: a custom models.json provider runs a real
+    fake-HTTP turn using catalog baseUrl/model/auth/headers; --api-key reaches
+    the header; routing + thinking reach the body; legacy URL bypassed; no
+    secret in the turn result;
 19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
@@ -79,6 +84,11 @@ from pipy_harness.native.models_json import (
     ModelCatalog,
     ModelDefinition,
     ProviderConfig,
+)
+from pipy_harness.native.openai_completions_provider import JsonResponse
+from pipy_harness.native.provider_construction import (
+    build_provider,
+    resolve_construction,
 )
 from pipy_harness.native.oauth_providers import (
     AnthropicOAuthProvider,
@@ -588,6 +598,182 @@ def _check_refresh(checks, tmp: Path):
     checks.append(Check("17_refresh_and_register", before and after and login_ok and logout_ok, "edit + login/logout"))
 
 
+class _CapturingHTTP:
+    def __init__(self):
+        self.requests = []
+
+    def post_json(self, url, *, headers, body, timeout_seconds):
+        self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
+        return JsonResponse(
+            status_code=200,
+            body={
+                "object": "chat.completion",
+                "choices": [
+                    {"finish_reason": "stop", "message": {"role": "assistant", "content": "OK"}}
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+
+def _provider_request(tmp: Path, provider: str, model: str):
+    from pipy_harness.native.models import ProviderRequest
+
+    return ProviderRequest(
+        system_prompt="SYS", user_prompt="hi", provider_name=provider, model_id=model, cwd=tmp
+    )
+
+
+def _state(tmp: Path, models_path: Path, env: dict):
+    return ProviderCatalogState(
+        models_json_path=models_path,
+        auth_store=AuthStore(path=tmp / f"auth_{models_path.stem}.json"),
+        env=env,
+        openai_codex_auth_path=tmp / "no-codex.json",
+    )
+
+
+def _construct_and_capture(state, spec, *, runtime_api_key, thinking_level):
+    resolved = resolve_construction(
+        spec,
+        store=state.auth_store,
+        env=state._env(),
+        runtime_api_key=runtime_api_key,
+        models_json_auth=state._models_json_auth(spec.provider_name),
+        thinking_level=thinking_level,
+    )
+    http = _CapturingHTTP()
+    provider = build_provider(resolved, http_client=http)
+    result = provider.complete(_provider_request(Path("."), spec.provider_name, spec.model_id))
+    return http.requests[-1], result
+
+
+def _check_product_construction(checks, tmp: Path):
+    # 18a: a custom models.json provider runs a real (fake-HTTP) turn whose
+    # request uses the catalog baseUrl, model id, resolved auth, headers, and
+    # mapped thinking.
+    custom_path = tmp / "prod_custom.json"
+    custom_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme": {
+                        "baseUrl": "https://acme.example/v1",
+                        "apiKey": "models-json-key",
+                        "api": "openai-completions",
+                        "headers": {"X-Acme": "ACME_ENV"},
+                        "models": [
+                            {"id": "rocket-1", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = _state(tmp, custom_path, {"ACME_ENV": "acme-org"})
+    spec = state.find("acme", "rocket-1")
+    sent, _ = _construct_and_capture(state, spec, runtime_api_key=None, thinking_level="high")
+    turn_ok = (
+        sent["url"] == "https://acme.example/v1/chat/completions"
+        and sent["body"]["model"] == "rocket-1"
+        and sent["headers"]["Authorization"] == "Bearer models-json-key"
+        and sent["headers"].get("X-Acme") == "acme-org"
+        and sent["body"]["reasoning_effort"] == "high"
+    )
+    checks.append(Check("18_product_custom_turn", turn_ok, "custom provider turn uses catalog baseUrl/model/auth/headers/thinking"))
+
+    # 18b: --api-key (runtime) reaches the outgoing Authorization header.
+    sent_rt, _ = _construct_and_capture(state, spec, runtime_api_key="RUNTIME-KEY", thinking_level=None)
+    auth_ok = sent_rt["headers"]["Authorization"] == "Bearer RUNTIME-KEY"
+    checks.append(Check("18_product_runtime_auth", auth_ok, "--api-key reaches the request header"))
+
+    # 18c: routing reaches the request body (OpenRouter provider param + Vercel
+    # providerOptions.gateway).
+    or_path = tmp / "prod_or.json"
+    or_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "openrouter": {
+                        "modelOverrides": {
+                            "moonshotai/kimi-k2.6": {
+                                "compat": {"openRouterRouting": {"order": ["fireworks"]}}
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    or_state = _state(tmp, or_path, {"OPENROUTER_API_KEY": "or-key"})
+    or_spec = or_state.find("openrouter", "moonshotai/kimi-k2.6")
+    or_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level=None)
+
+    vercel_path = tmp / "prod_vercel.json"
+    vercel_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "vercel": {
+                        "baseUrl": "https://ai-gateway.vercel.sh/v1",
+                        "apiKey": "v-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "glm-5.1", "compat": {"vercelGatewayRouting": {"only": ["zai"], "order": ["zai"]}}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    v_state = _state(tmp, vercel_path, {})
+    v_spec = v_state.find("vercel", "glm-5.1")
+    v_sent, _ = _construct_and_capture(v_state, v_spec, runtime_api_key=None, thinking_level=None)
+    routing_ok = (
+        or_sent["body"].get("provider") == {"order": ["fireworks"]}
+        and v_sent["body"].get("providerOptions") == {"gateway": {"only": ["zai"], "order": ["zai"]}}
+    )
+    checks.append(Check("18_product_routing", routing_ok, "OpenRouter provider param + Vercel providerOptions.gateway reach the body"))
+
+    # 18d: OpenRouter thinking is the nested reasoning.effort, not reasoning_effort.
+    or_think_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level="high")
+    think_ok = (
+        or_think_sent["body"].get("reasoning") == {"effort": "high"}
+        and "reasoning_effort" not in or_think_sent["body"]
+    )
+    checks.append(Check("18_product_openrouter_thinking", think_ok, "OpenRouter thinking is nested reasoning.effort"))
+
+    # 18e: legacy hardcoded path is bypassed — a models.json provider-level
+    # baseUrl override on a built-in provider wins over the adapter default URL.
+    bypass_path = tmp / "prod_bypass.json"
+    bypass_path.write_text(
+        json.dumps({"providers": {"openai-completions": {"baseUrl": "https://catalog-override.example/v1"}}}),
+        encoding="utf-8",
+    )
+    bypass_state = _state(tmp, bypass_path, {"OPENAI_API_KEY": "k"})
+    bypass_spec = bypass_state.find("openai-completions", "gpt-4o-mini")
+    bypass_sent, _ = _construct_and_capture(bypass_state, bypass_spec, runtime_api_key=None, thinking_level=None)
+    from pipy_harness.native.openai_completions_provider import OPENAI_CHAT_COMPLETIONS_URL
+
+    bypass_ok = (
+        bypass_sent["url"] == "https://catalog-override.example/v1/chat/completions"
+        and bypass_sent["url"] != OPENAI_CHAT_COMPLETIONS_URL
+    )
+    checks.append(Check("18_product_legacy_bypass", bypass_ok, "catalog baseUrl wins over the legacy hardcoded adapter URL"))
+
+    # 18f: no secret leaks into the turn result (final_text/metadata).
+    _, leak_result = _construct_and_capture(state, spec, runtime_api_key="RUNTIME-KEY", thinking_level="high")
+    leak_dump = json.dumps(
+        {"final_text": leak_result.final_text, "metadata": leak_result.metadata, "model": leak_result.model_id}
+    )
+    no_leak = not any(s in leak_dump for s in ("models-json-key", "RUNTIME-KEY", "Bearer", "acme-org"))
+    checks.append(Check("18_product_no_secret_in_result", no_leak, "turn result carries no secret/Authorization"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -689,6 +875,7 @@ def run_checks() -> list[Check]:
         _check_availability(checks, tmp)
         _check_ds4(checks, tmp)
         _check_refresh(checks, tmp)
+        _check_product_construction(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 
