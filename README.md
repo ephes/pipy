@@ -176,16 +176,21 @@ Optional:
 `native-repl`. `--repl-mode` defaults to `auto`: when the selected provider
 advertises `supports_tool_calls=True`, the shell launches the bounded
 model-driven tool loop with `read`, `ls`, `grep`, `find`, `write`, `edit`,
-`edit_diff`, `truncate`, and `bash`. Pass `--repl-mode no-tool` or `tool-loop`
-to force a mode.
+`edit_diff`, `truncate`, and `bash`. Pass `--repl-mode no-tool` or
+`tool-loop` to force a mode.
 `--tool-budget` (default 10,
 max 25) caps invocations per user turn. Filesystem tools refuse generated,
 `.git`, symlink-escaped, and oversized targets.
 
-`bash` runs through a shared safe command-execution substrate
-(`pipy_harness.native.command_sandbox`): a no-shell, allowlisted-executable
-boundary that enforces `.git` default-deny, symlink/path-escape refusal,
-secret-shaped output redaction, bounded output, and a timeout/kill ceiling.
+`bash` is a real shell, matching Pi: a prompt like "run the tests" lets the
+model run an arbitrary command in the workspace (e.g. `just test`, `uv run
+pytest`, `git status`, pipelines) and get the combined stdout/stderr back. Like
+Pi's bash tool it spawns a real shell (`bash -c <command>`) in the workspace
+root with the inherited environment and an optional `timeout` in seconds (the
+whole process group is killed when it elapses); output is bounded to a byte
+ceiling. A non-zero exit code is a normal observation the model reacts to, not
+a tool error. The combined output is returned to the model only; the archive
+boundary records counters and labels alone — never the raw command or output.
 
 #### Resume, branch, and compaction
 

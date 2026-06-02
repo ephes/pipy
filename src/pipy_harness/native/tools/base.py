@@ -224,11 +224,19 @@ class ToolContext:
     this tuple and remain workspace-only. Reference roots reuse the
     workspace `.git`/symlink/secret-content defenses; they are read-only
     inspection roots, not additional write surfaces.
+
+    `output_sink` is an optional callable that long-running tools (`bash`)
+    use to stream incremental command output to the loop's live UI region as
+    it is produced, matching Pi's live tool-output rendering. The default is
+    `None`, in which case the tool still returns its full bounded result but
+    emits nothing mid-run. The archive boundary is unrelated; streamed output
+    never crosses it.
     """
 
     workspace_root: Path
     stderr_sink: Callable[[str], None] | None = field(default=None)
     reference_roots: tuple[Path, ...] = field(default=())
+    output_sink: Callable[[str], None] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):
@@ -237,6 +245,8 @@ class ToolContext:
             raise ValueError("ToolContext.workspace_root must be absolute")
         if self.stderr_sink is not None and not callable(self.stderr_sink):
             raise ValueError("ToolContext.stderr_sink must be callable or None")
+        if self.output_sink is not None and not callable(self.output_sink):
+            raise ValueError("ToolContext.output_sink must be callable or None")
         if not isinstance(self.reference_roots, tuple):
             raise ValueError("ToolContext.reference_roots must be a tuple")
         for root in self.reference_roots:

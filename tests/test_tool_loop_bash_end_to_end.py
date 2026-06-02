@@ -116,13 +116,14 @@ def test_bash_tool_call_runs_and_feeds_observation(tmp_path: Path) -> None:
     assert "hello from notes" in _all_text(second_request)
 
 
-def test_bash_tool_refusal_is_surfaced_as_error(tmp_path: Path) -> None:
-    (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+def test_bash_tool_runs_a_real_shell_pipeline(tmp_path: Path) -> None:
+    # The bash tool is a real shell (Pi parity): a pipeline that the old
+    # read-only inspection tool would have refused now runs and its output is
+    # fed back to the provider as a normal (non-malformed) observation.
     call = ProviderToolCall(
         provider_correlation_id="call-1",
         tool_name="bash",
-        arguments_json=json.dumps({"command": "cat .git/config"}),
+        arguments_json=json.dumps({"command": "echo hello | tr a-z A-Z"}),
     )
     results = [
         _provider_result(tool_calls=(call,)),
@@ -131,12 +132,9 @@ def test_bash_tool_refusal_is_surfaced_as_error(tmp_path: Path) -> None:
     result, output, provider = _run(results=results, workspace=tmp_path)
 
     assert result.status is HarnessStatus.SUCCEEDED
-    assert result.malformed_argument_count == 1
-    assert result.tool_invocation_count == 0
-    # The .git contents never reach the provider; only the safe refusal does.
-    serialized = _all_text(provider.requests[1])
-    assert "unsafe_path_argument" in serialized
-    assert "[core]" not in serialized
+    assert result.tool_invocation_count == 1
+    assert result.malformed_argument_count == 0
+    assert "HELLO" in _all_text(provider.requests[1])
 
 
 def _all_text(obj: Any) -> str:

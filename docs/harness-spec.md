@@ -985,7 +985,10 @@ API keys, tokens, private keys, and sensitive personal data.
 ### Native Session Workflow Decision
 
 Live resume, branch/fork, and in-session compaction are pipy-owned single-
-lineage workflows, deliberately not a mutable Pi-style session tree. The shape:
+lineage workflows in the currently shipped metadata-archive design. They are
+not yet a mutable Pi-style session tree. The target redesign for Pi-compatible
+`/tree` and full native session-tree storage is specified in
+[`session-tree.md`](session-tree.md). The current shape:
 
 - **Resume seeding** reuses the existing metadata-only reader. A fresh session
   is always a new finalized record seeded with `compose_resume_system_block`

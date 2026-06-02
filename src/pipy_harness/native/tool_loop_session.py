@@ -324,10 +324,8 @@ def _detect_git_branch(cwd: Path) -> str | None:
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.
 
-    `bash` runs through the shared safe command-execution substrate
-    (`pipy_harness.native.command_sandbox`): a no-shell, allowlisted-executable
-    boundary that enforces `.git` default-deny, symlink/path-escape refusal,
-    secret-shaped output redaction, bounded output, and timeout/kill. See
+    `bash` is a real shell, matching Pi: it runs an arbitrary command in the
+    workspace and returns combined, bounded stdout/stderr to the model. See
     `pipy_harness.native.tools.bash.BashTool`.
     """
 
@@ -488,11 +486,6 @@ class NativeToolReplSession:
             if self.transcript_sink is not None:
                 self.transcript_sink.append("diff", {"text": text})
 
-        context = ToolContext(
-            workspace_root=cwd,
-            stderr_sink=_stderr_sink,
-            reference_roots=self.reference_roots,
-        )
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
         workspace_resources = WorkspaceResources.discover(cwd)
@@ -516,6 +509,15 @@ class NativeToolReplSession:
             renderer = _ToolLoopRenderer(
                 output_stream=output_stream, error_stream=error_stream
             )
+        # Stream long-running tool output (e.g. pytest dots) into the live UI as
+        # it is produced, matching Pi. Rebuilt here so the sink can target the
+        # renderer that was just selected.
+        context = ToolContext(
+            workspace_root=cwd,
+            stderr_sink=_stderr_sink,
+            reference_roots=self.reference_roots,
+            output_sink=renderer.tool_output_sink,
+        )
         if self.transcript_sink is not None:
             self.transcript_sink.append(
                 "session",
@@ -2409,6 +2411,18 @@ class _ToolLoopRenderer:
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
+    def tool_output_sink(self, chunk: str) -> None:
+        # Stream long-running tool output (e.g. pytest dots) live in the
+        # captured/plain renderer, mirroring the TUI live region.
+        if not chunk:
+            return
+        try:
+            with self._terminal_lock:
+                self._error_stream.write(chunk)
+                self._error_stream.flush()
+        except (ValueError, OSError):
+            pass
+
     def render_tool_result(
         self,
         *,
@@ -2757,6 +2771,9 @@ class _TuiToolLoopRenderer:
         self._stop_working(clear=True)
         self._last_tool_name = call.tool_name
         self._ui.add_tool_call(_plain_tool_call_header(call))
+
+    def tool_output_sink(self, chunk: str) -> None:
+        self._ui.append_tool_output(chunk)
 
     def render_tool_result(
         self,

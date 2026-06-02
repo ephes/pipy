@@ -41,6 +41,10 @@ _MIN_HEIGHT = 12
 _DEFAULT_SIZE = (88, 24)
 _DEFAULT_HISTORY_VIEW_LINES = 21
 _TOOL_PANEL_HISTORY_VIEW_LINES = 23
+# Live streaming tool output (e.g. pytest dots): show a bounded tail while the
+# command runs; the full bounded result is committed when it settles.
+_TOOL_STREAM_LIVE_LINES = 12
+_TOOL_STREAM_LIVE_MAX_CHARS = 8 * 1024
 _OVERFLOW_BOTTOM_GUTTER_LINES = 2
 _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
@@ -146,6 +150,7 @@ class ToolLoopTerminalUi:
     working_text: str = ""
     assistant_text: str = ""
     reasoning_text: str = ""
+    tool_output_text: str = ""
     command_names: tuple[str, ...] = TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
     command_descriptions: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
@@ -632,10 +637,29 @@ class ToolLoopTerminalUi:
     def add_tool_call(self, header: str) -> None:
         self._settle_reasoning()
         self.working_text = ""
+        self.tool_output_text = ""
         if header.startswith("read ") or header.startswith("read resource "):
             self._history_blocks.append(("tool_read", (_compact_read_header(header),)))
         else:
             self._history_blocks.append(("tool", (header,)))
+        self.paint()
+
+    def append_tool_output(self, chunk: str) -> None:
+        """Stream incremental tool output into the live region as it is produced.
+
+        Used by long-running tools (`bash`) so the live frame shows e.g. pytest
+        dots scrolling in real time, matching Pi. Only a bounded tail is kept
+        live; the full bounded result is committed by `add_tool_result` when the
+        tool settles.
+        """
+
+        if not chunk:
+            return
+        self._settle_reasoning()
+        self.working_text = ""
+        self.tool_output_text += chunk
+        if len(self.tool_output_text) > _TOOL_STREAM_LIVE_MAX_CHARS:
+            self.tool_output_text = self.tool_output_text[-_TOOL_STREAM_LIVE_MAX_CHARS:]
         self.paint()
 
     def add_tool_result(
@@ -646,6 +670,7 @@ class ToolLoopTerminalUi:
         duration_seconds: float | None = None,
     ) -> None:
         self._settle_reasoning()
+        self.tool_output_text = ""
         rendered = list(lines)
         if is_error:
             rendered.append("[error] tool reported a failure")
@@ -689,6 +714,13 @@ class ToolLoopTerminalUi:
                     self.reasoning_text.splitlines() or [""],
                     width=width,
                 )
+            )
+        if self.tool_output_text:
+            stream_lines = (self.tool_output_text.splitlines() or [""])[
+                -_TOOL_STREAM_LIVE_LINES:
+            ]
+            history_lines.extend(
+                self._block_frame_lines("tool_result", stream_lines, width=width)
             )
         if self.working_text:
             history_lines.extend(
@@ -1047,6 +1079,13 @@ class ToolLoopTerminalUi:
                     self.reasoning_text.splitlines() or [""],
                     width=width,
                 )
+            )
+        if self.tool_output_text:
+            stream_lines = (self.tool_output_text.splitlines() or [""])[
+                -_TOOL_STREAM_LIVE_LINES:
+            ]
+            lines.extend(
+                self._block_frame_lines("tool_result", stream_lines, width=width)
             )
         if self.working_text:
             lines.extend(

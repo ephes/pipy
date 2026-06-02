@@ -176,7 +176,9 @@ not a promise to skip review when a smaller, safer slice appears.
    pipy-owned boundaries (see the Native Session Workflow Track below): a fresh
    child record is seeded from the metadata-only `ResumeContext`, the parent
    stays immutable, and only safe lineage/compaction metadata is recorded.
-   Pi-native mutable-tree inspection remains deferred.
+   Pi-native mutable-tree inspection remains deferred; the target design for
+   matching Pi's `/tree` command and session-tree workflow is
+   [session-tree.md](session-tree.md).
 6. Tool breadth, shell, and verification. The bounded multi-step loop is real;
    the gap is `bash`/shell sandboxing, broader verification than
    `/verify just-check`, and additional model-visible tools or policies inside
@@ -227,7 +229,8 @@ slice-selection aid for the highest-impact remaining product gaps.
    creation, compaction counters, search/inspect/export, and optional raw
    transcript sidecars. Still missing is Pi-style full-history tree navigation,
    in-place branch switching, branch cloning from arbitrary prior messages,
-   rich session selection, HTML export, and share/upload flow.
+   rich session selection, HTML export, and share/upload flow. The researched
+   target spec for this track is [session-tree.md](session-tree.md).
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
    history, bracketed paste, undo/redo, resize handling, `/copy`, typed

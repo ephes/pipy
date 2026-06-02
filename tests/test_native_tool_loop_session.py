@@ -110,10 +110,10 @@ def _run_session(
     return result, output_stream.getvalue(), error_stream.getvalue()
 
 
-# --------------------- production registry holds safe model tools ----------
+# --------------------- production registry holds model tools ----------------
 
 
-def test_production_tool_registry_registers_bash_through_sandbox():
+def test_production_tool_registry_registers_real_bash():
     registry = production_tool_registry()
 
     expected = {

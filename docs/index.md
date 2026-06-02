@@ -17,7 +17,9 @@ Read these documents in order to learn the project from the outside in:
    Pythonic, Pi-inspired extension surface.
 5. [Session Storage](session-storage.md): session archive layout,
    metadata-only capture rules, sync behavior, and privacy policy.
-6. [Backlog](backlog.md): current product planning, completed slices,
+6. [Session Tree](session-tree.md): target design for Pi-compatible `/tree`,
+   in-place branch navigation, and full native session-tree storage.
+7. [Backlog](backlog.md): current product planning, completed slices,
    near-term priorities, and deferred boundaries.
 
 The short version: pipy is no longer just a session recorder. The repository now

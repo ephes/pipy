@@ -127,6 +127,12 @@ metadata-first contract:
   reject malformed, ambiguous, symlinked, active (`.in-progress`), or
   out-of-archive records without printing raw bodies or unsafe labels.
 
+This describes the current metadata-archive workflow. Pi-compatible `/tree`
+requires a separate private native session tree store that contains full
+conversation history by design while keeping `pipy-session` metadata surfaces
+body-free. The target storage split and command behavior are specified in
+[`session-tree.md`](session-tree.md).
+
 Follow-up filenames should keep the original slug and add a suffix:
 
 ```text

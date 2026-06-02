@@ -185,6 +185,57 @@ def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Pa
     assert "Took 0.2s" in frame
 
 
+def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
+    # Pi-style live streaming: while a tool runs, incremental output (e.g.
+    # pytest dots) shows in the live region before the result settles.
+    ui = _ui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+
+    renderer.render_tool_call(
+        ProviderToolCall(
+            provider_correlation_id="call_bash",
+            tool_name="bash",
+            arguments_json='{"command": "just test"}',
+        )
+    )
+    ui.start()
+    renderer.tool_output_sink("........ [ 25%]\n")
+    renderer.tool_output_sink("........ [ 50%]\n")
+
+    # Assert against the painted terminal output (the real `_live_region_lines`
+    # path), not just `render_lines`, so a regression in the live paint path is
+    # caught — that is exactly the path that initially failed to stream.
+    painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    assert "[ 25%]" in painted
+    assert "[ 50%]" in painted
+    live = "\n".join(ui.render_lines(width=72, height=20))
+    assert "[ 50%]" in live
+
+
+def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
+    ui = _ui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+
+    renderer.render_tool_call(
+        ProviderToolCall(
+            provider_correlation_id="call_bash",
+            tool_name="bash",
+            arguments_json='{"command": "just test"}',
+        )
+    )
+    renderer.tool_output_sink("streaming-dots\n")
+    renderer.render_tool_result(
+        output_text="exit code: 0\n[output]\n1346 passed",
+        is_error=False,
+        duration_seconds=53.0,
+    )
+
+    frame = "\n".join(ui.render_lines(width=72, height=20))
+    # The live stream buffer is cleared once the bounded result is committed.
+    assert ui.tool_output_text == ""
+    assert "1346 passed" in frame
+
+
 def test_tui_preserves_input_and_footer_when_history_overflows(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) 0.0%/272k (auto)")
