@@ -71,8 +71,9 @@ The broad parity ladder, applied with small-slice discipline:
 - Tool parity: the bounded multi-step model/tool loop has landed; user-directed
   `@file` content injection has shipped (a submitted prompt's `@path`
   references load bounded excerpts through the shared bounded reader in both
-  REPL modes); the model-visible `bash` tool has shipped through the shared
-  safe command-execution substrate (`command_sandbox`); the remaining gaps are
+  REPL modes); the model-visible `bash` tool has shipped as a real shell
+  matching Pi (arbitrary commands in the workspace, combined bounded output,
+  optional timeout, streamed live); the remaining gaps are
   tool breadth inside that loop, broader verification, and follow-up tool
   observations behind pipy-owned boundaries, explicit scopes, and privacy
   invariants.
@@ -179,10 +180,11 @@ not a promise to skip review when a smaller, safer slice appears.
    Pi-native mutable-tree inspection remains deferred; the target design for
    matching Pi's `/tree` command and session-tree workflow is
    [session-tree.md](session-tree.md).
-6. Tool breadth, shell, and verification. The bounded multi-step loop is real;
-   the gap is `bash`/shell sandboxing, broader verification than
-   `/verify just-check`, and additional model-visible tools or policies inside
-   the existing loop.
+6. Tool breadth and verification. The bounded multi-step loop is real and the
+   model-visible `bash` tool is now a real shell matching Pi (arbitrary
+   commands, combined bounded output, optional timeout, streamed live); the
+   remaining gap is broader verification than `/verify just-check` and
+   additional model-visible tools or policies inside the existing loop.
 7. User-directed context and attachments. Workspace instruction files are
    auto-loaded into the system prompt, repeated bounded file reads can load
    multiple text files across turns, and user-directed `@file` references in a
@@ -366,12 +368,14 @@ These hold throughout the track, not as later deferrals:
 These were explicitly deferred for the original tool-loop track; some have now
 shipped in later parity work:
 
-- Arbitrary / unrestricted shell execution. **Update (shipped):** the
-  model-visible `bash` tool now ships as a registered, *bounded* tool through
-  the shared safe command-execution substrate (`command_sandbox`) — a no-shell,
-  allowlisted-executable boundary that preserves secret isolation and `.git`
-  default-deny with symlink/path-escape refusal, bounded output, and
-  timeout/kill. Unrestricted shell execution remains intentionally out of scope.
+- Arbitrary shell execution. **Update (shipped):** the model-visible `bash`
+  tool is now a real shell, matching Pi's bash tool — it spawns `bash -c
+  <command>` in the workspace root with the inherited environment, an optional
+  timeout (the process group is killed when it elapses), and returns combined,
+  bounded stdout/stderr to the model. Pipes, redirection, substitution,
+  globbing, chaining, and any executable on `PATH` are allowed. Only metadata
+  (counters, labels) is recorded at the archive boundary — never the raw
+  command or output.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped first; live `--resume`, `--branch`, and `/compact`
@@ -837,11 +841,12 @@ module is live.
    Until then, the banner stops advertising `[Skills]`, `[Prompts]`,
    and `[Extensions]` for inert paths.
 8. ~~Remove the `BashTool` module until a real shell sandbox lands.~~
-   **Done (shipped):** `pipy_harness/native/tools/bash.py` is registered and
-   runs through the shared safe command-execution substrate
-   (`command_sandbox`) — secret isolation and `.git` default-deny preserved,
-   with recursion / directory-listing / symlink-escape / workspace-mutation
-   all refused. B7 is a green behavior check. Refs: `03:F6`.
+   **Done (shipped):** `pipy_harness/native/tools/bash.py` is registered as a
+   real shell matching Pi — it spawns `bash -c <command>` in the workspace
+   root with the inherited environment, an optional timeout (the process group
+   is killed when it elapses), streams combined output live, and returns a
+   bounded tail. Only metadata (counters, labels) is archived. B7 is a green
+   behavior check. Refs: `03:F6`.
 9. Remove the `TruncateTool` from the model-visible registry (pi treats
    it as an internal post-processing utility, not a model-facing
    tool). Refs: `03:F5`.
@@ -1527,9 +1532,10 @@ Invariants that must hold for any near-term slice:
   approved tool boundaries. The bounded Pi-shaped slice of this work is now
   planned as the `Tool-Loop Parity Track` above; broader model/tool-loop
   capabilities outside that track stay deferred.
-- Arbitrary-shell execution. **Update (shipped):** a bounded model-driven
-  `bash` tool now ships through the shared command sandbox (`command_sandbox`);
-  unrestricted/arbitrary shell execution remains excluded.
+- Arbitrary shell execution. **Update (shipped):** the model-driven `bash` tool
+  is now a real shell matching Pi — arbitrary commands run in the workspace
+  (`bash -c <command>`), with combined bounded output and an optional timeout.
+  Only metadata is archived.
 - Generalizing `/verify` beyond the allowlisted `just check` boundary. The
   `Tool-Loop Parity Track` keeps `/verify just-check` intact and does not
   introduce additional verification commands.
