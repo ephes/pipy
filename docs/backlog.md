@@ -258,8 +258,8 @@ slice-selection aid for the highest-impact remaining product gaps.
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
    history, bracketed paste, undo/redo, resize handling, `/copy`, typed
-   `@path` and `@image:<path>` references). Pi still leads on fuzzy `@` file
-   picker behavior, broader path completion in the product editor,
+   `@path` and `@image:<path>` references). Pi still leads on `@` file
+   picker behavior (Pi scores exact/prefix/substring, not fuzzy), broader path completion in the product editor,
    clipboard/drag image paste, `!`/`!!` shell shortcuts, scoped-model cycling,
    thinking-level hotkeys, output/thinking folding, queued steering/follow-up
    messages during active turns, richer overlays/selectors, mouse selection,
@@ -1705,7 +1705,7 @@ Invariants that must hold for any near-term slice:
   history, bracketed paste, undo/redo, resize/SIGWINCH handling, an interactive
   `/settings` control dialog, and optional persistent cross-session prompt
   history (off by default, local-only state file) now ship in the product TUI;
-  still deferred are fuzzy `@` file picker behavior, broader path completion in
+  still deferred are `@` file picker behavior (scored, not fuzzy), broader path completion in
   the product editor, clipboard/drag image paste, `!`/`!!` shell shortcuts,
   scoped-model cycling, thinking-level hotkeys, output/thinking folding,
   queued steering/follow-up messages during active turns, richer overlays and

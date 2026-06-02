@@ -2,8 +2,11 @@
 
 Status: the original 2026-05-25 80%-parity gate is complete and is now a
 legacy baseline. Future parity planning should use the post-baseline product
-surface matrix below plus the detailed specs in `docs/backlog.md`,
-`docs/pi-parity.md`, `docs/session-tree.md`, and `docs/extension-api.md`.
+surface matrix below plus the parity roadmap in `docs/parity-plan.md` and the
+detailed specs in `docs/backlog.md`, `docs/pi-parity.md`, `docs/session-tree.md`,
+`docs/extension-api.md`, `docs/provider-catalog.md`, `docs/settings-config.md`,
+`docs/automation-rpc.md`, `docs/tui-workflow.md`, and
+`docs/export-distribution.md`.
 
 This document keeps two scores distinct:
 
@@ -38,13 +41,13 @@ feature is deferred or spec-only.
 | Surface | Pipy stage | Main source / notes |
 | --- | --- | --- |
 | Native runtime, providers, model-selected tools, streaming, resources, themes, image references | ✅ baseline complete | Covered by the legacy 50-row score and `docs/pi-parity.md`. |
-| Product TUI/editor workflow | 🟡 partial | Inline TUI, slash menu, `/settings`, `/model`, history, paste, undo/redo, resize, `/copy` ship. Still missing fuzzy `@` picker, richer path completion, clipboard/drag image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys/folding, queued steering/follow-up messages, richer overlays/selectors, mouse selection, and true provider-request cancellation. Needs a standalone spec. |
-| Full session-tree workflow | 🟡 specified, not implemented | Live resume/branch/compaction exist metadata-first. Pi-style full-history `/tree`, `/fork`, `/clone`, `/session`, branch summaries, labels, rich resume, HTML/share workflows require the private native session tree store specified in `docs/session-tree.md`. |
+| Product TUI/editor workflow | 🟡 partial | Inline TUI, slash menu, `/settings`, `/model`, history, paste, undo/redo, resize, `/copy` ship. Still missing the `@` file picker (Pi uses exact/prefix/substring scoring, not fuzzy), richer path completion, clipboard/drag image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys/folding, queued steering/follow-up messages, richer overlays/selectors, mouse selection, and true provider-request cancellation. Specified in `docs/tui-workflow.md`. |
+| Full session-tree workflow | ✅ shipped | The private full-transcript native session tree (`pipy_harness.native.session_tree` + `session_tree_commands`) ships and passes `scripts/parity_checks/session_tree_conformance.py --json`: full-history `/tree`, `/fork`, `/clone`, `/session`, `/name`, `/new`, `/resume`, durable `/compact`, branch summaries, startup session flags, and the archive-privacy split. Design + gate in `docs/session-tree.md`. HTML export/share remain follow-on polish (`docs/export-distribution.md`). |
 | Extension/package platform | 🟡 draft spec, bounded runtime subset | Markdown skills/templates/custom commands and themes ship. Python extension API target is drafted in `docs/extension-api.md`; package install/update/list/config, dependency/security/update policy, provider registration, keybindings, and UI hooks remain open. |
-| Provider/model catalog | 🟡 partial | Thirteen native selections plus ds4/OpenRouter exist. Pi's broader model catalog, `models.json`, custom provider/model overrides, compat knobs, long-tail providers, GitHub Copilot/Anthropic subscription paths, and model-list update machinery remain unspecified for pipy. |
-| Settings/config/keybindings | 🟡 partial | Interactive `/settings` covers current local controls. Pi-style global/project `settings.json`, keybindings, reload/migration, scoped models, message delivery, transport, system-prompt files, resource enablement, and image settings need a spec. |
-| JSON/RPC automation | 🟡 partial | Pipy has `run`, metadata-only `--native-output json`, `--stream`, and an in-process Python SDK. Pi-style `--mode json`, stdin/stdout RPC protocol, prompt/steer/follow-up/abort commands, session switching, and event schemas need a spec. |
-| Export/share/distribution/package polish | ❌ mostly deferred | Pipy has metadata-only `pipy-session export`; Pi has HTML export, private gist share, package/self-update, changelog, documented npm/curl installs, and package config flows. |
+| Provider/model catalog | 🟡 partial, specified | Thirteen native selections plus ds4/OpenRouter exist. Pi's broader model catalog, `models.json`, custom provider/model overrides, compat knobs, long-tail providers, GitHub Copilot/Anthropic subscription paths, and model-list update machinery are specified in `docs/provider-catalog.md`. |
+| Settings/config/keybindings | 🟡 partial, specified | Interactive `/settings` covers current local controls. Pi-style global/project `settings.json`, keybindings, reload/migration, scoped models, message delivery, transport, system-prompt files, resource enablement, and image settings are specified in `docs/settings-config.md`. |
+| JSON/RPC automation | 🟡 partial, specified | Pipy has `run`, metadata-only `--native-output json`, `--stream`, and an in-process Python SDK. Pi-style `--mode json`, stdin/stdout RPC protocol, prompt/steer/follow-up/abort commands, session switching, and event schemas are specified in `docs/automation-rpc.md` (which also retires the metadata-only `--native-output json`). |
+| Export/share/distribution/package polish | 🟡 specified | Pipy has metadata-only `pipy-session export`; Pi has HTML export, private gist share, package/self-update, changelog, documented npm/curl installs, and package config flows — all specified in `docs/export-distribution.md`. |
 | Verification/project policy | ❌ not separately specified | The former pipy-specific `/verify just-check` command has been removed from the REPL because it was not a Pi slash command. Pi's comparable capability is broad model-visible `bash` plus extension-defined gates. Broader pipy verification policy needs its own spec and should not be scored as Pi parity without mapping it to a Pi user workflow. |
 | Multi-agent/orchestration/indexing | ❌ deferred | Mentioned in backlog only. Needs a target spec before implementation. |
 

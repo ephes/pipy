@@ -339,8 +339,11 @@ mirroring Pi's help lines:
 - Read a packaged/repo `CHANGELOG.md` via a `get_changelog_path()` helper.
 - Parse version sections (`parseChangelog` equivalent: split on `##
   [x.y.z]`/`## x.y.z` headers into ordered entries).
-- `/changelog` prints all entries (most recent first) under a "What's New"
-  header.
+- `/changelog` prints all entries **oldest-first** under a "What's New" header:
+  Pi parses the newest-first CHANGELOG and `handleChangelogCommand` reverses the
+  list before rendering (`modes/interactive/interactive-mode.ts`), so the
+  explicit command shows oldest→newest. (Distinct from the startup banner, which
+  shows only the newest unseen entries — see below.)
 - On startup, show only entries newer than the last-seen version (Pi's
   `getNewEntries` against a stored `lastChangelogVersion` in the non-secret
   settings store), skip the banner for resumed/continued sessions, and record
