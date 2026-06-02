@@ -1,14 +1,18 @@
 # Pi-Style Provider And Model Catalog
 
-Status: shipped 2026-06-02. This document remains the behavioral
-specification; the conformance gate passes 18/18.
+Status: partial implementation / product-wiring follow-up selected. The catalog
+foundation landed on 2026-06-02 and its helper-layer conformance gate passes,
+but closeout review found product-path wiring gaps that must be fixed before the
+provider catalog is considered fully shipped.
 
-## Shipped Status (2026-06-02)
+## Implemented Foundation (2026-06-02)
 
-The catalog capability is implemented through pipy-owned Python modules and
+The catalog foundation is implemented through pipy-owned Python modules and
 gated by `scripts/parity_checks/provider_catalog_conformance.py` (the 18
 Verification-Plan checks below, emitted as 19 assertion rows, all passing, no
-network):
+network). That gate currently proves the catalog/helper layers; it must be
+upgraded to cover real provider construction and request paths before this track
+is complete:
 
 - **Built-in catalog** (`native/catalog.py`, `native/catalog_data.py`):
   `NativeModelSpec`/`NativeModelCost` rows with real capability metadata,
@@ -25,12 +29,16 @@ network):
   `refresh()`, dynamic `register_provider`/`unregister_provider`, OAuth
   modify-models hooks.
 - **Routing** (`native/routing.py`): OpenRouter `provider` param + Vercel
-  `providerOptions.gateway` from surviving compat.
-- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping.
+  `providerOptions.gateway` config survives catalog merge. Product provider
+  turns still need to apply the resolved request config.
+- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping
+  helpers. Product provider requests still need an explicit thinking/reasoning
+  field and adapter wiring.
 - **Auth** (`native/auth_store.py`): owner-only auth store, `resolve_config_value`
   (literal/env-name/`!command`), env + ambient credential detection (Bedrock,
   Vertex ADC, Azure, Cloudflare), Pi-order request-auth resolution, `AuthStatus`
-  labels (no `!command`/refresh on status), availability gate.
+  labels (no `!command`/refresh on status), availability gate. Product provider
+  construction still needs to apply `resolve_request_auth()` to real calls.
 - **OAuth** (`native/oauth_providers.py`): stdlib registry for Anthropic
   (5-min expiry margin), GitHub Copilot (proxy-ep rewrite + per-model policy
   enable), and OpenAI Codex (no margin), with injectable HTTP.
@@ -39,19 +47,36 @@ network):
   env shim synthesizes the same entry.
 - **CLI/REPL** (`native/catalog_state.py`, `cli.py`, `native/repl_state.py`):
   `--list-models [search]` (Pi column parity, verified live against
-  `pi --list-models`), and the `/model` selector / `model_options()` now read
-  the full catalog with the shared availability gate and `provider/id:level`
-  support.
+  `pi --list-models`), and the `/model` selector / `model_options()` read the
+  full catalog with the shared availability gate. Direct `/model <ref>` still
+  needs to use the shared Pi-style resolver.
 
-Remaining product follow-ons (tracked, not yet shipped): `/scoped-models` and
-`--models` Ctrl+P live scoped-model cycling in the product TUI. The matcher,
-scope-resolution helpers, thinking mapping, `--thinking`, and `--api-key`
-threading are implemented and gated. Live OAuth login orchestration for
-Anthropic/Copilot (callback server / device-code prompting) is structured around
-the tested token-exchange/refresh core.
+Known product wiring gaps (accepted from closeout review, not yet shipped):
 
-This document defines the pipy target and shipped behavior for full feature
-parity with Pi's provider/model catalog system. Before this track, pipy shipped
+- Catalog-backed provider construction. `models.json` custom providers/models
+  can be listed, but provider turns still use hardcoded factories keyed by
+  legacy provider names. Custom providers are not usable for turns, and built-in
+  custom rows lose resolved `baseUrl`, headers, `authHeader`, and routing.
+- Request auth/header application. `--api-key` and `resolve_request_auth()` are
+  available at the catalog layer, but real provider instances still read their
+  old env/default fields.
+- Thinking application. `--thinking` and `/model <ref>:<level>` update local
+  selection state, but `ProviderRequest` and adapters do not yet receive mapped
+  thinking/reasoning settings.
+- Direct `/model` resolution. The direct form still accepts provider/model
+  strings without validating through the new matcher, so invalid thinking
+  suffixes and fuzzy/alias resolution do not match Pi.
+- Conformance coverage. The provider-catalog gate must be upgraded to drive
+  actual provider factory/request paths with fake HTTP before the track can be
+  closed.
+
+Other product follow-ons: `/scoped-models` and `--models` Ctrl+P live
+scoped-model cycling in the product TUI, live OAuth login orchestration for
+Anthropic/Copilot (callback server / device-code prompting), and
+extension-registered providers once the extension platform exists.
+
+This document defines the pipy target and partial shipped behavior for full
+feature parity with Pi's provider/model catalog system. Before this track, pipy shipped
 a small hardcoded static registry
 (`pipy_harness.native.provider_registry.NATIVE_PROVIDER_REGISTRY`, ~13 provider
 selections with one default model each). Pi has a broad built-in model catalog,

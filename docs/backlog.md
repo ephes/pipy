@@ -264,15 +264,17 @@ slice-selection aid for the highest-impact remaining product gaps.
    thinking-level hotkeys, output/thinking folding, queued steering/follow-up
    messages during active turns, richer overlays/selectors, mouse selection,
    and true provider-request cancellation.
-4. Provider and model catalog follow-ons. The Pi-style provider/model catalog
-   is now shipped and gated by
-   `scripts/parity_checks/provider_catalog_conformance.py --json`: built-in
-   multi-row catalog, `models.json`, routing/compat, thinking levels,
-   Pi-order auth resolution, Anthropic/Copilot/Codex OAuth core,
-   `--list-models`, full-catalog `/model`, and ds4-as-custom-provider all
-   pass. Remaining product follow-ons are narrower: `/scoped-models`, live
-   Ctrl+P cycling from `--models`/settings, live Anthropic/Copilot login UX, and
-   extension-registered providers once the extension platform lands.
+4. Provider and model catalog product wiring. The catalog/helper layers are in
+   place and the current `scripts/parity_checks/provider_catalog_conformance.py
+   --json` gate passes, but closeout review found that product provider turns
+   still bypass the catalog. Missing wiring: catalog-backed provider
+   construction for `models.json` custom providers/models, applying resolved
+   auth/headers/routing/base URLs to real provider calls, mapping thinking into
+   provider requests, and routing direct `/model <ref>` through the shared
+   Pi-style resolver. `/scoped-models`, live Ctrl+P cycling from
+   `--models`/settings, live Anthropic/Copilot login UX, and
+   extension-registered providers remain follow-ons after the product wiring is
+   fixed.
 5. RPC and automation modes. Pi exposes interactive, print, JSON event stream,
    RPC over stdin/stdout, and SDK embedding. Pipy has `run`, `repl`, a
    metadata-only `--native-output json`, subprocess capture, and an in-process
@@ -1367,65 +1369,47 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Settings / config / keybindings (selected)
+### Provider / model catalog product wiring (selected)
 
-The full Pi-style native session tree workflow and the Pi-style provider/model
-catalog have both shipped and pass their conformance gates. The next selected
-big topic is Pi-style settings, config, and keybindings from
-[settings-config.md](settings-config.md).
+The full Pi-style native session tree workflow has shipped. The provider/model
+catalog helper layers have landed and the current conformance gate passes, but
+closeout review found that product provider turns still bypass key catalog
+outputs. The next selected slice is therefore a provider-catalog wiring fix-up,
+not the settings track yet.
 
-Implement this as reviewed milestones, but keep the objective completion gate as
-one deterministic command added for the track:
+Selected goal:
 
-```sh
-uv run python scripts/parity_checks/settings_config_conformance.py --json
-```
+- introduce a catalog-backed provider-construction boundary that consumes the
+  selected `NativeModelSpec` plus resolved request config;
+- make `models.json` custom providers/models usable for real provider turns;
+- apply resolved `baseUrl`, headers, `authHeader`, routing, and runtime
+  `--api-key` / stored/env auth to real provider calls;
+- extend `ProviderRequest` and adapters as needed so mapped thinking/reasoning
+  levels from `--thinking` and `/model <ref>:<level>` affect provider requests;
+- route direct `/model <ref>` through the shared Pi-style resolver so exact,
+  fuzzy, glob/scope, and invalid-level behavior matches the catalog;
+- upgrade `scripts/parity_checks/provider_catalog_conformance.py --json` to
+  drive actual provider factory/request paths with fake HTTP, proving product
+  wiring rather than only helper behavior;
+- update `docs/provider-catalog.md`, `docs/pi-parity.md`,
+  `docs/parity-plan.md`, and `README.md` from partial/foundation status to
+  shipped only after the upgraded gate passes.
 
-Selected first slice:
-
-- add `pipy_harness.native.settings` with global `<config>/settings.json` and
-  project `.pipy/settings.json` discovery;
-- implement Pi's one-level deep-merge precedence, parse-error isolation,
-  migrations, typed getters/setters, and unknown-key round-trip;
-- add field-scoped, lock-guarded writes that preserve unrelated keys;
-- import existing local defaults/theme/prompt-history state into the settings
-  surface without breaking the old state files;
-- add focused tests for precedence, migration edge cases, parse-error fallback,
-  partial writes, and unknown-key preservation;
-- update docs to describe settings as the active track.
-
-Follow-on milestones are the ordered slices in
-[settings-config.md](settings-config.md#implementation-milestones-reviewed-slices):
-runtime wiring, keybindings + `/hotkeys`, system-prompt inputs,
-delivery/transport/compaction/retry settings, scoped models, resource
-enablement, `/reload`, `/changelog`, version checks, and update docs.
-
-Full-track verification target:
-
-```sh
-uv run python scripts/parity_checks/settings_config_conformance.py --json
-uv run pytest tests/test_native_settings*.py tests/test_native_keybindings*.py
-just check
-```
-
-### Provider / model catalog (landed 2026-06-02)
-
-The prior selected track has shipped. `pipy_harness.native.catalog` and related
-modules now provide the Pi-style provider/model catalog: multiple built-in rows
-per provider, `models.json` custom providers and overrides, routing/compat,
-thinking levels, auth resolution, Anthropic/Copilot/Codex OAuth core,
-`--list-models`, the full-catalog `/model` selector, dynamic refresh and
-registration, and the ds4 custom-provider reframe.
-
-The shipped conformance gate is:
+Verification target for this fix-up:
 
 ```sh
 uv run python scripts/parity_checks/provider_catalog_conformance.py --json
+uv run pytest tests/test_native_*provider*.py tests/test_native_repl_state.py \
+  tests/test_native_catalog_state.py tests/test_native_models_json.py
+just check
 ```
 
-Remaining product follow-ons are `/scoped-models`, live Ctrl+P cycling from
-`--models`/settings, live Anthropic/Copilot login UX, and extension-registered
-providers once the extension platform exists.
+### Settings / config / keybindings (next after catalog wiring)
+
+Once the provider-catalog product wiring fix-up is complete, the next big topic
+returns to Pi-style settings, config, and keybindings from
+[settings-config.md](settings-config.md), starting with the settings core and the
+`settings_config_conformance.py` gate.
 
 ### Full Pi-style native session tree workflow (landed 2026-06-02)
 
@@ -1726,7 +1710,7 @@ Invariants that must hold for any near-term slice:
   package install/update/list/config flows, package manifests, and the
   corresponding security/update model. The draft target specification is
   [extension-api.md](extension-api.md).
-- Provider/model catalog follow-ons after the shipped conformance gate:
+- Provider/model catalog follow-ons after the product wiring fix-up:
   `/scoped-models`, live Ctrl+P cycling from `--models`/settings, live
   Anthropic/Copilot login UX, and extension-registered providers once the
   extension platform exists.

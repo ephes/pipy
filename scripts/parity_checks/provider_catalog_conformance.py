@@ -342,6 +342,18 @@ def _check_auth_priority(checks, tmp: Path):
         models_json_config=ProviderAuthRequestConfig(api_key="!print-key"),
         run_command=lambda c: "cmd-key",
     )
+    # Ordering proof: with BOTH a provider env var AND a models.json apiKey set
+    # for the same provider, env must win and the models.json !command must NOT
+    # run. (Without this, a resolver that consulted models.json before env would
+    # still pass the separate fallback cases above.)
+    ordering_cmds: list[str] = []
+    env_beats_models_json = resolve_request_auth(
+        "openai",
+        store=empty,
+        env={"OPENAI_API_KEY": "sk-env-wins"},
+        models_json_config=ProviderAuthRequestConfig(api_key="!should-not-run"),
+        run_command=lambda c: ordering_cmds.append(c) or "models-json-loses",
+    )
     headers = resolve_request_auth(
         "ds4",
         store=AuthStore(path=tmp / "auth_h.json"),
@@ -359,6 +371,8 @@ def _check_auth_priority(checks, tmp: Path):
         and mj_literal.api_key == "literal-key"
         and mj_env.api_key == "from-env"
         and mj_cmd.api_key == "cmd-key"
+        and env_beats_models_json.api_key == "sk-env-wins"
+        and not ordering_cmds  # models.json !command not run when env wins
         and headers.headers.get("Authorization") == "Bearer abc"
         and headers.headers.get("X-Org") == "org-1"
     )
@@ -366,7 +380,7 @@ def _check_auth_priority(checks, tmp: Path):
         Check(
             "11_auth_priority",
             ok,
-            "runtime>stored>oauth>env>models.json (literal/env/!command); authHeader+headers",
+            "runtime>stored>oauth>env>models.json (env beats models.json; literal/env/!command); authHeader+headers",
         )
     )
 
