@@ -178,40 +178,43 @@ class NativeReplProviderState:
         if not parsed:
             return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
 
+        # Catalog path: peel an optional trailing ``:level`` (Pi's
+        # ``provider/id:level``) before resolving the model reference, so the
+        # established resolution/messages are preserved while ``:level`` is
+        # honoured and persisted. ``model:exacto``-style colon-in-id references
+        # are left intact because their suffix is not a valid thinking level.
+        pending_level: str | None = None
         if self.catalog_state is not None:
-            return self._catalog_select_model(parsed)
+            base_ref, level = self._split_thinking_level(parsed)
+            if level is not None:
+                parsed = base_ref
+                pending_level = level
 
         selection, reason = self._resolve_model_reference(parsed)
         if selection is None:
             return False, reason
 
         self.selection = selection
+        if pending_level is not None:
+            self.thinking_level = pending_level
         self._save_default(selection)
-        return True, f"pipy: selected model {selection.reference}."
+        suffix = f" (thinking: {pending_level})" if pending_level else ""
+        return True, f"pipy: selected model {selection.reference}{suffix}."
 
-    def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
-        from pipy_harness.native.model_resolver import parse_model_pattern
+    @staticmethod
+    def _split_thinking_level(reference: str) -> tuple[str, str | None]:
+        """Split a trailing ``:level`` (a valid thinking level) off a reference."""
+
         from pipy_harness.native.thinking import validate_thinking_level
 
-        state = self.catalog_state
-        rows = state.get_all()  # type: ignore[attr-defined]
-        result = parse_model_pattern(reference, rows)
-        if result.model is None:
-            return False, "pipy: unsupported or unknown model reference."
-        model = result.model
-        if not state.provider_available(model.provider_name):  # type: ignore[attr-defined]
-            reason = state.availability_reason(model.provider_name)  # type: ignore[attr-defined]
-            return False, (
-                f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'})."
-            )
-        selection = NativeModelSelection(model.provider_name, model.model_id)
-        self.selection = selection
-        if result.thinking_level is not None:
-            level, _ = validate_thinking_level(result.thinking_level)
-            self.thinking_level = level
-        self._save_default(selection)
-        suffix = f" (thinking: {self.thinking_level})" if result.thinking_level else ""
-        return True, f"pipy: selected model {selection.reference}{suffix}."
+        last_colon = reference.rfind(":")
+        if last_colon == -1:
+            return reference, None
+        suffix = reference[last_colon + 1 :]
+        level, warning = validate_thinking_level(suffix)
+        if warning is not None:
+            return reference, None
+        return reference[:last_colon], level
 
     def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
         provider = provider_name.strip() or "openai-codex"
@@ -243,7 +246,10 @@ class NativeReplProviderState:
             model_id = model_id.strip()
             if provider_name not in SUPPORTED_NATIVE_PROVIDERS or not model_id:
                 return None, "pipy: unsupported model reference."
-            if not self._provider_available(provider_name):
+            # Availability is checked through the public gate (catalog-aware when
+            # a catalog_state is set, registry-based otherwise) so it agrees with
+            # model_options(); the diagnostic keeps the provider-named message.
+            if not self.provider_available(provider_name):
                 return None, self._provider_unavailable_message(provider_name)
             return NativeModelSelection(provider_name, model_id), ""
 

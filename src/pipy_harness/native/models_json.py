@@ -234,7 +234,7 @@ def _coerce_model_def(
             raw, "contextWindow", f"{path}/contextWindow", errors
         ),
         max_tokens=_opt_number_as_int(raw, "maxTokens", f"{path}/maxTokens", errors),
-        headers=_opt_str_map(raw, "headers", f"{path}/headers", errors),
+        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
         compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
     )
 
@@ -263,7 +263,7 @@ def _coerce_model_override(
         cost=cost,
         context_window=_opt_int(raw, "contextWindow", f"{path}/contextWindow", errors),
         max_tokens=_opt_int(raw, "maxTokens", f"{path}/maxTokens", errors),
-        headers=_opt_str_map(raw, "headers", f"{path}/headers", errors),
+        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
         compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
     )
 
@@ -322,6 +322,20 @@ def _opt_str_map(
     return dict(value)
 
 
+def _opt_header_map(
+    raw: dict, key: str, path: str, errors: list[str]
+) -> dict[str, str] | None:
+    if key not in raw:
+        return None
+    value = raw[key]
+    if not isinstance(value, dict) or not all(
+        isinstance(v, str) for v in value.values()
+    ):
+        errors.append(_type_error(path, "object of string values"))
+        return None
+    return dict(value)
+
+
 def _opt_obj(
     raw: dict, key: str, path: str, errors: list[str]
 ) -> dict[str, object] | None:
@@ -365,7 +379,7 @@ def _coerce_provider_config(
         base_url=_opt_str(raw, "baseUrl", f"{path}/baseUrl", errors),
         api_key=_opt_str(raw, "apiKey", f"{path}/apiKey", errors),
         api=_opt_str(raw, "api", f"{path}/api", errors),
-        headers=_opt_str_map(raw, "headers", f"{path}/headers", errors),
+        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
         auth_header=bool(_opt_bool(raw, "authHeader", f"{path}/authHeader", errors)),
         compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
         models=tuple(models),
