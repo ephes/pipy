@@ -587,6 +587,9 @@ class ModelCatalog:
     builtin: NativeCatalog = field(default_factory=build_builtin_catalog)
     models_json_path: Path | None = None
     env: Mapping[str, str] | None = None
+    # Provider configs injected as if defined in models.json (e.g. the ds4 env
+    # shim). A real file ``models.json`` entry for the same provider wins.
+    extra_providers: Mapping[str, "ProviderConfig"] | None = None
 
     rows: tuple[NativeModelSpec, ...] = field(init=False, default=())
     error: str | None = field(init=False, default=None)
@@ -605,9 +608,20 @@ class ModelCatalog:
         self.error = None
         self._config = None
 
-        config = self._load_models_json()
-        merged = self._merge(config)
+        file_config = self._load_models_json()
+        combined = self._combine(file_config)
+        merged = self._merge(combined)
         self.rows = tuple(merged)
+
+    def _combine(self, file_config: ModelsConfig | None) -> ModelsConfig | None:
+        if not self.extra_providers:
+            return file_config
+        # Injected providers act as if defined in models.json; a real file entry
+        # for the same provider wins.
+        providers: dict[str, ProviderConfig] = dict(self.extra_providers)
+        if file_config is not None:
+            providers.update(file_config.providers)
+        return ModelsConfig(providers=providers)
 
     def _load_models_json(self) -> ModelsConfig | None:
         path = self.models_json_path

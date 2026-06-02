@@ -74,7 +74,18 @@ class ProviderCatalogState:
             self.models_json_path = default_models_json_path(self.env)
         if self.auth_store is None:
             self.auth_store = AuthStore()
-        self.catalog = ModelCatalog(models_json_path=self.models_json_path)
+        self.catalog = ModelCatalog(
+            models_json_path=self.models_json_path,
+            extra_providers=self._extra_providers(),
+        )
+
+    def _extra_providers(self):
+        """Synthesized provider configs (currently the ds4 env-var shim)."""
+
+        from pipy_harness.native.ds4 import synthesize_ds4_provider_config
+
+        ds4 = synthesize_ds4_provider_config(self._env())
+        return {"ds4": ds4} if ds4 is not None else None
 
     # -- read-through --------------------------------------------------------
 

@@ -1,0 +1,29 @@
+{
+  // ds4 — a local OpenAI-compatible (Chat Completions) server.
+  // Pipy has no built-in "ds4" provider; it is a models.json custom provider,
+  // exactly like any other local OpenAI-compatible endpoint.
+  //
+  // Paste this into <config>/models.json (PIPY_CONFIG_HOME, else
+  // ${XDG_CONFIG_HOME}/pipy, else ~/.config/pipy). Or set PIPY_DS4_BASE_URL
+  // (and optionally PIPY_DS4_API_KEY) to have pipy synthesize the same entry.
+  //
+  // A non-built-in provider that defines custom models requires both "baseUrl"
+  // and "apiKey"; the local server ignores the placeholder key.
+  "providers": {
+    "ds4": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "apiKey": "local",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash (ds4, local)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}
