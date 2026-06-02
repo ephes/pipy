@@ -264,17 +264,15 @@ slice-selection aid for the highest-impact remaining product gaps.
    thinking-level hotkeys, output/thinking folding, queued steering/follow-up
    messages during active turns, richer overlays/selectors, mouse selection,
    and true provider-request cancellation.
-4. Provider and model catalog breadth. Pi maintains a broad built-in
-   tool-capable model catalog, subscription auth for Anthropic/OpenAI/GitHub
-   Copilot, many API-key providers, `models.json` custom provider/model
-   overrides, compatibility knobs, proxy/local model configuration, and
-   extension-registered providers. Pipy has thirteen native selections behind a
-   static registry (including fake, ds4, OpenAI, OpenAI Codex, OpenRouter,
-   Anthropic, Google, Google Vertex, Mistral, Bedrock, Azure OpenAI,
-   Cloudflare, and OpenAI Chat Completions). Missing are the long-tail
-   provider catalog, GitHub Copilot and Anthropic subscription paths, custom
-   provider/model config, provider compatibility options, and model-list update
-   machinery.
+4. Provider and model catalog follow-ons. The Pi-style provider/model catalog
+   is now shipped and gated by
+   `scripts/parity_checks/provider_catalog_conformance.py --json`: built-in
+   multi-row catalog, `models.json`, routing/compat, thinking levels,
+   Pi-order auth resolution, Anthropic/Copilot/Codex OAuth core,
+   `--list-models`, full-catalog `/model`, and ds4-as-custom-provider all
+   pass. Remaining product follow-ons are narrower: `/scoped-models`, live
+   Ctrl+P cycling from `--models`/settings, live Anthropic/Copilot login UX, and
+   extension-registered providers once the extension platform lands.
 5. RPC and automation modes. Pi exposes interactive, print, JSON event stream,
    RPC over stdin/stdout, and SDK embedding. Pipy has `run`, `repl`, a
    metadata-only `--native-output json`, subprocess capture, and an in-process
@@ -288,7 +286,12 @@ slice-selection aid for the highest-impact remaining product gaps.
    Pipy remains a local `uv`-driven project with narrower local state controls
    and metadata-only archive export. These are product-readiness gaps rather
    than core runtime gaps.
-7. Verification breadth and policy. Pipy now relies on bounded model-visible
+7. User documentation parity. Pi has product docs for quickstart, usage,
+   providers, settings, keybindings, sessions, compaction, customization,
+   packages, models, SDK/RPC/JSON, terminal setup, tmux, and platforms. Pipy's
+   docs are still mostly internal specs and backlog/planning pages. The target
+   structure and checklist live in [user-documentation.md](user-documentation.md).
+8. Verification breadth and policy. Pipy now relies on bounded model-visible
    `bash` for Pi-style verification-like workflows. The former supervised
    `/verify just-check` command was removed because it is not a Pi feature.
    Pi's broader shell/tool posture plus extension-defined permission gates make
@@ -1364,46 +1367,65 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Provider / model catalog (selected)
+### Settings / config / keybindings (selected)
 
-The full Pi-style native session tree workflow has shipped and now passes the
-session-tree conformance gate. The next selected big topic is the Pi-style
-provider/model catalog from [provider-catalog.md](provider-catalog.md).
+The full Pi-style native session tree workflow and the Pi-style provider/model
+catalog have both shipped and pass their conformance gates. The next selected
+big topic is Pi-style settings, config, and keybindings from
+[settings-config.md](settings-config.md).
 
 Implement this as reviewed milestones, but keep the objective completion gate as
 one deterministic command added for the track:
 
 ```sh
-uv run python scripts/parity_checks/provider_catalog_conformance.py --json
+uv run python scripts/parity_checks/settings_config_conformance.py --json
 ```
 
 Selected first slice:
 
-- add the catalog data model (`NativeModelSpec`, `NativeProviderSpec`, and a
-  pipy-owned `default_model_per_provider` map);
-- replace the one-default-per-provider registry source with catalog-derived
-  `DEFAULT_NATIVE_MODELS` and `SUPPORTED_NATIVE_PROVIDERS` while keeping current
-  CLI/REPL behavior working;
-- cover every already implemented provider family with useful built-in rows;
-- keep concrete adapters responsible for provider-specific request mechanics;
-- add focused tests proving the old provider/model selection surfaces still
-  resolve the same defaults through the new catalog boundary;
-- update docs to describe the catalog as the active track.
+- add `pipy_harness.native.settings` with global `<config>/settings.json` and
+  project `.pipy/settings.json` discovery;
+- implement Pi's one-level deep-merge precedence, parse-error isolation,
+  migrations, typed getters/setters, and unknown-key round-trip;
+- add field-scoped, lock-guarded writes that preserve unrelated keys;
+- import existing local defaults/theme/prompt-history state into the settings
+  surface without breaking the old state files;
+- add focused tests for precedence, migration edge cases, parse-error fallback,
+  partial writes, and unknown-key preservation;
+- update docs to describe settings as the active track.
 
 Follow-on milestones are the ordered slices in
-[provider-catalog.md](provider-catalog.md#implementation-milestones): model
-pattern matching, `models.json`, routing/compat, thinking levels, auth
-resolution, subscription OAuth providers, `--list-models`, `/model` selector
-integration, `--models` scoped cycling, the ds4 reframe as a custom-provider
-preset, and refresh/dynamic registration wiring.
+[settings-config.md](settings-config.md#implementation-milestones-reviewed-slices):
+runtime wiring, keybindings + `/hotkeys`, system-prompt inputs,
+delivery/transport/compaction/retry settings, scoped models, resource
+enablement, `/reload`, `/changelog`, version checks, and update docs.
 
 Full-track verification target:
 
 ```sh
-uv run python scripts/parity_checks/provider_catalog_conformance.py --json
-uv run pytest tests/test_native_*provider*.py tests/test_native_repl_state.py
+uv run python scripts/parity_checks/settings_config_conformance.py --json
+uv run pytest tests/test_native_settings*.py tests/test_native_keybindings*.py
 just check
 ```
+
+### Provider / model catalog (landed 2026-06-02)
+
+The prior selected track has shipped. `pipy_harness.native.catalog` and related
+modules now provide the Pi-style provider/model catalog: multiple built-in rows
+per provider, `models.json` custom providers and overrides, routing/compat,
+thinking levels, auth resolution, Anthropic/Copilot/Codex OAuth core,
+`--list-models`, the full-catalog `/model` selector, dynamic refresh and
+registration, and the ds4 custom-provider reframe.
+
+The shipped conformance gate is:
+
+```sh
+uv run python scripts/parity_checks/provider_catalog_conformance.py --json
+```
+
+Remaining product follow-ons are `/scoped-models`, live Ctrl+P cycling from
+`--models`/settings, live Anthropic/Copilot login UX, and extension-registered
+providers once the extension platform exists.
 
 ### Full Pi-style native session tree workflow (landed 2026-06-02)
 
@@ -1421,17 +1443,19 @@ The shipped conformance gate is:
 uv run python scripts/parity_checks/session_tree_conformance.py --json
 ```
 
-### Local ds4 native provider (landed)
+### Local ds4 custom-provider path (landed)
 
-The provider/model registry now includes `ds4` as a product-path native
-provider for a locally running `antirez/ds4` DeepSeek V4 Flash server. It
-defaults to base URL `http://127.0.0.1:8000/v1` and model
-`deepseek-v4-flash`; `PIPY_DS4_BASE_URL`, `PIPY_DS4_API_KEY`, and
-`--native-model` provide non-code overrides. The implementation reuses the
-OpenAI-compatible Chat Completions provider machinery, requires no API key by
-default, and has a hermetic product-path test against a local stub server that
-pins request shape, tool-call serialization, response parsing, registry wiring,
-base URL/model handling, and metadata-only archive behavior.
+The provider catalog no longer treats `ds4` as a built-in model row. ds4 is now
+represented as a `models.json` custom provider for a locally running
+`antirez/ds4` DeepSeek V4 Flash server, with a pasteable example at
+`docs/examples/ds4.models.json`; the `PIPY_DS4_BASE_URL`/`PIPY_DS4_API_KEY` env
+shim synthesizes the same catalog entry. A legacy `--native-provider ds4`
+adapter path remains for compatibility while provider construction is fully
+catalog-driven. The implementation reuses the OpenAI-compatible Chat
+Completions provider machinery, requires no API key by default, and has a
+hermetic product-path test against a local stub server that pins request shape,
+tool-call serialization, response parsing, catalog wiring, base URL/model
+handling, and metadata-only archive behavior.
 
 Local setup evidence: `antirez/ds4` has been cloned outside this repo at
 `/Users/jochen/src/ds4` and built successfully for this Mac; `ds4-server`
@@ -1702,10 +1726,10 @@ Invariants that must hold for any near-term slice:
   package install/update/list/config flows, package manifests, and the
   corresponding security/update model. The draft target specification is
   [extension-api.md](extension-api.md).
-- Provider/model catalog follow-ons beyond the selected catalog track's current
-  reviewed slice: GitHub Copilot and Anthropic subscription paths, long-tail
-  API-key providers, custom provider/model config, compatibility knobs,
-  model-list update machinery, and extension-registered providers.
+- Provider/model catalog follow-ons after the shipped conformance gate:
+  `/scoped-models`, live Ctrl+P cycling from `--models`/settings, live
+  Anthropic/Copilot login UX, and extension-registered providers once the
+  extension platform exists.
 - RPC and automation modes beyond `pipy run`, `--native-output json`, and the
   in-process Python SDK: JSON event-stream mode, stdin/stdout RPC, and a
   long-running process-integration protocol.

@@ -23,8 +23,9 @@ Read these documents in order to learn the project from the outside in:
 5. Big-topic parity specs (target designs, one per large surface):
    [Session Tree](session-tree.md), [Extension API](extension-api.md),
    [Provider Catalog](provider-catalog.md), [Settings & Config](settings-config.md),
-   [Automation & RPC](automation-rpc.md), [TUI Workflow](tui-workflow.md), and
-   [Export & Distribution](export-distribution.md).
+   [Automation & RPC](automation-rpc.md), [TUI Workflow](tui-workflow.md),
+   [Export & Distribution](export-distribution.md), and
+   [User Documentation](user-documentation.md).
 6. [Session Storage](session-storage.md): the metadata-only catalog utility.
    Note: this is a pipy-specific layer, **not** the product session store — the
    full-transcript [Session Tree](session-tree.md) is the shipped product

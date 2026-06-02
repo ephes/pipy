@@ -353,8 +353,10 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         metavar="PATTERNS",
         help=(
             "Comma-separated model patterns (globs/fuzzy, each with optional "
-            ":level) enabled for in-session model cycling. The first scoped model "
-            "is preferred for the initial selection when not resuming."
+            ":level). Reserved: live Ctrl+P scoped-model cycling and the "
+            "first-scoped-model initial preference are not yet wired into the "
+            "session (see docs/provider-catalog.md); the value is currently "
+            "accepted but not applied."
         ),
     )
     parser.add_argument(

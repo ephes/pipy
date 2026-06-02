@@ -115,10 +115,10 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | `--session-dir <dir>` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
-| `--models <patterns>` (Ctrl+P cycling) | ❌ missing | [provider-catalog.md](provider-catalog.md) |
-| `--provider` / `--model` / `--api-key` | ✅ (`--native-provider`/`--native-model`) | [provider-catalog.md](provider-catalog.md) |
-| `--list-models [search]` | ❌ missing | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | ❌ missing | [provider-catalog.md](provider-catalog.md) |
+| `--models <patterns>` (Ctrl+P cycling) | 🟡 flag + resolver helpers shipped; live Ctrl+P cycling missing | [provider-catalog.md](provider-catalog.md), [tui-workflow.md](tui-workflow.md) |
+| `--provider` / `--model` / `--api-key` | ✅ (`--native-provider`/`--native-model`; `--api-key` runtime override) | [provider-catalog.md](provider-catalog.md) |
+| `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` (`-xt` is 0.78.0; not in source checkout) | ❌ missing | [settings-config.md](settings-config.md) |
 | `--system-prompt` / `--append-system-prompt` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ❌ missing | [extension-api.md](extension-api.md) |
@@ -162,7 +162,7 @@ target, and the docs/specs must stop presenting them as product virtues.
 | **`/theme` slash command** | pipy theme switcher | Realign | Pi has `--theme` discovery + theme selection inside settings, not a `/theme` command. Move theme selection under `/settings`; keep `--theme`/`--no-themes` load flags. |
 | **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Realign | Pi auto-injects skills into the system prompt and invokes prompt templates as `/<template-name>` directly. Match Pi's model: drop the `/skill`/`/template` wrappers, inject skills, register templates as their own slash commands. |
 | **`/help`** | grouped command reference | Realign | Pi uses `/hotkeys` + the slash menu. Provide `/hotkeys`; keep `/help` only as an optional alias if desired. |
-| **Hardcoded `ds4` built-in provider** | First local-model integration | Realign | Pi has no `ds4`; it supports local/custom models via `models.json`. Reframe `ds4` as a `models.json` custom-provider preset, not a special-cased built-in ([provider-catalog.md](provider-catalog.md)). |
+| **Hardcoded `ds4` built-in provider** | First local-model integration | Mostly realigned | ds4 is absent from the built-in catalog and resolves as a `models.json` custom-provider preset (`docs/examples/ds4.models.json`) or env shim. A legacy `--native-provider ds4` adapter path remains for compatibility while construction moves fully through the catalog ([provider-catalog.md](provider-catalog.md)). |
 | **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | Verify | Pi reads within `cwd` + context discovery. This is a genuine non-privacy convenience; keep only if it maps to a real Pi workflow, otherwise demote. Flagged for review. |
 | **`--tool-budget`** | bounds the model loop | Verify | Pi bounds turns internally without a user flag. Reasonable as an internal default; reconsider exposing it as a user flag. |
 | **`--input-runtime plain\|prompt-toolkit\|auto`** | pipy input-adapter selection | Verify | Internal mechanism, not a Pi surface. Keep as an implementation detail; it need not be a documented parity feature. |
@@ -181,11 +181,12 @@ the product state, not the spec state.
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume`, durable compaction, startup session flags) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` pass the conformance gate (full-transcript store, branch/fork/clone, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 draft spec, bounded Markdown-resource subset only | golden conformance extension (in spec) |
-| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 static registry only | `scripts/parity_checks/provider_catalog_conformance.py --json` |
+| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟢 catalog shipped/gated; `/scoped-models` + Ctrl+P cycling follow-on | `scripts/parity_checks/provider_catalog_conformance.py --json` (passing) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | 🟡 interactive `/settings` + local defaults only | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 metadata-only JSON + Python SDK only | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys, folding, queued steering, mouse selection, true cancellation) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship | real-PTY tests + conformance gate (in spec) |
 | Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only | `scripts/parity_checks/export_distribution_conformance.py --json` |
+| User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ❌ mostly internal specs today | docs parity review checklist in spec |
 
 **Verification / project policy** is intentionally not a separate topic: Pi has
 no `/verify` command. Verification is the model-visible `bash` tool plus
@@ -205,21 +206,24 @@ Ordering reflects dependencies and leverage, not a hard schedule:
    unblocks `/export`, `/import`, `/share`, durable `/compact`, `--mode json/rpc`
    session events, and retiring `--archive-transcript` as follow-up cleanup.
 2. **Provider / model catalog** ([provider-catalog.md](provider-catalog.md)) —
-   selected as the current next big topic: `models.json`, thinking levels,
-   `--list-models`, `--models`/scoped cycling, subscription auth, and the ds4
-   reframe as a custom-provider preset.
+   shipped/gated. Remaining product follow-ons are `/scoped-models`, live Ctrl+P
+   model cycling from `--models`/settings, and live Anthropic/Copilot login UX.
 3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
-   — `settings.json`, `keybindings.json`, `/reload`, `/changelog`, system-prompt
-   files, tool/resource toggles. Underpins much of the TUI and CLI surface.
-4. **TUI / editor depth** ([tui-workflow.md](tui-workflow.md)) — including true
+   — selected as the current next big topic: `settings.json`, `keybindings.json`,
+   `/reload`, `/changelog`, system-prompt files, tool/resource toggles, and the
+   settings side of scoped models. Underpins much of the TUI and CLI surface.
+4. **User documentation parity** ([user-documentation.md](user-documentation.md))
+   — can run alongside implementation tracks; pipy needs Pi-like user docs, not
+   only internal planning/spec docs.
+5. **TUI / editor depth** ([tui-workflow.md](tui-workflow.md)) — including true
    provider-request cancellation, which is a correctness fix, not polish.
-5. **Automation: `--mode json` then `--mode rpc`**
+6. **Automation: `--mode json` then `--mode rpc`**
    ([automation-rpc.md](automation-rpc.md)) — depends on the session tree for
    full session events and on the extension API for the UI channel.
-6. **Export / import / share / distribution**
+7. **Export / import / share / distribution**
    ([export-distribution.md](export-distribution.md)) — depends on the session
    tree.
-7. **Extension / package platform** ([extension-api.md](extension-api.md)) — the
+8. **Extension / package platform** ([extension-api.md](extension-api.md)) — the
    largest platform; many other surfaces (providers, commands, keybindings, UI,
    verification gates) gain extensibility once it lands.
 
@@ -242,6 +246,8 @@ Real parity is reached when:
 - pipy stores, streams, and exports full session content like Pi (full native
   session tree; full `--mode json`/`rpc` events; full HTML/JSONL export), with
   only credentials/secrets withheld.
+- User-facing documentation covers the same product surfaces as Pi's docs, with
+  shipped behavior separated from target specs ([user-documentation.md](user-documentation.md)).
 
 Until then, `docs/parity-criterion.md` keeps the legacy 50-row baseline score
 for regression tracking, but the post-baseline matrix there and this plan define

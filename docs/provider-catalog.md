@@ -1,8 +1,7 @@
 # Pi-Style Provider And Model Catalog
 
-Status: target specification researched from local Pi reference on 2026-06-02.
-Implementation landed 2026-06-02 (see **Shipped Status** below); the conformance
-gate passes 18/18.
+Status: shipped 2026-06-02. This document remains the behavioral
+specification; the conformance gate passes 18/18.
 
 ## Shipped Status (2026-06-02)
 
@@ -43,22 +42,23 @@ passing, no network):
   the full catalog with the shared availability gate and `provider/id:level`
   support.
 
-Remaining integration (tracked, not yet shipped): `--models` Ctrl+P live
-scoped-model cycling in the product TUI and threading `--thinking`/`--api-key`/
-`--models` from the CLI into the live session (the matcher/scope-resolution and
-thinking mapping they depend on are implemented and gated). Live OAuth login
-orchestration for Anthropic/Copilot (callback server / device-code prompting)
-is structured around the tested token-exchange/refresh core.
+Remaining product follow-ons (tracked, not yet shipped): `/scoped-models` and
+`--models` Ctrl+P live scoped-model cycling in the product TUI. The matcher,
+scope-resolution helpers, thinking mapping, `--thinking`, and `--api-key`
+threading are implemented and gated. Live OAuth login orchestration for
+Anthropic/Copilot (callback server / device-code prompting) is structured around
+the tested token-exchange/refresh core.
 
-This document defines the pipy target for full feature parity with Pi's
-provider/model catalog system. Today pipy ships a small hardcoded static
-registry (`pipy_harness.native.provider_registry.NATIVE_PROVIDER_REGISTRY`, ~13
-provider selections with one default model each). Pi has a broad built-in model
-catalog, a `~/.pi/agent/models.json` custom provider/model override system with
-request routing, subscription/OAuth auth (Anthropic, OpenAI Codex/ChatGPT,
-GitHub Copilot), per-model thinking levels, `--list-models`, `--models` for
-Ctrl+P scoped-model cycling, and a layered model-pattern matcher
-(`provider/id`, `provider/id:level`, fuzzy substring, and glob).
+This document defines the pipy target and shipped behavior for full feature
+parity with Pi's provider/model catalog system. Before this track, pipy shipped
+a small hardcoded static registry
+(`pipy_harness.native.provider_registry.NATIVE_PROVIDER_REGISTRY`, ~13 provider
+selections with one default model each). Pi has a broad built-in model catalog,
+a `~/.pi/agent/models.json` custom provider/model override system with request
+routing, subscription/OAuth auth (Anthropic, OpenAI Codex/ChatGPT, GitHub
+Copilot), per-model thinking levels, `--list-models`, `--models` for Ctrl+P
+scoped-model cycling, and a layered model-pattern matcher (`provider/id`,
+`provider/id:level`, fuzzy substring, and glob).
 
 Pipy should match Pi's user-facing capability through pipy-owned Python
 boundaries. This is not a TypeScript port. It reuses the existing
@@ -120,7 +120,9 @@ The reference behavior is taken from the local checkout at
 
 Pipy-side mapping references:
 
-- `src/pipy_harness/native/provider_registry.py` — current static registry.
+- `src/pipy_harness/native/provider_registry.py` — legacy compatibility layer
+  for provider-level facts still consumed while construction moves fully through
+  the catalog.
 - `src/pipy_harness/native/provider.py` — `ProviderPort`, streaming sinks.
 - `src/pipy_harness/native/models.py` — `ProviderRequest`, `ProviderResult`,
   `ProviderToolCall`, `ProviderImageAttachment`.

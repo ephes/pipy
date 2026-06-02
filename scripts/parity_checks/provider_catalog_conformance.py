@@ -49,7 +49,7 @@ from pipy_harness.native.auth_store import (
     resolve_request_auth,
 )
 from pipy_harness.native.catalog import build_builtin_catalog, default_model_per_provider
-from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
 from pipy_harness.native.model_resolver import (
     find_exact_model_reference,
@@ -314,6 +314,34 @@ def _check_auth_priority(checks, tmp: Path):
         "openai", store=store, env={"OPENAI_API_KEY": "sk-env"}, runtime_api_key="sk-rt"
     )
     stored = resolve_request_auth("openai", store=store, env={"OPENAI_API_KEY": "sk-env"})
+    # env fallback: no stored credential -> provider env var.
+    env_only = resolve_request_auth(
+        "openai", store=AuthStore(path=tmp / "auth_env.json"), env={"OPENAI_API_KEY": "sk-env"}
+    )
+    # stored OAuth resolved through the injected resolver, ahead of env.
+    oauth_store = AuthStore(path=tmp / "auth_oauth.json")
+    oauth_store.set("anthropic", {"type": "oauth", "access": "oauth-tok", "refresh": "r", "expires": 0})
+    oauth = resolve_request_auth(
+        "anthropic",
+        store=oauth_store,
+        env={"ANTHROPIC_API_KEY": "sk-env"},
+        oauth_token_resolver=lambda provider, cred: cred["access"],
+    )
+    # models.json key is the LAST resort (after stored/env miss): literal,
+    # env-name, and !command resolution all reach the request.
+    empty = AuthStore(path=tmp / "auth_mj.json")
+    mj_literal = resolve_request_auth(
+        "ds4", store=empty, env={}, models_json_config=ProviderAuthRequestConfig(api_key="literal-key")
+    )
+    mj_env = resolve_request_auth(
+        "ds4", store=empty, env={"DS4_KEY": "from-env"},
+        models_json_config=ProviderAuthRequestConfig(api_key="DS4_KEY"),
+    )
+    mj_cmd = resolve_request_auth(
+        "ds4", store=empty, env={},
+        models_json_config=ProviderAuthRequestConfig(api_key="!print-key"),
+        run_command=lambda c: "cmd-key",
+    )
     headers = resolve_request_auth(
         "ds4",
         store=AuthStore(path=tmp / "auth_h.json"),
@@ -326,10 +354,21 @@ def _check_auth_priority(checks, tmp: Path):
     ok = (
         runtime.api_key == "sk-rt"
         and stored.api_key == "sk-stored"
+        and env_only.api_key == "sk-env"
+        and oauth.api_key == "oauth-tok"
+        and mj_literal.api_key == "literal-key"
+        and mj_env.api_key == "from-env"
+        and mj_cmd.api_key == "cmd-key"
         and headers.headers.get("Authorization") == "Bearer abc"
         and headers.headers.get("X-Org") == "org-1"
     )
-    checks.append(Check("11_auth_priority", ok, "runtime>stored>env; authHeader+headers"))
+    checks.append(
+        Check(
+            "11_auth_priority",
+            ok,
+            "runtime>stored>oauth>env>models.json (literal/env/!command); authHeader+headers",
+        )
+    )
 
 
 def _check_auth_status(checks, tmp: Path):
@@ -483,32 +522,83 @@ def _check_refresh(checks, tmp: Path):
 
 
 def _check_no_secret_leak(checks, tmp: Path):
-    # Resolve auth (produces secrets/headers) and confirm the catalog's own
-    # archive-facing surfaces (model rows) carry no secret material.
+    # Configure secrets on every auth channel, then confirm that the actual
+    # archive-/display-facing surfaces the catalog produces carry no secret
+    # material — even though resolve_request_auth() (a request-time surface, not
+    # archived) does resolve the secrets into the live request.
+    secrets = ("SECRET-TOKEN", "SECRET-REFRESH", "SECRET-KEY", "SECRET-HDR", "Bearer ")
     store = AuthStore(path=tmp / "auth_leak.json")
-    store.set("anthropic", {"type": "oauth", "access": "SECRET-TOKEN", "refresh": "SECRET-REFRESH", "expires": 0})
+    store.set(
+        "anthropic",
+        {"type": "oauth", "access": "SECRET-TOKEN", "refresh": "SECRET-REFRESH", "expires": 9999999999000},
+    )
+    models_path = tmp / "leak_models.json"
+    models_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ds4": {
+                        "baseUrl": "http://127.0.0.1:8000/v1",
+                        "apiKey": "SECRET-KEY",
+                        "authHeader": True,
+                        "headers": {"X-Secret": "SECRET-HDR"},
+                        "api": "openai-completions",
+                        "models": [{"id": "deepseek-v4-flash"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = ProviderCatalogState(
+        models_json_path=models_path,
+        auth_store=store,
+        env={},
+        openai_codex_auth_path=tmp / "no-codex.json",
+    )
+
+    # request-time resolution DOES surface the secret (proves the fixture is
+    # real), but this result is never written to an archive.
     resolved = resolve_request_auth(
         "ds4",
         store=store,
         env={},
-        models_json_config=ProviderAuthRequestConfig(api_key="SECRET-KEY", auth_header=True),
+        models_json_config=ProviderAuthRequestConfig(
+            api_key="SECRET-KEY", auth_header=True, headers={"X-Secret": "SECRET-HDR"}
+        ),
     )
-    # The catalog rows (the archive-facing data) must not contain any secret.
-    catalog = build_builtin_catalog()
-    serialized = json.dumps(
+
+    # Archive-/display-facing surfaces: the merged catalog rows and the actual
+    # --list-models output. None may contain any secret.
+    rows_dump = json.dumps(
         [
             {
                 "provider": r.provider_name,
                 "model": r.model_id,
                 "api": r.api,
                 "base_url": r.base_url,
+                "headers": dict(r.headers) if r.headers else None,
+                "compat": r.compat,
             }
-            for r in catalog.get_all()
+            for r in state.get_all()
         ]
     )
-    leaked = any(s in serialized for s in ("SECRET-TOKEN", "SECRET-REFRESH", "SECRET-KEY", "Bearer"))
-    ok = resolved.api_key == "SECRET-KEY" and not leaked
-    checks.append(Check("18_no_secret_in_archive", ok, "catalog rows carry no secrets"))
+    list_models_output = format_list_models(
+        state.get_available(), search=None, load_error=state.error
+    )
+    archive_surfaces = rows_dump + "\n" + list_models_output
+    leaked = any(s in archive_surfaces for s in secrets)
+    fixture_real = resolved.ok and resolved.api_key == "SECRET-KEY" and resolved.headers.get(
+        "Authorization"
+    ) == "Bearer SECRET-KEY"
+    ok = fixture_real and not leaked
+    checks.append(
+        Check(
+            "18_no_secret_in_archive",
+            ok,
+            "catalog rows + --list-models output carry no secret/header/Authorization",
+        )
+    )
 
 
 def run_checks() -> list[Check]:

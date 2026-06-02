@@ -144,10 +144,12 @@ Optional:
   filtered over `provider id`, then exit without running a provider turn. Reads
   the same catalog as the `/model` selector. Column shape matches Pi's
   `pi --list-models`.
-- `--thinking <level>` / `--models <patterns>` / `--api-key <key>`: thinking
-  level (`off|minimal|low|medium|high|xhigh`), comma-separated scoped-model
-  patterns, and a runtime API-key override; resolved through the shared catalog
-  matcher (`docs/provider-catalog.md`).
+- `--thinking <level>` / `--api-key <key>`: thinking level
+  (`off|minimal|low|medium|high|xhigh`) and a runtime API-key override resolved
+  through the shared catalog matcher (`docs/provider-catalog.md`).
+- `--models <patterns>`: accepted as Pi-style scoped-model patterns; the
+  catalog resolver exists, but live Ctrl+P model cycling from this scope is
+  still tracked as a provider-catalog/TUI follow-on.
 
 Provider/model catalog (`docs/provider-catalog.md`):
 
@@ -159,10 +161,12 @@ Provider/model catalog (`docs/provider-catalog.md`):
   OpenRouter/Vercel routing, per-model thinking levels, and degrades gracefully
   (a malformed `models.json` keeps the built-ins and reports a path-qualified
   error).
-- `ds4` is not a built-in: it is a `models.json` custom provider. Paste
-  `docs/examples/ds4.models.json` into your `models.json`, or set
+- `ds4` is not a built-in catalog row: it is a `models.json` custom provider.
+  Paste `docs/examples/ds4.models.json` into your `models.json`, or set
   `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy
-  synthesize the same custom-provider entry.
+  synthesize the same custom-provider entry. A legacy `--native-provider ds4`
+  adapter path remains for compatibility while catalog-driven provider
+  construction is completed.
 
 Native product session-tree controls (Pi-style, `pipy repl`):
 
@@ -204,8 +208,10 @@ records).
   ```
 - `ds4` talks to a locally running
   [`antirez/ds4`](https://github.com/antirez/ds4) OpenAI-compatible Chat
-  Completions server. It defaults to base URL `http://127.0.0.1:8000/v1` and
-  model `deepseek-v4-flash`; override them with `PIPY_DS4_BASE_URL` and
+  Completions server. In the catalog it is represented as a `models.json`
+  custom provider (see `docs/examples/ds4.models.json`); the compatibility
+  `--native-provider ds4` path defaults to base URL `http://127.0.0.1:8000/v1`
+  and model `deepseek-v4-flash`. Override them with `PIPY_DS4_BASE_URL` and
   `--native-model`. `PIPY_DS4_API_KEY` is optional and, when set, is sent as a
   bearer token. The provider advertises `supports_tool_calls=True`; a live ds4
   smoke verified OpenAI-style `tool_calls` responses and pipy's bounded tool

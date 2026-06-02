@@ -253,6 +253,63 @@ def test_invalid_context_window_rejected(tmp_path):
     assert "contextWindow" in catalog.error
 
 
+def test_thinking_level_map_rejects_non_string_values(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "modelOverrides": {
+                        "claude-opus-4-7": {"thinkingLevelMap": {"high": True}}
+                    }
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "thinkingLevelMap" in catalog.error
+
+
+def test_thinking_level_map_rejects_unknown_level_key(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [{"id": "m", "thinkingLevelMap": {"turbo": "turbo"}}]
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "thinkingLevelMap" in catalog.error
+
+
+def test_thinking_level_map_accepts_string_and_null(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [
+                        {"id": "m", "thinkingLevelMap": {"high": "high", "off": None}}
+                    ]
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is None
+    row = catalog.find("anthropic", "m")
+    assert row is not None
+    assert row.thinking_level_map == {"high": "high", "off": None}
+
+
 def test_input_values_restricted_to_text_and_image(tmp_path):
     path = tmp_path / "models.json"
     _write(

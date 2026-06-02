@@ -225,7 +225,7 @@ def _coerce_model_def(
         api=_opt_str(raw, "api", f"{path}/api", errors),
         base_url=_opt_str(raw, "baseUrl", f"{path}/baseUrl", errors),
         reasoning=_opt_bool(raw, "reasoning", f"{path}/reasoning", errors),
-        thinking_level_map=_opt_str_map(
+        thinking_level_map=_opt_thinking_map(
             raw, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
         ),
         input=input_,
@@ -256,7 +256,7 @@ def _coerce_model_override(
     return ModelOverride(
         name=_opt_str(raw, "name", f"{path}/name", errors),
         reasoning=_opt_bool(raw, "reasoning", f"{path}/reasoning", errors),
-        thinking_level_map=_opt_str_map(
+        thinking_level_map=_opt_thinking_map(
             raw, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
         ),
         input=input_,
@@ -320,6 +320,36 @@ def _opt_str_map(
         errors.append(_type_error(path, "object"))
         return None
     return dict(value)
+
+
+def _opt_thinking_map(
+    raw: dict, key: str, path: str, errors: list[str]
+) -> dict[str, str | None] | None:
+    """A thinkingLevelMap: known level keys mapping to ``string | null``.
+
+    Mirrors Pi's ``ThinkingLevelMap`` (Partial<Record<level, string|null>>).
+    """
+
+    from pipy_harness.native.catalog import THINKING_LEVELS
+
+    if key not in raw:
+        return None
+    value = raw[key]
+    if not isinstance(value, dict):
+        errors.append(_type_error(path, "object"))
+        return None
+    out: dict[str, str | None] = {}
+    for level, mapped in value.items():
+        if level not in THINKING_LEVELS:
+            errors.append(
+                _type_error(f"{path}/{level}", f"one of {', '.join(THINKING_LEVELS)}")
+            )
+            continue
+        if mapped is not None and not isinstance(mapped, str):
+            errors.append(_type_error(f"{path}/{level}", "string or null"))
+            continue
+        out[level] = mapped
+    return out
 
 
 def _opt_header_map(
