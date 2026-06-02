@@ -398,6 +398,47 @@ def test_native_no_tool_repl_hotkeys_renders_resolved_bindings(tmp_path):
     assert provider.captured_requests in (None, [])
 
 
+def test_native_no_tool_repl_settings_reports_resolved_settings(tmp_path):
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "settings.json").write_text(
+        json.dumps(
+            {"theme": "dark", "transport": "sse", "enabledModels": ["openai/gpt-5.5"]}
+        ),
+        encoding="utf-8",
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "config" / "settings.json",
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    provider = SequentialCapturingProvider(results=[])
+    error_stream = StringIO()
+    NativeNoToolReplSession(
+        provider=provider, max_turns=4, settings_manager=manager
+    ).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO("/settings\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+    stderr = error_stream.getvalue()
+    assert "settings (resolved):" in stderr
+    assert "theme: dark" in stderr
+    assert "transport: sse" in stderr
+    assert "openai/gpt-5.5" in stderr
+    # /settings runs no provider turn.
+    assert provider.captured_requests in (None, [])
+
+
 def test_native_no_tool_repl_stops_at_turn_limit(tmp_path):
     provider = SequentialCapturingProvider(
         results=[

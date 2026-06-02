@@ -353,6 +353,10 @@ def key_display_text(
 
     if not keys:
         return ""
+    # Pi joins alternatives with "/" then splits on both "/" and "+"; pipy
+    # splits each alternative on "+" and joins alternatives with "/". The two
+    # coincide for every shipped binding (none binds a literal "/"); the
+    # simplification only differs for a hypothetical spec containing "/".
     plat = platform if platform is not None else sys.platform
     rendered = [
         "+".join(_format_part(p, capitalize=capitalize, platform=plat) for p in key.split("+"))

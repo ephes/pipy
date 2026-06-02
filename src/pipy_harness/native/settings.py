@@ -476,6 +476,107 @@ class SettingsManager:
     ) -> None:
         self.set_value("enabledModels", list(models), scope=scope)
 
+    # --- delivery / transport ---------------------------------------------
+
+    def _get_choice(self, key: str, choices: set[str], default: str) -> str:
+        value = self._get_str(key)
+        return value if value in choices else default
+
+    def get_transport(self) -> str:
+        return self._get_choice("transport", {"auto", "sse", "websocket"}, "auto")
+
+    def get_steering_mode(self) -> str:
+        return self._get_choice("steeringMode", {"all", "one-at-a-time"}, "one-at-a-time")
+
+    def get_follow_up_mode(self) -> str:
+        return self._get_choice("followUpMode", {"all", "one-at-a-time"}, "one-at-a-time")
+
+    # --- nested objects (compaction / retry / branchSummary) --------------
+
+    def _get_nested(self, top: str, key: str) -> Any:
+        node = self._get(top)
+        return node.get(key) if isinstance(node, dict) else None
+
+    def _nested_bool(self, top: str, key: str, *, default: bool) -> bool:
+        value = self._get_nested(top, key)
+        return value if isinstance(value, bool) else default
+
+    def _nested_int(self, top: str, key: str, *, default: int) -> int:
+        value = self._get_nested(top, key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return default
+        return value
+
+    def get_compaction_enabled(self) -> bool:
+        return self._nested_bool("compaction", "enabled", default=True)
+
+    def get_compaction_reserve_tokens(self) -> int:
+        return self._nested_int("compaction", "reserveTokens", default=16384)
+
+    def get_compaction_keep_recent_tokens(self) -> int:
+        return self._nested_int("compaction", "keepRecentTokens", default=20000)
+
+    def get_retry_enabled(self) -> bool:
+        return self._nested_bool("retry", "enabled", default=True)
+
+    def get_retry_max_retries(self) -> int:
+        return self._nested_int("retry", "maxRetries", default=3)
+
+    def get_retry_base_delay_ms(self) -> int:
+        return self._nested_int("retry", "baseDelayMs", default=2000)
+
+    def get_retry_provider_max_retry_delay_ms(self) -> int:
+        retry = self._get("retry")
+        provider = retry.get("provider") if isinstance(retry, dict) else None
+        if isinstance(provider, dict):
+            value = provider.get("maxRetryDelayMs")
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        return 60000
+
+    def get_branch_summary_reserve_tokens(self) -> int:
+        return self._nested_int("branchSummary", "reserveTokens", default=16384)
+
+    def get_branch_summary_skip_prompt(self) -> bool:
+        return self._nested_bool("branchSummary", "skipPrompt", default=False)
+
+
+def settings_report_lines(manager: SettingsManager) -> list[str]:
+    """Safe, human-readable resolved-settings lines for the ``/settings`` view.
+
+    Reports the resolved (effective) values for the delivery/transport,
+    compaction/retry/branch-summary, and display settings so the surface shows
+    what is in effect — including keys pipy accepts and round-trips but does not
+    yet honor. Contains no secrets (auth stays in the dedicated auth stores).
+    """
+
+    theme = manager.get_theme() or "(default)"
+    enabled_models = manager.get_enabled_models()
+    models_text = ", ".join(enabled_models) if enabled_models else "(full catalog)"
+    return [
+        "  settings (resolved):",
+        f"    theme: {theme}",
+        f"    quietStartup: {manager.get_quiet_startup()}",
+        f"    hideThinkingBlock: {manager.get_hide_thinking_block()}",
+        f"    promptHistory.enabled: {manager.get_prompt_history_enabled()}",
+        f"    transport: {manager.get_transport()}",
+        f"    steering: {manager.get_steering_mode()}",
+        f"    followUp: {manager.get_follow_up_mode()}",
+        f"    scopedModels: {models_text}",
+        "    compaction: "
+        f"enabled={manager.get_compaction_enabled()}, "
+        f"reserveTokens={manager.get_compaction_reserve_tokens()}, "
+        f"keepRecentTokens={manager.get_compaction_keep_recent_tokens()}",
+        "    retry: "
+        f"enabled={manager.get_retry_enabled()}, "
+        f"maxRetries={manager.get_retry_max_retries()}, "
+        f"baseDelayMs={manager.get_retry_base_delay_ms()}, "
+        f"provider.maxRetryDelayMs={manager.get_retry_provider_max_retry_delay_ms()}",
+        "    branchSummary: "
+        f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "
+        f"skipPrompt={manager.get_branch_summary_skip_prompt()}",
+    ]
+
 
 def local_state_base_defaults(
     *,

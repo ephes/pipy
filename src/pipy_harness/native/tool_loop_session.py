@@ -72,6 +72,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
     compact_tool_loop_messages,
@@ -482,6 +483,9 @@ class NativeToolReplSession:
     # injected the session loads <config>/keybindings.json via the shared config
     # home; tests inject a manager directly.
     keybindings_manager: "KeybindingsManager | None" = None
+    # Resolved layered settings. When not injected the session loads the
+    # global+project settings for the workspace, surfaced read-only by /settings.
+    settings_manager: "SettingsManager | None" = None
     resume_context: ResumeContext | None = None
     resume_branch_label: str | None = None
     # Native product session tree (the product session source of truth). When
@@ -549,6 +553,12 @@ class NativeToolReplSession:
         # session seeds its in-memory recall buffer from the saved prompts.
         prompt_history_store = self.prompt_history_store or PromptHistoryStore()
         keybindings = self.keybindings_manager or KeybindingsManager.create()
+        settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        # Settings is the source of truth for the prompt-history toggle: when it
+        # sets promptHistory.enabled, surface that into the store (which remains
+        # the on-disk recall cache) so a fresh session honors the setting.
+        if settings.get_prompt_history_enabled() and not prompt_history_store.enabled:
+            prompt_history_store.set_enabled(True)
         if terminal_ui is not None and prompt_history_store.enabled:
             terminal_ui.input_history = list(prompt_history_store.entries())
         renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
@@ -1036,7 +1046,7 @@ class NativeToolReplSession:
                         apply_auth_change=apply_auth_change,
                     )
                 else:
-                    for overlay_line in self._settings_overlay_lines():
+                    for overlay_line in self._settings_overlay_lines(settings):
                         print(overlay_line, file=error_stream)
                 if legacy_footer_enabled():
                     self._print_footer(
@@ -1297,7 +1307,7 @@ class NativeToolReplSession:
                         )
                         terminal_ui.add_notice(message)
                 else:
-                    for overlay_line in self._settings_overlay_lines():
+                    for overlay_line in self._settings_overlay_lines(settings):
                         print(overlay_line, file=error_stream)
                 if legacy_footer_enabled():
                     self._print_footer(
@@ -1943,7 +1953,9 @@ class NativeToolReplSession:
             error_stream, cwd_label=cwd_label, status_line=status_line
         )
 
-    def _settings_overlay_lines(self) -> list[str]:
+    def _settings_overlay_lines(
+        self, settings_manager: "SettingsManager | None" = None
+    ) -> list[str]:
         """Build the read-only settings/status overlay content.
 
         Reuses the shared no-tool ``/settings`` builder so the tool-loop TUI
@@ -1955,7 +1967,7 @@ class NativeToolReplSession:
         """
 
         state = self.provider_state or StaticNativeReplProviderState(self.provider)
-        lines = settings_overlay_lines(state)
+        lines = settings_overlay_lines(state, settings_manager)
         if isinstance(state, NativeReplProviderState):
             lines.append(
                 "  read-only view; use /model to switch provider/model and "

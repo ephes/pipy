@@ -30,6 +30,7 @@ from pipy_harness.native.conversation import (
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.image_attachment import (
     ProviderImageAttachment,
@@ -859,6 +860,9 @@ class NativeNoToolReplSession:
     # Resolved keybindings for /hotkeys. When not injected the session loads
     # <config>/keybindings.json via the shared config home; tests inject one.
     keybindings_manager: "KeybindingsManager | None" = None
+    # Resolved layered settings, surfaced read-only by /settings. When not
+    # injected the session loads the global+project settings for the workspace.
+    settings_manager: "SettingsManager | None" = None
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -880,6 +884,7 @@ class NativeNoToolReplSession:
         if provider_state is None:
             raise ValueError("NativeNoToolReplSession requires provider state")
         keybindings = self.keybindings_manager or KeybindingsManager.create()
+        settings = self.settings_manager or SettingsManager.for_workspace(run_input.cwd)
         discovery = self.instruction_loader(run_input.cwd)
         composed_system_prompt = compose_system_prompt(
             NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
@@ -1109,7 +1114,7 @@ class NativeNoToolReplSession:
                 continue
             if _is_repl_command_invocation(command, SETTINGS_REPL_COMMAND):
                 if command == SETTINGS_REPL_COMMAND:
-                    _print_repl_settings(error_stream, provider_state)
+                    _print_repl_settings(error_stream, provider_state, settings)
                 else:
                     _print_repl_command_usage_diagnostic(
                         error_stream, SETTINGS_REPL_COMMAND
@@ -2088,17 +2093,18 @@ def _print_repl_status(
 def _print_repl_settings(
     error_stream: TextIO,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState,
+    settings_manager: "SettingsManager | None" = None,
 ) -> None:
     """Render safe local configuration to stderr.
 
     Like /status, /settings is read-only: it does not call providers,
     run tools, mutate state, or consume any budget. It surfaces the
-    current selection, the registered defaults, and the local
-    availability of each supported provider so the user can see what
-    they could switch to via /model.
+    current selection, the registered defaults, the local availability of each
+    supported provider (so the user can see what they could switch to via
+    /model), and the resolved layered-settings values.
     """
 
-    for line in settings_overlay_lines(provider_state):
+    for line in settings_overlay_lines(provider_state, settings_manager):
         print(line, file=error_stream)
     print(
         "  /login, /logout, and /model are local; /settings is read-only.",

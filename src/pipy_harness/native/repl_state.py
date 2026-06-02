@@ -389,6 +389,7 @@ class StaticNativeReplProviderState:
 
 def settings_overlay_lines(
     provider_state: "NativeReplProviderState | StaticNativeReplProviderState",
+    settings_manager: "object | None" = None,
 ) -> list[str]:
     """Build the read-only settings/status display lines.
 
@@ -425,6 +426,14 @@ def settings_overlay_lines(
             f"{sanitize_text(option.selection.model_id)} "
             f"[{availability}]"
         )
+    if settings_manager is not None:
+        from pipy_harness.native.settings import (
+            SettingsManager,
+            settings_report_lines,
+        )
+
+        if isinstance(settings_manager, SettingsManager):
+            lines.extend(settings_report_lines(settings_manager))
     return lines
 
 

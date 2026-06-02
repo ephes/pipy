@@ -454,3 +454,77 @@ def test_local_state_import_builds_base_defaults() -> None:
     }
     # Absent values are omitted so they do not mask higher layers.
     assert local_state_base_defaults() == {}
+
+
+# --- delivery/transport/compaction/retry/branch-summary getters + report ----
+
+
+def test_transport_and_delivery_getters_defaults(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_transport() == "auto"
+    assert mgr.get_steering_mode() == "one-at-a-time"
+    assert mgr.get_follow_up_mode() == "one-at-a-time"
+
+
+def test_transport_and_delivery_getters_explicit(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"transport": "websocket", "steeringMode": "all", "followUpMode": "all"},
+    )
+    mgr = _manager(tmp_path)
+    assert mgr.get_transport() == "websocket"
+    assert mgr.get_steering_mode() == "all"
+    assert mgr.get_follow_up_mode() == "all"
+
+
+def test_compaction_getters_defaults_and_overrides(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_compaction_enabled() is True
+    assert mgr.get_compaction_reserve_tokens() == 16384
+    assert mgr.get_compaction_keep_recent_tokens() == 20000
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"compaction": {"enabled": False, "reserveTokens": 9000}},
+    )
+    mgr2 = _manager(tmp_path)
+    assert mgr2.get_compaction_enabled() is False
+    assert mgr2.get_compaction_reserve_tokens() == 9000
+    assert mgr2.get_compaction_keep_recent_tokens() == 20000  # default survives
+
+
+def test_retry_getters_defaults_and_overrides(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_retry_enabled() is True
+    assert mgr.get_retry_max_retries() == 3
+    assert mgr.get_retry_base_delay_ms() == 2000
+    assert mgr.get_retry_provider_max_retry_delay_ms() == 60000
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"retry": {"maxRetries": 5, "provider": {"maxRetryDelayMs": 30000}}},
+    )
+    mgr2 = _manager(tmp_path)
+    assert mgr2.get_retry_max_retries() == 5
+    assert mgr2.get_retry_provider_max_retry_delay_ms() == 30000
+
+
+def test_branch_summary_getters(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_branch_summary_reserve_tokens() == 16384
+    assert mgr.get_branch_summary_skip_prompt() is False
+
+
+def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import settings_report_lines
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"theme": "dark", "transport": "sse", "enabledModels": ["openai/gpt-5.5"]},
+    )
+    lines = settings_report_lines(_manager(tmp_path))
+    text = "\n".join(lines)
+    assert "theme: dark" in text
+    assert "transport: sse" in text
+    assert "steering: one-at-a-time" in text
+    assert "compaction:" in text
+    assert "retry:" in text
+    assert "openai/gpt-5.5" in text
