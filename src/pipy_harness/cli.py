@@ -699,6 +699,7 @@ def _repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
+        catalog_state=_build_catalog_state(),
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = _fallback_default_selection(provider_state)
@@ -842,6 +843,7 @@ def _tool_repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
+        catalog_state=_build_catalog_state(),
     )
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
@@ -1009,6 +1011,20 @@ def _scan_workspace_reference_roots(cwd: Path) -> list[str]:
                 references.append(entry)
                 break
     return references
+
+
+def _build_catalog_state() -> ProviderCatalogState:
+    """Build the shared provider/model catalog state for the REPL.
+
+    Backs both ``/model`` selection and availability over the full catalog
+    (built-in + models.json + ds4 env shim) with the same matcher and auth gate
+    used by ``--list-models``.
+    """
+
+    return ProviderCatalogState(
+        auth_store=AuthStore(),
+        openai_codex_auth_path=default_openai_codex_auth_path(),
+    )
 
 
 def _handle_list_models(search: str | None) -> int:

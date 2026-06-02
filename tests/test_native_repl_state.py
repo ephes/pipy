@@ -84,3 +84,47 @@ def test_auto_default_priority_preserves_hosted_provider_preference(
         },
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
     ) == NativeModelSelection("google", "gemini-2.0-flash-exp")
+
+
+def test_catalog_backed_model_options_and_select(tmp_path, monkeypatch):
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENAI_API_KEY": "sk"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda sel: None,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+
+    options = repl_state.model_options()
+    # full catalog, not one-per-provider
+    assert len([o for o in options if o.selection.provider_name == "openai"]) >= 3
+    openai_option = next(o for o in options if o.selection.provider_name == "openai")
+    assert openai_option.available is True
+    assert openai_option.context_window and openai_option.context_window > 0
+    anthropic_option = next(
+        o for o in options if o.selection.provider_name == "anthropic"
+    )
+    assert anthropic_option.available is False  # no ANTHROPIC_API_KEY
+
+    # select with :level on an available provider
+    ok, message = repl_state.select_model("openai/gpt-5.5:high")
+    assert ok, message
+    assert repl_state.selection.reference == "openai/gpt-5.5"
+    assert repl_state.thinking_level == "high"
+
+    # selecting an unavailable provider is rejected with a reason
+    ok2, message2 = repl_state.select_model("anthropic/claude-opus-4-7")
+    assert ok2 is False
+    assert "anthropic" in message2

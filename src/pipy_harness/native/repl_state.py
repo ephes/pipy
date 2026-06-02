@@ -39,11 +39,20 @@ class NativeModelSelection:
 
 @dataclass(frozen=True, slots=True)
 class NativeModelOption:
-    """A conservative model reference exposed by the line-oriented REPL."""
+    """A model reference exposed by the REPL selector / settings overlay.
+
+    Capability metadata (context window, reasoning, image input) is optional so
+    the legacy one-default-per-provider path keeps working; the catalog-backed
+    path populates it so the selector can render Pi-equivalent rows.
+    """
 
     selection: NativeModelSelection
     available: bool
     reason: str | None = None
+    context_window: int | None = None
+    max_tokens: int | None = None
+    reasoning: bool | None = None
+    image_input: bool | None = None
 
 
 class NativeProviderFactory(Protocol):
@@ -108,6 +117,12 @@ class NativeReplProviderState:
     env: Mapping[str, str] | None = None
     openai_codex_auth_path: Path | None = None
     persist_defaults: bool = True
+    # When set, model_options() and select_model() read the full pipy catalog
+    # (built-in + models.json) with the shared matcher and availability gate,
+    # mirroring Pi's /model selector over getAvailable(). When None, the legacy
+    # one-default-per-provider registry path is used (backward compatible).
+    catalog_state: "object | None" = None
+    thinking_level: str | None = None
 
     def current_selection(self) -> NativeModelSelection:
         return self.selection
@@ -116,9 +131,13 @@ class NativeReplProviderState:
         return self.provider_factory(self.selection)
 
     def provider_available(self, provider_name: str) -> bool:
+        if self.catalog_state is not None:
+            return self.catalog_state.provider_available(provider_name)  # type: ignore[attr-defined]
         return self._provider_available(provider_name)
 
     def model_options(self) -> list[NativeModelOption]:
+        if self.catalog_state is not None:
+            return self._catalog_model_options()
         options: list[NativeModelOption] = []
         for provider_name, spec in NATIVE_PROVIDER_REGISTRY.items():
             available = self._provider_available(provider_name)
@@ -131,10 +150,36 @@ class NativeReplProviderState:
             )
         return options
 
+    def _catalog_model_options(self) -> list[NativeModelOption]:
+        state = self.catalog_state
+        options: list[NativeModelOption] = []
+        for row in state.get_all():  # type: ignore[attr-defined]
+            available = state.provider_available(row.provider_name)  # type: ignore[attr-defined]
+            reason = (
+                None
+                if available
+                else state.availability_reason(row.provider_name)  # type: ignore[attr-defined]
+            )
+            options.append(
+                NativeModelOption(
+                    NativeModelSelection(row.provider_name, row.model_id),
+                    available=available,
+                    reason=reason,
+                    context_window=row.context_window,
+                    max_tokens=row.max_tokens,
+                    reasoning=row.reasoning,
+                    image_input="image" in row.input,
+                )
+            )
+        return options
+
     def select_model(self, reference: str) -> tuple[bool, str]:
         parsed = reference.strip()
         if not parsed:
             return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
+
+        if self.catalog_state is not None:
+            return self._catalog_select_model(parsed)
 
         selection, reason = self._resolve_model_reference(parsed)
         if selection is None:
@@ -143,6 +188,30 @@ class NativeReplProviderState:
         self.selection = selection
         self._save_default(selection)
         return True, f"pipy: selected model {selection.reference}."
+
+    def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
+        from pipy_harness.native.model_resolver import parse_model_pattern
+        from pipy_harness.native.thinking import validate_thinking_level
+
+        state = self.catalog_state
+        rows = state.get_all()  # type: ignore[attr-defined]
+        result = parse_model_pattern(reference, rows)
+        if result.model is None:
+            return False, "pipy: unsupported or unknown model reference."
+        model = result.model
+        if not state.provider_available(model.provider_name):  # type: ignore[attr-defined]
+            reason = state.availability_reason(model.provider_name)  # type: ignore[attr-defined]
+            return False, (
+                f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'})."
+            )
+        selection = NativeModelSelection(model.provider_name, model.model_id)
+        self.selection = selection
+        if result.thinking_level is not None:
+            level, _ = validate_thinking_level(result.thinking_level)
+            self.thinking_level = level
+        self._save_default(selection)
+        suffix = f" (thinking: {self.thinking_level})" if result.thinking_level else ""
+        return True, f"pipy: selected model {selection.reference}{suffix}."
 
     def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
         provider = provider_name.strip() or "openai-codex"
