@@ -128,7 +128,50 @@ class NativeReplProviderState:
         return self.selection
 
     def current_provider(self) -> ProviderPort:
-        return self.provider_factory(self.selection)
+        return self.provider_for(self.selection)
+
+    def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
+        """Construct the provider for any selection (catalog-first).
+
+        Used by ``current_provider`` and by the ``/model`` selector's
+        tool-capability probe so a ``models.json`` custom provider/model is
+        constructed the same way it will be used (not via the legacy factory).
+        """
+
+        if self.catalog_state is not None:
+            catalog_provider = self._catalog_provider(selection)
+            if catalog_provider is not None:
+                return catalog_provider
+        return self.provider_factory(selection)
+
+    def _catalog_provider(self, selection: NativeModelSelection) -> ProviderPort | None:
+        """Construct a provider from the catalog (spec item 18).
+
+        Returns ``None`` when the selection is not a catalog row or its API
+        family is not catalog-wired, so the caller falls back to the legacy
+        factory (preserving built-in providers like openai-codex/fake). A
+        catalog-wired family whose auth fails returns a fail-closed provider
+        (no silent legacy fallback).
+        """
+
+        from pipy_harness.native.provider_construction import (
+            build_provider,
+            resolve_construction,
+        )
+
+        state = self.catalog_state
+        spec = state.find(selection.provider_name, selection.model_id)  # type: ignore[attr-defined]
+        if spec is None:
+            return None
+        resolved = resolve_construction(
+            spec,
+            store=state.auth_store,  # type: ignore[attr-defined]
+            env=state._env(),  # type: ignore[attr-defined]
+            runtime_api_key=state.runtime_api_key,  # type: ignore[attr-defined]
+            models_json_auth=state._models_json_auth(spec.provider_name),  # type: ignore[attr-defined]
+            thinking_level=self.thinking_level,
+        )
+        return build_provider(resolved)
 
     def provider_available(self, provider_name: str) -> bool:
         if self.catalog_state is not None:
@@ -178,43 +221,59 @@ class NativeReplProviderState:
         if not parsed:
             return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
 
-        # Catalog path: peel an optional trailing ``:level`` (Pi's
-        # ``provider/id:level``) before resolving the model reference, so the
-        # established resolution/messages are preserved while ``:level`` is
-        # honoured and persisted. ``model:exacto``-style colon-in-id references
-        # are left intact because their suffix is not a valid thinking level.
-        pending_level: str | None = None
         if self.catalog_state is not None:
-            base_ref, level = self._split_thinking_level(parsed)
-            if level is not None:
-                parsed = base_ref
-                pending_level = level
+            return self._catalog_select_model(parsed)
 
         selection, reason = self._resolve_model_reference(parsed)
         if selection is None:
             return False, reason
 
         self.selection = selection
-        if pending_level is not None:
-            self.thinking_level = pending_level
         self._save_default(selection)
-        suffix = f" (thinking: {pending_level})" if pending_level else ""
+        return True, f"pipy: selected model {selection.reference}."
+
+    def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
+        """Resolve direct ``/model <ref>`` through the shared catalog resolver.
+
+        Uses :func:`resolve_cli_model` so exact ``provider/id``, bare id, fuzzy
+        alias, ``provider/id:level``, colon-in-id models, and the strict invalid-
+        suffix / per-provider fallback behaviour all match Pi's model-resolver.
+        Selection is then gated by availability (an unavailable target is refused
+        with the prior selection intact).
+        """
+
+        from pipy_harness.native.model_resolver import resolve_cli_model
+
+        state = self.catalog_state
+        result = resolve_cli_model(
+            cli_provider=None, cli_model=reference, rows=state.get_all()  # type: ignore[attr-defined]
+        )
+        if result.error is not None:
+            return False, f"pipy: {sanitize_text(result.error)}"
+        model = result.model
+        if model is None:
+            return False, "pipy: unsupported or unknown model reference."
+
+        if not state.provider_available(model.provider_name):  # type: ignore[attr-defined]
+            reason = state.availability_reason(model.provider_name)  # type: ignore[attr-defined]
+            return False, (
+                f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'}); "
+                "selection unchanged."
+            )
+
+        selection = NativeModelSelection(model.provider_name, model.model_id)
+        self.selection = selection
+        if result.thinking_level is not None:
+            self.thinking_level = result.thinking_level
+        self._save_default(selection)
+
+        notes: list[str] = []
+        if result.thinking_level is not None:
+            notes.append(f"thinking: {result.thinking_level}")
+        if result.warning:
+            notes.append(sanitize_text(result.warning))
+        suffix = f" ({'; '.join(notes)})" if notes else ""
         return True, f"pipy: selected model {selection.reference}{suffix}."
-
-    @staticmethod
-    def _split_thinking_level(reference: str) -> tuple[str, str | None]:
-        """Split a trailing ``:level`` (a valid thinking level) off a reference."""
-
-        from pipy_harness.native.thinking import validate_thinking_level
-
-        last_colon = reference.rfind(":")
-        if last_colon == -1:
-            return reference, None
-        suffix = reference[last_colon + 1 :]
-        level, warning = validate_thinking_level(suffix)
-        if warning is not None:
-            return reference, None
-        return reference[:last_colon], level
 
     def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
         provider = provider_name.strip() or "openai-codex"

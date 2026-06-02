@@ -84,8 +84,19 @@ def resolve_construction(
         for name, value in auth.headers.items()
         if name.lower() != "authorization"
     }
-    routing = model_request_routing(spec)
-    reasoning = map_thinking_level(spec, thinking_level)
+
+    body_extra: dict[str, object] = dict(model_request_routing(spec))
+
+    # Thinking shape mirrors Pi's per-format handling (openai-completions.ts):
+    # OpenRouter normalises reasoning into a nested ``reasoning: {effort}``
+    # object; the OpenAI-style default uses the top-level ``reasoning_effort``.
+    reasoning_value = map_thinking_level(spec, thinking_level)
+    reasoning_effort: str | None = None
+    if reasoning_value is not None:
+        if _uses_openrouter_thinking(spec):
+            body_extra["reasoning"] = {"effort": reasoning_value}
+        else:
+            reasoning_effort = reasoning_value
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -95,9 +106,16 @@ def resolve_construction(
         ok=True,
         api_key=auth.api_key,
         headers=headers,
-        body_extra=routing,
-        reasoning_effort=reasoning,
+        body_extra=body_extra,
+        reasoning_effort=reasoning_effort,
     )
+
+
+def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
+    compat = spec.compat if isinstance(spec.compat, dict) else {}
+    if compat.get("thinkingFormat") == "openrouter":
+        return True
+    return "openrouter.ai" in (spec.base_url or "").lower()
 
 
 # API families that speak the OpenAI Chat Completions envelope and are fully
@@ -124,13 +142,20 @@ def build_provider(
     """Construct a ``ProviderPort`` from a resolved catalog model.
 
     Returns ``None`` for API families not yet catalog-wired so the caller can
-    fall back to the legacy provider factory.
+    fall back to the legacy provider factory. For a catalog-wired family whose
+    auth resolution FAILED, returns a fail-closed provider that reports the auth
+    error (Pi fails closed on ``getApiKeyAndHeaders`` errors rather than silently
+    using a different construction).
     """
 
-    if not resolved.ok:
-        return None
     if resolved.api not in _COMPLETIONS_FAMILIES:
         return None
+    if not resolved.ok:
+        return _FailedAuthProvider(
+            provider_name=resolved.provider_name,
+            model_id=resolved.model_id,
+            error=resolved.error or "auth resolution failed",
+        )
 
     from pipy_harness.native.openai_completions_provider import (
         OpenAIChatCompletionsProvider,
@@ -148,3 +173,37 @@ def build_provider(
         extra_body=dict(resolved.body_extra),
         reasoning_effort=resolved.reasoning_effort,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _FailedAuthProvider:
+    """Fail-closed provider for a catalog-wired model whose auth did not resolve.
+
+    Keeps the catalog selection bound (no silent fallback to a different
+    construction) and surfaces the auth error on use. ``error`` is already a
+    Pi-shaped message ("No API key found for ...") and carries no secret.
+    """
+
+    provider_name: str
+    model_id: str
+    error: str
+    supports_tool_calls: bool = True
+
+    @property
+    def name(self) -> str:
+        return self.provider_name
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+        from pipy_harness.native._provider_helpers import (
+            failed_provider_result,
+            utc_now,
+        )
+
+        del stream_sink, reasoning_sink
+        return failed_provider_result(
+            request,
+            provider_name=self.provider_name,
+            started_at=utc_now(),
+            error_type="CatalogAuthError",
+            error_message=self.error,
+        )

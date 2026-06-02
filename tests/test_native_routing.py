@@ -72,6 +72,26 @@ def test_vercel_routing_becomes_provideroptions_gateway(tmp_path):
     assert routing["providerOptions"]["gateway"]["order"] == ["zai", "openai"]
 
 
+def test_vercel_empty_routing_omits_provider_options(tmp_path):
+    catalog = _catalog(
+        tmp_path,
+        {
+            "providers": {
+                "vercel": {
+                    "baseUrl": "https://ai-gateway.vercel.sh/v1",
+                    "apiKey": "k",
+                    "api": "openai-completions",
+                    "models": [{"id": "glm", "compat": {"vercelGatewayRouting": {}}}],
+                }
+            }
+        },
+    )
+    row = catalog.find("vercel", "glm")
+    assert row is not None
+    # Empty gateway routing -> no stray providerOptions (Pi gates on only/order).
+    assert model_request_routing(row) == {}
+
+
 def test_no_routing_when_base_url_does_not_match(tmp_path):
     # OpenRouter routing only applies when the base URL is openrouter.ai.
     catalog = _catalog(

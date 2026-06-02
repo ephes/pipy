@@ -265,6 +265,51 @@ def test_build_provider_constructs_completions_adapter_from_catalog(tmp_path):
     assert sent["body"]["reasoning_effort"] == "high"
 
 
+def test_openrouter_thinking_uses_nested_reasoning_effort(tmp_path):
+    spec = NativeModelSpec(
+        provider_name="openrouter",
+        model_id="moonshotai/kimi-k2.6",
+        display_name="Kimi",
+        api="openai-completions",
+        base_url="https://openrouter.ai/api/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    resolved = resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENROUTER_API_KEY": "k"},
+        runtime_api_key=None,
+        models_json_auth=None,
+        thinking_level="high",
+    )
+    # OpenRouter normalises reasoning into a nested object, not reasoning_effort.
+    assert resolved.reasoning_effort is None
+    assert resolved.body_extra["reasoning"] == {"effort": "high"}
+
+
+def test_auth_failure_returns_fail_closed_provider(tmp_path):
+    # authHeader with no resolvable key -> resolve_request_auth ok=False ->
+    # build_provider must NOT return None (would fall back to legacy); it returns
+    # a fail-closed provider that reports the auth error on use.
+    spec = _ds4_spec()
+    resolved = resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        runtime_api_key=None,
+        models_json_auth=ProviderAuthRequestConfig(auth_header=True),  # no key
+        thinking_level=None,
+    )
+    assert resolved.ok is False
+    provider = build_provider(resolved, http_client=None)
+    assert provider is not None
+    result = provider.complete(_request(tmp_path))
+    assert result.status.name != "SUCCEEDED"
+    assert result.error_type == "CatalogAuthError"
+
+
 def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
     spec = NativeModelSpec(
         provider_name="anthropic",

@@ -39,6 +39,36 @@ Pi reference:
   implementations
 - installed `pi --help`
 
+## Fresh command-surface deltas from this pass
+
+The direct help comparison is still the fastest sanity check for parity drift:
+
+- `pi --help` is a single top-level product command with interactive, print,
+  JSON, RPC, session, provider/model, settings/resource, package-management,
+  export, and update flags. `uv run pipy --help` still exposes a harness-shaped
+  `auth|run|repl` subcommand layout, so product CLI parity requires either a
+  top-level compatibility layer or help/dispatch aliases that make common Pi
+  invocations work without first choosing `run` or `repl`.
+- Pi top-level package commands (`install`, `remove`/`uninstall`, `update`,
+  `list`, `config`) are absent from pipy's help. This is part of the
+  extension/package platform, not export polish.
+- Pi automation flags (`--mode text|json|rpc`, `--print/-p`) are absent from
+  pipy's top-level help; pipy's `--native-output json` remains a metadata-only
+  `run` subcommand flag and is not a Pi-compatible replacement.
+- Pi resource/settings flags (`--system-prompt`, repeated
+  `--append-system-prompt`, `--extension`, `--skill`, `--prompt-template`,
+  `--theme`, `--no-context-files`, tool allow/deny flags, `--verbose`,
+  `--offline`, `--version`) are not yet top-level product surfaces in pipy.
+- Pi session flags `--session-id`, `--session-dir`, and `--name/-n` are still
+  missing from pipy's REPL session-start surface, even though the native session
+  tree itself has shipped.
+
+These CLI deltas do not change the recommended next slice: provider-catalog
+product wiring remains first because it is the smallest high-leverage gap and
+unblocks model/settings/TUI work. They do, however, make a later top-level
+`pipy` compatibility dispatcher a real parity requirement rather than docs
+polish.
+
 ## Ranked biggest gaps
 
 ### 1. Provider/model catalog product wiring

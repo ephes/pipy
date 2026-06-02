@@ -1037,9 +1037,11 @@ def test_cli_native_repl_model_resolution_rejects_unavailable_ambiguous_and_unkn
     assert exit_code == 0
     assert captured.out == ""
     assert provider_calls == 0
-    assert "ambiguous model reference" in captured.err
-    assert "unsupported or unavailable model reference" in captured.err
-    assert "openrouter is unavailable because OPENROUTER_API_KEY is not set" in captured.err
+    # Shared resolver: bare "gpt-5.5" resolves (no longer "ambiguous"); an
+    # unknown id errors; a known-but-unavailable provider is refused.
+    assert "selected model openai/gpt-5.5" in captured.err
+    assert "not found" in captured.err  # /model missing-model
+    assert "openrouter is unavailable" in captured.err  # /model openrouter/example
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     events = read_jsonl(finalized[0])
     event_types = [event["type"] for event in events]
@@ -1103,7 +1105,9 @@ def test_cli_native_repl_model_bare_single_match_and_unavailable_provider_gate(
     captured = capfd.readouterr()
     assert exit_code == 0
     assert "selected model fake/fake-native-bootstrap" in captured.err
-    assert "openai-codex is not logged in" in captured.err
+    # Shared resolver: openai-codex/gpt-test synthesizes a per-provider fallback,
+    # then the availability gate refuses it (codex not logged in).
+    assert "openai-codex is unavailable" in captured.err
     assert captured.out == "fake/fake-native-bootstrap\n"
     assert [(request.provider_name, request.model_id, request.user_prompt) for request in captured_requests] == [
         ("fake", "fake-native-bootstrap", "hello")

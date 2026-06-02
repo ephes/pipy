@@ -35,10 +35,13 @@ def model_request_routing(model: NativeModelSpec) -> dict:
     vercel = compat.get("vercelGatewayRouting")
     if isinstance(vercel, dict) and "ai-gateway.vercel.sh" in base_url:
         gateway: dict = {}
-        if "only" in vercel:
+        if vercel.get("only"):
             gateway["only"] = vercel["only"]
-        if "order" in vercel:
+        if vercel.get("order"):
             gateway["order"] = vercel["order"]
-        request["providerOptions"] = {"gateway": gateway}
+        # Pi only sets providerOptions when only/order is present
+        # (openai-completions.ts); an empty gateway is omitted.
+        if gateway:
+            request["providerOptions"] = {"gateway": gateway}
 
     return request

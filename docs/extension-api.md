@@ -468,31 +468,141 @@ Mirroring Pi, the provider surface should support both registration and
 `unregister_provider(name)`, which removes a previously registered provider's
 models and restores any built-in models it overrode.
 
-## Packages
+## Packages And Package-Manager CLI
 
-Package installation should be specified separately before implementation. The
-eventual package story should probably support:
+Pi's extension platform includes a package manager, not just an extension loader.
+The local reference implements it in `core/package-manager.ts`,
+`package-manager-cli.ts`, and the settings/resource-discovery stack. Pipy's
+Python package story must match the user-visible behavior while choosing
+Python-native source kinds and staying stdlib-only.
 
-- local path packages first
-- git/path packages later
-- PyPI packages only after a supply-chain policy exists
-- lock/pin metadata for non-local sources
-- enable/disable resource filtering
-- no lifecycle scripts
+### Source kinds and scopes
 
-Unlike Pi, pipy should not assume npm semantics. A Python package may expose
-extension entry points through `pyproject.toml`, but pipy should not require
-installation into the active environment for local path extensions.
+Pipy package sources should support these stages:
 
-For reference, Pi's package sources are npm specs (an `npm:` prefix), git URLs,
-and local paths. Pi's install scopes are `user`, `project`, and `temporary`,
-but only `user` and `project` are persisted install scopes: `temporary` is a
-CLI-only resolution used to load extension sources for a single run, never a
-persisted install. Pi stores project packages under the workspace `.pi`
-directory and user packages under the agent directory. Pipy's eventual package
-model should keep equivalent persisted user/workspace scopes plus a CLI-only
-transient load, while choosing Python-native source kinds rather than `npm:`
-specs.
+- **Local path** sources first: directories or files on disk, resolved relative
+  to the current workspace for project operations. These are the first trusted
+  source kind and require no installer.
+- **Git** sources next: HTTPS/SSH/git URLs cloned into pipy's package cache and
+  updated with `git pull`/fresh clone. Pinning to a ref is required before
+  automatic execution of non-local code is enabled by default.
+- **Python package / PyPI-style** sources only after a supply-chain policy is
+  written. They must be installed into an isolated package cache or explicitly
+  documented environment, never silently into the user's active project.
+- A **temporary** scope for explicit CLI-loaded sources that applies to one run
+  and is never persisted, matching Pi's temporary extension-source behavior.
+- Persisted scopes: **user** (`<config>/...`) and **project** (`.pipy/...`),
+  matching Pi's user/project split.
+
+Unlike Pi, pipy should not assume npm semantics or lifecycle scripts. Pipy must
+not run package lifecycle hooks automatically. A Python package may expose
+extension entry points through a manifest or `pyproject.toml`, but local path
+extensions must work without installing dependencies.
+
+### Settings representation
+
+Package and resource enablement belongs in the settings system specified in
+`settings-config.md`:
+
+- top-level arrays: `packages`, `extensions`, `skills`, `prompts`, `themes`;
+- `PackageSource` may be a string source or an object `{source, extensions,
+  skills, prompts, themes}` to filter resources from that package;
+- enable/disable is represented with Pi-shaped `+pattern` / `-pattern` entries
+  and package filters, **not** by deleting discovered resources;
+- project writes go to `.pipy/settings.json`; user writes go to
+  `<config>/settings.json`.
+
+Resource discovery should resolve package resources after user/project local
+resources, preserving Pi-like precedence: project explicit/local, project auto,
+user explicit/local, user auto, then package resources. Built-in command names
+cannot be shadowed by package commands.
+
+### CLI surface
+
+Implement Pi-shaped commands at the top-level `pipy` command:
+
+```text
+pipy install <source> [-l|--local]
+pipy remove <source> [-l|--local]
+pipy uninstall <source> [-l|--local]
+pipy list
+pipy config
+pipy update [source|self|pipy] [--self] [--extensions] [--extension <source>] [--force]
+```
+
+Behavior targets:
+
+- `install <source>` installs/resolves the source, records it in user settings,
+  or in project settings with `-l/--local`, and prints `Installed <source>`.
+- `remove`/`uninstall` removes the matching configured source from the chosen
+  settings scope and prints `Removed <source>`; when no source matches, it exits
+  non-zero with a clear diagnostic.
+- `list` prints configured user and project packages. Empty configuration prints
+  a dim/no-packages message equivalent to Pi's `No packages installed.`.
+- `config` opens the resource enable/disable selector when a TTY is available
+  and also provides a non-interactive `--json`/flag surface for tests and
+  automation. It edits settings filters, not package files.
+- Bare `update` updates both installed extensions/packages and pipy itself,
+  matching Pi's "all" target. `update self` / `update pipy` updates pipy only;
+  `--extensions` updates packages only; `update <source>` or
+  `--extension <source>` updates one package. `--force` forces self reinstall
+  even when already current. The self-update half is specified in
+  `export-distribution.md`; this extension spec owns the package half.
+- Every subcommand supports `--help` and rejects invalid/conflicting options
+  with non-zero exit status and a usage line.
+
+### Install/update mechanics
+
+Package resolution should be explicit and testable:
+
+- local path packages are canonicalized, must stay within the requested source
+  path, and are marked so cloud-sync recipes can ignore installed package
+  caches when appropriate;
+- git packages clone into a pipy package cache under local state/config, use a
+  short timeout, and update through a bounded pull/fetch path;
+- missing sources during normal startup fail closed with a safe diagnostic, but
+  the package manager may support an explicit `onMissing` policy for install or
+  skip during `resolve()`;
+- update checks are concurrent only within a small stdlib-bound cap;
+- package manifests can contribute extensions, skills, prompts/templates, and
+  themes. Pipy's manifest shape should be Python-native but map to Pi's
+  `package.json` `pi.{extensions,skills,prompts,themes}` capability.
+
+### Runtime composition
+
+Installed package resources flow through the same runtime boundaries as local
+resources:
+
+- extension entry points load through the Python extension activation boundary;
+- skills/templates/custom commands go through `pipy_harness.native.resources`;
+- themes go through the theme registry and settings selection;
+- provider registrations go through the provider catalog
+  `register_provider`/`unregister_provider` boundary;
+- package resources are included in `/reload` and `pipy config` discovery.
+
+### Package conformance gate
+
+Extend the future extension conformance gate, or add a dedicated package gate:
+
+```sh
+uv run python scripts/parity_checks/extension_package_conformance.py --json
+```
+
+The gate should use temporary config/workspace/package-cache directories and no
+real network. It must prove:
+
+1. local path package install persists the source to user and project settings;
+2. package manifests contribute an extension, a skill, a prompt/template, and a
+   theme, and resource precedence is deterministic;
+3. `list` reports user/project packages and an empty state correctly;
+4. `config` writes `+pattern`/`-pattern` filters and those filters affect
+   runtime discovery;
+5. `remove`/`uninstall` removes only the selected source/scope;
+6. `update --extensions`, `update <source>`, and bare `update` choose the right
+   package targets without executing network operations under test;
+7. invalid/conflicting options and missing sources fail closed with usage;
+8. no package source path, token, command output, extension code, prompt body,
+   tool payload, or UI text leaks into the default metadata archive.
 
 ## Archive And Privacy Rules
 

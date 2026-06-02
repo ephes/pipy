@@ -2183,11 +2183,16 @@ class NativeToolReplSession:
         offered as choosable.
         """
 
-        factory = getattr(state, "provider_factory", None)
-        if factory is None:
+        # Prefer the catalog-aware construction boundary so a models.json custom
+        # provider/model (api: openai-completions) is probed the way it will be
+        # used, not via the legacy hardcoded factory.
+        builder = getattr(state, "provider_for", None) or getattr(
+            state, "provider_factory", None
+        )
+        if builder is None:
             return False
         try:
-            provider = factory(selection)
+            provider = builder(selection)
         except Exception:
             return False
         return bool(getattr(provider, "supports_tool_calls", False))

@@ -10,7 +10,9 @@ extension system, or command names: pipy slopforks the same end-user
 capability into Python, not the TypeScript code itself.
 
 **Parity stance (2026-06-02):** real parity means Pi-equivalent *behavior*,
-including Pi's storage and output model. Where this doc previously framed pipy's
+including Pi's storage and output model. The latest ranked comparison snapshot
+against `/Users/jochen/src/pi-mono` is
+[Pi-Mono Gap Audit](pi-mono-gap-audit.md). Where this doc previously framed pipy's
 "metadata-first" archive as a deliberate divergence, that framing is retired:
 the metadata-only archive is a pipy-specific layer, not a parity virtue, and is
 not a reason to diverge from Pi. The full-transcript native session tree
