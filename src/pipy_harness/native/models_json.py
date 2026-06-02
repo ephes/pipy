@@ -597,9 +597,36 @@ class ModelCatalog:
         init=False, default_factory=dict
     )
     _config: ModelsConfig | None = field(init=False, default=None)
+    # Dynamically registered providers (Pi's registerProvider): applied after
+    # the file + extra providers, so a dynamic registration overrides both.
+    _registered: dict[str, "ProviderConfig"] = field(init=False, default_factory=dict)
+    # OAuth modify-models hooks applied to the merged rows (Pi's modifyModels,
+    # e.g. Copilot rewriting baseUrl from the token's proxy-ep claim).
+    _oauth_modifiers: list = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
         self.refresh()
+
+    # -- dynamic registration ------------------------------------------------
+
+    def register_provider(self, name: str, config: "ProviderConfig") -> None:
+        """Register (or replace) a provider config dynamically, then refresh.
+
+        Supports full replacement / override-only / custom-model registration
+        the same way a ``models.json`` provider entry does.
+        """
+
+        self._registered[name] = config
+        self.refresh()
+
+    def unregister_provider(self, name: str) -> None:
+        self._registered.pop(name, None)
+        self.refresh()
+
+    def set_oauth_modifiers(self, modifiers: list) -> None:
+        """Set the OAuth modify-models hooks applied after each merge."""
+
+        self._oauth_modifiers = list(modifiers)
 
     # -- load / merge --------------------------------------------------------
 
@@ -611,16 +638,19 @@ class ModelCatalog:
         file_config = self._load_models_json()
         combined = self._combine(file_config)
         merged = self._merge(combined)
+        for modifier in self._oauth_modifiers:
+            merged = list(modifier(merged))
         self.rows = tuple(merged)
 
     def _combine(self, file_config: ModelsConfig | None) -> ModelsConfig | None:
-        if not self.extra_providers:
+        if not self.extra_providers and not self._registered:
             return file_config
-        # Injected providers act as if defined in models.json; a real file entry
-        # for the same provider wins.
-        providers: dict[str, ProviderConfig] = dict(self.extra_providers)
+        # Precedence (low -> high): extra providers (e.g. ds4 env shim), then a
+        # real file entry, then a dynamically registered provider.
+        providers: dict[str, ProviderConfig] = dict(self.extra_providers or {})
         if file_config is not None:
             providers.update(file_config.providers)
+        providers.update(self._registered)
         return ModelsConfig(providers=providers)
 
     def _load_models_json(self) -> ModelsConfig | None:
