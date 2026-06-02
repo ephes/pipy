@@ -144,10 +144,12 @@ Optional:
   filtered over `provider id`, then exit without running a provider turn. Reads
   the same catalog as the `/model` selector. Column shape matches Pi's
   `pi --list-models`.
-- `--thinking <level>` / `--api-key <key>`: accepted by the CLI and recorded in
-  local catalog/provider-selection state, but full provider-request wiring for
-  mapped thinking and runtime API-key auth is still tracked in
-  `docs/provider-catalog.md`.
+- `--thinking <level>` / `--api-key <key>`: session thinking level and a runtime
+  API-key override. For the OpenAI-Chat-Completions API family (custom
+  models.json providers, ds4, OpenRouter, openai-completions) these reach the
+  real request — mapped thinking as `reasoning_effort`/`reasoning.effort` and the
+  key as the `Authorization` header (highest auth priority). Non-completions
+  families are still tracked in `docs/provider-catalog.md`.
 - `--models <patterns>`: accepted as Pi-style scoped-model patterns; the
   catalog resolver exists, but live Ctrl+P model cycling from this scope is
   still tracked as a provider-catalog/TUI follow-on.

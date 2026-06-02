@@ -1,19 +1,22 @@
 # Pi-Style Provider And Model Catalog
 
-Status: partial implementation / product-wiring follow-up selected. The catalog
-foundation landed on 2026-06-02 and its helper-layer conformance gate passes,
-but closeout review found product-path wiring gaps that must be fixed before the
-provider catalog is considered fully shipped.
+Status: catalog foundation (2026-06-02) plus product provider construction for
+the OpenAI-Chat-Completions API family (2026-06-03), gated end to end. A
+models.json custom provider/model now runs a real turn using the catalog
+baseUrl/model/auth/headers/routing/thinking. The remaining wiring is
+catalog-driven construction for the non-completions API families.
 
-## Implemented Foundation (2026-06-02)
+## Implemented (foundation + product construction)
 
-The catalog foundation is implemented through pipy-owned Python modules and
-gated by `scripts/parity_checks/provider_catalog_conformance.py`. That gate
-covers the catalog/helper-layer items of the Verification Plan below — items
-1-17 and item 19 (no-secret) — emitted as 19 assertion rows, all passing, no
-network. It does **not** cover Verification-Plan item 18 (product
-provider-construction paths); that is the accepted fix-up and must be gated
-before this track is complete:
+The catalog is implemented through pipy-owned Python modules and gated by
+`scripts/parity_checks/provider_catalog_conformance.py`, which now covers all of
+Verification-Plan items 1-19 — including **item 18 (product
+provider-construction paths)** at the construction/request layer with a
+capturing fake HTTP client — all passing, no network. Product turns for the
+`openai-completions` API family (custom models.json providers, ds4, OpenRouter,
+openai-completions) construct from the catalog via `native/provider_construction.py`
+(`resolve_construction` + `build_provider`), invoked through
+`NativeReplProviderState.provider_for`/`current_provider`:
 
 - **Built-in catalog** (`native/catalog.py`, `native/catalog_data.py`):
   `NativeModelSpec`/`NativeModelCost` rows with real capability metadata,
@@ -30,16 +33,17 @@ before this track is complete:
   `refresh()`, dynamic `register_provider`/`unregister_provider`, OAuth
   modify-models hooks.
 - **Routing** (`native/routing.py`): OpenRouter `provider` param + Vercel
-  `providerOptions.gateway` config survives catalog merge. Product provider
-  turns still need to apply the resolved request config.
-- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping
-  helpers. Product provider requests still need an explicit thinking/reasoning
-  field and adapter wiring.
+  `providerOptions.gateway` (gated on `only`/`order`) reach the request body for
+  the completions family via `extra_body`.
+- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping;
+  the mapped value reaches the request as `reasoning_effort` (OpenAI-style) or
+  nested `reasoning.effort` (OpenRouter) for the completions family.
 - **Auth** (`native/auth_store.py`): owner-only auth store, `resolve_config_value`
   (literal/env-name/`!command`), env + ambient credential detection (Bedrock,
   Vertex ADC, Azure, Cloudflare), Pi-order request-auth resolution, `AuthStatus`
-  labels (no `!command`/refresh on status), availability gate. Product provider
-  construction still needs to apply `resolve_request_auth()` to real calls.
+  labels (no `!command`/refresh on status), availability gate. For the
+  completions family the resolved api key + merged headers reach the real call
+  (`--api-key` wins), and a catalog-wired auth failure fails closed.
 - **OAuth** (`native/oauth_providers.py`): stdlib registry for Anthropic
   (5-min expiry margin), GitHub Copilot (proxy-ep rewrite + per-model policy
   enable), and OpenAI Codex (no margin), with injectable HTTP.
@@ -48,28 +52,24 @@ before this track is complete:
   env shim synthesizes the same entry.
 - **CLI/REPL** (`native/catalog_state.py`, `cli.py`, `native/repl_state.py`):
   `--list-models [search]` (Pi column parity, verified live against
-  `pi --list-models`), and the `/model` selector / `model_options()` read the
-  full catalog with the shared availability gate. Direct `/model <ref>` still
-  needs to use the shared Pi-style resolver.
+  `pi --list-models`), the `/model` selector / `model_options()` over the full
+  catalog with the shared availability gate (the tool-capability probe builds
+  via `provider_for`, so a custom provider is probed as it will be used), and
+  direct `/model <ref>` resolved through the shared `resolve_cli_model`
+  (exact/bare/fuzzy/`:level`/colon-in-id/invalid-suffix fallback) gated by
+  availability.
 
-Known product wiring gaps (accepted from closeout review, not yet shipped):
+Remaining wiring (not yet shipped):
 
-- Catalog-backed provider construction. `models.json` custom providers/models
-  can be listed, but provider turns still use hardcoded factories keyed by
-  legacy provider names. Custom providers are not usable for turns, and built-in
-  custom rows lose resolved `baseUrl`, headers, `authHeader`, and routing.
-- Request auth/header application. `--api-key` and `resolve_request_auth()` are
-  available at the catalog layer, but real provider instances still read their
-  old env/default fields.
-- Thinking application. `--thinking` and `/model <ref>:<level>` update local
-  selection state, but `ProviderRequest` and adapters do not yet receive mapped
-  thinking/reasoning settings.
-- Direct `/model` resolution. The direct form still accepts provider/model
-  strings without validating through the new matcher, so invalid thinking
-  suffixes and fuzzy/alias resolution do not match Pi.
-- Conformance coverage. The provider-catalog gate must be upgraded to drive
-  actual provider factory/request paths with fake HTTP before the track can be
-  closed.
+- Catalog-driven construction for the non-completions API families
+  (`anthropic-messages`, `openai-responses`, `openai-codex-responses`,
+  `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
+  `azure-openai-responses`, `cloudflare-workers-ai`, `mistral`). These still use
+  the legacy factory (`model_id` only); `build_provider` returns `None` for them
+  so they fall back. Their catalog-resolved auth/headers/routing/thinking — and
+  the per-format thinking shapes beyond OpenAI/OpenRouter — are the next slice.
+- `pipy run` (non-REPL one-shot) provider construction still uses `_adapter_for`;
+  the REPL tool-loop/no-tool product path is catalog-constructed.
 
 Other product follow-ons: `/scoped-models` and `--models` Ctrl+P live
 scoped-model cycling in the product TUI, live OAuth login orchestration for
