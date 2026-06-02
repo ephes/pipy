@@ -13,9 +13,15 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.native import ProviderRequest
+from pipy_harness.native.auth_store import AuthStore, ProviderAuthRequestConfig
+from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
 from pipy_harness.native.openai_completions_provider import (
     JsonResponse,
     OpenAIChatCompletionsProvider,
+)
+from pipy_harness.native.provider_construction import (
+    build_provider,
+    resolve_construction,
 )
 
 
@@ -157,13 +163,6 @@ def test_adapter_no_secret_in_result_metadata(tmp_path):
 
 
 # ---- Slice B: catalog -> adapter construction ------------------------------
-
-from pipy_harness.native.auth_store import AuthStore, ProviderAuthRequestConfig
-from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
-from pipy_harness.native.provider_construction import (
-    build_provider,
-    resolve_construction,
-)
 
 
 def _ds4_spec() -> NativeModelSpec:
