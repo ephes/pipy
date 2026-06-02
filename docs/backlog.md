@@ -170,15 +170,16 @@ not a promise to skip review when a smaller, safer slice appears.
    below); the `[Skills]` chrome now lists loadable skill names from the real
    loader. A general extension/package loader, theme registration, and UI hooks
    remain deferred and are intentionally **not** built as part of that track.
-5. Session workflows. Pipy remains metadata-first with optional raw transcript
-   sidecars, search/inspect/export, and metadata-only `resume-info`. Live
-   runtime resume (`--resume`), branch/fork (`--branch`), and in-session
-   compaction (`/compact` plus an automatic threshold) have now landed through
-   pipy-owned boundaries (see the Native Session Workflow Track below): a fresh
-   child record is seeded from the metadata-only `ResumeContext`, the parent
-   stays immutable, and only safe lineage/compaction metadata is recorded.
-   Pi-native mutable-tree inspection remains deferred; the target design for
-   matching Pi's `/tree` command and session-tree workflow is
+5. Session workflows. The existing metadata-first `pipy-session` archive is a
+   useful learning/catalog surface, but it is not sufficient as pipy's product
+   session store. Pi-compatible product resume and `/tree` require a raw private
+   native session tree like Pi's `~/.pi/agent/sessions/...` files. The next
+   session-workflow target is therefore the full native session tree bug fix and
+   parity track: product sessions must persist raw user/assistant/tool history,
+   rebuild provider context from the active branch, and expose `/session`,
+   `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable `/compact`,
+   Pi-style startup session entry, and branch summaries through pipy-owned
+   boundaries. The target design and conformance gate are in
    [session-tree.md](session-tree.md).
 6. Tool breadth and verification. The bounded multi-step loop is real and the
    model-visible `bash` tool is now a real shell matching Pi (arbitrary
@@ -224,15 +225,20 @@ slice-selection aid for the highest-impact remaining product gaps.
    execution model, and security/update story remain the largest platform gap.
    The Python-only, Pi-shaped semantic-compatibility target API is sketched in
    [extension-api.md](extension-api.md).
-2. Full session-tree workflow. Pi stores full JSONL session trees with
-   parent links and exposes `/tree`, `/fork`, `/clone`, `/session`, selectors,
-   labels, filters, HTML export, and share-oriented workflows. Pipy has an
-   immutable metadata-first archive with safe live resume, child-branch
-   creation, compaction counters, search/inspect/export, and optional raw
-   transcript sidecars. Still missing is Pi-style full-history tree navigation,
-   in-place branch switching, branch cloning from arbitrary prior messages,
-   rich session selection, HTML export, and share/upload flow. The researched
-   target spec for this track is [session-tree.md](session-tree.md).
+2. Full session-tree workflow. Pi stores full raw JSONL product session trees
+   with parent links and exposes `/tree`, `/fork`, `/clone`, `/session`,
+   selectors, labels, filters, HTML export, and share-oriented workflows. Pipy's
+   current product resume path is still based on metadata-only archive records;
+   that is a product bug for Pi-style workflows, not just a missing UI command.
+   The selected fix is a private native product session tree store that contains
+   the raw conversation needed for resume/context reconstruction, while
+   `pipy-session` remains a separate metadata/catalog utility. Still missing is
+   full-history tree navigation, in-place branch switching, `/new`, startup
+   session entry (`-c`, `-r`, `--no-session`, `--session`, `--fork` semantics),
+   branch cloning from arbitrary prior messages, rich native session selection
+   with rename/delete controls, durable compaction replay, branch summaries,
+   HTML export, and share/upload flow. The researched target spec and
+   conformance gate are in [session-tree.md](session-tree.md).
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
    history, bracketed paste, undo/redo, resize handling, `/copy`, typed
@@ -1297,6 +1303,75 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
+### Full Pi-style native session tree workflow (selected)
+
+Implement the full Pi-style native product session workflow from
+[session-tree.md](session-tree.md), including the bug fix that pipy-native must
+persist and resume from a raw private conversation tree like Pi rather than
+using metadata-only `pipy-session resume-info` as product state.
+
+The selected goal is not slice 1 only. Work may land in reviewed milestones, but
+the objective completion gate is one deterministic conformance command:
+
+```sh
+uv run python scripts/parity_checks/session_tree_conformance.py --json
+```
+
+The conformance script should drive pipy with the deterministic fake provider in
+a temporary workspace and fail unless all required product semantics work:
+
+- native raw session tree file creation/loading under the native product session
+  store;
+- raw conversation entries for user, assistant, tool, model-change,
+  `thinking_level_change`, compaction, branch-summary, label, session-info,
+  custom, and custom-message records where applicable;
+- product turn persistence and provider-visible context reconstruction from the
+  active branch;
+- `/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable
+  `/compact`, and branch-summary behavior;
+- startup/session-entry equivalents for Pi's `-c`, `-r`, `--no-session`,
+  `--session <path|id>`, and `--fork <path|id>`, with `--no-session`
+  suppressing both native session-tree writes and `pipy-session` metadata
+  records;
+- `/tree` creates sibling branches in-place, selecting a user message
+  rehydrates the editor, and selecting non-user entries moves the active leaf
+  with an empty editor;
+- `/resume` picker behavior includes search, path toggle, sort toggle,
+  named-only filtering, rename, and delete-with-confirmation;
+- reloading pipy from a native session file reconstructs the tree, active
+  branch, labels, name, compaction, branch summaries, and provider context;
+- existing `pipy-session` archive commands remain metadata/catalog utilities,
+  but product resume/tree/context never depend on them as the source of truth.
+
+Canonical conformance scenario:
+
+```text
+/name conformance-tree
+User: ROOT            -> Assistant(fake): SEEN:ROOT
+User: MAIN            -> Assistant(fake): SEEN:ROOT,MAIN
+/tree select MAIN user, edit to ALT, submit
+User: ALT             -> Assistant(fake): SEEN:ROOT,ALT
+```
+
+Assertions: the native tree contains sibling `MAIN` and `ALT` branches; the ALT
+provider request contains `ROOT` and `ALT` but not `MAIN`; navigating back to the
+MAIN branch and continuing contains `ROOT` and `MAIN` but not `ALT`.
+
+Final verification for the full track:
+
+```sh
+uv run python scripts/parity_checks/session_tree_conformance.py --json
+uv run pytest tests/test_native_session_tree*.py
+uv run pytest tests/test_native_tool_loop_session_tree*.py
+uv run pytest tests/test_native_tool_loop_tui_pty.py -k tree
+just check
+```
+
+Optional parity evidence: add a `scripts/tmux_session_tree_compare.sh <out-dir>`
+smoke that drives Pi and pipy through the same branch workflow and compares
+visible workflow semantics, including `/new`, `/resume`, and startup session
+entry where practical. Exact Pi JSON matching is not required.
+
 ### Local ds4 native provider (landed)
 
 The provider/model registry now includes `ds4` as a product-path native
@@ -1514,12 +1589,14 @@ Invariants that must hold for any near-term slice:
 
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
-- archives and `--native-output json` remain metadata-only and never include
-  raw prompts, model output, provider responses, request bodies, raw patch text,
-  raw diffs, file contents, raw tool observations, command stdout, command
-  stderr, auth tokens, cookies, credentials, secrets, private keys, or
-  sensitive personal data
-- native records still pass `pipy-session verify`, and `pipy-session list`,
+- the existing `pipy-session` metadata archive and `--native-output json`
+  remain metadata-only and never include raw prompts, model output, provider
+  responses, request bodies, raw patch text, raw diffs, file contents, raw tool
+  observations, command stdout, command stderr, auth tokens, cookies,
+  credentials, secrets, private keys, or sensitive personal data; this does not
+  prohibit the separate private native product session tree from storing the raw
+  conversation needed for Pi-style resume and `/tree`
+- metadata records still pass `pipy-session verify`, and `pipy-session list`,
   `search`, and `inspect` stay compatible
 
 ## Deferred
@@ -1554,9 +1631,9 @@ Invariants that must hold for any near-term slice:
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.
-- Pi-style full session-tree workflows beyond metadata references: in-place
-  `/tree` navigation, arbitrary prior-message fork/clone selectors, session
-  labels/filters, rich session picker, HTML export, and share/upload flow.
+- Session export/share polish after the native product session tree lands:
+  HTML export, private share/upload flow, and any broader cross-project native
+  session management not covered by the conformance gate.
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search or SQLite-backed query layer.
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
@@ -1602,13 +1679,16 @@ another full-screen TUI framework; RPC mode.
   path.
 - Storing full system prompts, user prompts, model outputs, stdout, stderr,
   tool payloads, secrets, tokens, credentials, private keys, or sensitive
-  personal data by default.
+  personal data in the `pipy-session` metadata archive, `--native-output json`,
+  docs, or synced artifacts by default. The private native product session tree
+  is the explicit Pi-like exception for raw conversation history.
 - Building broad approvals, sandboxing, retries, streaming, additional OAuth
   providers, provider registry, raw transcript import, multiple native tool
   requests, post-tool provider turns, general write tools beyond supervised
   patch apply, non-allowlisted verification commands, Textual or another
-  full-screen TUI framework, RPC, compaction, branching, or orchestration in the
-  upcoming slices; real execution work must wait for its named slice.
+  full-screen TUI framework, RPC, or orchestration opportunistically. Native
+  session-tree compaction and branching are now allowed only inside the selected
+  session-tree track and its conformance gate.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.
@@ -1706,9 +1786,12 @@ visibility and `/compact`. The E2/E3 parity-score rows are behavior checks
 (`scripts/parity_checks/compaction_behavior.py`,
 `scripts/parity_checks/branching_behavior.py`).
 
-Out of scope (still deferred): Pi-native mutable-tree session inspection, raw
-transcript import, and any documented safe-summary policy that would surface
-prior model/user text (only counts and labels are surfaced today).
+Superseding direction: this landed track remains the metadata-archive resume /
+branch / compaction baseline, but it is not the final product session workflow.
+The selected session-tree track replaces metadata-only product resume with a
+Pi-like private native session tree that stores raw conversation history for
+`/tree`, `/resume`, `/fork`, `/clone`, durable compaction replay, and branch
+summaries. Raw transcript import from external agents remains deferred.
 
 ## Maintenance Notes
 
