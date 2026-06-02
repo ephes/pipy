@@ -20,6 +20,10 @@ This file is for coding agents working in this repository. It records local proj
 - Implementation and review work is not complete until documentation matches the change when behavior, workflow, or user-facing usage changes.
 - Update release notes in the same change when they apply. Treat missing or stale docs or release notes as incomplete work.
 
+## Source Control
+- This repo uses trunk-based development. Commit directly to `main` in small, reviewable, green increments; do not create long-lived `feature/*` branches for routine work.
+- Respect pre-commit hooks and keep each commit's tests/lint/typecheck green so `main` stays releasable.
+
 ## Session Capture
 - Store durable raw coding-agent session records outside git by default, under `~/.local/state/pipy/sessions/<project>/`.
 - Project-local raw session data may also live under `.pipy/sessions/`, which is intentionally ignored by git and not synced by the default recipes unless `PIPY_SESSION_DIR` is pointed there.
