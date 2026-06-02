@@ -298,3 +298,37 @@ def test_direct_model_unknown_errors(tmp_path):
     s = _catalog_repl_state(tmp_path, _ALL_KEYS)
     ok, msg = s.select_model("totally-unknown-xyz")
     assert ok is False and "not found" in msg.lower() or "unknown" in msg.lower()
+
+
+def test_product_path_thinking_level_reaches_constructed_adapter(tmp_path):
+    from pipy_harness.native.openai_completions_provider import (
+        OpenAIChatCompletionsProvider,
+    )
+
+    s = _catalog_repl_state(
+        tmp_path,
+        {},
+        models_json={
+            "providers": {
+                "ds4": {
+                    "baseUrl": "http://127.0.0.1:8000/v1",
+                    "apiKey": "local",
+                    "api": "openai-completions",
+                    "models": [
+                        {"id": "deepseek-v4-flash", "reasoning": True,
+                         "thinkingLevelMap": {"medium": "medium", "high": "high"}}
+                    ],
+                }
+            }
+        },
+    )
+    # Direct /model with :level sets the active thinking level...
+    ok, msg = s.select_model("ds4/deepseek-v4-flash:medium")
+    assert ok, msg
+    assert s.thinking_level == "medium"
+    # ...and the product construction boundary maps it into the adapter request.
+    provider = s.current_provider()
+    assert isinstance(provider, OpenAIChatCompletionsProvider)
+    assert provider.reasoning_effort == "medium"
+    assert provider.endpoint == "http://127.0.0.1:8000/v1/chat/completions"
+    assert provider.api_key == "local"
