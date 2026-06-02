@@ -51,6 +51,17 @@ def test_env_api_key_openai():
     assert env_api_key("openai", {"OPENAI_API_KEY": "sk-x"}) == "sk-x"
 
 
+def test_openai_codex_has_no_env_api_key():
+    # openai-codex requires OAuth; env lookup must not return OPENAI_API_KEY.
+    assert env_api_key("openai-codex", {"OPENAI_API_KEY": "sk-x"}) is None
+    assert find_env_keys("openai-codex", {"OPENAI_API_KEY": "sk-x"}) is None
+
+
+def test_google_uses_only_gemini_api_key():
+    assert env_api_key("google", {"GEMINI_API_KEY": "g"}) == "g"
+    assert env_api_key("google", {"GOOGLE_API_KEY": "g"}) is None
+
+
 def test_azure_availability_depends_only_on_api_key():
     # No AZURE_OPENAI_ENDPOINT needed for availability (resolved later).
     assert env_api_key("azure-openai", {"AZURE_OPENAI_API_KEY": "k"}) == "k"
@@ -170,6 +181,30 @@ def test_auth_status_models_json_key(tmp_path):
         models_json_config=ProviderAuthRequestConfig(api_key="local"),
     )
     assert status.source == "models_json_key"
+    assert status.configured is True
+
+
+def test_auth_status_models_json_env_name_reports_environment(tmp_path):
+    store = _store(tmp_path)
+    status = provider_auth_status(
+        "ds4",
+        store=store,
+        env={"DS4_KEY": "secret"},
+        models_json_config=ProviderAuthRequestConfig(api_key="DS4_KEY"),
+    )
+    assert status.source == "environment"
+    assert status.label == "DS4_KEY"
+    assert status.configured is True
+
+
+def test_auth_status_ambient_credentials_not_labelled(tmp_path):
+    store = _store(tmp_path)
+    # Pi's status only labels actual API-key env vars, never ambient creds.
+    status = provider_auth_status(
+        "amazon-bedrock", store=store, env={"AWS_PROFILE": "default"}
+    )
+    assert status.source is None
+    assert status.configured is False
 
 
 # ---- request auth resolution (priority + headers + authHeader) -------------
@@ -223,6 +258,18 @@ def test_resolve_request_auth_authheader_and_headers(tmp_path):
     assert resolved.ok
     assert resolved.headers["Authorization"] == "Bearer abc"
     assert resolved.headers["X-Org"] == "org-123"
+
+
+def test_resolve_request_auth_authheader_without_key_fails(tmp_path):
+    store = _store(tmp_path)
+    resolved = resolve_request_auth(
+        "ds4",
+        store=store,
+        env={},
+        models_json_config=ProviderAuthRequestConfig(auth_header=True),
+    )
+    assert resolved.ok is False
+    assert resolved.error is not None and "ds4" in resolved.error
 
 
 def test_resolve_request_auth_stored_oauth_via_resolver(tmp_path):

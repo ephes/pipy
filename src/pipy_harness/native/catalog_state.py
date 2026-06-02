@@ -78,6 +78,35 @@ class ProviderCatalogState:
             models_json_path=self.models_json_path,
             extra_providers=self._extra_providers(),
         )
+        self._apply_oauth_modifiers()
+
+    def _apply_oauth_modifiers(self) -> None:
+        """Apply stored-OAuth modify-models hooks (e.g. Copilot baseUrl rewrite).
+
+        Pi applies every OAuth provider's modifyModels during model loading when
+        stored OAuth credentials exist (model-registry.ts).
+        """
+
+        if self.auth_store is None:
+            return
+        from pipy_harness.native.oauth_providers import (
+            get_oauth_provider,
+            get_oauth_provider_ids,
+        )
+
+        modifiers = []
+        for provider_id in get_oauth_provider_ids():
+            cred = self.auth_store.get(provider_id)
+            if not cred or cred.get("type") != "oauth":
+                continue
+            provider = get_oauth_provider(provider_id)
+            modify = getattr(provider, "modify_models", None)
+            if modify is None:
+                continue
+            modifiers.append(lambda rows, _m=modify, _c=cred: _m(rows, _c))
+        if modifiers:
+            self.catalog.set_oauth_modifiers(modifiers)
+            self.catalog.refresh()
 
     def _extra_providers(self):
         """Synthesized provider configs (currently the ds4 env-var shim)."""

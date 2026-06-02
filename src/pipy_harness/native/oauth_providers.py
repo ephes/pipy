@@ -143,15 +143,26 @@ class AnthropicOAuthProvider:
 
 _COPILOT_CLIENT_ID = _decode_b64("SXYxLmI1MDdhMDhjODdlY2ZlOTg=")
 _PROXY_EP = re.compile(r"proxy-ep=([^;]+)")
+# Copilot editor headers required by the Copilot token + policy endpoints.
+_COPILOT_HEADERS = {
+    "User-Agent": "GitHubCopilotChat/0.35.0",
+    "Editor-Version": "vscode/1.107.0",
+    "Editor-Plugin-Version": "copilot-chat/0.35.0",
+    "Copilot-Integration-Id": "vscode-chat",
+}
 
 
 def copilot_base_url_from_token(token: str) -> str | None:
-    """Extract the API base URL from a Copilot token's ``proxy-ep`` claim."""
+    """Extract the API base URL from a Copilot token's ``proxy-ep`` claim.
+
+    Pi converts the ``proxy.`` host prefix to ``api.`` (github-copilot.ts).
+    """
 
     match = _PROXY_EP.search(token)
     if not match:
         return None
-    return f"https://{match.group(1)}"
+    api_host = re.sub(r"^proxy\.", "api.", match.group(1))
+    return f"https://{api_host}"
 
 
 class GitHubCopilotOAuthProvider:
@@ -181,14 +192,17 @@ class GitHubCopilotOAuthProvider:
 
     def refresh_token(self, credentials: Mapping[str, object]) -> dict:
         # Copilot exchanges the stored GitHub token for a short-lived Copilot
-        # token. The GitHub token is the durable refresh material.
+        # token. The GitHub token is the durable refresh material. Pi sends
+        # ``Authorization: Bearer <github token>`` + Copilot headers and reads
+        # ``expires_at`` (seconds), storing it with a 5-minute margin.
         github_token = str(credentials.get("refresh") or credentials.get("access"))
         status, body = self._transport(
             "GET",
             self._urls()["copilot"],
             headers={
-                "Authorization": f"token {github_token}",
                 "Accept": "application/json",
+                "Authorization": f"Bearer {github_token}",
+                **_COPILOT_HEADERS,
             },
         )
         if status != 200:
@@ -198,7 +212,7 @@ class GitHubCopilotOAuthProvider:
             "type": "oauth",
             "access": data["token"],
             "refresh": github_token,
-            "expires": self._now_ms() + int(data.get("expires_in", 0)) * 1000 - _FIVE_MINUTES_MS,
+            "expires": int(data["expires_at"]) * 1000 - _FIVE_MINUTES_MS,
         }
 
     def enable_model(self, copilot_token: str, model_id: str) -> bool:
@@ -209,8 +223,9 @@ class GitHubCopilotOAuthProvider:
             "POST",
             f"{base_url}/models/{model_id}/policy",
             headers={
-                "Authorization": f"Bearer {copilot_token}",
                 "Content-Type": "application/json",
+                "Authorization": f"Bearer {copilot_token}",
+                **_COPILOT_HEADERS,
                 "openai-intent": "chat-policy",
                 "x-interaction-type": "chat-policy",
             },

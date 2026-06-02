@@ -483,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
                     resume_context=resume_context,
                     resume_branch_label=resume_branch_label,
                     native_session=native_session,
+                    thinking=args.thinking,
+                    api_key=args.api_key,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -491,6 +493,8 @@ def main(argv: list[str] | None = None) -> int:
                     input_runtime=args.input_runtime,
                     resume_context=resume_context,
                     resume_branch_label=resume_branch_label,
+                    thinking=args.thinking,
+                    api_key=args.api_key,
                 )
             request = RunRequest(
                 agent=args.agent,
@@ -683,6 +687,8 @@ def _repl_adapter_for(
     input_runtime: str = "auto",
     resume_context: Any = None,
     resume_branch_label: str | None = None,
+    thinking: str | None = None,
+    api_key: str | None = None,
 ) -> PipyNativeReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -699,7 +705,8 @@ def _repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=_build_catalog_state(),
+        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        thinking_level=_validated_thinking_level(thinking),
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
         provider_state.selection = _fallback_default_selection(provider_state)
@@ -825,6 +832,8 @@ def _tool_repl_adapter_for(
     resume_context: Any = None,
     resume_branch_label: str | None = None,
     native_session: Any = None,
+    thinking: str | None = None,
+    api_key: str | None = None,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -843,7 +852,8 @@ def _tool_repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=_build_catalog_state(),
+        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        thinking_level=_validated_thinking_level(thinking),
     )
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
@@ -1013,18 +1023,33 @@ def _scan_workspace_reference_roots(cwd: Path) -> list[str]:
     return references
 
 
-def _build_catalog_state() -> ProviderCatalogState:
+def _build_catalog_state(runtime_api_key: str | None = None) -> ProviderCatalogState:
     """Build the shared provider/model catalog state for the REPL.
 
     Backs both ``/model`` selection and availability over the full catalog
     (built-in + models.json + ds4 env shim) with the same matcher and auth gate
-    used by ``--list-models``.
+    used by ``--list-models``. ``runtime_api_key`` is the ``--api-key`` override
+    (highest auth priority; never archived).
     """
 
     return ProviderCatalogState(
         auth_store=AuthStore(),
         openai_codex_auth_path=default_openai_codex_auth_path(),
+        runtime_api_key=runtime_api_key,
     )
+
+
+def _validated_thinking_level(thinking: str | None) -> str | None:
+    """Validate a ``--thinking`` value, warning (not failing) on invalid input."""
+
+    if not thinking:
+        return None
+    from pipy_harness.native.thinking import validate_thinking_level
+
+    level, warning = validate_thinking_level(thinking)
+    if warning is not None:
+        print(f"pipy: {warning}", file=sys.stderr)
+    return level
 
 
 def _handle_list_models(search: str | None) -> int:

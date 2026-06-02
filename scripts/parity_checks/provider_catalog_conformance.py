@@ -379,8 +379,8 @@ def _check_oauth(checks):
         and a_cred["expires"] == FIXED_NOW_MS + 3600 * 1000 - 5 * 60 * 1000
         and c_cred["expires"] == FIXED_NOW_MS + 3600 * 1000  # no margin
         and enabled is True
-        and base == "https://proxy.example.com"
-        and policy_tx.calls[-1][1] == "https://proxy.example.com/models/gpt-5.4/policy"
+        and base == "https://api.example.com"  # proxy. -> api.
+        and policy_tx.calls[-1][1] == "https://api.example.com/models/gpt-5.4/policy"
     )
     checks.append(Check("13_oauth_shape", ok, "anthropic/codex margins; copilot policy+proxy"))
 

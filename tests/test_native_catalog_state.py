@@ -69,6 +69,41 @@ def test_stored_api_key_makes_provider_available(tmp_path):
     assert state.provider_available("anthropic")
 
 
+def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
+    # A github-copilot custom provider + stored OAuth cred → the OAuth
+    # modify_models hook rewrites the row's base URL from the token's proxy-ep.
+    auth_path = tmp_path / "auth.json"
+    store = AuthStore(path=auth_path)
+    store.set(
+        "github-copilot",
+        {"type": "oauth", "access": "tid=x;proxy-ep=proxy.example.com;", "refresh": "r", "expires": 9999999999000},
+    )
+    models_path = tmp_path / "models.json"
+    models_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "github-copilot": {
+                        "baseUrl": "https://old.example",
+                        "apiKey": "x",
+                        "api": "openai-completions",
+                        "models": [{"id": "gpt-5.4"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = ProviderCatalogState(
+        models_json_path=models_path,
+        auth_store=store,
+        env={},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    row = state.find("github-copilot", "gpt-5.4")
+    assert row is not None and row.base_url == "https://api.example.com"
+
+
 # ---- list-models rendering --------------------------------------------------
 
 

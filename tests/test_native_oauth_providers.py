@@ -85,11 +85,12 @@ def test_codex_refresh_has_no_margin():
     assert cred["expires"] == FIXED_NOW_MS + 3600 * 1000
 
 
-def test_copilot_base_url_from_proxy_ep():
+def test_copilot_base_url_from_proxy_ep_converts_proxy_to_api():
     token = "tid=abc;exp=123;proxy-ep=proxy.individual.githubcopilot.com;more=x"
+    # Pi converts the proxy. host prefix to api.
     assert (
         copilot_base_url_from_token(token)
-        == "https://proxy.individual.githubcopilot.com"
+        == "https://api.individual.githubcopilot.com"
     )
 
 
@@ -115,7 +116,7 @@ def test_copilot_modify_models_rewrites_base_url():
     out = provider.modify_models(rows, cred)
     copilot = next(r for r in out if r.provider_name == "github-copilot")
     other = next(r for r in out if r.provider_name == "anthropic")
-    assert copilot.base_url == "https://proxy.example.com"
+    assert copilot.base_url == "https://api.example.com"
     assert other.base_url == "https://api.anthropic.com"  # untouched
 
 
@@ -125,8 +126,24 @@ def test_copilot_enable_model_hits_policy_endpoint():
     ok = provider.enable_model("tid=x;proxy-ep=proxy.example.com;", "gpt-5.4")
     assert ok is True
     method, url, meta = transport.calls[-1]
-    assert url == "https://proxy.example.com/models/gpt-5.4/policy"
+    assert url == "https://api.example.com/models/gpt-5.4/policy"
     assert json.loads(meta["data"])["state"] == "enabled"
+    # Copilot editor headers are required on the policy call.
+    assert meta["headers"]["Copilot-Integration-Id"] == "vscode-chat"
+
+
+def test_copilot_refresh_uses_bearer_and_expires_at_with_margin():
+    transport = FakeTransport(
+        {"copilot_internal/v2/token": (200, json.dumps({"token": "ctok", "expires_at": 2000}))}
+    )
+    provider = GitHubCopilotOAuthProvider(transport=transport, now_ms=lambda: FIXED_NOW_MS)
+    cred = provider.refresh_token({"refresh": "gh-token"})
+    assert cred["access"] == "ctok"
+    # expires_at (seconds) * 1000 - 5min margin
+    assert cred["expires"] == 2000 * 1000 - 5 * 60 * 1000
+    _, _, meta = transport.calls[-1]
+    assert meta["headers"]["Authorization"] == "Bearer gh-token"
+    assert meta["headers"]["Copilot-Integration-Id"] == "vscode-chat"
 
 
 def test_credentials_never_serialize_authorization_url(tmp_path):

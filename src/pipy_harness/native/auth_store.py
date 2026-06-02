@@ -81,12 +81,14 @@ def resolve_config_value(
 # --------------------------------------------------------------------------- #
 
 
+# API-key env vars per provider (env-api-keys.ts parity, pipy provider names).
+# Providers that require OAuth tokens (openai-codex) have no env entry: env
+# lookup "will not return API keys for providers that require OAuth tokens".
 _API_KEY_ENV_VARS: dict[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
     "openai-completions": ("OPENAI_API_KEY",),
-    "openai-codex": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
-    "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    "google": ("GEMINI_API_KEY",),
     "openrouter": ("OPENROUTER_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),
     "azure-openai": ("AZURE_OPENAI_API_KEY",),
@@ -121,7 +123,13 @@ def _bedrock_ambient(env: Mapping[str, str]) -> bool:
 
 def _vertex_adc(env: Mapping[str, str]) -> bool:
     gac = env.get("GOOGLE_APPLICATION_CREDENTIALS")
-    has_creds = bool(gac and Path(gac).expanduser().exists())
+    if gac:
+        has_creds = Path(gac).expanduser().exists()
+    else:
+        # Fall back to the default ADC path (env-api-keys.ts).
+        has_creds = (
+            Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+        ).exists()
     has_project = bool(env.get("GOOGLE_CLOUD_PROJECT") or env.get("GCLOUD_PROJECT"))
     has_location = bool(env.get("GOOGLE_CLOUD_LOCATION"))
     return has_creds and has_project and has_location
@@ -239,10 +247,10 @@ def provider_available(
         return True
     if env_api_key(provider, env):
         return True
-    if models_json_config is not None and (
-        models_json_config.api_key or models_json_config.headers
-        or models_json_config.auth_header
-    ):
+    # Only a models.json apiKey counts as an auth source (Pi: hasConfiguredAuth
+    # checks providerRequestConfigs.apiKey !== undefined). Request headers alone
+    # are not auth.
+    if models_json_config is not None and models_json_config.api_key:
         return True
     return False
 
@@ -270,6 +278,10 @@ def provider_auth_status(
     """
 
     del run_command  # status must not execute commands
+    # AuthStorage.getAuthStatus order (stored/runtime/environment), then the
+    # ModelRegistry.getProviderAuthStatus models.json layer. Ambient credentials
+    # (Bedrock/Vertex) are intentionally NOT labelled here — Pi's status only
+    # reports actual API-key env vars from findEnvKeys.
     if store.get(provider) is not None:
         return AuthStatus(configured=True, source="stored")
     if runtime_api_key:
@@ -277,16 +289,14 @@ def provider_auth_status(
     keys = find_env_keys(provider, env)
     if keys:
         return AuthStatus(configured=False, source="environment", label=keys[0])
-    if env_api_key(provider, env):  # ambient (bedrock/vertex)
-        return AuthStatus(configured=False, source="environment", label="ambient")
     if models_json_config is not None and models_json_config.api_key:
-        if models_json_config.api_key.startswith("!"):
-            return AuthStatus(configured=False, source="models_json_command")
-        return AuthStatus(configured=False, source="models_json_key")
-    if models_json_config is not None and (
-        models_json_config.headers or models_json_config.auth_header
-    ):
-        return AuthStatus(configured=False, source="fallback", label="custom provider config")
+        api_key = models_json_config.api_key
+        if api_key.startswith("!"):
+            return AuthStatus(configured=True, source="models_json_command")
+        if env.get(api_key):
+            # The configured value names an env var that is set.
+            return AuthStatus(configured=True, source="environment", label=api_key)
+        return AuthStatus(configured=True, source="models_json_key")
     return AuthStatus(configured=False)
 
 
@@ -369,7 +379,12 @@ def resolve_request_auth(
             if resolved is not None:
                 headers[name] = resolved
 
-    if models_json_config is not None and models_json_config.auth_header and api_key:
+    if models_json_config is not None and models_json_config.auth_header:
+        if not api_key:
+            # Pi returns ok:false when authHeader is set but no key resolves.
+            return ResolvedRequestAuth(
+                ok=False, error=f'No API key found for "{provider}"'
+            )
         headers["Authorization"] = f"Bearer {api_key}"
 
     return ResolvedRequestAuth(ok=True, api_key=api_key, headers=headers)
