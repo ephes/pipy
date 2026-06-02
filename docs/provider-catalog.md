@@ -70,6 +70,12 @@ Remaining wiring (not yet shipped):
   the per-format thinking shapes beyond OpenAI/OpenRouter — are the next slice.
 - `pipy run` (non-REPL one-shot) provider construction still uses `_adapter_for`;
   the REPL tool-loop/no-tool product path is catalog-constructed.
+- Startup CLI model resolution. `--native-provider`/`--native-model` at launch do
+  not yet resolve through `resolve_cli_model` against the catalog: a custom
+  `models.json` provider name is not accepted by `--native-provider` (argparse
+  `choices`), and a bare `--native-model <ref>` becomes `fake/<ref>` rather than
+  resolving its provider. Mid-session `/model <ref>` is fully catalog-resolved;
+  startup parity is the next CLI slice.
 
 Other product follow-ons: `/scoped-models` and `--models` Ctrl+P live
 scoped-model cycling in the product TUI, live OAuth login orchestration for
