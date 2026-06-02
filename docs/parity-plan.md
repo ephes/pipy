@@ -5,7 +5,10 @@ Status: parity plan written 2026-06-02 against the local Pi reference at
 
 This document is the single clear plan for reaching **real feature parity** with
 Pi. It is the index that ties together the per-topic specs and the cleanup work.
-Use it to answer two questions at any time:
+The latest ranked comparison snapshot against the local Pi checkout is
+[Pi-Mono Gap Audit](pi-mono-gap-audit.md); use that page for slice selection
+when a fresh "what is biggest now?" answer is needed. Use this plan to answer
+two questions at any time:
 
 1. What does Pi do that pipy does not yet do? (the parity gaps)
 2. What does pipy do that Pi does not do, and should it stay? (the accidental
@@ -199,7 +202,8 @@ core Pi single-agent feature. It needs its own target spec before any work.
 
 ## 5. Recommended sequencing
 
-Ordering reflects dependencies and leverage, not a hard schedule:
+Ordering reflects dependencies and leverage, not a hard schedule. This sequence
+is kept aligned with the ranked [Pi-Mono Gap Audit](pi-mono-gap-audit.md):
 
 1. **Session-tree workflow** ([session-tree.md](session-tree.md)) — shipped.
    The full-transcript native store is now the product session source and

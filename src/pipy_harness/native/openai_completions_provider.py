@@ -100,6 +100,13 @@ class OpenAIChatCompletionsProvider:
     supports_tool_calls: bool = True
     provider_name: str = "openai-completions"
     auth_required: bool = True
+    # Catalog-resolved request config (M-item-18). ``extra_headers`` are merged
+    # provider/model headers (the api_key still wins the Authorization header);
+    # ``extra_body`` carries routing (OpenRouter ``provider`` / Vercel
+    # ``providerOptions``); ``reasoning_effort`` is the mapped thinking value.
+    extra_headers: Mapping[str, str] = field(default_factory=dict)
+    extra_body: Mapping[str, Any] = field(default_factory=dict)
+    reasoning_effort: str | None = None
 
     @property
     def name(self) -> str:
@@ -146,7 +153,16 @@ class OpenAIChatCompletionsProvider:
             body["tools"] = [
                 serialize_tool_for_chat_completions(tool) for tool in request.available_tools
             ]
+        # Catalog-resolved routing/compat (e.g. OpenRouter ``provider`` block,
+        # Vercel ``providerOptions``) and the mapped thinking value.
+        for key, value in self.extra_body.items():
+            body[key] = value
+        if self.reasoning_effort is not None:
+            body["reasoning_effort"] = self.reasoning_effort
         headers = {"Content-Type": "application/json"}
+        # Merged provider/model headers, then the api_key wins Authorization.
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 

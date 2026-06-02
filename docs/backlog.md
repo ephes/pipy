@@ -11,8 +11,11 @@ reviewable change while keeping the source-of-truth design constraints in
 is the single clear plan for reaching real feature parity with Pi: the
 slash-command and CLI matrices, the list of accidental pipy-only surfaces to
 remove or realign (§3 there, mirrored in `Parity Cleanup` below), and the index
-of per-topic specs with their conformance gates. Read it first. The big-topic
-specs it indexes are [session-tree.md](session-tree.md),
+of per-topic specs with their conformance gates. The latest ranked comparison
+snapshot against `/Users/jochen/src/pi-mono` is
+[pi-mono-gap-audit.md](pi-mono-gap-audit.md). Read the plan first, then use the
+audit for current slice selection. The big-topic specs it indexes are
+[session-tree.md](session-tree.md),
 [extension-api.md](extension-api.md), [provider-catalog.md](provider-catalog.md),
 [settings-config.md](settings-config.md), [automation-rpc.md](automation-rpc.md),
 [tui-workflow.md](tui-workflow.md), and

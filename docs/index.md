@@ -7,7 +7,9 @@ session semantics, and privacy-conscious archive metadata.
 **Start here for the parity roadmap:** [Parity Plan](parity-plan.md) is the
 single clear plan for reaching real feature parity with Pi — the slash-command
 and CLI matrices, the list of accidental pipy-only surfaces to remove or
-realign, and the index of per-topic specs with their conformance gates.
+realign, and the index of per-topic specs with their conformance gates. The
+latest comparison snapshot against `/Users/jochen/src/pi-mono` is
+[Pi-Mono Gap Audit](pi-mono-gap-audit.md).
 
 Read these documents in order to learn the project from the outside in:
 
@@ -17,21 +19,24 @@ Read these documents in order to learn the project from the outside in:
    remains, and how pipy's architecture differs from Pi's.
 3. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —
    command/flag matrices, accidental-surface cleanup, and big-topic spec index.
-4. [Harness Spec](harness-spec.md): detailed design rationale, event
+4. [Pi-Mono Gap Audit](pi-mono-gap-audit.md): the latest ranked comparison
+   against the local Pi checkout, with implementation contracts for the largest
+   remaining gaps.
+5. [Harness Spec](harness-spec.md): detailed design rationale, event
    vocabulary, native runtime direction, adapter boundaries, and deferred
    design.
-5. Big-topic parity specs (target designs, one per large surface):
+6. Big-topic parity specs (target designs, one per large surface):
    [Session Tree](session-tree.md), [Extension API](extension-api.md),
    [Provider Catalog](provider-catalog.md), [Settings & Config](settings-config.md),
    [Automation & RPC](automation-rpc.md), [TUI Workflow](tui-workflow.md),
    [Export & Distribution](export-distribution.md), and
    [User Documentation](user-documentation.md).
-6. [Session Storage](session-storage.md): the metadata-only catalog utility.
+7. [Session Storage](session-storage.md): the metadata-only catalog utility.
    Note: this is a pipy-specific layer, **not** the product session store — the
    full-transcript [Session Tree](session-tree.md) is the shipped product
    session source of truth (`pipy_harness.native.session_tree`), proven by
    `scripts/parity_checks/session_tree_conformance.py --json`.
-7. [Backlog](backlog.md): current product planning, completed slices,
+8. [Backlog](backlog.md): current product planning, completed slices,
    near-term priorities, and deferred boundaries.
 
 The short version: pipy is no longer just a session recorder. The repository now
