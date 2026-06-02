@@ -203,6 +203,70 @@ compared at the terminal-layer checkpoint. The current direction is a narrow
 custom terminal layer stay on the table for when the product needs a fuller UI
 surface or lower-level terminal ownership.
 
+### Current Largest Pi Feature Gaps (2026-06-01)
+
+This snapshot reflects a direct comparison against the local Pi reference in
+`/Users/jochen/src/pi-mono` after the tool loop, product TUI controls, runtime
+resources, theme loading, attachments, resume/branch/compaction, and ds4
+provider work landed. It is not a replacement for `docs/pi-parity.md`; it is a
+slice-selection aid for the highest-impact remaining product gaps.
+
+1. Extension and package platform. Pi has TypeScript extensions that can
+   register tools, commands, providers, keybindings, event handlers, and UI
+   surfaces, plus npm/git package install, update, list, and config flows.
+   Pipy currently has bounded Markdown resources (`.pipy/skills`,
+   `.pipy/templates`, `.pipy/commands`) and chrome themes only. A general
+   extension/package loader, runtime UI hooks, third-party dependency
+   execution model, and security/update story remain the largest platform gap.
+   The Python-only, Pi-shaped semantic-compatibility target API is sketched in
+   [extension-api.md](extension-api.md).
+2. Full session-tree workflow. Pi stores full JSONL session trees with
+   parent links and exposes `/tree`, `/fork`, `/clone`, `/session`, selectors,
+   labels, filters, HTML export, and share-oriented workflows. Pipy has an
+   immutable metadata-first archive with safe live resume, child-branch
+   creation, compaction counters, search/inspect/export, and optional raw
+   transcript sidecars. Still missing is Pi-style full-history tree navigation,
+   in-place branch switching, branch cloning from arbitrary prior messages,
+   rich session selection, HTML export, and share/upload flow.
+3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
+   basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
+   history, bracketed paste, undo/redo, resize handling, `/copy`, typed
+   `@path` and `@image:<path>` references). Pi still leads on fuzzy `@` file
+   picker behavior, broader path completion in the product editor,
+   clipboard/drag image paste, `!`/`!!` shell shortcuts, scoped-model cycling,
+   thinking-level hotkeys, output/thinking folding, queued steering/follow-up
+   messages during active turns, richer overlays/selectors, mouse selection,
+   and true provider-request cancellation.
+4. Provider and model catalog breadth. Pi maintains a broad built-in
+   tool-capable model catalog, subscription auth for Anthropic/OpenAI/GitHub
+   Copilot, many API-key providers, `models.json` custom provider/model
+   overrides, compatibility knobs, proxy/local model configuration, and
+   extension-registered providers. Pipy has thirteen native selections behind a
+   static registry (including fake, ds4, OpenAI, OpenAI Codex, OpenRouter,
+   Anthropic, Google, Google Vertex, Mistral, Bedrock, Azure OpenAI,
+   Cloudflare, and OpenAI Chat Completions). Missing are the long-tail
+   provider catalog, GitHub Copilot and Anthropic subscription paths, custom
+   provider/model config, provider compatibility options, and model-list update
+   machinery.
+5. RPC and automation modes. Pi exposes interactive, print, JSON event stream,
+   RPC over stdin/stdout, and SDK embedding. Pipy has `run`, `repl`, a
+   metadata-only `--native-output json`, subprocess capture, and an in-process
+   Python SDK. A protocol-level JSON/RPC mode, long-running process integration
+   surface, and event-stream automation contract remain open.
+6. Settings, distribution, and sharing polish. Pi has global/project
+   `settings.json`, keybinding config, scoped models, message-delivery and
+   transport settings, system-prompt replacement/append files, resource
+   enablement, version/update checks, package/self-update commands, documented
+   npm/curl installs, changelog command, HTML export, and private gist share.
+   Pipy remains a local `uv`-driven project with narrower local state controls
+   and metadata-only archive export. These are product-readiness gaps rather
+   than core runtime gaps.
+7. Verification breadth and policy. Pipy has bounded model-visible `bash` and
+   the supervised `/verify just-check` command. Pi's broader shell/tool posture
+   plus extension-defined permission gates make richer verification workflows
+   possible. Pipy still needs an explicit design before adding non-allowlisted
+   verification commands or project-defined verification policy.
+
 ## Tool-Loop Parity Track
 
 The bounded model-selected tool loop behind
@@ -1481,7 +1545,9 @@ Invariants that must hold for any near-term slice:
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.
-- Pi-native session inspection beyond metadata references.
+- Pi-style full session-tree workflows beyond metadata references: in-place
+  `/tree` navigation, arbitrary prior-message fork/clone selectors, session
+  labels/filters, rich session picker, HTML export, and share/upload flow.
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search or SQLite-backed query layer.
 - Review-cycle metadata for `pipy-session workflow review-outcome`, including
@@ -1491,15 +1557,35 @@ Invariants that must hold for any near-term slice:
   history, bracketed paste, undo/redo, resize/SIGWINCH handling, an interactive
   `/settings` control dialog, and optional persistent cross-session prompt
   history (off by default, local-only state file) now ship in the product TUI;
-  still deferred are richer editor semantics, additional overlays/selectors,
-  mouse selection, and theme/extension UI hooks.
-- RPC mode.
+  still deferred are fuzzy `@` file picker behavior, broader path completion in
+  the product editor, clipboard/drag image paste, `!`/`!!` shell shortcuts,
+  scoped-model cycling, thinking-level hotkeys, output/thinking folding,
+  queued steering/follow-up messages during active turns, richer overlays and
+  selectors, mouse selection, provider-request cancellation, and
+  theme/extension UI hooks.
+- General extension/package platform: Python-only Pi-shaped extension API,
+  extension-registered tools/commands/providers/keybindings/UI, third-party
+  package install/update/list/config flows, package manifests, and the
+  corresponding security/update model. The draft target specification is
+  [extension-api.md](extension-api.md).
+- Broad provider/model catalog: GitHub Copilot and Anthropic subscription
+  paths, long-tail API-key providers, custom provider/model config,
+  compatibility knobs, model-list update machinery, and extension-registered
+  providers.
+- RPC and automation modes beyond `pipy run`, `--native-output json`, and the
+  in-process Python SDK: JSON event-stream mode, stdin/stdout RPC, and a
+  long-running process-integration protocol.
+- Product distribution and sharing polish: documented package install/update
+  path, self-update flow, changelog surface, HTML export, and private
+  share/upload workflow.
+- Non-allowlisted verification commands or project-defined verification policy
+  beyond `/verify just-check`.
 - Multi-agent task delegation.
 - Long-running dev server.
 
 Historical deferral wording retained for tests: additional OAuth providers;
 Full interactive TUI beyond the selected narrow `prompt-toolkit`; Textual or
-another full-screen TUI framework.
+another full-screen TUI framework; RPC mode.
 
 ## Explicitly Not Now
 

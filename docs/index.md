@@ -13,9 +13,11 @@ Read these documents in order to learn the project from the outside in:
 3. [Harness Spec](harness-spec.md): detailed design rationale, event
    vocabulary, native runtime direction, adapter boundaries, and deferred
    design.
-4. [Session Storage](session-storage.md): session archive layout,
+4. [Extension API](extension-api.md): draft target specification for a
+   Pythonic, Pi-inspired extension surface.
+5. [Session Storage](session-storage.md): session archive layout,
    metadata-only capture rules, sync behavior, and privacy policy.
-5. [Backlog](backlog.md): current product planning, completed slices,
+6. [Backlog](backlog.md): current product planning, completed slices,
    near-term priorities, and deferred boundaries.
 
 The short version: pipy is no longer just a session recorder. The repository now
