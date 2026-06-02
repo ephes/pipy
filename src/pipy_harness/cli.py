@@ -342,7 +342,9 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="LEVEL",
         help=(
-            "Session default thinking level: off|minimal|low|medium|high|xhigh. "
+            "Accepted thinking level: off|minimal|low|medium|high|xhigh. "
+            "Stored in local provider-selection state, but provider-request "
+            "mapping is not yet wired (see docs/provider-catalog.md). "
             "Invalid values warn and fall back to the default."
         ),
     )
@@ -364,8 +366,9 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="api_key",
         default=None,
         help=(
-            "Runtime API key override for the selected provider. Highest auth "
-            "priority; never archived."
+            "Runtime API key override for the selected provider. Accepted and "
+            "kept out of archives, but real provider-call auth wiring is not "
+            "yet complete (see docs/provider-catalog.md)."
         ),
     )
 

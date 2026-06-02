@@ -20,7 +20,12 @@ Run:
 
     uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
-Verifies (numbered per docs/provider-catalog.md "Verification Plan"):
+Verifies the catalog/helper-layer items of the docs/provider-catalog.md
+"Verification Plan" — items 1-17 plus item 19 (no-secret). It does NOT cover
+Verification-Plan item 18 (product provider-construction paths: catalog-backed
+construction, applied request auth/headers/routing, thinking into
+``ProviderRequest``, direct ``/model`` resolver), which is the accepted fix-up.
+Item numbers below match the plan; there is no "18" here by design:
 
  1. built-in catalog: multiple rows per implemented provider + real metadata;
  2. exact provider/id matching, ambiguity rejection, bare-id matching;
@@ -39,7 +44,9 @@ Verifies (numbered per docs/provider-catalog.md "Verification Plan"):
 15. availability gate reflects auth store + models.json keys, not just env;
 16. ds4 resolves as a models.json custom provider; env shim is equivalent;
 17. catalog refresh() picks up a models.json edit + simulated login/logout;
-18. no secret/token/Authorization/PKCE/auth-URL value in any archive surface.
+    (plan item 18 -- product provider-construction paths -- is the accepted
+    follow-up and is intentionally NOT gated here);
+19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 """
@@ -654,7 +661,7 @@ def _check_no_secret_leak(checks, tmp: Path):
     ok = fixture_real and not leaked
     checks.append(
         Check(
-            "18_no_secret_in_archive",
+            "19_no_secret_in_archive",
             ok,
             "catalog rows + --list-models output carry no secret/header/Authorization",
         )

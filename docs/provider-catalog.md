@@ -8,11 +8,12 @@ provider catalog is considered fully shipped.
 ## Implemented Foundation (2026-06-02)
 
 The catalog foundation is implemented through pipy-owned Python modules and
-gated by `scripts/parity_checks/provider_catalog_conformance.py` (the 18
-Verification-Plan checks below, emitted as 19 assertion rows, all passing, no
-network). That gate currently proves the catalog/helper layers; it must be
-upgraded to cover real provider construction and request paths before this track
-is complete:
+gated by `scripts/parity_checks/provider_catalog_conformance.py`. That gate
+covers the catalog/helper-layer items of the Verification Plan below — items
+1-17 and item 19 (no-secret) — emitted as 19 assertion rows, all passing, no
+network. It does **not** cover Verification-Plan item 18 (product
+provider-construction paths); that is the accepted fix-up and must be gated
+before this track is complete:
 
 - **Built-in catalog** (`native/catalog.py`, `native/catalog_data.py`):
   `NativeModelSpec`/`NativeModelCost` rows with real capability metadata,
