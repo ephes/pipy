@@ -144,6 +144,30 @@ def test_per_model_override_deep_merges_cost_and_thinking(tmp_path):
     assert row.thinking_level_map.get("low") == "low"
 
 
+def test_per_model_override_explicit_zero_cost_wins(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "modelOverrides": {
+                        "claude-opus-4-7": {"cost": {"input": 0}}
+                    }
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is None
+    row = catalog.find("anthropic", "claude-opus-4-7")
+    assert row is not None
+    # explicit 0 must override the built-in 5.0 (Pi uses ?? nullish, not truthy)
+    assert row.cost.input == 0.0
+    # untouched field falls back to built-in
+    assert row.cost.output == 25.0
+
+
 def test_provider_level_baseurl_override_applies_to_builtins(tmp_path):
     path = tmp_path / "models.json"
     _write(

@@ -137,6 +137,28 @@ def test_resolve_model_scope_glob_with_level_suffix():
     }
 
 
+def test_resolve_model_scope_glob_star_does_not_cross_slash():
+    # minimatch semantics: "*" does not cross "/". Every openrouter id in the
+    # fixture contains a slash, so "openrouter/*" matches nothing (Pi behavior).
+    scope = resolve_model_scope(["openrouter/*"], ROWS)
+    assert scope.models == []
+    assert any("openrouter/*" in w for w in scope.warnings)
+
+
+def test_resolve_model_scope_glob_matches_within_one_segment():
+    scope = resolve_model_scope(["openrouter/openai/*"], ROWS)
+    ids = {sm.model.model_id for sm in scope.models}
+    assert ids == {"openai/gpt-4o:extended"}
+
+
+def test_fuzzy_alias_tiebreak_is_case_insensitive_like_localecompare():
+    # Pi's b.id.localeCompare(a.id) orders case-insensitively, so "Model-B"
+    # sorts above "model-a"; a raw codepoint sort would wrongly pick "model-a".
+    rows = [_row("x", "model-a"), _row("x", "Model-B")]
+    result = parse_model_pattern("model", rows)
+    assert result.model is not None and result.model.model_id == "Model-B"
+
+
 def test_resolve_model_scope_unmatched_pattern_warns_and_skips():
     scope = resolve_model_scope(["does-not-exist"], ROWS)
     assert scope.models == []

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
-from fnmatch import fnmatchcase
 
 from pipy_harness.native.catalog import (
     THINKING_LEVELS,
@@ -29,6 +28,60 @@ from pipy_harness.native.catalog import (
 
 
 _DATE_SUFFIX = re.compile(r"-\d{8}$")
+
+# Glob-translation cache. Unlike stdlib ``fnmatch``, ``*`` and ``?`` here do NOT
+# cross ``/`` (the minimatch default Pi relies on); ``**`` does. This matters
+# for slash-bearing ids: minimatch ``openrouter/*`` does not match
+# ``openrouter/openai/gpt-5.1-codex``, but ``fnmatch`` would.
+_GLOB_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _compile_glob(pattern: str) -> re.Pattern[str]:
+    cached = _GLOB_CACHE.get(pattern)
+    if cached is not None:
+        return cached
+    out: list[str] = []
+    i = 0
+    n = len(pattern)
+    while i < n:
+        char = pattern[i]
+        if char == "*":
+            if i + 1 < n and pattern[i + 1] == "*":
+                out.append(".*")
+                i += 2
+                continue
+            out.append("[^/]*")
+        elif char == "?":
+            out.append("[^/]")
+        elif char == "[":
+            j = i + 1
+            if j < n and pattern[j] in ("!", "^"):
+                j += 1
+            if j < n and pattern[j] == "]":
+                j += 1
+            while j < n and pattern[j] != "]":
+                j += 1
+            if j >= n:
+                out.append(r"\[")
+            else:
+                inner = pattern[i + 1 : j]
+                if inner.startswith(("!", "^")):
+                    inner = "^" + inner[1:]
+                out.append("[" + inner + "]")
+                i = j + 1
+                continue
+        else:
+            out.append(re.escape(char))
+        i += 1
+    compiled = re.compile("(?s:" + "".join(out) + r")\Z", re.IGNORECASE)
+    _GLOB_CACHE[pattern] = compiled
+    return compiled
+
+
+def _glob_match(name: str, pattern: str) -> bool:
+    """Case-insensitive minimatch-style match (``*``/``?`` do not cross ``/``)."""
+
+    return _compile_glob(pattern).match(name) is not None
 
 
 def is_valid_thinking_level(value: str) -> bool:
@@ -106,8 +159,10 @@ def _try_match_model(
     aliases = [r for r in matches if is_alias(r.model_id)]
     dated = [r for r in matches if not is_alias(r.model_id)]
     pool = aliases if aliases else dated
-    # Highest by reverse string comparison on id (Pi sorts b.localeCompare(a)).
-    pool = sorted(pool, key=lambda r: r.model_id, reverse=True)
+    # Highest by reverse comparison on id. Pi uses ``b.id.localeCompare(a.id)``,
+    # which orders case-insensitively; ``casefold`` as the primary key matches
+    # that intent (a raw codepoint sort would group all uppercase first).
+    pool = sorted(pool, key=lambda r: (r.model_id.casefold(), r.model_id), reverse=True)
     return pool[0]
 
 
@@ -212,12 +267,11 @@ def resolve_model_scope(
                 if is_valid_thinking_level(suffix):
                     level = suffix
                     glob_pattern = pattern[:colon]
-            lowered = glob_pattern.lower()
             matching = [
                 r
                 for r in rows
-                if fnmatchcase(r.reference.lower(), lowered)
-                or fnmatchcase(r.model_id.lower(), lowered)
+                if _glob_match(r.reference, glob_pattern)
+                or _glob_match(r.model_id, glob_pattern)
             ]
             if not matching:
                 warnings.append(f'No models match pattern "{pattern}"')

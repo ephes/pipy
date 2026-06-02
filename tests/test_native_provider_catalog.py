@@ -96,6 +96,19 @@ def test_model_spec_reference_is_provider_slash_id():
     assert spec.reference == "anthropic/claude-opus-4-7"
 
 
+def test_catalog_data_module_importable_first_without_cycle():
+    # Importing catalog_data before catalog must not trigger an import cycle.
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import pipy_harness.native.catalog_data"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_get_all_returns_every_row_sorted_stable():
     catalog = build_builtin_catalog()
     all_rows = catalog.get_all()

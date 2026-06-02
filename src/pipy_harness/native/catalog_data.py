@@ -278,21 +278,3 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     # ---- fake (deterministic bootstrap) -------------------------------------
     _m("fake", "fake-native-bootstrap", "Fake (bootstrap)", "fake"),
 )
-
-
-# Pipy's analogue of Pi's ``defaultModelPerProvider`` (model-resolver.ts).
-# Values preserve the historical pipy defaults so derived legacy constants stay
-# stable; every value below is also a row in ``BUILTIN_MODEL_ROWS``.
-DEFAULT_MODEL_PER_PROVIDER: dict[str, str] = {
-    "anthropic": "claude-3-5-sonnet-20241022",
-    "openai": "gpt-5.5",
-    "openai-codex": "gpt-5.5",
-    "openai-completions": "gpt-4o-mini",
-    "openrouter": "openai/gpt-5.1-codex",
-    "google": "gemini-2.0-flash-exp",
-    "google-vertex": "gemini-2.0-flash-001",
-    "mistral": "mistral-large-latest",
-    "amazon-bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-    "azure-openai": "gpt-4o",
-    "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
-}

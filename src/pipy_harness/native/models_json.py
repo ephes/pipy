@@ -95,7 +95,10 @@ class ModelOverride:
     reasoning: bool | None = None
     thinking_level_map: Mapping[str, str | None] | None = None
     input: tuple[str, ...] | None = None
-    cost: NativeModelCost | None = None
+    # Partial cost: only the sub-fields present in models.json (attr-named:
+    # input/output/cache_read/cache_write). An explicit ``0`` is preserved so it
+    # can override a non-zero built-in (Pi merges with ``??``, not truthiness).
+    cost: Mapping[str, float] | None = None
     context_window: int | None = None
     max_tokens: int | None = None
     headers: Mapping[str, str] | None = None
@@ -141,10 +144,12 @@ def _type_error(path: str, expected: str) -> str:
     return f"  - {path}: expected {expected}"
 
 
-def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
+def _coerce_cost_fields(value: object, path: str, errors: list[str]) -> dict[str, float]:
+    """Return only the cost sub-fields present in the JSON (attr-named)."""
+
     if not isinstance(value, dict):
         errors.append(_type_error(path, "object"))
-        return None
+        return {}
     nums: dict[str, float] = {}
     for key, attr in (
         ("input", "input"),
@@ -158,7 +163,14 @@ def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost
                 errors.append(_type_error(f"{path}/{key}", "number"))
             else:
                 nums[attr] = float(raw)
-    return NativeModelCost(**nums)
+    return nums
+
+
+def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
+    """Full cost object for a custom model (missing sub-fields default to 0)."""
+
+    fields = _coerce_cost_fields(value, path, errors)
+    return NativeModelCost(**fields)
 
 
 def _coerce_input(value: object, path: str, errors: list[str]) -> tuple[str, ...] | None:
@@ -206,7 +218,11 @@ def _coerce_model_override(
     if not isinstance(raw, dict):
         errors.append(_type_error(path, "object"))
         return None
-    cost = _coerce_cost(raw["cost"], f"{path}/cost", errors) if "cost" in raw else None
+    cost = (
+        _coerce_cost_fields(raw["cost"], f"{path}/cost", errors)
+        if "cost" in raw
+        else None
+    )
     input_ = (
         _coerce_input(raw["input"], f"{path}/input", errors) if "input" in raw else None
     )
@@ -457,7 +473,14 @@ def _apply_model_override(
     if override.max_tokens is not None:
         changes["max_tokens"] = override.max_tokens
     if override.cost is not None:
-        changes["cost"] = row.cost.merge(override.cost)
+        # Partial merge: each present sub-field (incl. explicit 0) wins; absent
+        # sub-fields fall back to the built-in row's value.
+        changes["cost"] = NativeModelCost(
+            input=override.cost.get("input", row.cost.input),
+            output=override.cost.get("output", row.cost.output),
+            cache_read=override.cost.get("cache_read", row.cost.cache_read),
+            cache_write=override.cost.get("cache_write", row.cost.cache_write),
+        )
     if override.headers is not None:
         changes["headers"] = dict(override.headers)
     merged_compat = _merge_compat(row.compat, override.compat)

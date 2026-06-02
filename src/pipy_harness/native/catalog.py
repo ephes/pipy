@@ -36,18 +36,6 @@ class NativeModelCost:
     cache_read: float = 0.0
     cache_write: float = 0.0
 
-    def merge(self, other: "NativeModelCost | None") -> "NativeModelCost":
-        """Partial-merge ``other`` over this cost (each sub-field falls back)."""
-
-        if other is None:
-            return self
-        return NativeModelCost(
-            input=other.input if other.input else self.input,
-            output=other.output if other.output else self.output,
-            cache_read=other.cache_read if other.cache_read else self.cache_read,
-            cache_write=other.cache_write if other.cache_write else self.cache_write,
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class NativeModelSpec:
@@ -128,13 +116,25 @@ def build_builtin_catalog() -> NativeCatalog:
     return NativeCatalog(rows=tuple(BUILTIN_MODEL_ROWS))
 
 
-def _default_model_per_provider() -> dict[str, str]:
-    from pipy_harness.native.catalog_data import DEFAULT_MODEL_PER_PROVIDER
-
-    return dict(DEFAULT_MODEL_PER_PROVIDER)
-
-
 # Pipy's analogue of Pi's ``defaultModelPerProvider`` (model-resolver.ts): maps
 # each implemented provider to its default model id, used by initial-model
-# selection and per-provider fallback synthesis. Exposed as a mapping.
-default_model_per_provider: dict[str, str] = _default_model_per_provider()
+# selection and per-provider fallback synthesis.
+#
+# This lives here (not in ``catalog_data``) as a pure string mapping so
+# ``catalog.py`` has no module-level import of ``catalog_data``: ``catalog_data``
+# imports the dataclasses from this module, and an eager back-import here would
+# form an initialization cycle. Every value below is also a row in
+# ``catalog_data.BUILTIN_MODEL_ROWS`` (asserted by the catalog tests).
+default_model_per_provider: dict[str, str] = {
+    "anthropic": "claude-3-5-sonnet-20241022",
+    "openai": "gpt-5.5",
+    "openai-codex": "gpt-5.5",
+    "openai-completions": "gpt-4o-mini",
+    "openrouter": "openai/gpt-5.1-codex",
+    "google": "gemini-2.0-flash-exp",
+    "google-vertex": "gemini-2.0-flash-001",
+    "mistral": "mistral-large-latest",
+    "amazon-bedrock": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "azure-openai": "gpt-4o",
+    "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
+}
