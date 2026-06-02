@@ -154,6 +154,7 @@ class NativeReplProviderState:
         (no silent legacy fallback).
         """
 
+        from pipy_harness.native.model_resolver import build_fallback_model
         from pipy_harness.native.provider_construction import (
             build_provider,
             resolve_construction,
@@ -161,6 +162,13 @@ class NativeReplProviderState:
 
         state = self.catalog_state
         spec = state.find(selection.provider_name, selection.model_id)  # type: ignore[attr-defined]
+        if spec is None:
+            # A synthesized fallback selection (e.g. a not-yet-cataloged model on
+            # a known provider) must still construct from the provider's catalog
+            # base (baseUrl/headers/auth), not fall back to the legacy factory.
+            spec = build_fallback_model(
+                selection.provider_name, selection.model_id, state.get_all()  # type: ignore[attr-defined]
+            )
         if spec is None:
             return None
         resolved = resolve_construction(

@@ -288,6 +288,36 @@ def test_openrouter_thinking_uses_nested_reasoning_effort(tmp_path):
     assert resolved.body_extra["reasoning"] == {"effort": "high"}
 
 
+def test_explicit_models_json_authorization_header_preserved(tmp_path):
+    # A models.json headers.Authorization without authHeader must be preserved,
+    # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).
+    resolved = resolve_construction(
+        _ds4_spec(),
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        runtime_api_key="ignored-key",
+        models_json_auth=ProviderAuthRequestConfig(
+            api_key="ignored-key", headers={"Authorization": "Custom secret-token"}
+        ),
+        thinking_level=None,
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert http.requests[-1]["headers"]["Authorization"] == "Custom secret-token"
+
+
+def test_constructed_adapter_repr_hides_secrets(tmp_path):
+    provider = OpenAIChatCompletionsProvider(
+        model_id="m",
+        api_key="SUPER-SECRET",
+        endpoint="http://h/v1/chat/completions",
+        extra_headers={"Authorization": "Bearer HDR-SECRET"},
+    )
+    text = repr(provider)
+    assert "SUPER-SECRET" not in text
+    assert "HDR-SECRET" not in text
+
+
 def test_auth_failure_returns_fail_closed_provider(tmp_path):
     # authHeader with no resolvable key -> resolve_request_auth ok=False ->
     # build_provider must NOT return None (would fall back to legacy); it returns

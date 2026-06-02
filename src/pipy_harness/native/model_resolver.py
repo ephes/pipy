@@ -299,9 +299,15 @@ class ResolveCliModelResult:
     error: str | None = None
 
 
-def _build_fallback_model(
+def build_fallback_model(
     provider: str, model_id: str, rows: list[NativeModelSpec]
 ) -> NativeModelSpec | None:
+    """Clone a provider's default row, replacing id/name (Pi buildFallbackModel).
+
+    Preserves the base model's ``base_url``/headers/``compat``/api so a
+    synthesized fallback selection still constructs from catalog values.
+    """
+
     provider_rows = [r for r in rows if r.provider_name == provider]
     if not provider_rows:
         return None
@@ -312,6 +318,10 @@ def _build_fallback_model(
     if base is None:
         base = provider_rows[0]
     return replace(base, model_id=model_id, display_name=model_id)
+
+
+# Backwards-compatible private alias (kept for existing internal callers).
+_build_fallback_model = build_fallback_model
 
 
 def resolve_cli_model(

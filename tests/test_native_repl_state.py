@@ -332,3 +332,34 @@ def test_product_path_thinking_level_reaches_constructed_adapter(tmp_path):
     assert provider.reasoning_effort == "medium"
     assert provider.endpoint == "http://127.0.0.1:8000/v1/chat/completions"
     assert provider.api_key == "local"
+
+
+def test_fallback_selection_constructs_from_catalog_base(tmp_path):
+    # A synthesized fallback model (known provider, uncataloged id) must still
+    # construct from the provider's catalog base, not the legacy factory.
+    from pipy_harness.native.openai_completions_provider import (
+        OpenAIChatCompletionsProvider,
+    )
+    from pipy_harness.native.repl_state import NativeModelSelection
+
+    s = _catalog_repl_state(
+        tmp_path,
+        {},
+        models_json={
+            "providers": {
+                "acme": {
+                    "baseUrl": "https://acme.example/v1",
+                    "apiKey": "acme-key",
+                    "api": "openai-completions",
+                    "models": [{"id": "rocket-1"}],
+                }
+            }
+        },
+    )
+    # Select an uncataloged id on the known provider (fallback synthesis).
+    s.selection = NativeModelSelection("acme", "rocket-NEW")
+    provider = s.current_provider()
+    assert isinstance(provider, OpenAIChatCompletionsProvider)
+    assert provider.endpoint == "https://acme.example/v1/chat/completions"
+    assert provider.api_key == "acme-key"
+    assert provider.model_id == "rocket-NEW"

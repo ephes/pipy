@@ -773,6 +773,39 @@ def _check_product_construction(checks, tmp: Path):
     no_leak = not any(s in leak_dump for s in ("models-json-key", "RUNTIME-KEY", "Bearer", "acme-org"))
     checks.append(Check("18_product_no_secret_in_result", no_leak, "turn result carries no secret/Authorization"))
 
+    # 18g: the actual product boundary (NativeReplProviderState.provider_for /
+    # current_provider, used by the REPL tool-loop) — not just build_provider —
+    # constructs the catalog adapter. A regression to the legacy factory here
+    # would fail this check (and the secret-bearing fields are repr-hidden).
+    from pipy_harness.native.openai_completions_provider import (
+        OpenAIChatCompletionsProvider,
+    )
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("acme", "rocket-1"),
+        provider_factory=_no_legacy,
+        catalog_state=state,
+        thinking_level="high",
+        persist_defaults=False,
+    )
+    product_provider = repl_state.current_provider()
+    product_ok = (
+        isinstance(product_provider, OpenAIChatCompletionsProvider)
+        and product_provider.endpoint == "https://acme.example/v1/chat/completions"
+        and product_provider.api_key == "models-json-key"
+        and product_provider.model_id == "rocket-1"
+        and product_provider.reasoning_effort == "high"
+        and "models-json-key" not in repr(product_provider)
+    )
+    checks.append(Check("18_product_boundary_uses_catalog", product_ok, "current_provider/provider_for constructs from the catalog (not legacy); repr hides secrets"))
+
 
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual

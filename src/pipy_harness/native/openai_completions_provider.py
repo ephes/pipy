@@ -91,8 +91,10 @@ class OpenAIChatCompletionsProvider:
     """
 
     model_id: str
+    # ``repr=False`` on credential-bearing fields so a stray repr/log of the
+    # constructed adapter never leaks the api key or auth headers.
     api_key: str | None = field(
-        default_factory=lambda: os.environ.get("OPENAI_API_KEY")
+        default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = OPENAI_CHAT_COMPLETIONS_URL
@@ -101,10 +103,11 @@ class OpenAIChatCompletionsProvider:
     provider_name: str = "openai-completions"
     auth_required: bool = True
     # Catalog-resolved request config (M-item-18). ``extra_headers`` are merged
-    # provider/model headers (the api_key still wins the Authorization header);
-    # ``extra_body`` carries routing (OpenRouter ``provider`` / Vercel
-    # ``providerOptions``); ``reasoning_effort`` is the mapped thinking value.
-    extra_headers: Mapping[str, str] = field(default_factory=dict)
+    # provider/model headers (``Bearer api_key`` is applied only when no
+    # Authorization header is already present); ``extra_body`` carries routing
+    # (OpenRouter ``provider`` / Vercel ``providerOptions``); ``reasoning_effort``
+    # is the mapped thinking value.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     extra_body: Mapping[str, Any] = field(default_factory=dict)
     reasoning_effort: str | None = None
 
@@ -160,10 +163,13 @@ class OpenAIChatCompletionsProvider:
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort
         headers = {"Content-Type": "application/json"}
-        # Merged provider/model headers, then the api_key wins Authorization.
+        # Merged provider/model headers (may include an explicit Authorization).
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
-        if api_key:
+        # Apply Bearer api_key only when no Authorization header is already
+        # present, so an explicit models.json Authorization is preserved.
+        has_authorization = any(name.lower() == "authorization" for name in headers)
+        if api_key and not has_authorization:
             headers["Authorization"] = f"Bearer {api_key}"
 
         try:

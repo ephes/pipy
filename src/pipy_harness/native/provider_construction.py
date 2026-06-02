@@ -76,14 +76,11 @@ def resolve_construction(
             error=auth.error,
         )
 
-    # The adapter sets ``Authorization`` from ``api_key`` itself; pass the rest
-    # of the resolved headers through as extra headers (avoids a duplicate /
-    # conflicting Authorization).
-    headers = {
-        name: value
-        for name, value in auth.headers.items()
-        if name.lower() != "authorization"
-    }
+    # Pass all resolved headers through (including an explicit ``Authorization``
+    # from models.json headers). The adapter applies ``Bearer api_key`` only when
+    # no ``Authorization`` header is already present, so an explicit one is
+    # preserved (Pi only overwrites Authorization when ``authHeader`` is set).
+    headers = dict(auth.headers)
 
     body_extra: dict[str, object] = dict(model_request_routing(spec))
 
