@@ -200,13 +200,14 @@ core Pi single-agent feature. It needs its own target spec before any work.
 
 Ordering reflects dependencies and leverage, not a hard schedule:
 
-1. **Session-tree workflow** ([session-tree.md](session-tree.md)) — the
-   load-bearing fix. The full-transcript native store unblocks `/export`,
-   `/import`, `/share`, durable `/compact`, `--mode json/rpc` session events, and
-   retiring `--archive-transcript`. Selected as the current Next Slice.
+1. **Session-tree workflow** ([session-tree.md](session-tree.md)) — shipped.
+   The full-transcript native store is now the product session source and
+   unblocks `/export`, `/import`, `/share`, durable `/compact`, `--mode json/rpc`
+   session events, and retiring `--archive-transcript` as follow-up cleanup.
 2. **Provider / model catalog** ([provider-catalog.md](provider-catalog.md)) —
-   `models.json`, thinking levels, `--list-models`, `--models`/scoped cycling,
-   subscription auth. Reframes `ds4`.
+   selected as the current next big topic: `models.json`, thinking levels,
+   `--list-models`, `--models`/scoped cycling, subscription auth, and the ds4
+   reframe as a custom-provider preset.
 3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
    — `settings.json`, `keybindings.json`, `/reload`, `/changelog`, system-prompt
    files, tool/resource toggles. Underpins much of the TUI and CLI surface.
@@ -223,9 +224,10 @@ Ordering reflects dependencies and leverage, not a hard schedule:
    verification gates) gain extensibility once it lands.
 
 Cleanup (§3) happens alongside the relevant topic: e.g. the no-tool REPL and its
-proposal/apply commands retire as part of the session-tree / single-session
-consolidation; `--native-output json` retires with the automation work; the
-transcript sidecar retires with the session tree.
+proposal/apply commands retire with the single-session consolidation cleanup
+that follows the shipped session tree; `--native-output json` retires with the
+automation work; the transcript sidecar retires in a session-tree follow-up
+cleanup once callers no longer need it.
 
 ## 6. Definition of "real parity done"
 

@@ -1364,76 +1364,62 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Full Pi-style native session tree workflow (selected)
+### Provider / model catalog (selected)
 
-Implement the full Pi-style native product session workflow from
-[session-tree.md](session-tree.md), including the bug fix that pipy-native must
-persist and resume from a raw private conversation tree like Pi rather than
-using metadata-only `pipy-session resume-info` as product state.
+The full Pi-style native session tree workflow has shipped and now passes the
+session-tree conformance gate. The next selected big topic is the Pi-style
+provider/model catalog from [provider-catalog.md](provider-catalog.md).
 
-The selected goal is not slice 1 only. Work may land in reviewed milestones, but
-the objective completion gate is one deterministic conformance command:
-
-```sh
-uv run python scripts/parity_checks/session_tree_conformance.py --json
-```
-
-The conformance script should drive pipy with the deterministic fake provider in
-a temporary workspace and fail unless all required product semantics work:
-
-- native raw session tree file creation/loading under the native product session
-  store;
-- raw conversation entries for user, assistant, tool, model-change,
-  `thinking_level_change`, compaction, branch-summary, label, session-info,
-  custom, and custom-message records where applicable;
-- product turn persistence and provider-visible context reconstruction from the
-  active branch;
-- `/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable
-  `/compact`, and branch-summary behavior;
-- startup/session-entry equivalents for Pi's `-c`, `-r`, `--no-session`,
-  `--session <path|id>`, and `--fork <path|id>`, with `--no-session`
-  suppressing both native session-tree writes and `pipy-session` metadata
-  records;
-- `/tree` creates sibling branches in-place, selecting a user message
-  rehydrates the editor, and selecting non-user entries moves the active leaf
-  with an empty editor;
-- `/resume` lists/opens previous native sessions and supports named-only
-  listing, rename, and delete-with-confirmation (shipped captured-stream
-  subcommands); the richer interactive picker overlay (search, path/sort
-  toggles) and the `-r` interactive startup picker are deferred follow-ons;
-- reloading pipy from a native session file reconstructs the tree, active
-  branch, labels, name, compaction, branch summaries, and provider context;
-- existing `pipy-session` archive commands remain metadata/catalog utilities,
-  but product resume/tree/context never depend on them as the source of truth.
-
-Canonical conformance scenario:
-
-```text
-/name conformance-tree
-User: ROOT            -> Assistant(fake): SEEN:ROOT
-User: MAIN            -> Assistant(fake): SEEN:ROOT,MAIN
-/tree select MAIN user, edit to ALT, submit
-User: ALT             -> Assistant(fake): SEEN:ROOT,ALT
-```
-
-Assertions: the native tree contains sibling `MAIN` and `ALT` branches; the ALT
-provider request contains `ROOT` and `ALT` but not `MAIN`; navigating back to the
-MAIN branch and continuing contains `ROOT` and `MAIN` but not `ALT`.
-
-Final verification for the full track:
+Implement this as reviewed milestones, but keep the objective completion gate as
+one deterministic command added for the track:
 
 ```sh
-uv run python scripts/parity_checks/session_tree_conformance.py --json
-uv run pytest tests/test_native_session_tree*.py
-uv run pytest tests/test_native_tool_loop_session_tree*.py
-uv run pytest tests/test_native_tool_loop_tui_pty.py -k tree
+uv run python scripts/parity_checks/provider_catalog_conformance.py --json
+```
+
+Selected first slice:
+
+- add the catalog data model (`NativeModelSpec`, `NativeProviderSpec`, and a
+  pipy-owned `default_model_per_provider` map);
+- replace the one-default-per-provider registry source with catalog-derived
+  `DEFAULT_NATIVE_MODELS` and `SUPPORTED_NATIVE_PROVIDERS` while keeping current
+  CLI/REPL behavior working;
+- cover every already implemented provider family with useful built-in rows;
+- keep concrete adapters responsible for provider-specific request mechanics;
+- add focused tests proving the old provider/model selection surfaces still
+  resolve the same defaults through the new catalog boundary;
+- update docs to describe the catalog as the active track.
+
+Follow-on milestones are the ordered slices in
+[provider-catalog.md](provider-catalog.md#implementation-milestones): model
+pattern matching, `models.json`, routing/compat, thinking levels, auth
+resolution, subscription OAuth providers, `--list-models`, `/model` selector
+integration, `--models` scoped cycling, the ds4 reframe as a custom-provider
+preset, and refresh/dynamic registration wiring.
+
+Full-track verification target:
+
+```sh
+uv run python scripts/parity_checks/provider_catalog_conformance.py --json
+uv run pytest tests/test_native_*provider*.py tests/test_native_repl_state.py
 just check
 ```
 
-Optional parity evidence: add a `scripts/tmux_session_tree_compare.sh <out-dir>`
-smoke that drives Pi and pipy through the same branch workflow and compares
-visible workflow semantics, including `/new`, `/resume`, and startup session
-entry where practical. Exact Pi JSON matching is not required.
+### Full Pi-style native session tree workflow (landed 2026-06-02)
+
+The prior selected slice has shipped. `pipy_harness.native.session_tree` is now
+the product session source of truth: a private append-only raw conversation tree
+that supports product turn persistence, provider-visible context reconstruction,
+`/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable
+`/compact`, branch summaries, and the startup flags `-c`, `-r`, `--session`,
+`--fork`, and `--no-session`. The metadata-first `pipy-session` archive remains
+a separate catalog/learning utility and is no longer the product session store.
+
+The shipped conformance gate is:
+
+```sh
+uv run python scripts/parity_checks/session_tree_conformance.py --json
+```
 
 ### Local ds4 native provider (landed)
 
@@ -1716,10 +1702,10 @@ Invariants that must hold for any near-term slice:
   package install/update/list/config flows, package manifests, and the
   corresponding security/update model. The draft target specification is
   [extension-api.md](extension-api.md).
-- Broad provider/model catalog: GitHub Copilot and Anthropic subscription
-  paths, long-tail API-key providers, custom provider/model config,
-  compatibility knobs, model-list update machinery, and extension-registered
-  providers.
+- Provider/model catalog follow-ons beyond the selected catalog track's current
+  reviewed slice: GitHub Copilot and Anthropic subscription paths, long-tail
+  API-key providers, custom provider/model config, compatibility knobs,
+  model-list update machinery, and extension-registered providers.
 - RPC and automation modes beyond `pipy run`, `--native-output json`, and the
   in-process Python SDK: JSON event-stream mode, stdin/stdout RPC, and a
   long-running process-integration protocol.
@@ -1744,13 +1730,14 @@ another full-screen TUI framework; RPC mode.
   personal data in the `pipy-session` metadata archive, `--native-output json`,
   docs, or synced artifacts by default. The private native product session tree
   is the explicit Pi-like exception for raw conversation history.
-- Building broad approvals, sandboxing, retries, streaming, additional OAuth
-  providers, provider registry, raw transcript import, multiple native tool
-  requests, post-tool provider turns, general write tools beyond supervised
-  patch apply, non-allowlisted verification commands, Textual or another
-  full-screen TUI framework, RPC, or orchestration opportunistically. Native
-  session-tree compaction and branching are now allowed only inside the selected
-  session-tree track and its conformance gate.
+- Building broad approvals, sandboxing, retries, streaming, raw transcript
+  import, multiple native tool requests, post-tool provider turns, general write
+  tools beyond supervised patch apply, non-allowlisted verification commands,
+  Textual or another full-screen TUI framework, RPC, or orchestration
+  opportunistically. Provider registry/catalog work is allowed only inside the
+  selected provider-catalog track and its conformance gate; additional OAuth
+  providers remain part of that track's reviewed milestones, not opportunistic
+  side work.
 - Using unsupported subscription auth, scraping browser or CLI session stores,
   or treating another product's login/session as pipy-native provider
   credentials.
@@ -1849,10 +1836,10 @@ visibility and `/compact`. The E2/E3 parity-score rows are behavior checks
 `scripts/parity_checks/branching_behavior.py`).
 
 Superseding direction: this landed track remains the metadata-archive resume /
-branch / compaction baseline, but it is not the final product session workflow.
-The selected session-tree track replaces metadata-only product resume with a
-Pi-like private native session tree that stores raw conversation history for
-`/tree`, `/resume`, `/fork`, `/clone`, durable compaction replay, and branch
+branch / compaction baseline, but it is no longer the final product session
+workflow. The shipped native session tree replaces metadata-only product resume
+with a Pi-like private native session tree that stores raw conversation history
+for `/tree`, `/resume`, `/fork`, `/clone`, durable compaction replay, and branch
 summaries. Raw transcript import from external agents remains deferred.
 
 ## Maintenance Notes
