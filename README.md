@@ -161,16 +161,18 @@ Provider/model catalog (`docs/provider-catalog.md`):
   override layer loaded from `<config>/models.json` (`PIPY_CONFIG_HOME`, else
   `${XDG_CONFIG_HOME}/pipy`, else `~/.config/pipy`). The foundation supports
   comment/trailing-comma stripping, provider/per-model overrides (deep-merged),
-  OpenRouter/Vercel routing config, per-model thinking metadata, and graceful
-  degradation (a malformed `models.json` keeps the built-ins and reports a
-  path-qualified error). Product provider turns still need follow-up wiring to
-  consume custom providers, resolved auth/headers/routing, and mapped thinking.
+  OpenRouter/Vercel routing, per-model thinking, and graceful degradation (a
+  malformed `models.json` keeps the built-ins and reports a path-qualified
+  error). For the OpenAI-Chat-Completions API family (custom models.json
+  providers, ds4, OpenRouter, openai-completions), a mid-session `/model`
+  selection runs a real turn that uses the catalog baseUrl/model/auth/headers/
+  routing/thinking. Catalog-driven construction for the non-completions families
+  and startup/`pipy run` resolution remain (see `docs/provider-catalog.md`).
 - `ds4` is not a built-in catalog row: it is a `models.json` custom provider.
   Paste `docs/examples/ds4.models.json` into your `models.json`, or set
   `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy
   synthesize the same custom-provider entry. A legacy `--native-provider ds4`
-  adapter path remains for compatibility while catalog-driven provider
-  construction is completed.
+  adapter path remains for compatibility.
 
 Native product session-tree controls (Pi-style, `pipy repl`):
 
