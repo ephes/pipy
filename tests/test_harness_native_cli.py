@@ -5639,3 +5639,39 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.out == "BUFFERED_TEXT\n"
+
+
+def test_cli_list_models_prints_table_and_exits(tmp_path, capsys, monkeypatch):
+    # Isolate auth + config so only the env-keyed provider is available.
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("PIPY_OPENAI_CODEX_AUTH_PATH", str(tmp_path / "absent-codex.json"))
+    for var in ("ANTHROPIC_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    exit_code = main(["repl", "--list-models"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    header = out.splitlines()[0].split()
+    assert header == ["provider", "model", "context", "max-out", "thinking", "images"]
+    assert "openai" in out
+    assert "fake" in out
+
+
+def test_cli_list_models_fuzzy_search(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "auth"))
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("MISTRAL_API_KEY", "sk-test")
+
+    exit_code = main(["repl", "--list-models", "mistral"])
+    assert exit_code == 0
+    body = [
+        line
+        for line in capsys.readouterr().out.splitlines()[1:]
+        if line.strip()
+    ]
+    # Fuzzy filter over "provider id": only mistral rows match "mistral".
+    assert body
+    assert all(line.split()[0] == "mistral" for line in body)

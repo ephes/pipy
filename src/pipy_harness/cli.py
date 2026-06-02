@@ -50,6 +50,8 @@ from pipy_harness.native.provider_registry import (
     NATIVE_PROVIDER_REGISTRY,
     native_provider_spec,
 )
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.workspace_context import default_workspace_instruction_loader
 from pipy_harness.runner import (
     FileSessionRecorder,
@@ -312,7 +314,58 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    _add_catalog_flags(run_parser)
+    _add_catalog_flags(repl_parser)
+
     return parser
+
+
+def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
+    """Provider/model catalog flags shared by ``run`` and ``repl`` (Pi parity)."""
+
+    parser.add_argument(
+        "--list-models",
+        dest="list_models",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="SEARCH",
+        help=(
+            "Print the table of available provider/models (optionally fuzzy-"
+            "filtered by SEARCH over 'provider id') and exit. Runs no provider "
+            "turn."
+        ),
+    )
+    parser.add_argument(
+        "--thinking",
+        dest="thinking",
+        default=None,
+        metavar="LEVEL",
+        help=(
+            "Session default thinking level: off|minimal|low|medium|high|xhigh. "
+            "Invalid values warn and fall back to the default."
+        ),
+    )
+    parser.add_argument(
+        "--models",
+        dest="scoped_models",
+        default=None,
+        metavar="PATTERNS",
+        help=(
+            "Comma-separated model patterns (globs/fuzzy, each with optional "
+            ":level) enabled for in-session model cycling. The first scoped model "
+            "is preferred for the initial selection when not resuming."
+        ),
+    )
+    parser.add_argument(
+        "--api-key",
+        dest="api_key",
+        default=None,
+        help=(
+            "Runtime API key override for the selected provider. Highest auth "
+            "priority; never archived."
+        ),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -323,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
 
     try:
+        if getattr(args, "list_models", None) is not None:
+            return _handle_list_models(args.list_models or None)
         if args.command == "auth":
             if args.auth_provider == "openai-codex" and args.auth_action == "login":
                 OpenAICodexAuthManager().login_interactive(
@@ -954,6 +1009,17 @@ def _scan_workspace_reference_roots(cwd: Path) -> list[str]:
                 references.append(entry)
                 break
     return references
+
+
+def _handle_list_models(search: str | None) -> int:
+    """Print the available provider/models table and exit (Pi `--list-models`)."""
+
+    state = ProviderCatalogState(auth_store=AuthStore())
+    output = format_list_models(
+        state.get_available(), search=search, load_error=state.error
+    )
+    print(output)
+    return 0
 
 
 def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:
