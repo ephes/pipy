@@ -21,6 +21,25 @@ from __future__ import annotations
 from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
 
 
+# Default per-provider base URLs. Pi's catalog rows always carry a baseUrl, and
+# the models.json custom-model parser skips a row whose baseUrl cannot be
+# resolved (Pi: ``if (!baseUrl) continue``), so every built-in provider must
+# supply one for inherited custom models to resolve.
+_PROVIDER_BASE_URL: dict[str, str] = {
+    "anthropic": "https://api.anthropic.com",
+    "openai": "https://api.openai.com/v1",
+    "openai-completions": "https://api.openai.com/v1",
+    "openai-codex": "https://chatgpt.com/backend-api/codex",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "google": "https://generativelanguage.googleapis.com",
+    "google-vertex": "https://aiplatform.googleapis.com",
+    "mistral": "https://api.mistral.ai/v1",
+    "amazon-bedrock": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "azure-openai": "https://azure-openai.example/openai",
+    "cloudflare": "https://api.cloudflare.com/client/v4",
+}
+
+
 def _m(
     provider: str,
     model_id: str,
@@ -40,7 +59,7 @@ def _m(
         model_id=model_id,
         display_name=display_name,
         api=api,
-        base_url=base_url,
+        base_url=base_url or _PROVIDER_BASE_URL.get(provider),
         reasoning=reasoning,
         thinking_level_map=dict(thinking or {}),
         input=("text", "image") if image else ("text",),

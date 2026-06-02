@@ -141,7 +141,10 @@ class ModelsJsonError(Exception):
 
 
 def _type_error(path: str, expected: str) -> str:
-    return f"  - {path}: expected {expected}"
+    # Dot-path format (Pi's formatValidationPath), e.g.
+    # "providers.anthropic.baseUrl" rather than a JSON pointer.
+    dotted = path.lstrip("/").replace("/", ".")
+    return f"  - {dotted}: expected {expected}"
 
 
 def _coerce_cost_fields(value: object, path: str, errors: list[str]) -> dict[str, float]:
@@ -174,10 +177,28 @@ def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost
 
 
 def _coerce_input(value: object, path: str, errors: list[str]) -> tuple[str, ...] | None:
-    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+    if not isinstance(value, list) or not all(
+        isinstance(v, str) and v in ("text", "image") for v in value
+    ):
         errors.append(_type_error(path, 'array of "text"/"image"'))
         return None
     return tuple(value)
+
+
+def _coerce_full_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
+    """A custom model's full cost: all four sub-fields required (Pi schema)."""
+
+    if not isinstance(value, dict):
+        errors.append(_type_error(path, "object"))
+        return None
+    required = ("input", "output", "cacheRead", "cacheWrite")
+    missing = [key for key in required if key not in value]
+    if missing:
+        errors.append(
+            _type_error(path, f"object with {', '.join(required)} (missing {', '.join(missing)})")
+        )
+        return None
+    return _coerce_cost(value, path, errors)
 
 
 def _coerce_model_def(
@@ -190,7 +211,11 @@ def _coerce_model_def(
     if not isinstance(model_id, str) or not model_id:
         errors.append(_type_error(f"{path}/id", "non-empty string"))
         model_id = model_id if isinstance(model_id, str) else ""
-    cost = _coerce_cost(raw["cost"], f"{path}/cost", errors) if "cost" in raw else None
+    cost = (
+        _coerce_full_cost(raw["cost"], f"{path}/cost", errors)
+        if "cost" in raw
+        else None
+    )
     input_ = (
         _coerce_input(raw["input"], f"{path}/input", errors) if "input" in raw else None
     )
@@ -205,8 +230,10 @@ def _coerce_model_def(
         ),
         input=input_,
         cost=cost,
-        context_window=_opt_int(raw, "contextWindow", f"{path}/contextWindow", errors),
-        max_tokens=_opt_int(raw, "maxTokens", f"{path}/maxTokens", errors),
+        context_window=_opt_number_as_int(
+            raw, "contextWindow", f"{path}/contextWindow", errors
+        ),
+        max_tokens=_opt_number_as_int(raw, "maxTokens", f"{path}/maxTokens", errors),
         headers=_opt_str_map(raw, "headers", f"{path}/headers", errors),
         compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
     )
@@ -269,6 +296,18 @@ def _opt_int(raw: dict, key: str, path: str, errors: list[str]) -> int | None:
         errors.append(_type_error(path, "integer"))
         return None
     return value
+
+
+def _opt_number_as_int(raw: dict, key: str, path: str, errors: list[str]) -> int | None:
+    """Accept any JSON number (Pi schema uses ``Type.Number``), store as int."""
+
+    if key not in raw:
+        return None
+    value = raw[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        errors.append(_type_error(path, "number"))
+        return None
+    return int(value)
 
 
 def _opt_str_map(
@@ -342,11 +381,11 @@ class ModelsConfig:
 def _validate_schema(parsed: object, path: Path) -> tuple[ModelsConfig | None, str | None]:
     errors: list[str] = []
     if not isinstance(parsed, dict):
-        return None, _format_schema_error(["  - /: expected object"], path)
+        return None, _format_schema_error(["  - (root): expected object"], path)
     providers_raw = parsed.get("providers")
     if not isinstance(providers_raw, dict):
         return None, _format_schema_error(
-            ["  - /providers: expected object"], path
+            ["  - providers: expected object"], path
         )
     providers: dict[str, ProviderConfig] = {}
     for provider_name, provider_raw in providers_raw.items():
@@ -377,10 +416,12 @@ def _validate_semantics(
         has_overrides = bool(provider_config.model_overrides)
 
         if not models:
+            # Pi treats a present (even empty) JS object as truthy here, so a
+            # present headers/compat object counts as a usable field.
             if (
                 not provider_config.base_url
-                and not provider_config.headers
-                and not provider_config.compat
+                and provider_config.headers is None
+                and provider_config.compat is None
                 and not has_overrides
             ):
                 return _wrap_semantic(
@@ -437,7 +478,9 @@ def _wrap_semantic(message: str, path: Path) -> str:
 def _merge_compat(
     base: Mapping[str, object] | None, override: Mapping[str, object] | None
 ) -> Mapping[str, object] | None:
-    if not override:
+    # Pi: ``if (!overrideCompat) return base`` — a present (even empty) compat
+    # object is truthy, so only ``None`` (absent) short-circuits.
+    if override is None:
         return base
     merged: dict[str, object] = dict(base or {})
     merged.update(override)
@@ -503,6 +546,10 @@ def _custom_model_row(
     base_url = model_def.base_url or provider_config.base_url or (
         builtin_defaults[1] if builtin_defaults else None
     )
+    if not base_url:
+        # Pi: ``if (!baseUrl) continue`` — skip a custom model whose baseUrl
+        # cannot be resolved at model/provider/built-in level.
+        return None
     compat = _merge_compat(provider_config.compat, model_def.compat)
     return NativeModelSpec(
         provider_name=provider_name,
@@ -601,7 +648,7 @@ class ModelCatalog:
             provider_config = overrides.get(row.provider_name)
             new_row = row
             if provider_config is not None:
-                if provider_config.base_url or provider_config.compat:
+                if provider_config.base_url or provider_config.compat is not None:
                     new_row = replace(
                         new_row,
                         base_url=provider_config.base_url or new_row.base_url,

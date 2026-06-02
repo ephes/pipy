@@ -253,6 +253,73 @@ def test_invalid_context_window_rejected(tmp_path):
     assert "contextWindow" in catalog.error
 
 
+def test_input_values_restricted_to_text_and_image(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [{"id": "m", "input": ["text", "video"]}]
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "input" in catalog.error
+
+
+def test_custom_model_cost_requires_all_four_fields(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [{"id": "m", "cost": {"input": 1.0}}]
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "cost" in catalog.error
+
+
+def test_float_context_window_accepted(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {"models": [{"id": "m", "contextWindow": 200000.0}]}
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is None
+    row = catalog.find("anthropic", "m")
+    assert row is not None and row.context_window == 200000
+
+
+def test_schema_error_uses_dot_paths(tmp_path):
+    path = tmp_path / "models.json"
+    _write(path, {"providers": {"anthropic": {"baseUrl": 123}}})
+    catalog = ModelCatalog(models_json_path=path)
+    assert catalog.error is not None
+    assert "providers.anthropic.baseUrl" in catalog.error
+
+
+def test_every_builtin_provider_row_has_base_url():
+    from pipy_harness.native.catalog import build_builtin_catalog
+
+    for row in build_builtin_catalog().get_all():
+        if row.provider_name == "fake":
+            continue
+        assert row.base_url, f"{row.reference} missing base_url"
+
+
 def test_refresh_picks_up_edits(tmp_path):
     path = tmp_path / "models.json"
     _write(path, {"providers": {"anthropic": {"models": [{"id": "m1"}]}}})
