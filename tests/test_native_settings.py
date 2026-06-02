@@ -341,3 +341,116 @@ def test_nested_write_replaces_non_dict_intermediate_preserving_siblings(
     mgr.set_value("compaction.reserveTokens", 9000, scope="global")
     on_disk = json.loads(gpath.read_text(encoding="utf-8"))
     assert on_disk == {"compaction": {"reserveTokens": 9000}, "keep": 1}
+
+
+# --- typed accessors + base-defaults layer (M3) -----------------------------
+
+
+def test_typed_getters_read_effective(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {
+            "defaultProvider": "anthropic",
+            "defaultModel": "claude",
+            "theme": "dark",
+            "quietStartup": True,
+            "hideThinkingBlock": True,
+            "enabledModels": ["a", "b"],
+        },
+    )
+    mgr = _manager(tmp_path)
+    assert mgr.get_default_provider() == "anthropic"
+    assert mgr.get_default_model() == "claude"
+    assert mgr.get_theme() == "dark"
+    assert mgr.get_quiet_startup() is True
+    assert mgr.get_hide_thinking_block() is True
+    assert mgr.get_enabled_models() == ["a", "b"]
+
+
+def test_typed_getter_defaults_when_absent(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_default_provider() is None
+    assert mgr.get_theme() is None
+    assert mgr.get_quiet_startup() is False
+    assert mgr.get_hide_thinking_block() is False
+    assert mgr.get_enabled_models() == []
+
+
+def test_editor_padding_clamped_and_invalid_falls_back(tmp_path: Path) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"editorPaddingX": 9})
+    assert _manager(tmp_path).get_editor_padding_x() == 0  # out of 0..3 -> default
+    _write_json(tmp_path / "config" / "settings.json", {"editorPaddingX": 2})
+    assert _manager(tmp_path).get_editor_padding_x() == 2
+    _write_json(tmp_path / "config" / "settings.json", {"editorPaddingX": "x"})
+    assert _manager(tmp_path).get_editor_padding_x() == 0
+
+
+def test_autocomplete_max_visible_clamped(tmp_path: Path) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"autocompleteMaxVisible": 99})
+    assert _manager(tmp_path).get_autocomplete_max_visible() == 5  # out of 3..20
+    _write_json(tmp_path / "config" / "settings.json", {"autocompleteMaxVisible": 12})
+    assert _manager(tmp_path).get_autocomplete_max_visible() == 12
+
+
+def test_http_idle_timeout_zero_disables_and_invalid_raises(tmp_path: Path) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"httpIdleTimeoutMs": 0})
+    assert _manager(tmp_path).get_http_idle_timeout_ms() == 0
+    _write_json(tmp_path / "config" / "settings.json", {"httpIdleTimeoutMs": 5000})
+    assert _manager(tmp_path).get_http_idle_timeout_ms() == 5000
+    _write_json(tmp_path / "config" / "settings.json", {"httpIdleTimeoutMs": -1})
+    with pytest.raises(ValueError):
+        _manager(tmp_path).get_http_idle_timeout_ms()
+
+
+def test_prompt_history_enabled_nested(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "config" / "settings.json", {"promptHistory": {"enabled": True}}
+    )
+    assert _manager(tmp_path).get_prompt_history_enabled() is True
+    mgr2 = _manager(tmp_path / "empty")
+    assert mgr2.get_prompt_history_enabled() is False
+
+
+def test_base_defaults_lowest_precedence(tmp_path: Path) -> None:
+    # base_defaults (e.g. imported local-state) is the lowest layer: file
+    # settings override it, but it shows through when the key is unset.
+    _write_json(tmp_path / "config" / "settings.json", {"theme": "dark"})
+    mgr = SettingsManager(
+        global_path=tmp_path / "config" / "settings.json",
+        project_path=tmp_path / "proj" / ".pipy" / "settings.json",
+        base_defaults={"theme": "fallback", "defaultProvider": "openai"},
+    )
+    assert mgr.get_theme() == "dark"  # file wins
+    assert mgr.get_default_provider() == "openai"  # base shows through
+
+
+def test_typed_setters_round_trip(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    mgr.set_theme("solarized")
+    mgr.set_default_provider("openai")
+    mgr.set_default_model("gpt-5.5")
+    mgr.set_prompt_history_enabled(True)
+    reloaded = _manager(tmp_path)
+    assert reloaded.get_theme() == "solarized"
+    assert reloaded.get_default_provider() == "openai"
+    assert reloaded.get_default_model() == "gpt-5.5"
+    assert reloaded.get_prompt_history_enabled() is True
+
+
+def test_local_state_import_builds_base_defaults() -> None:
+    from pipy_harness.native.settings import local_state_base_defaults
+
+    base = local_state_base_defaults(
+        provider="openai-codex",
+        model="gpt-5.5",
+        theme="pi-dark",
+        prompt_history_enabled=True,
+    )
+    assert base == {
+        "defaultProvider": "openai-codex",
+        "defaultModel": "gpt-5.5",
+        "theme": "pi-dark",
+        "promptHistory": {"enabled": True},
+    }
+    # Absent values are omitted so they do not mask higher layers.
+    assert local_state_base_defaults() == {}

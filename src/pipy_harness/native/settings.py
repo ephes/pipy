@@ -279,11 +279,16 @@ class SettingsManager:
         project_path: Path | None = None,
         env: dict[str, str] | os._Environ[str] | None = None,
         overrides: dict[str, Any] | None = None,
+        base_defaults: dict[str, Any] | None = None,
     ) -> None:
         self.global_path = Path(global_path)
         self.project_path = Path(project_path) if project_path is not None else None
         self._env = env if env is not None else os.environ
         self._overrides = copy.deepcopy(overrides) if overrides else {}
+        # Lowest-precedence layer (below the global file). Imported local-state
+        # values live here so they surface through settings when a key is unset
+        # while never overriding a value the user set in a settings file.
+        self._base_defaults = copy.deepcopy(base_defaults) if base_defaults else {}
         self._raw: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self.reload()
@@ -323,7 +328,8 @@ class SettingsManager:
         return dict(self._errors)
 
     def effective(self) -> dict[str, Any]:
-        merged = deep_merge_settings({}, self._raw.get(SCOPE_GLOBAL, {}))
+        merged = deep_merge_settings({}, self._base_defaults)
+        merged = deep_merge_settings(merged, self._raw.get(SCOPE_GLOBAL, {}))
         merged = deep_merge_settings(merged, self._raw.get(SCOPE_PROJECT, {}))
         if self._overrides:
             merged = deep_merge_settings(merged, self._overrides)
@@ -371,3 +377,129 @@ class SettingsManager:
         # Reflect the change in memory so effective() is consistent.
         scope_raw = self._raw.setdefault(scope, {})
         _apply_path(scope_raw, parts, value)
+
+    # --- typed accessors ---------------------------------------------------
+
+    def _get(self, key: str) -> Any:
+        return self.effective().get(key)
+
+    def _get_str(self, key: str) -> str | None:
+        value = self._get(key)
+        return value if isinstance(value, str) else None
+
+    def _get_bool(self, key: str, *, default: bool = False) -> bool:
+        value = self._get(key)
+        return value if isinstance(value, bool) else default
+
+    def _get_int_in_range(
+        self, key: str, *, low: int, high: int, default: int
+    ) -> int:
+        value = self._get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return default
+        return value if low <= value <= high else default
+
+    def get_default_provider(self) -> str | None:
+        return self._get_str("defaultProvider")
+
+    def get_default_model(self) -> str | None:
+        return self._get_str("defaultModel")
+
+    def get_theme(self) -> str | None:
+        return self._get_str("theme")
+
+    def get_quiet_startup(self) -> bool:
+        return self._get_bool("quietStartup")
+
+    def get_hide_thinking_block(self) -> bool:
+        return self._get_bool("hideThinkingBlock")
+
+    def get_default_thinking_level(self) -> str | None:
+        value = self._get_str("defaultThinkingLevel")
+        if value in {"off", "minimal", "low", "medium", "high", "xhigh"}:
+            return value
+        return None
+
+    def get_enabled_models(self) -> list[str]:
+        value = self._get("enabledModels")
+        if isinstance(value, list):
+            return [entry for entry in value if isinstance(entry, str)]
+        return []
+
+    def get_editor_padding_x(self) -> int:
+        return self._get_int_in_range("editorPaddingX", low=0, high=3, default=0)
+
+    def get_autocomplete_max_visible(self) -> int:
+        return self._get_int_in_range("autocompleteMaxVisible", low=3, high=20, default=5)
+
+    def get_session_dir(self) -> str | None:
+        return self._get_str("sessionDir")
+
+    def get_http_idle_timeout_ms(self) -> int | None:
+        """Return the HTTP idle timeout in ms (``0`` disables); ``None`` if unset.
+
+        Mirrors Pi's ``getHttpIdleTimeoutMs``: an invalid (non-int or negative)
+        value raises a clear error at read time rather than at load.
+        """
+
+        value = self._get("httpIdleTimeoutMs")
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"httpIdleTimeoutMs must be a non-negative integer; got {value!r}"
+            )
+        return value
+
+    def get_prompt_history_enabled(self) -> bool:
+        value = self._get("promptHistory")
+        if isinstance(value, dict):
+            return value.get("enabled") is True
+        return False
+
+    def set_default_provider(self, value: str, *, scope: str = SCOPE_GLOBAL) -> None:
+        self.set_value("defaultProvider", value, scope=scope)
+
+    def set_default_model(self, value: str, *, scope: str = SCOPE_GLOBAL) -> None:
+        self.set_value("defaultModel", value, scope=scope)
+
+    def set_theme(self, value: str, *, scope: str = SCOPE_GLOBAL) -> None:
+        self.set_value("theme", value, scope=scope)
+
+    def set_prompt_history_enabled(
+        self, value: bool, *, scope: str = SCOPE_GLOBAL
+    ) -> None:
+        self.set_value("promptHistory.enabled", bool(value), scope=scope)
+
+    def set_enabled_models(
+        self, models: list[str], *, scope: str = SCOPE_GLOBAL
+    ) -> None:
+        self.set_value("enabledModels", list(models), scope=scope)
+
+
+def local_state_base_defaults(
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    theme: str | None = None,
+    prompt_history_enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Build a base-defaults dict from existing local-state store values.
+
+    Used to surface ``NativeDefaultsStore`` / ``NativeThemeStore`` /
+    ``PromptHistoryStore`` values through the settings system as the lowest
+    layer, so they show through when no settings file sets the key — without
+    rewriting or breaking the runtime-state files. Absent values are omitted so
+    they do not mask higher layers.
+    """
+
+    base: dict[str, Any] = {}
+    if provider is not None:
+        base["defaultProvider"] = provider
+    if model is not None:
+        base["defaultModel"] = model
+    if theme is not None:
+        base["theme"] = theme
+    if prompt_history_enabled is not None:
+        base["promptHistory"] = {"enabled": bool(prompt_history_enabled)}
+    return base
