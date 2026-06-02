@@ -1,6 +1,54 @@
 # Pi-Style Provider And Model Catalog
 
 Status: target specification researched from local Pi reference on 2026-06-02.
+Implementation landed 2026-06-02 (see **Shipped Status** below); the conformance
+gate passes 18/18.
+
+## Shipped Status (2026-06-02)
+
+The catalog capability is implemented through pipy-owned Python modules and
+gated by `scripts/parity_checks/provider_catalog_conformance.py` (18 checks, all
+passing, no network):
+
+- **Built-in catalog** (`native/catalog.py`, `native/catalog_data.py`):
+  `NativeModelSpec`/`NativeModelCost` rows with real capability metadata,
+  multiple rows per implemented provider, `default_model_per_provider`. ds4 is
+  intentionally absent.
+- **Matcher** (`native/model_resolver.py`): `find_exact_model_reference`,
+  `parse_model_pattern` (`provider/id:level`, colon-in-id, strict vs scope),
+  fuzzy alias-over-dated, `resolve_model_scope` (minimatch-style globs where
+  `*`/`?` do not cross `/`), `resolve_cli_model` (provider inference + fallback
+  synthesis).
+- **`models.json`** (`native/models_json.py`): comment/trailing-comma strip,
+  pipy-owned validation with dot-path errors, provider/per-model override
+  deep-merge, custom-model merge by `provider+id`, graceful degradation,
+  `refresh()`, dynamic `register_provider`/`unregister_provider`, OAuth
+  modify-models hooks.
+- **Routing** (`native/routing.py`): OpenRouter `provider` param + Vercel
+  `providerOptions.gateway` from surviving compat.
+- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping.
+- **Auth** (`native/auth_store.py`): owner-only auth store, `resolve_config_value`
+  (literal/env-name/`!command`), env + ambient credential detection (Bedrock,
+  Vertex ADC, Azure, Cloudflare), Pi-order request-auth resolution, `AuthStatus`
+  labels (no `!command`/refresh on status), availability gate.
+- **OAuth** (`native/oauth_providers.py`): stdlib registry for Anthropic
+  (5-min expiry margin), GitHub Copilot (proxy-ep rewrite + per-model policy
+  enable), and OpenAI Codex (no margin), with injectable HTTP.
+- **ds4 reframe** (`native/ds4.py` + `docs/examples/ds4.models.json`): ds4 is a
+  `models.json` custom provider; the `PIPY_DS4_BASE_URL`/`PIPY_DS4_API_KEY`
+  env shim synthesizes the same entry.
+- **CLI/REPL** (`native/catalog_state.py`, `cli.py`, `native/repl_state.py`):
+  `--list-models [search]` (Pi column parity, verified live against
+  `pi --list-models`), and the `/model` selector / `model_options()` now read
+  the full catalog with the shared availability gate and `provider/id:level`
+  support.
+
+Remaining integration (tracked, not yet shipped): `--models` Ctrl+P live
+scoped-model cycling in the product TUI and threading `--thinking`/`--api-key`/
+`--models` from the CLI into the live session (the matcher/scope-resolution and
+thinking mapping they depend on are implemented and gated). Live OAuth login
+orchestration for Anthropic/Copilot (callback server / device-code prompting)
+is structured around the tested token-exchange/refresh core.
 
 This document defines the pipy target for full feature parity with Pi's
 provider/model catalog system. Today pipy ships a small hardcoded static

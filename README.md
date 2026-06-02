@@ -139,6 +139,30 @@ Optional:
   `deepseek-v4-flash`.
 - `--native-output json`: for `--agent pipy-native` only; emits a single
   metadata-only JSON status object instead of provider final text.
+- `--list-models [search]`: print the table of available provider/models
+  (provider, model, context, max-out, thinking, images), optionally fuzzy-
+  filtered over `provider id`, then exit without running a provider turn. Reads
+  the same catalog as the `/model` selector. Column shape matches Pi's
+  `pi --list-models`.
+- `--thinking <level>` / `--models <patterns>` / `--api-key <key>`: thinking
+  level (`off|minimal|low|medium|high|xhigh`), comma-separated scoped-model
+  patterns, and a runtime API-key override; resolved through the shared catalog
+  matcher (`docs/provider-catalog.md`).
+
+Provider/model catalog (`docs/provider-catalog.md`):
+
+- The catalog is the pipy-owned analogue of Pi's `ModelRegistry`: a built-in
+  table with multiple rows per provider, plus a `models.json` custom-provider /
+  override layer loaded from `<config>/models.json` (`PIPY_CONFIG_HOME`, else
+  `${XDG_CONFIG_HOME}/pipy`, else `~/.config/pipy`). It supports comment /
+  trailing-comma stripping, provider/per-model overrides (deep-merged),
+  OpenRouter/Vercel routing, per-model thinking levels, and degrades gracefully
+  (a malformed `models.json` keeps the built-ins and reports a path-qualified
+  error).
+- `ds4` is not a built-in: it is a `models.json` custom provider. Paste
+  `docs/examples/ds4.models.json` into your `models.json`, or set
+  `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy
+  synthesize the same custom-provider entry.
 
 Native product session-tree controls (Pi-style, `pipy repl`):
 
