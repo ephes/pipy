@@ -1,9 +1,20 @@
-"""Hard conformance gate for the Pi-style provider/model catalog.
+"""Conformance gate for the Pi-style provider/model catalog *foundation*.
 
 Drives the pipy-owned catalog with deterministic fixtures (a temp config root, a
 temp ``models.json``, a fake auth store, fake OAuth HTTP transports, no network)
-and fails unless the full Pi-equivalent capability set works. It is the
-implementation source of truth for ``docs/provider-catalog.md``.
+and fails unless the catalog + helper layer behaves to spec: the built-in
+catalog, the matcher, ``models.json`` parsing/merge/validation, routing survival,
+thinking mapping, auth resolution/status, the OAuth provider shape, availability,
+the ds4 reframe, refresh/dynamic registration, and secret non-leakage at the
+catalog/list-models surfaces.
+
+Scope note (see ``docs/provider-catalog.md`` "Known product wiring gaps"): this
+gate covers the catalog/helper layer, NOT turn-time product wiring. Catalog-
+backed provider construction, applying ``resolve_request_auth``/headers/routing
+to real provider calls, and mapping thinking into ``ProviderRequest`` are an
+accepted follow-up; this gate must be upgraded to drive actual provider
+factory/request paths (with fake HTTP) before the track is fully shipped. It is
+the implementation source of truth for the foundation, not for end-to-end turns.
 
 Run:
 

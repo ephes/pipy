@@ -144,9 +144,10 @@ Optional:
   filtered over `provider id`, then exit without running a provider turn. Reads
   the same catalog as the `/model` selector. Column shape matches Pi's
   `pi --list-models`.
-- `--thinking <level>` / `--api-key <key>`: thinking level
-  (`off|minimal|low|medium|high|xhigh`) and a runtime API-key override resolved
-  through the shared catalog matcher (`docs/provider-catalog.md`).
+- `--thinking <level>` / `--api-key <key>`: accepted by the CLI and recorded in
+  local catalog/provider-selection state, but full provider-request wiring for
+  mapped thinking and runtime API-key auth is still tracked in
+  `docs/provider-catalog.md`.
 - `--models <patterns>`: accepted as Pi-style scoped-model patterns; the
   catalog resolver exists, but live Ctrl+P model cycling from this scope is
   still tracked as a provider-catalog/TUI follow-on.
@@ -156,11 +157,12 @@ Provider/model catalog (`docs/provider-catalog.md`):
 - The catalog is the pipy-owned analogue of Pi's `ModelRegistry`: a built-in
   table with multiple rows per provider, plus a `models.json` custom-provider /
   override layer loaded from `<config>/models.json` (`PIPY_CONFIG_HOME`, else
-  `${XDG_CONFIG_HOME}/pipy`, else `~/.config/pipy`). It supports comment /
-  trailing-comma stripping, provider/per-model overrides (deep-merged),
-  OpenRouter/Vercel routing, per-model thinking levels, and degrades gracefully
-  (a malformed `models.json` keeps the built-ins and reports a path-qualified
-  error).
+  `${XDG_CONFIG_HOME}/pipy`, else `~/.config/pipy`). The foundation supports
+  comment/trailing-comma stripping, provider/per-model overrides (deep-merged),
+  OpenRouter/Vercel routing config, per-model thinking metadata, and graceful
+  degradation (a malformed `models.json` keeps the built-ins and reports a
+  path-qualified error). Product provider turns still need follow-up wiring to
+  consume custom providers, resolved auth/headers/routing, and mapped thinking.
 - `ds4` is not a built-in catalog row: it is a `models.json` custom provider.
   Paste `docs/examples/ds4.models.json` into your `models.json`, or set
   `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy

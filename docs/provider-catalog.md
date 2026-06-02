@@ -665,7 +665,9 @@ Pipy target:
 ## Implementation Milestones
 
 The track may land in reviewed slices, but the objective goal is the full
-Pi-equivalent catalog. Work is complete only when the conformance gate passes.
+Pi-equivalent catalog. Work is complete only when the conformance gate proves
+both the catalog/helper layers and the real product provider-construction /
+request paths.
 
 1. Built-in catalog data model: replace one-default-per-provider with
    `NativeModelSpec` rows + `NativeProviderSpec` provider metadata + a
@@ -711,6 +713,12 @@ Pi-equivalent catalog. Work is complete only when the conformance gate passes.
     replacement, override-only, OAuth registration). The extension-facing API
     that drives this boundary is specified in `docs/extension-api.md`; the
     underlying registry capability ships here.
+13. Product provider-construction wiring: construct real provider adapters from
+    the selected `NativeModelSpec` and resolved request config, including custom
+    `models.json` providers, `baseUrl`, headers, `authHeader`, routing,
+    runtime/stored/env auth, and mapped thinking levels; route direct `/model`
+    through the shared resolver; upgrade the conformance gate to exercise these
+    paths with fake HTTP.
 
 ## Verification Plan
 
@@ -721,9 +729,11 @@ source of truth:
 uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 ```
 
-The conformance script drives the catalog with deterministic fixtures (a temp
-config root, a temp `models.json`, a fake auth store, no network) and fails
-unless the full capability set works. It must verify:
+The conformance script drives the catalog and product provider-construction
+paths with deterministic fixtures (a temp config root, a temp `models.json`, a
+fake auth store, fake HTTP transports, no network) and fails unless the full
+capability set works. The current landed gate covers the catalog/helper portion;
+the selected fix-up expands it to the product paths. It must verify:
 
 1. the built-in catalog loads with multiple rows per implemented provider and
    real capability metadata (context window, max out, reasoning, image input,
@@ -767,7 +777,13 @@ unless the full capability set works. It must verify:
     built-in row, and the env-var shim produces an equivalent entry;
 17. catalog `refresh()` picks up a `models.json` edit and a simulated
     login/logout without a process restart;
-18. no secret/token/`Authorization`/PKCE-verifier/authorization-URL value
+18. product provider-construction paths use the selected `NativeModelSpec` and
+    resolved request config: custom `models.json` providers can complete a fake
+    provider turn, built-in custom rows preserve `baseUrl`/headers/routing,
+    runtime `--api-key` reaches the provider auth boundary, `--thinking` reaches
+    a reasoning-capable adapter, and direct `/model <ref>` goes through the
+    shared resolver;
+19. no secret/token/`Authorization`/PKCE-verifier/authorization-URL value
     appears in any archive surface produced during the run.
 
 Focused tests should also cover:

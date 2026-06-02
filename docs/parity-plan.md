@@ -116,9 +116,9 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
 | `--models <patterns>` (Ctrl+P cycling) | 🟡 flag + resolver helpers shipped; live Ctrl+P cycling missing | [provider-catalog.md](provider-catalog.md), [tui-workflow.md](tui-workflow.md) |
-| `--provider` / `--model` / `--api-key` | ✅ (`--native-provider`/`--native-model`; `--api-key` runtime override) | [provider-catalog.md](provider-catalog.md) |
+| `--provider` / `--model` / `--api-key` | 🟡 provider/model shipped; `--api-key` accepted but not applied to provider calls yet | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | 🟡 accepted/local state; provider-request mapping missing | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` (`-xt` is 0.78.0; not in source checkout) | ❌ missing | [settings-config.md](settings-config.md) |
 | `--system-prompt` / `--append-system-prompt` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ❌ missing | [extension-api.md](extension-api.md) |
@@ -181,7 +181,7 @@ the product state, not the spec state.
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume`, durable compaction, startup session flags) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` pass the conformance gate (full-transcript store, branch/fork/clone, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 draft spec, bounded Markdown-resource subset only | golden conformance extension (in spec) |
-| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟢 catalog shipped/gated; `/scoped-models` + Ctrl+P cycling follow-on | `scripts/parity_checks/provider_catalog_conformance.py --json` (passing) |
+| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 foundation shipped; product provider construction/auth/thinking wiring incomplete | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes helper-layer gate; must be upgraded for product paths) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | 🟡 interactive `/settings` + local defaults only | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 metadata-only JSON + Python SDK only | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys, folding, queued steering, mouse selection, true cancellation) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship | real-PTY tests + conformance gate (in spec) |
@@ -206,12 +206,15 @@ Ordering reflects dependencies and leverage, not a hard schedule:
    unblocks `/export`, `/import`, `/share`, durable `/compact`, `--mode json/rpc`
    session events, and retiring `--archive-transcript` as follow-up cleanup.
 2. **Provider / model catalog** ([provider-catalog.md](provider-catalog.md)) —
-   shipped/gated. Remaining product follow-ons are `/scoped-models`, live Ctrl+P
-   model cycling from `--models`/settings, and live Anthropic/Copilot login UX.
+   current fix-up: wire catalog-selected `NativeModelSpec` and request config
+   into real provider construction/calls, apply auth/headers/routing/thinking,
+   and route direct `/model` through the shared resolver. After that, remaining
+   follow-ons are `/scoped-models`, live Ctrl+P model cycling from
+   `--models`/settings, and live Anthropic/Copilot login UX.
 3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
-   — selected as the current next big topic: `settings.json`, `keybindings.json`,
-   `/reload`, `/changelog`, system-prompt files, tool/resource toggles, and the
-   settings side of scoped models. Underpins much of the TUI and CLI surface.
+   — next after the provider-catalog wiring fix-up: `settings.json`,
+   `keybindings.json`, `/reload`, `/changelog`, system-prompt files,
+   tool/resource toggles, and the settings side of scoped models.
 4. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — can run alongside implementation tracks; pipy needs Pi-like user docs, not
    only internal planning/spec docs.
