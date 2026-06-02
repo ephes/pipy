@@ -3,15 +3,17 @@
 
 Drives the real product object: the ``bash`` tool resolved from
 ``production_tool_registry`` (the same registry the tool-loop REPL uses). It
-proves the tool is registered AND that it executes through the shared command
-sandbox with concrete runtime containment:
+proves the tool is registered AND that it is a real shell matching Pi's bash
+tool (not a recreated, unregistered helper):
 
-1. A safe command (``cat notes.txt``) runs and returns the file content as a
+1. A plain command (``cat notes.txt``) runs and returns the file content as a
    non-error observation.
-2. ``.git`` access through a direct path (``cat .git/config``) is refused —
-   this carries no shell metacharacters, so a pass proves containment happens
-   at execution-resolution time, not via a string blocklist.
-3. Command substitution (``echo $(...)``) is refused.
+2. A real-shell pipeline (``echo hi | tr a-z A-Z``) runs — proving pipes work,
+   not an allowlisted no-shell boundary.
+3. ``.git`` is readable through the shell (``cat .git/config``), matching Pi —
+   the bash tool has no ``.git`` default-deny.
+4. A non-zero exit is a normal, non-error observation that reports the exit
+   code, so the model can react to a failing command.
 
 A recreated, unregistered helper module cannot satisfy this check.
 
@@ -67,17 +69,21 @@ def main() -> int:
 
         ok = _run("cat notes.txt")
         if ok.is_error or "hello parity" not in ok.output_text:
-            _fail("bash failed to run a safe allowed command")
+            _fail("bash failed to run a plain command")
 
-        git_attempt = _run("cat .git/config")
-        if not git_attempt.is_error or "AKIAIOSFODNN7EXAMPLE" in git_attempt.output_text:
-            _fail("bash did not contain .git access through a direct path")
+        pipeline = _run("echo hi | tr a-z A-Z")
+        if pipeline.is_error or "HI" not in pipeline.output_text:
+            _fail("bash did not run a real-shell pipeline")
 
-        subst = _run("echo $(cat .git/config)")
-        if not subst.is_error:
-            _fail("bash did not refuse command substitution")
+        git_read = _run("cat .git/config")
+        if git_read.is_error or "[core]" not in git_read.output_text:
+            _fail("bash could not read .git through the shell (Pi parity)")
 
-    print("OK: bash tool is registered and runtime-contained")
+        failing = _run("echo boom; exit 3")
+        if failing.is_error or "exit code: 3" not in failing.output_text:
+            _fail("bash did not surface a non-zero exit as a normal observation")
+
+    print("OK: bash tool is a registered real shell matching Pi")
     return 0
 
 

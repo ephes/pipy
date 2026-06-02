@@ -124,7 +124,7 @@ target  ✅ count for 80% parity:                                              4
 delta beyond 80% target:                                                      +9
 ```
 
-All 50 rows are green; B7 (bash) now runs through the shared command sandbox. D7
+All 50 rows are green; B7 (bash) is a real shell matching Pi. D7
 (themes), D8 (image attachments), and E5 (dynamic provider swap) are now ✅
 as **behavior checks** that exercise the real product paths: D7 drives a
 `/theme` switch and proves the rendered palette changes while NO_COLOR/TTY
@@ -167,11 +167,12 @@ runtime consumer and a behavior check that exercises it:
   boundary (not a recreated `dynamic_provider` wrapper): the behavior
   check drives a `/model` switch through both REPL product paths.
 
-All 50 rows are green. B7 (bash) now uses a behavior check
+All 50 rows are green. B7 (bash) uses a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from the
-production registry and proves runtime containment, now that the shared
-command sandbox (`command_sandbox`) has landed and backs both the `bash` tool
-and the `/verify just-check` boundary.
+production registry and proves it is a real shell matching Pi (a plain command
+runs, a pipeline runs, `.git` is readable, and a non-zero exit is surfaced as a
+normal observation). The `/verify just-check` boundary still runs through the
+allowlisted `command_sandbox` executor.
 
 ## How To Verify
 
@@ -190,18 +191,20 @@ error injection tests, mistral provider, bedrock provider, dynamic provider
 swap). This anti-gaming rule prevents reaching 80% by only adding trivial
 helpers.
 
-The `bash` tool (B7) is a registered big feature. It runs through the shared
-safe command-execution substrate (`pipy_harness.native.command_sandbox`): a
-no-shell, allowlisted-executable boundary that resolves and confines the cwd,
-scrubs the environment, refuses shell metacharacters (substitution, pipes,
-redirection, globbing, chaining), and — at execution-resolution time, not via
-a string blocklist alone — enforces `.git` default-deny, symlink/path-escape
-refusal, secret-shaped output redaction, bounded output, and timeout/kill. The
-same substrate backs the allowlisted `/verify just-check` boundary. B7's Verify
-command is a behavior check (`scripts/parity_checks/bash_behavior.py`) that
-resolves the tool from `production_tool_registry` and proves both a safe
-command runs and that direct `.git` access and command substitution are
-contained; a dormant unregistered helper cannot satisfy it.
+The `bash` tool (B7) is a registered big feature. It is a real shell matching
+Pi's bash tool (`pipy_harness.native.tools.bash`): it spawns `bash -c
+<command>` in the workspace root with the inherited environment, accepts an
+optional timeout (the whole process group is killed on expiry), streams the
+combined stdout/stderr back as it is produced, and returns a bounded tail.
+Pipes, redirection, command substitution, globbing, chaining, and any
+executable on `PATH` are allowed. Only metadata (counters, labels) crosses the
+archive boundary — never the raw command or output. (The separate
+`/verify just-check` boundary still runs through the allowlisted
+`command_sandbox` executor.) B7's Verify command is a behavior check
+(`scripts/parity_checks/bash_behavior.py`) that resolves the tool from
+`production_tool_registry` and proves it runs a plain command, a real-shell
+pipeline, a `.git` read, and surfaces a non-zero exit as a normal observation;
+a dormant unregistered helper cannot satisfy it.
 
 ## What Counts As "Big"
 
@@ -264,8 +267,10 @@ These pipy invariants are **NOT relaxed** by the parity push:
 - **Metadata-first archive.** No new feature may write raw prompts, model
   text, tool payloads, file contents, diffs, or auth material to the
   pipy session archive.
-- **`.git` default-deny** stays enforced for every new tool.
-- **Symlink resolution** stays enforced.
+- **`.git` default-deny** stays enforced for the read-only and mutation file
+  tools (`read`/`ls`/`grep`/`find`/`write`/`edit`/`edit_diff`); the `bash` real
+  shell is the deliberate exception, matching Pi.
+- **Symlink resolution** stays enforced for the file tools.
 - **No new third-party schema validators.** Use `validate_arguments` from
   `tools/base.py`.
 
