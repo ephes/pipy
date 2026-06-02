@@ -106,7 +106,12 @@ pipy already standardizes a config-home resolution chain in
 **reuses that exact chain** rather than inventing a new root. Decision:
 
 - Global config home (`<config>`):
-  `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`.
+  `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`. pipy reuses
+  the single shared resolver `workspace_context.resolve_global_instruction_root`
+  (so there is exactly one config root), which also probes `~/.pipy` **when that
+  directory already exists** as a convenience step just ahead of
+  `~/.config/pipy`; that extra step is a superset of the documented chain and is
+  inert unless a `~/.pipy` directory is present.
   - Global settings: `<config>/settings.json`.
   - Keybindings: `<config>/keybindings.json`.
 - Project config dir: `<cwd>/.pipy/`.

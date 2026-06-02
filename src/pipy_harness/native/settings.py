@@ -88,11 +88,20 @@ def migrate_settings(raw: dict[str, Any]) -> dict[str, Any]:
         out["steeringMode"] = out.pop("queueMode")
 
     # Rename: websockets boolean -> transport (only when replacement absent).
-    if "websockets" in out and "transport" not in out:
+    # Pi type-guards on `typeof === "boolean"`, so a non-boolean websockets
+    # value is left untouched rather than minting a fabricated transport.
+    if (
+        "websockets" in out
+        and "transport" not in out
+        and isinstance(out["websockets"], bool)
+    ):
         websockets = out.pop("websockets")
         out["transport"] = "websocket" if websockets else "sse"
 
-    # retry.maxDelayMs -> retry.provider.maxRetryDelayMs (unconditional delete).
+    # retry.maxDelayMs -> retry.provider.maxRetryDelayMs. The legacy key is
+    # deleted unconditionally whenever retry is an object; the value is copied
+    # only when it is numeric (Pi type-guards on `typeof === "number"`) and the
+    # replacement is absent (Pi treats both undefined and null as absent).
     retry = out.get("retry")
     if isinstance(retry, dict) and "maxDelayMs" in retry:
         legacy = retry.pop("maxDelayMs")
@@ -100,7 +109,8 @@ def migrate_settings(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(provider, dict):
             provider = {}
             retry["provider"] = provider
-        if "maxRetryDelayMs" not in provider:
+        is_number = isinstance(legacy, (int, float)) and not isinstance(legacy, bool)
+        if is_number and provider.get("maxRetryDelayMs") is None:
             provider["maxRetryDelayMs"] = legacy
 
     # skills object form: always replaced; enableSkillCommands hoist conditional.
@@ -215,6 +225,10 @@ def _apply_path(target: dict[str, Any], parts: list[str], value: Any) -> None:
         return
     node = target.get(key)
     if not isinstance(node, dict):
+        # A scalar (or absent) intermediate cannot hold a nested key, so it is
+        # replaced with a fresh object. This is the one place a nested write may
+        # drop a pre-existing non-dict value at the same key; unrelated sibling
+        # top-level keys are still preserved by the surrounding re-read-and-merge.
         node = {}
         target[key] = node
     _apply_path(node, parts[1:], value)

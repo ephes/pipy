@@ -298,3 +298,46 @@ def test_written_file_is_owner_private(tmp_path: Path) -> None:
 def test_resolve_config_home_prefers_pipy_config_home(tmp_path: Path) -> None:
     home = resolve_config_home(env={"PIPY_CONFIG_HOME": str(tmp_path / "cfg")})
     assert home == tmp_path / "cfg"
+
+
+# --- migration fidelity on atypical/malformed input (Pi parity) -------------
+
+
+def test_migrate_retry_max_delay_non_number_deleted_not_copied() -> None:
+    # Pi deletes maxDelayMs unconditionally but only copies a numeric value.
+    out = migrate_settings({"retry": {"maxDelayMs": "oops"}})
+    assert out == {"retry": {"provider": {}}}
+
+
+def test_migrate_retry_max_delay_bool_is_not_a_number() -> None:
+    out = migrate_settings({"retry": {"maxDelayMs": True}})
+    assert out == {"retry": {"provider": {}}}
+
+
+def test_migrate_retry_explicit_null_replacement_treated_as_absent() -> None:
+    # Pi treats undefined AND null as "replacement absent", so the legacy value
+    # is copied over an explicit null.
+    out = migrate_settings(
+        {"retry": {"maxDelayMs": 5, "provider": {"maxRetryDelayMs": None}}}
+    )
+    assert out == {"retry": {"provider": {"maxRetryDelayMs": 5}}}
+
+
+def test_migrate_websockets_non_boolean_left_untouched() -> None:
+    # Pi type-guards on boolean; a non-boolean websockets is not migrated.
+    assert migrate_settings({"websockets": 1}) == {"websockets": 1}
+    assert migrate_settings({"websockets": None}) == {"websockets": None}
+    assert migrate_settings({"websockets": "true"}) == {"websockets": "true"}
+
+
+def test_nested_write_replaces_non_dict_intermediate_preserving_siblings(
+    tmp_path: Path,
+) -> None:
+    # A scalar cannot hold a nested key; it is replaced with a fresh object,
+    # but unrelated sibling top-level keys are preserved.
+    gpath = tmp_path / "config" / "settings.json"
+    _write_json(gpath, {"compaction": "notadict", "keep": 1})
+    mgr = _manager(tmp_path)
+    mgr.set_value("compaction.reserveTokens", 9000, scope="global")
+    on_disk = json.loads(gpath.read_text(encoding="utf-8"))
+    assert on_disk == {"compaction": {"reserveTokens": 9000}, "keep": 1}
