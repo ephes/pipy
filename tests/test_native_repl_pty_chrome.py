@@ -220,7 +220,7 @@ def test_live_repl_slash_keystroke_opens_command_menu_with_descriptions(
     # is not required. The menu caps the visible row count to keep the
     # popup compact (matching Pi); long lists overflow to a "… N more"
     # tail handled by the editor.
-    expected_names = ("/help", "/clear", "/status", "/model")
+    expected_names = ("/help", "/hotkeys", "/clear", "/status")
     found_names = [name for name in expected_names if name in captured]
     assert len(found_names) == len(expected_names), (
         f"missing slash commands in `/` menu: have {found_names}; "

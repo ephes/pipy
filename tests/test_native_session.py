@@ -365,6 +365,39 @@ def test_native_no_tool_repl_settings_output_unchanged(tmp_path):
     )
 
 
+def test_native_no_tool_repl_hotkeys_renders_resolved_bindings(tmp_path):
+    from pipy_harness.native.keybindings import KeybindingsManager
+
+    provider = SequentialCapturingProvider(results=[])
+    sink = RecordingSink()
+    error_stream = StringIO()
+    NativeNoToolReplSession(
+        provider=provider,
+        max_turns=4,
+        keybindings_manager=KeybindingsManager(
+            user_bindings={"app.model.cycleForward": "ctrl+j"}
+        ),
+    ).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+        input_stream=StringIO("/hotkeys\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+    stderr = error_stream.getvalue()
+    assert "Keyboard Shortcuts" in stderr
+    assert "Ctrl+J" in stderr
+    # /hotkeys runs no provider turn.
+    assert provider.captured_requests in (None, [])
+
+
 def test_native_no_tool_repl_stops_at_turn_limit(tmp_path):
     provider = SequentialCapturingProvider(
         results=[

@@ -548,6 +548,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
 
     assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
         "/help",
+        "/hotkeys",
         "/model",
         "/settings",
         "/login",
@@ -623,9 +624,9 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Ten commands match the bare "/" prefix but the menu windows to six
+    # Eleven commands match the bare "/" prefix but the menu windows to six
     # rows, so a scroll indicator appears.
-    assert "(1/10)" in rendered
+    assert "(1/11)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
@@ -636,10 +637,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     assert ui.slash_menu_selection == 1
 
     ui._accept_slash_menu_selection()
-    # Menu order is help(0), model(1), settings(2), ...; one step down lands
-    # on the now-executable /model selector command.
-    assert ui.input_text == "/model"
-    assert ui.input_cursor == len("/model")
+    # Menu order is help(0), hotkeys(1), model(2), ...; one step down lands on
+    # the /hotkeys command (auto-completed into the editor).
+    assert ui.input_text == "/hotkeys"
+    assert ui.input_cursor == len("/hotkeys")
     assert ui.slash_menu_open is False
 
     ui.input_text = "/"

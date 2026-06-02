@@ -29,6 +29,7 @@ from pipy_harness.native.conversation import (
     NativeTurnMetadata,
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
+from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.image_attachment import (
     ProviderImageAttachment,
@@ -320,6 +321,7 @@ PROPOSE_FILE_REPL_PROVIDER_TURN_LABEL = "propose_file_repl"
 NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
+HOTKEYS_REPL_COMMAND = "/hotkeys"
 CLEAR_REPL_COMMAND = "/clear"
 COMPACT_REPL_COMMAND = "/compact"
 STATUS_REPL_COMMAND = "/status"
@@ -342,7 +344,7 @@ class _ReplCommandGroup:
 
 
 _REPL_COMMAND_GROUPS = (
-    _ReplCommandGroup("Controls", ("/help",)),
+    _ReplCommandGroup("Controls", ("/help", "/hotkeys")),
     _ReplCommandGroup("Local state", ("/clear", "/compact", "/status", "/settings")),
     _ReplCommandGroup(
         "Provider and model",
@@ -854,6 +856,9 @@ class NativeNoToolReplSession:
     )
     resume_context: ResumeContext | None = None
     resume_branch_label: str | None = None
+    # Resolved keybindings for /hotkeys. When not injected the session loads
+    # <config>/keybindings.json via the shared config home; tests inject one.
+    keybindings_manager: "KeybindingsManager | None" = None
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -874,6 +879,7 @@ class NativeNoToolReplSession:
         provider_state = self.provider_state
         if provider_state is None:
             raise ValueError("NativeNoToolReplSession requires provider state")
+        keybindings = self.keybindings_manager or KeybindingsManager.create()
         discovery = self.instruction_loader(run_input.cwd)
         composed_system_prompt = compose_system_prompt(
             NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
@@ -1033,6 +1039,17 @@ class NativeNoToolReplSession:
                     _print_repl_command_help(error_stream)
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, HELP_REPL_COMMAND)
+                continue
+            if _is_repl_command_invocation(command, HOTKEYS_REPL_COMMAND):
+                pending_apply_draft = None
+                if command == HOTKEYS_REPL_COMMAND:
+                    # Local-only: render the grouped keyboard-shortcut table from
+                    # the resolved keybinding manager. Runs no provider turn.
+                    print(render_hotkeys(keybindings), file=error_stream)
+                else:
+                    _print_repl_command_usage_diagnostic(
+                        error_stream, HOTKEYS_REPL_COMMAND
+                    )
                 continue
             if _is_repl_command_invocation(command, CLEAR_REPL_COMMAND):
                 pending_apply_draft = None

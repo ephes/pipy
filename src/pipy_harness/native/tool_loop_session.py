@@ -70,6 +70,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
+from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
@@ -477,6 +478,10 @@ class NativeToolReplSession:
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
     prompt_history_store: PromptHistoryStore | None = None
+    # Resolved keybindings for /hotkeys (and future bound surfaces). When not
+    # injected the session loads <config>/keybindings.json via the shared config
+    # home; tests inject a manager directly.
+    keybindings_manager: "KeybindingsManager | None" = None
     resume_context: ResumeContext | None = None
     resume_branch_label: str | None = None
     # Native product session tree (the product session source of truth). When
@@ -543,6 +548,7 @@ class NativeToolReplSession:
         # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
         # session seeds its in-memory recall buffer from the saved prompts.
         prompt_history_store = self.prompt_history_store or PromptHistoryStore()
+        keybindings = self.keybindings_manager or KeybindingsManager.create()
         if terminal_ui is not None and prompt_history_store.enabled:
             terminal_ui.input_history = list(prompt_history_store.entries())
         renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
@@ -1002,6 +1008,25 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
+            if stripped == "/hotkeys":
+                # Local-only: render the grouped keyboard-shortcut table from
+                # the resolved keybinding manager (reflecting any user
+                # keybindings.json overrides). Runs no provider turn.
+                hotkeys_text = render_hotkeys(keybindings)
+                if terminal_ui is not None:
+                    terminal_ui.add_notice(hotkeys_text)
+                else:
+                    print(hotkeys_text, file=error_stream)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
             if stripped == "/settings":
                 if terminal_ui is not None:
                     self._drive_settings_dialog(
@@ -1400,7 +1425,7 @@ class NativeToolReplSession:
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /model, /settings, "
+                        "supported local commands are /help, /hotkeys, /model, /settings, "
                         "/login, /logout, /copy, /compact, /session, /name, "
                         "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
@@ -2203,7 +2228,7 @@ class NativeToolReplSession:
     @staticmethod
     def _help_text() -> str:
         return (
-            "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
+            "pipy: tool-loop mode supports `/help`, `/hotkeys`, `/model`, `/settings`, "
             "`/login`, `/logout`, `/copy`, `/compact`, `/session`, `/name`, "
             "`/new`, `/tree`, `/resume`, `/fork`, `/clone`, `/exit`, `/quit` "
             "locally. `/session` shows the current native session tree status; "
@@ -2220,7 +2245,8 @@ class NativeToolReplSession:
             "interactive settings dialog (provider/model, openai-codex auth, and "
             "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
-            "`/copy` copies the last answer to the clipboard. `/skill [<name>]` "
+            "`/copy` copies the last answer to the clipboard. `/hotkeys` shows "
+            "the resolved keyboard-shortcut table. `/skill [<name>]` "
             "lists or loads a workspace/global skill, `/template [<name> [args]]` "
             "lists or runs a prompt template, and any workspace custom slash "
             "command runs as a bounded provider turn. Other input is "
