@@ -3,8 +3,9 @@
 Status: catalog foundation (2026-06-02) plus product provider construction for
 the OpenAI-Chat-Completions API family (2026-06-03), gated end to end. A
 models.json custom provider/model now runs a real turn using the catalog
-baseUrl/model/auth/headers/routing/thinking. The remaining wiring is
-catalog-driven construction for the non-completions API families.
+baseUrl/model/auth/headers/routing/thinking. The remaining wiring includes
+catalog-driven construction for the non-completions API families, one-shot
+startup construction, and startup CLI model resolution.
 
 ## Implemented (foundation + product construction)
 
@@ -75,7 +76,7 @@ Remaining wiring (not yet shipped):
   `models.json` provider name is not accepted by `--native-provider` (argparse
   `choices`), and a bare `--native-model <ref>` becomes `fake/<ref>` rather than
   resolving its provider. Mid-session `/model <ref>` is fully catalog-resolved;
-  startup parity is the next CLI slice.
+  startup parity remains a catalog CLI follow-on.
 
 Other product follow-ons: `/scoped-models` and `--models` Ctrl+P live
 scoped-model cycling in the product TUI, live OAuth login orchestration for
