@@ -384,14 +384,49 @@ def _check_auth_status(checks, tmp: Path):
     env_status = provider_auth_status("openai", store=store, env={"OPENAI_API_KEY": "k"})
     store.set("anthropic", {"type": "api_key", "key": "sk"})
     stored_status = provider_auth_status("anthropic", store=store, env={})
+
+    # Status on an EXPIRED stored OAuth credential must not refresh the token:
+    # the refresh resolver must never be called by a status check.
+    refreshed = []
+    oauth_store = AuthStore(path=tmp / "auth_st_oauth.json")
+    oauth_store.set(
+        "openai-codex",
+        {"type": "oauth", "access": "tok", "refresh": "r", "expires": 1},  # long expired
+    )
+    oauth_status = provider_auth_status(
+        "openai-codex",
+        store=oauth_store,
+        env={},
+        run_command=lambda c: refreshed.append(("cmd", c)) or "x",
+    )
+
+    # authHeader failure is an auth-resolution concern, asserted alongside the
+    # status labels: authHeader with no resolvable key fails closed.
+    auth_header_fail = resolve_request_auth(
+        "ds4",
+        store=AuthStore(path=tmp / "auth_st_ah.json"),
+        env={},
+        models_json_config=ProviderAuthRequestConfig(auth_header=True),
+    )
+
     ok = (
         cmd_status.source == "models_json_command"
-        and not executed
+        and not executed  # no !command executed during status
         and env_status.source == "environment"
         and env_status.label == "OPENAI_API_KEY"
         and stored_status.source == "stored"
+        and oauth_status.source == "stored"
+        and not refreshed  # status never refreshed the expired OAuth token
+        and auth_header_fail.ok is False
+        and auth_header_fail.api_key is None
     )
-    checks.append(Check("12_auth_status_labels", ok, "labels correct; no !command exec"))
+    checks.append(
+        Check(
+            "12_auth_status_labels",
+            ok,
+            "labels correct; no !command exec; no token refresh; authHeader fails closed",
+        )
+    )
 
 
 def _check_oauth(checks):

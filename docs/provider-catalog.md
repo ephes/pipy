@@ -6,8 +6,9 @@ specification; the conformance gate passes 18/18.
 ## Shipped Status (2026-06-02)
 
 The catalog capability is implemented through pipy-owned Python modules and
-gated by `scripts/parity_checks/provider_catalog_conformance.py` (18 checks, all
-passing, no network):
+gated by `scripts/parity_checks/provider_catalog_conformance.py` (the 18
+Verification-Plan checks below, emitted as 19 assertion rows, all passing, no
+network):
 
 - **Built-in catalog** (`native/catalog.py`, `native/catalog_data.py`):
   `NativeModelSpec`/`NativeModelCost` rows with real capability metadata,
