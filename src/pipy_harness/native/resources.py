@@ -68,7 +68,6 @@ RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
         "ask-file",
         "propose-file",
         "apply-proposal",
-        "verify",
         "copy",
         "exit",
         "quit",

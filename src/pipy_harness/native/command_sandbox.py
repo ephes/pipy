@@ -1,10 +1,8 @@
 """Shared safe command-execution substrate for pipy-native.
 
-This module owns the single boundary through which pipy-native runs local
-processes. It is reused by the model-visible ``bash`` tool
-(:mod:`pipy_harness.native.tools.bash`) and by the allowlisted verification
-boundary (:mod:`pipy_harness.native.verification`). Nothing else should call
-``subprocess`` directly to execute a feature command.
+This module owns the bounded no-shell execution helper used by the legacy
+allowlisted verification boundary. The model-visible ``bash`` tool intentionally
+uses a real shell for Pi parity and does not call this helper.
 
 The substrate owns, in one place:
 
@@ -242,8 +240,7 @@ def execute_allowlisted_argv(
 ) -> subprocess.CompletedProcess[Any]:
     """Run a fixed, caller-allowlisted ``argv`` with no captured output.
 
-    This is the shared executor for the verification boundary
-    (``/verify just-check``). It owns cwd resolution and the
+    This is the shared executor for fixed, caller-allowlisted commands. It owns cwd resolution and the
     stdin/stdout/stderr ``DEVNULL`` discipline so command output never reaches
     an archive, while leaving the exact allowlist (the hardcoded argv) to the
     caller. ``shell=False`` is implied because ``argv`` is a sequence.

@@ -61,6 +61,37 @@ class FileSessionRecorder:
         return finalize_session(active_path, root=root, summary_text=summary)
 
 
+class NullSessionRecorder:
+    """Recorder that writes nothing — used for Pi-style ``--no-session``.
+
+    The run still flows through the harness (so the adapter and native product
+    session tree behave normally), but no ``pipy-session`` metadata archive
+    record is created or written. ``finalize`` returns a record whose paths
+    point at a never-created sentinel file.
+    """
+
+    def __init__(self) -> None:
+        import tempfile
+
+        self._sentinel = Path(tempfile.gettempdir()) / "pipy-no-session.jsonl"
+
+    def init(
+        self,
+        request: RunRequest,
+        *,
+        run_id: str,
+        started_at: datetime,
+        initial_fields: Mapping[str, Any],
+    ) -> Path:
+        return self._sentinel
+
+    def append(self, active_path: Path, event: Mapping[str, Any], *, root: Path | None) -> None:
+        return None
+
+    def finalize(self, active_path: Path, *, root: Path | None, summary: str) -> SessionRecord:
+        return SessionRecord(jsonl_path=self._sentinel, markdown_path=None)
+
+
 class RecorderPort(Protocol):
     """Recorder interface used by the runner."""
 

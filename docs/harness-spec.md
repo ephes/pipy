@@ -42,10 +42,13 @@ harness should call it instead of creating a parallel transcript format.
   slice.
 - Do not implement a full native model/tool loop in the bootstrap slice.
 - Do not add multi-agent orchestration, repo maps, indexing, long-running
-  daemons, or a web UI yet. (Live single-session resume, branch/fork, and
-  in-session compaction have since shipped through pipy-owned boundaries — see
-  the `Native Session Workflow Decision` below — but they remain bounded to one
-  metadata-first session lineage, not a mutable Pi-style session tree.)
+  daemons, or a web UI yet. (The Pi-style **native product session tree** has
+  since shipped as the product session source of truth — a private append-only
+  JSONL conversation tree with in-place `/tree` navigation, sibling branches,
+  `/fork`/`/clone`, durable `/compact`, branch summaries, and Pi-style startup
+  flags; see [session-tree.md](session-tree.md). The metadata-first
+  `pipy-session` archive remains a separate summary-safe catalog and is not the
+  product session source.)
 - Do not change the finalized session archive layout documented in
   `docs/session-storage.md`.
 - Do not publish documentation, add docs CI/deploy workflows, or turn the local
@@ -747,26 +750,25 @@ excerpt plus one change request to one provider turn labeled
 `propose_file_repl`. `/apply-proposal <workspace-relative-path>` performs no
 provider turn; it consumes only one pending in-memory proposal draft from the
 same REPL session and exact same normalized workspace-relative path.
-`/verify just-check` performs no provider turn; it is accepted only after a
-successful same-session `/apply-proposal` mutation and maps the safe command
-label to the internal `just check` argv through the existing verification
-boundary. These turn indexes and labels are pipy-owned; they are not copied
-from provider metadata and are not derived from prompts, model output,
-filesystem paths, stdout, stderr, secrets, or credentials.
+These turn indexes and labels are pipy-owned; they are not copied from provider
+metadata and are not derived from prompts, model output, filesystem paths,
+stdout, stderr, secrets, or credentials. The former pipy-specific
+`/verify just-check` command is no longer part of the user-facing REPL; Pi-style
+verification-like workflows should use the model-visible `bash` tool or a
+future explicitly specified project policy.
 
 The REPL stdout/stderr convention is conservative: provider final text from
 successful ordinary, `/ask-file`, or `/propose-file` turns and successful
 `/read` excerpt text print to stdout, while prompts, help, auth/model status,
 clear status, local status, malformed-command usage diagnostics,
 unsupported slash-command diagnostics, finalization, errors, interrupt
-handling, apply status, verification status, command-skip messages, and the
-turn-limit notice stay on stderr. `/model` with no arguments prints the current
-selection and conservative configured-model information to stderr only.
-`/ask-file` and `/propose-file` never print their raw excerpts directly;
-`/apply-proposal` does not print raw replacement text or diffs, and
-`/verify just-check` does not print command stdout or stderr. This is separate
-from one-shot `--native-output json`; the REPL does not add structured stdout,
-a transcript stream, or conversation export.
+handling, apply status, command-skip messages, and the turn-limit notice stay on
+stderr. `/model` with no arguments prints the current selection and conservative
+configured-model information to stderr only. `/ask-file` and `/propose-file`
+never print their raw excerpts directly; `/apply-proposal` does not print raw
+replacement text or diffs. This is separate from one-shot `--native-output json`;
+the REPL does not add structured stdout, a transcript stream, or conversation
+export.
 
 The `/read`, `/ask-file`, and `/propose-file` commands share two successful
 explicit file excerpts per REPL session plus one bounded failed or skipped
@@ -820,8 +822,6 @@ REPL archives reuse existing safe lifecycle event names:
   boundary only
 - `native.patch.apply.recorded` for successful, skipped, or failed
   `/apply-proposal` attempts that reach the patch-apply tool
-- `native.verification.recorded` for successful, skipped, or failed
-  `/verify just-check` attempts that reach the verification tool
 - `native.session.completed`
 
 No conversation or turn export event is emitted. REPL lifecycle payloads remain
@@ -984,18 +984,22 @@ API keys, tokens, private keys, and sensitive personal data.
 
 ### Native Session Workflow Decision
 
-Live resume, branch/fork, and in-session compaction are pipy-owned single-
-lineage workflows in the currently shipped metadata-archive design. They are
-not yet a mutable Pi-style session tree. The target redesign for Pi-compatible
-`/tree` and full native session-tree storage is specified in
-[`session-tree.md`](session-tree.md). The current shape:
+The Pi-style **native product session tree** has since shipped and is the
+product session source of truth (`pipy_harness.native.session_tree`); full
+`/tree` navigation, sibling branches, `/fork`/`/clone`, durable `/compact`, and
+Pi-style startup flags read and write it. See
+[`session-tree.md`](session-tree.md) for the full behavior and the conformance
+gate. The metadata-archive workflows described below remain accurate for the
+**secondary `pipy-session` archive** (a summary-safe catalog/learning surface),
+which is *not* the product session source:
 
-- **Resume seeding** reuses the existing metadata-only reader. A fresh session
-  is always a new finalized record seeded with `compose_resume_system_block`
-  (prior provider/model/turn labels only). The parent is read read-only and
-  never mutated; no raw transcript sidecar is copied. Display uses a separate
-  `compose_resume_status_line` banner carrying the same safe labels (and the
-  branch label when forking) — never summary text.
+- **Archive resume seeding** (the `--resume`/`--branch` archive lineage path)
+  reuses the metadata-only reader. A fresh archive record is seeded with
+  `compose_resume_system_block` (prior provider/model/turn labels only). The
+  parent is read read-only and never mutated; no raw transcript sidecar is
+  copied. Display uses a separate `compose_resume_status_line` banner carrying
+  the same safe labels (and the branch label when forking) — never summary
+  text.
 - **Lineage** is a plain-data `SessionLineage` value object on `RunRequest`, so
   the runner (not the effectful adapter) writes the safe `resume` object onto
   `session.started` and emits `native.session.resumed`. Branch labels pass
@@ -1005,8 +1009,12 @@ not yet a mutable Pi-style session tree. The target redesign for Pi-compatible
   history is always protocol-valid (no orphaned tool result, no reordered
   tool-call/observation pair, no exposed raw tool payload). The summary folded
   back into the provider system prompt is counts only; the dropped raw context
-  is discarded from memory and never archived. Triggers are an explicit
-  `/compact` command and an automatic threshold in both REPL modes.
+  is discarded from the live in-memory request. Triggers are an explicit
+  `/compact` command and an automatic threshold in both REPL modes. In the
+  tool-loop product runtime, `/compact` additionally appends a durable
+  `compaction` entry (with `firstKeptEntryId`) to the native product session
+  tree so reload and `/tree` navigation rebuild an equivalent reduced context;
+  see [`session-tree.md`](session-tree.md).
 - **Archive metadata** stays counts/labels only: `native.session.compacted`
   carries drop/retain counts, before/after byte totals, and a trigger label.
 

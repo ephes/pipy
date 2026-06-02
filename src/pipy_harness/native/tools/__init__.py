@@ -3,8 +3,8 @@
 This subpackage holds the small contracts used by the planned native tool-loop
 runtime (`pipy repl --agent pipy-native --repl-mode tool-loop`). The contracts
 are kept separate from the existing archive-safe `pipy_harness.native.tool`
-boundary used by `/read`, `/propose-file`, `/apply-proposal`, and
-`/verify just-check`: archive-safe metadata stays in `NativeToolResult`, and
+boundary used by `/read`, `/propose-file`, and `/apply-proposal`:
+archive-safe metadata stays in `NativeToolResult`, and
 provider-visible tool payloads stay in `ToolExecutionResult`. The two shapes
 are deliberately not conflated.
 

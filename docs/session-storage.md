@@ -1,5 +1,15 @@
 # Session Storage
 
+> **Scope note (2026-06-02):** this document describes the metadata-first
+> `pipy-session` archive, which is a **pipy-specific catalog/learning utility**,
+> not the product session store. For real Pi parity the product session store is
+> the full-transcript native session tree (`docs/session-tree.md`), and the
+> metadata-first archive is demoted to an optional, non-default utility. Its
+> "metadata-only / privacy-first" posture is a pipy preference, **not** a parity
+> virtue, and must not be cited as a reason to diverge from Pi (which stores,
+> streams, and exports full session content). See [parity-plan.md](parity-plan.md)
+> §3. The privacy rules below still govern *this* archive while it exists.
+
 Pipy should learn from coding-agent work without coupling the core product to any one agent UI. Session storage is therefore treated as a product capability, not as a Textual, CLI, Codex, Claude, or Pi feature.
 
 ## Goals
@@ -127,15 +137,26 @@ metadata-first contract:
   reject malformed, ambiguous, symlinked, active (`.in-progress`), or
   out-of-archive records without printing raw bodies or unsafe labels.
 
-This describes the current metadata-archive workflow. Pi-compatible product
-sessions, `/tree`, `/resume`, `/fork`, `/clone`, and durable compaction require a
-separate private native session tree store that contains full conversation
-history by design, like Pi's own session files, while keeping `pipy-session`
-metadata surfaces body-free. Product context reconstruction must use that native
-session tree, not `pipy-session resume-info`. Pi-style ephemeral mode
-(`--no-session` or its pipy equivalent) suppresses both native session-tree
-writes and `pipy-session` metadata records. The target storage split and command
-behavior are specified in [`session-tree.md`](session-tree.md).
+This describes the metadata-archive workflow. It is **not** the product session
+source. Pi-compatible product sessions, `/tree`, `/resume`, `/fork`, `/clone`,
+and durable compaction are served by a separate private **native product
+session tree** store (`pipy_harness.native.session_tree`) that contains full
+conversation history by design, like Pi's own session files, while keeping
+`pipy-session` metadata surfaces body-free. That store ships at:
+
+```text
+~/.local/state/pipy/native-sessions/--<encoded-cwd>--/<timestamp>_<uuid>.jsonl
+```
+
+It is append-only JSONL (a `session` header followed by tree entries), written
+with owner-only permissions, kept outside git, and never synced by the
+`pipy-session` archive recipes. Product context reconstruction walks the active
+branch of that native tree, not `pipy-session resume-info`. Pi-style ephemeral
+mode (`pipy repl ... --no-session`) suppresses both native session-tree writes
+and the `pipy-session` metadata record (via `NullSessionRecorder`). The full
+storage split, command behavior, and the deterministic conformance gate
+(`scripts/parity_checks/session_tree_conformance.py --json`) are specified in
+[`session-tree.md`](session-tree.md).
 
 Follow-up filenames should keep the original slug and add a suffix:
 

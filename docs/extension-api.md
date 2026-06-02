@@ -22,10 +22,12 @@ lands.
 - Keep `pipy-native` as the product runtime. Extensions decorate or register
   behavior through explicit ports; they do not replace the native session loop.
 - Make common Pi-style workflows possible: permission gates, custom
-  model-visible tools, stateful tools, custom slash commands, input transforms,
+  model-visible tools, stateful tools, custom slash commands, keybindings/
+  shortcuts, CLI flags, custom message renderers, input transforms,
   context/system-prompt injection, custom compaction, provider/model
-  registration, resource discovery, UI notifications/dialogs/widgets, and
-  session lifecycle state restoration.
+  registration and unregistration, resource discovery, UI
+  notifications/dialogs/widgets/status, and session lifecycle state
+  restoration.
 - Intentionally mirror Pi event names and lifecycle concepts where practical,
   while keeping Python APIs idiomatic and pipy-owned.
 - Keep extension effects visible and testable through explicit registration
@@ -64,7 +66,10 @@ lands.
   pipy-only names when the concept matches. Use snake_case, dataclasses, and
   Python protocols for the actual surface.
 - Registration over monkey-patching. Extensions register tools, commands,
-  providers, hooks, themes, or UI contributions. They do not patch pipy modules.
+  keybindings/shortcuts, CLI flags, message renderers, providers, hooks, or UI
+  contributions, and contribute themes through the `resources_discover` hook.
+  They do not patch pipy modules. (Like Pi, there is no theme-registration API;
+  themes are contributed as `theme_paths`, mirroring Pi's `themePaths`.)
 - Fail closed. An extension import error, invalid manifest, unsafe resource
   path, duplicate reserved name, or invalid schema disables that extension and
   reports a safe diagnostic.
@@ -189,7 +194,32 @@ class PipyExtensionAPI(Protocol):
         handler: Callable[["CommandContext", str], object],
     ) -> None: ...
 
+    def register_shortcut(
+        self,
+        shortcut: str,
+        handler: Callable[["ShortcutContext"], object],
+        description: str | None = None,
+    ) -> None: ...
+
+    def register_flag(
+        self,
+        name: str,
+        flag_type: Literal["boolean", "string"],
+        description: str | None = None,
+        default: bool | str | None = None,
+    ) -> None: ...
+
+    def get_flag(self, name: str) -> bool | str | None: ...
+
+    def register_message_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None: ...
+
     def register_provider(self, provider: "ExtensionProvider") -> None: ...
+
+    def unregister_provider(self, name: str) -> None: ...
 
     def send_message(
         self,
@@ -232,10 +262,11 @@ target vocabulary includes:
 
 | Event | Purpose | Allowed return |
 | --- | --- | --- |
-| `session_start` | Restore per-session extension state after startup, resume, fork, clone, or reload. | None |
+| `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
 | `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
 | `input` | Observe or transform submitted user input before a provider turn. | None or `InputTransform` |
+| `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
 | `agent_start` | Observe an agent run for one accepted user prompt starting. | None |
 | `agent_end` | Observe the full agent run ending after turns and tools settle. | None |
@@ -380,14 +411,35 @@ class ExtensionUi(Protocol):
     def notify(self, message: str, kind: Literal["info", "warning", "error"] = "info") -> None: ...
 ```
 
-Later phases may add:
+The full target UI surface should mirror Pi's `ExtensionUIContext`, which is
+much richer than a single notification method. It is intentionally a target,
+staged behind later slices, but the target shape should cover Pi's UI concepts
+so Pi extensions translate naturally:
 
-- `confirm(title, message) -> bool`
-- `select(title, options) -> str | None`
-- `input(title, placeholder) -> str | None`
-- status/footer labels
-- autocomplete providers
-- focused custom TUI overlays
+- Dialogs and prompts: `confirm(title, message) -> bool`,
+  `select(title, options) -> str | None`,
+  `input(title, placeholder) -> str | None`, and a multi-line
+  `editor(title, prefill) -> str | None`.
+- Status and indicators: `set_status(key, text)`, working-message and
+  working-indicator controls, and a hidden-thinking label, mirroring Pi's
+  `setStatus` / `setWorkingMessage` / `setWorkingIndicator` /
+  `setHiddenThinkingLabel`.
+- Widgets and chrome: `set_widget(key, content, options)` above/below the
+  editor, plus custom header/footer/title (Pi's `setWidget` / `setFooter` /
+  `setHeader` / `setTitle`).
+- Editor integration: read/write editor text, paste into the editor, and a
+  fully custom editor component (Pi's `getEditorText` / `setEditorText` /
+  `pasteToEditor` / `setEditorComponent`).
+- Custom overlays: a focused custom component with keyboard focus, mirroring
+  Pi's `custom(...)` overlay.
+- Autocomplete: stack an additional autocomplete provider on top of the
+  built-in one, mirroring Pi's `addAutocompleteProvider`.
+- Theme controls: read the active theme, list available themes, load a theme
+  by name, and switch themes, mirroring Pi's `theme` / `getAllThemes` /
+  `getTheme` / `setTheme`. (This is theme selection, not theme registration;
+  themes are contributed via `resources_discover`.)
+- Raw terminal input subscription in interactive mode, mirroring Pi's
+  `onTerminalInput`.
 
 Every UI method must have deterministic behavior in non-interactive contexts:
 return a safe default, raise a typed unsupported-mode error, or record a safe
@@ -412,6 +464,10 @@ Provider extensions must not receive existing auth stores wholesale. They
 should either read their own environment variables or use a small future auth
 capability with explicit provider labels.
 
+Mirroring Pi, the provider surface should support both registration and
+`unregister_provider(name)`, which removes a previously registered provider's
+models and restores any built-in models it overrode.
+
 ## Packages
 
 Package installation should be specified separately before implementation. The
@@ -427,6 +483,16 @@ eventual package story should probably support:
 Unlike Pi, pipy should not assume npm semantics. A Python package may expose
 extension entry points through `pyproject.toml`, but pipy should not require
 installation into the active environment for local path extensions.
+
+For reference, Pi's package sources are npm specs (an `npm:` prefix), git URLs,
+and local paths. Pi's install scopes are `user`, `project`, and `temporary`,
+but only `user` and `project` are persisted install scopes: `temporary` is a
+CLI-only resolution used to load extension sources for a single run, never a
+persisted install. Pi stores project packages under the workspace `.pi`
+directory and user packages under the agent directory. Pipy's eventual package
+model should keep equivalent persisted user/workspace scopes plus a CLI-only
+transient load, while choosing Python-native source kinds rather than `npm:`
+specs.
 
 ## Archive And Privacy Rules
 

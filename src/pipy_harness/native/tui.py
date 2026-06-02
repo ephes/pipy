@@ -124,6 +124,21 @@ class SettingsRow:
 
 
 @dataclass(frozen=True, slots=True)
+class TreeSelectorRow:
+    """One visible row in the interactive ``/tree`` selector.
+
+    ``entry_id`` identifies the session-tree entry; ``label`` is the rendered
+    display text (already indented/prefixed); ``active`` marks entries on the
+    current leaf path; ``labeled`` marks entries that carry a user label.
+    """
+
+    entry_id: str
+    label: str
+    active: bool = False
+    labeled: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _FrameLine:
     text: str
     kind: str = "normal"
@@ -163,6 +178,10 @@ class ToolLoopTerminalUi:
     settings_dialog_open: bool = False
     settings_dialog_rows: tuple[SettingsRow, ...] = ()
     settings_dialog_selection: int = 0
+    tree_selector_open: bool = False
+    tree_selector_rows: tuple["TreeSelectorRow", ...] = ()
+    tree_selector_selection: int = 0
+    tree_selector_filter: str = "default"
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
     _closed: bool = False
@@ -188,6 +207,9 @@ class ToolLoopTerminalUi:
     _undo_stack: list[tuple[str, int]] = field(default_factory=list)
     _redo_stack: list[tuple[str, int]] = field(default_factory=list)
     _pending_paste: str = ""
+    # Editor rehydration: a ``/tree`` user-message selection pre-fills the next
+    # prompt with the selected text so the user can edit it into a new branch.
+    _pending_initial_text: str | None = None
     # Resize handling.
     _resize_pending: bool = False
     _last_painted_size: tuple[int, int] = (0, 0)
@@ -227,8 +249,13 @@ class ToolLoopTerminalUi:
         del prompt_label
         if footer is not None:
             self.set_footer_text(footer)
-        self.input_text = ""
-        self.input_cursor = 0
+        if self._pending_initial_text is not None:
+            self.input_text = self._pending_initial_text
+            self.input_cursor = len(self.input_text)
+            self._pending_initial_text = None
+        else:
+            self.input_text = ""
+            self.input_cursor = 0
         self.slash_menu_open = False
         self.slash_menu_selection = 0
         self._reset_line_editor_state()
@@ -515,6 +542,181 @@ class ToolLoopTerminalUi:
         self.settings_dialog_selection = 0
         self.paint()
 
+    def set_input_text(self, text: str) -> None:
+        """Pre-fill the next ``read_line`` prompt with ``text``.
+
+        Used by ``/tree`` to rehydrate the editor with a selected user message
+        so the user can edit it into a new branch.
+        """
+
+        self._pending_initial_text = text
+
+    def run_tree_selector(
+        self,
+        *,
+        build_rows: Callable[[str], Sequence["TreeSelectorRow"]],
+        filter_modes: Sequence[str],
+        initial_filter: str,
+        on_label_toggle: Callable[[str], None],
+    ) -> str | None:
+        """Drive the interactive ``/tree`` selector; return a chosen entry id.
+
+        ``build_rows(filter_mode)`` returns the visible rows for a filter;
+        up/down move the highlight, ``Ctrl-O`` cycles the filter mode, ``L``
+        (Shift-L) toggles a label on the highlighted entry via
+        ``on_label_toggle``, ``Enter`` selects the highlighted entry, and
+        ``Esc``/``Ctrl-C``/``Ctrl-D``/EOF cancel. Runs no provider turn and no
+        model-visible tool call; the caller applies the chosen entry's
+        selection semantics afterward.
+        """
+
+        self.tree_selector_filter = (
+            initial_filter if initial_filter in filter_modes else filter_modes[0]
+        )
+        self.tree_selector_rows = tuple(build_rows(self.tree_selector_filter))
+        self.tree_selector_open = True
+        self.tree_selector_selection = self._initial_tree_selection()
+        self.paint()
+        fd = self.input_stream.fileno()
+        try:
+            self._enter_raw_mode()
+            while True:
+                key = self._read_key_polling_resize(fd)
+                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
+                    self._close_tree_selector()
+                    return None
+                if key == "paste":
+                    self._pending_paste = ""
+                    continue
+                if key in {"up", "down"}:
+                    self._navigate_tree_selector(key)
+                    continue
+                if key == "ctrl-o":
+                    position = list(filter_modes).index(self.tree_selector_filter)
+                    self.tree_selector_filter = filter_modes[
+                        (position + 1) % len(filter_modes)
+                    ]
+                    self.tree_selector_rows = tuple(
+                        build_rows(self.tree_selector_filter)
+                    )
+                    self.tree_selector_selection = self._initial_tree_selection()
+                    self.paint()
+                    continue
+                if key == "L":
+                    if 0 <= self.tree_selector_selection < len(
+                        self.tree_selector_rows
+                    ):
+                        entry_id = self.tree_selector_rows[
+                            self.tree_selector_selection
+                        ].entry_id
+                        on_label_toggle(entry_id)
+                        self.tree_selector_rows = tuple(
+                            build_rows(self.tree_selector_filter)
+                        )
+                        self.tree_selector_selection = min(
+                            self.tree_selector_selection,
+                            max(0, len(self.tree_selector_rows) - 1),
+                        )
+                        self.paint()
+                    continue
+                if key == "enter":
+                    if not self.tree_selector_rows:
+                        continue
+                    entry_id = self.tree_selector_rows[
+                        self.tree_selector_selection
+                    ].entry_id
+                    self._close_tree_selector()
+                    return entry_id
+        finally:
+            self._restore_terminal_mode()
+
+    def _initial_tree_selection(self) -> int:
+        """Default the highlight to the last active-path row, else the last row."""
+
+        active = [
+            index
+            for index, row in enumerate(self.tree_selector_rows)
+            if row.active
+        ]
+        if active:
+            return active[-1]
+        return max(0, len(self.tree_selector_rows) - 1)
+
+    def _navigate_tree_selector(self, key: str) -> None:
+        total = len(self.tree_selector_rows)
+        if total == 0:
+            return
+        delta = -1 if key == "up" else 1
+        self.tree_selector_selection = (
+            self.tree_selector_selection + delta
+        ) % total
+        self.paint()
+
+    def _close_tree_selector(self) -> None:
+        self.tree_selector_open = False
+        self.tree_selector_rows = ()
+        self.tree_selector_selection = 0
+        self.paint()
+
+    def _tree_selector_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        """Compose the interactive ``/tree`` selector overlay."""
+
+        footer = [
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        title = _FrameLine(
+            self._clip(
+                " Session tree — ↑/↓ move · enter select · L label · "
+                f"^O filter ({self.tree_selector_filter}) · esc cancel",
+                width,
+            ),
+            "selector_title",
+        )
+        rows_data = self.tree_selector_rows
+        max_rows = max(1, height - 4)
+        total = len(rows_data)
+        if total == 0:
+            return [
+                title,
+                _FrameLine(self._clip("  (empty session tree)", width), "normal"),
+                *footer,
+            ]
+        visible_count = min(total, max_rows)
+        start = max(
+            0,
+            min(
+                self.tree_selector_selection - (visible_count // 2),
+                max(0, total - visible_count),
+            ),
+        )
+        visible = rows_data[start : start + visible_count]
+        rows: list[_FrameLine] = []
+        for offset, row in enumerate(visible, start=start):
+            selected = offset == self.tree_selector_selection
+            prefix = "→ " if selected else "  "
+            marker = "*" if row.active else " "
+            kind = "selector_option_selected" if selected else "selector_option"
+            rows.append(
+                _FrameLine(
+                    self._clip(f"{prefix}{marker} {row.label}", width), kind
+                )
+            )
+        lines = [title, *rows]
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  ({self.tree_selector_selection + 1}/{total})", width
+                    ),
+                    "slash_menu_scroll",
+                )
+            )
+        lines.extend(footer)
+        return lines
+
     def close(self) -> None:
         self._restore_terminal_mode()
         self._remove_resize_handler()
@@ -726,12 +928,20 @@ class ToolLoopTerminalUi:
             history_lines.extend(
                 self._block_frame_lines("working", (self.working_text,), width=width)
             )
-        if self.settings_dialog_open or self.model_selector_open:
+        if (
+            self.settings_dialog_open
+            or self.model_selector_open
+            or self.tree_selector_open
+        ):
             # The overlay replaces the input/menu region; keep as much trailing
             # history as fits above it so render_lines() agrees with the paint()
             # live region.
             if self.settings_dialog_open:
                 selector = self._settings_dialog_region_lines(
+                    width=width, height=height
+                )
+            elif self.tree_selector_open:
+                selector = self._tree_selector_region_lines(
                     width=width, height=height
                 )
             else:
@@ -872,7 +1082,11 @@ class ToolLoopTerminalUi:
         # The selector/settings overlays have no editable input cell, so keep
         # the terminal cursor hidden (it was hidden at the top of the paint)
         # instead of parking and revealing it on a non-input row.
-        if not (self.model_selector_open or self.settings_dialog_open):
+        if not (
+            self.model_selector_open
+            or self.settings_dialog_open
+            or self.tree_selector_open
+        ):
             # Park on the cursor's column *within the visible (possibly
             # horizontally scrolled) input slice*, so the hardware cursor and
             # the drawn cursor cell agree for over-wide input.
@@ -905,6 +1119,8 @@ class ToolLoopTerminalUi:
 
         if self.settings_dialog_open:
             return self._settings_dialog_region_lines(width=width, height=height)
+        if self.tree_selector_open:
+            return self._tree_selector_region_lines(width=width, height=height)
         if self.model_selector_open:
             return self._model_selector_region_lines(width=width, height=height)
         menu_lines = self._slash_menu_frame_lines(
@@ -1589,6 +1805,8 @@ class ToolLoopTerminalUi:
             return "home"
         if ch == "\x05":
             return "end"
+        if ch == "\x0f":
+            return "ctrl-o"
         return ch
 
     def _read_escape_sequence(self, fd: int) -> str:

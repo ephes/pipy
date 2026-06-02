@@ -63,10 +63,21 @@ just sessions-sync
 On `studio`, the default remote is `atlas.tailde2ec.ts.net`. On `atlas`, the
 default remote is `studio.tailde2ec.ts.net`.
 
-Session records live outside git under `~/.local/state/pipy/sessions/`,
-with active records in `.in-progress/pipy/` and finalized records in
-`pipy/YYYY/MM/`. See [`docs/session-storage.md`](docs/session-storage.md) for
-the full lifecycle.
+Pipy keeps two local stores by design. The **native product session tree** is
+the product session source of truth for `pipy repl --agent pipy-native`: a
+private append-only JSONL conversation tree under
+`~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`, like Pi's own session
+files. It powers in-place `/tree` navigation, sibling branches, `/session`,
+`/name`, `/new`, `/resume`, `/fork`, `/clone`, durable `/compact`, branch
+summaries, and the startup flags `-c`/`-r`/`--session`/`--fork`/`--no-session`.
+The separate **`pipy-session` metadata archive** (active records in
+`.in-progress/pipy/`, finalized records in `pipy/YYYY/MM/` under
+`~/.local/state/pipy/sessions/`) is a summary-safe catalog/learning surface and
+is **not** the product session source. See
+[`docs/session-tree.md`](docs/session-tree.md) and
+[`docs/session-storage.md`](docs/session-storage.md) for the full lifecycle, and
+`scripts/parity_checks/session_tree_conformance.py --json` for the conformance
+gate.
 
 ## Pipy Run Harness
 
@@ -128,6 +139,28 @@ Optional:
   `deepseek-v4-flash`.
 - `--native-output json`: for `--agent pipy-native` only; emits a single
   metadata-only JSON status object instead of provider final text.
+
+Native product session-tree controls (Pi-style, `pipy repl`):
+
+- `-c`/`--continue`: continue the most recent native session for the workspace.
+- `-r`/`--resume-session`: open the native session at startup. The shipped
+  behavior continues the most recent native session; a full interactive
+  startup picker overlay is a deferred follow-on (use `/resume` in-session to
+  list, open, rename, or delete sessions).
+- `--session <path|id>`: open a specific native session file or partial id.
+- `--fork <path|id>`: fork a native session into a new one.
+- `--no-session`: ephemeral mode — no native session tree and no `pipy-session`
+  metadata record for the run.
+
+In a `pipy repl` session the slash commands `/session`, `/name <name>`, `/new`,
+`/tree`, `/resume`, `/fork`, and `/clone` operate on the native session tree.
+`/tree` opens an interactive in-frame selector in a TTY (movement, label with
+`L`, filter with `Ctrl-O`, select with Enter, cancel with Escape) and accepts
+scriptable `select`/`label`/`filter` subcommands in captured-stream mode.
+`/resume` lists/opens prior native sessions and supports `named`,
+`rename <ref> <name>`, and `delete <ref> --yes` (delete needs explicit
+confirmation, prefers the `trash` CLI, and never touches `pipy-session`
+records).
 
 ### Providers
 
@@ -230,11 +263,9 @@ The line-oriented mode also exposes these explicit commands:
 - `/ask-file <path> -- <question>` — forwards one bounded excerpt plus
   question to a single provider turn labeled `ask_file_repl`.
 - `/propose-file <path> -- <change-request>` — produces an in-memory
-  proposal draft. No write, no verify.
+  proposal draft. No write.
 - `/apply-proposal <path>` — consumes the same-session draft and invokes
   the `NativePatchApplyTool` on exactly one file.
-- `/verify just-check` — available only after a successful same-session
-  `/apply-proposal`; runs `just check` through `NativeVerificationTool`.
 
 `/read`, `/ask-file`, and `/propose-file` share a two-successful-excerpt
 budget per REPL session and never display approval prompts. Workspace

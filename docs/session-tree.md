@@ -1,6 +1,41 @@
 # Pi-Style Session Tree Workflow
 
-Status: target specification researched from local Pi reference on 2026-06-02.
+Status: **shipped** (2026-06-02). The native product session tree described
+below is implemented and is the product session source of truth for
+pipy-native. The deterministic conformance gate
+`scripts/parity_checks/session_tree_conformance.py --json` proves the full
+workflow end to end through the product runtime; see the Verification Plan at
+the end. This document remains the behavioral specification.
+
+Implementation map:
+
+- Native tree core: `src/pipy_harness/native/session_tree.py`
+  (`NativeSessionTree`, entry value objects, JSONL parse/write, `get_branch`,
+  `get_tree`, `build_context`, `fork_from`, `continue_recent`).
+- Command helpers: `src/pipy_harness/native/session_tree_commands.py`
+  (selection semantics, filters, rendering, `resolve_startup_session`).
+- Runtime wiring + `/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`,
+  `/clone`, durable `/compact`, branch summaries:
+  `src/pipy_harness/native/tool_loop_session.py`.
+- Live-TTY `/tree` selector: `ToolLoopTerminalUi.run_tree_selector` in
+  `src/pipy_harness/native/tui.py`.
+- CLI startup flags (`-c`/`-r`/`--session`/`--fork`/`--no-session`):
+  `src/pipy_harness/cli.py` (`_resolve_native_startup_session`), with
+  `--no-session` selecting `NullSessionRecorder` to suppress the metadata
+  archive record too.
+
+Deferred follow-ons (the rest of this spec is the behavioral *target*, and
+parts of the `/resume` surface below are not yet shipped):
+
+- The interactive `/resume` **picker overlay** (search, path toggle, sort
+  toggle, named-only filter, in-overlay rename/delete) and the `-r` interactive
+  **startup picker** are deferred. The shipped `/resume` surface is
+  captured-stream listing plus the `named`, `rename <ref> <name>`, and
+  `delete <ref> --yes` subcommands; `-r` currently continues the most recent
+  native session. The live interactive selector overlay ships for `/tree` only.
+- `/export` (HTML) and `/share` (gist) remain deferred as noted below.
+
+Original research basis (still accurate as the behavioral target):
 
 This document defines the pipy target for Pi-compatible `/tree` behavior. It is
 based on the local reference checkout at `/Users/jochen/src/pi-mono`, especially:
@@ -71,6 +106,16 @@ Startup/session CLI parity should map Pi's surfaces semantically:
 - `pi --session <path|id>`: open a specific native session file or partial id.
 - `pi --fork <path|id>`: fork a native session file or partial id into a new
   session.
+
+Startup flag constraints to match Pi:
+
+- `--fork` is mutually exclusive with `--session`, `-c`/`--continue`,
+  `-r`/`--resume`, and `--no-session`; combining them is a hard error
+  (`packages/coding-agent/src/main.ts:189-201`).
+- `--session <partial-id>` that resolves to a session in a *different* project
+  does not open it directly. Pi reports the other project and prompts the user
+  to fork the session into the current directory, aborting if declined
+  (`packages/coding-agent/src/main.ts:231-247`).
 
 Pipy command names may differ where the existing CLI requires it, but the
 product behavior should be equivalent and must use the native session store, not
@@ -144,6 +189,12 @@ Header:
 {"type":"session","version":1,"id":"uuid","timestamp":"2026-06-02T12:00:00Z","cwd":"/path/to/project","parentSession":"/optional/source.jsonl"}
 ```
 
+The `version` field above is a pipy-owned native-tree format version, not a
+claim of matching Pi's session-format number. Pi's current session format is
+version 3 (`packages/coding-agent/src/core/session-manager.ts:28`;
+`packages/coding-agent/docs/session-format.md:25`). pipy keeps its native tree
+as its own pipy-owned format and versions it independently.
+
 Every non-header entry has:
 
 - `type`
@@ -163,7 +214,10 @@ Minimum entry types:
 - `branch_summary`: summary created while leaving a branch through `/tree`.
 - `label`: user label for any entry, with undefined/empty label clearing it.
 - `session_info`: display name.
-- `custom` and `custom_message`: reserved for future extension parity.
+- `custom` and `custom_message`: active Pi entry types used by extensions
+  (`packages/coding-agent/src/core/session-manager.ts:129`;
+  `packages/coding-agent/src/core/agent-session.ts:511-516`). pipy should
+  support them once its extension API lands.
 
 The in-memory session manager keeps:
 
@@ -195,6 +249,14 @@ Rules to match Pi:
   `firstKeptEntryId` through the compaction boundary and all later active-branch
   messages.
 
+Not every `message` entry is provider-visible exactly as stored. The
+leaf->root context build (`buildSessionContext`) collects the active branch,
+but some entries are filtered later during LLM message conversion: for example
+a bash execution marked `excludeFromContext` is dropped in `convertToLlm`
+(`packages/coding-agent/src/core/messages.ts:141-170`), not inside the
+leaf->root walk. The walk/reverse/compaction description above is otherwise
+correct.
+
 The current in-memory compaction implementation can remain as the first
 provider-history reducer, but once native tree storage lands, `/compact` must
 append a real `compaction` entry so resumed/tree-navigation sessions rebuild the
@@ -214,11 +276,17 @@ Pi controls to preserve semantically:
 - Up/Down move selection;
 - Enter opens the selected native session;
 - Escape/Ctrl-C cancels;
+- Tab toggles current-project / all-sessions scope
+  (`packages/coding-agent/src/modes/interactive/components/session-selector.ts:170,792`);
 - Ctrl+P toggles path display;
 - Ctrl+S toggles sort mode;
 - Ctrl+N filters to named sessions;
 - Ctrl+R renames the selected session;
-- Ctrl+D deletes the selected session after confirmation.
+- Ctrl+D deletes the selected session after confirmation;
+- Ctrl+Backspace is a delete alias (keybinding
+  `app.session.deleteNoninvasive`), for terminals that distinguish it from
+  Backspace
+  (`packages/coding-agent/src/modes/interactive/components/session-selector.ts:578`).
 
 Deletion should match Pi's safety posture: use the `trash` CLI when available,
 and otherwise require explicit confirmation before removing the native session
@@ -270,8 +338,10 @@ Selecting a user message:
 3. Leave the editor editable; submitting it appends a new user entry from that
    parent, creating an alternative branch.
 
-Selecting a custom message follows the same parent-plus-editor behavior when it
-has text content.
+Selecting a custom message follows the same parent-plus-editor behavior for
+every `custom_message`. When the message has no text blocks, Pi seeds the
+editor with empty text rather than skipping the parent+editor path
+(`packages/coding-agent/src/core/agent-session.ts:2777-2785`).
 
 Selecting an assistant message, tool result, compaction, branch summary,
 model-change, label, or other non-user entry:
@@ -303,6 +373,13 @@ Attachment position:
   because the selected text goes back into the editor.
 - For a selected non-user entry, attach the summary to the selected entry.
 - For a root user message, attach at root (`parentId: null`).
+
+The summary is appended at the new (target) leaf via Pi's `branchWithSummary`
+(`packages/coding-agent/src/core/agent-session.ts:2797`;
+`packages/coding-agent/src/core/session-manager.ts:1188`). The
+`branch_summary.fromId` field stores the attachment id/root (the target the
+summary is branched from, `branchFromId ?? "root"`), not the abandoned old
+leaf. Do not read `fromId` as a pointer at the abandoned branch.
 
 If summarization is cancelled or fails, leave the session tree and leaf
 unchanged.
@@ -345,9 +422,13 @@ the conformance gate below passes.
    the product context source.
 4. `/session`, `/name`, `/new`, and native `/resume`: show safe current
    native-session status, persist session names, start a new session, and
-   browse/switch/open previous native product sessions for the workspace. The
-   `/resume` picker includes search, path toggle, sort toggle, named-only
-   filter, rename, and delete-with-confirmation behavior.
+   browse/switch/open previous native product sessions for the workspace.
+   Shipped `/resume` surface: captured-stream listing plus `named`,
+   `rename <ref> <name>`, and `delete <ref> --yes` (delete-with-confirmation)
+   subcommands. The richer interactive picker overlay (search, path toggle,
+   sort toggle, in-overlay rename/delete) and the `-r` interactive startup
+   picker are deferred target behavior, not shipped (see the Deferred
+   follow-ons note near the top).
 5. `/tree` selector UI: product-TUI overlay, filters/search/labels/folding,
    selection semantics, captured-stream local diagnostic, and real-PTY tests.
 6. Branch summary: abandoned-branch collection, provider summarizer,
@@ -382,9 +463,11 @@ verify that:
 5. `/session` reports safe current native-session status;
 6. `/name` persists a session name;
 7. `/new` starts a fresh native product session;
-8. `/resume` can switch/open a previous native product session and its picker
-   supports search, path toggle, sort toggle, named-only filter, rename, and
-   delete-with-confirmation behavior;
+8. `/resume` can switch/open a previous native product session, list named-only
+   sessions, rename a session, and delete one with confirmation (the shipped
+   captured-stream subcommands the conformance gate exercises); the richer
+   interactive picker overlay with search/path/sort toggles is deferred target
+   behavior;
 9. startup equivalents for Pi's `-c`, `-r`, `--no-session`, `--session`, and
    `--fork` behave semantically correctly, including `--no-session` suppressing
    both native session tree writes and `pipy-session` metadata records;
@@ -447,8 +530,9 @@ Focused tests should cover:
 - summary cancellation leaves entries and leaf unchanged;
 - label set/clear and labeled-only filter;
 - filter changes choose the nearest visible ancestor of the current leaf;
-- product-TUI `/tree` and `/resume` real-PTY flows at small and larger terminal
-  sizes;
+- product-TUI `/tree` real-PTY flows (movement, user-message rehydration,
+  non-user selection, Escape cancel, label toggle, filter cycle); the
+  interactive `/resume` real-PTY picker is deferred with that overlay;
 - `/new` and startup session flags create/open/fork/suppress native sessions as
   expected;
 - metadata archive privacy: no prompts, assistant text, tool payloads, file

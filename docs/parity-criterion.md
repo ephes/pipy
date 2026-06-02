@@ -1,14 +1,76 @@
-# Pi-Mono Parity Criterion (Locked 2026-05-25)
+# Pi-Mono Parity Criterion
 
-This document **locks in the hard, objective criterion** used to measure pipy's
-feature parity against `~/src/pi-mono` for the 80%-parity goal. It is
-deliberately reproducible: any reviewer or independent agent can re-run the
-verification commands and arrive at the same score.
+Status: the original 2026-05-25 80%-parity gate is complete and is now a
+legacy baseline. Future parity planning should use the post-baseline product
+surface matrix below plus the detailed specs in `docs/backlog.md`,
+`docs/pi-parity.md`, `docs/session-tree.md`, and `docs/extension-api.md`.
 
-The denominator is grounded in pi-mono's actual on-disk structure (its provider
-files, tool files, and documented subsystems) — not subjective rubrics.
+This document keeps two scores distinct:
 
-## Locked Feature List (50 features)
+1. **Legacy objective score** — the locked 50-row, script-verifiable baseline
+   used to prove that pipy had crossed the original 80% target.
+2. **Current product-surface stage** — a coarser map of the remaining Pi-class
+   product surfaces after that baseline is complete.
+
+## Current Stage (2026-06-02)
+
+`just parity-score` currently reports:
+
+```text
+Score: 50 / 50  (big features passed: 10)
+Status: PASS (>=40 features AND >=5 big features)
+```
+
+Interpretation: **Stage 1 — native baseline parity — is complete.** Pipy has a
+real native tool-loop runtime, all locked provider/tool/resource/session rows
+are green, and the old 80% target is no longer useful as the roadmap by itself.
+It does **not** mean full product parity with `~/src/pi-mono`; the remaining
+work is concentrated in larger product platforms that the locked denominator
+intentionally underweighted or excluded.
+
+## Post-Baseline Product Surface Matrix
+
+Use this matrix for future planning language. A row is `✅` only when pipy has a
+Pi-comparable user-facing workflow through pipy-owned boundaries. `🟡` means a
+real subset exists but important Pi behavior is still missing. `❌` means the
+feature is deferred or spec-only.
+
+| Surface | Pipy stage | Main source / notes |
+| --- | --- | --- |
+| Native runtime, providers, model-selected tools, streaming, resources, themes, image references | ✅ baseline complete | Covered by the legacy 50-row score and `docs/pi-parity.md`. |
+| Product TUI/editor workflow | 🟡 partial | Inline TUI, slash menu, `/settings`, `/model`, history, paste, undo/redo, resize, `/copy` ship. Still missing fuzzy `@` picker, richer path completion, clipboard/drag image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys/folding, queued steering/follow-up messages, richer overlays/selectors, mouse selection, and true provider-request cancellation. Needs a standalone spec. |
+| Full session-tree workflow | 🟡 specified, not implemented | Live resume/branch/compaction exist metadata-first. Pi-style full-history `/tree`, `/fork`, `/clone`, `/session`, branch summaries, labels, rich resume, HTML/share workflows require the private native session tree store specified in `docs/session-tree.md`. |
+| Extension/package platform | 🟡 draft spec, bounded runtime subset | Markdown skills/templates/custom commands and themes ship. Python extension API target is drafted in `docs/extension-api.md`; package install/update/list/config, dependency/security/update policy, provider registration, keybindings, and UI hooks remain open. |
+| Provider/model catalog | 🟡 partial | Thirteen native selections plus ds4/OpenRouter exist. Pi's broader model catalog, `models.json`, custom provider/model overrides, compat knobs, long-tail providers, GitHub Copilot/Anthropic subscription paths, and model-list update machinery remain unspecified for pipy. |
+| Settings/config/keybindings | 🟡 partial | Interactive `/settings` covers current local controls. Pi-style global/project `settings.json`, keybindings, reload/migration, scoped models, message delivery, transport, system-prompt files, resource enablement, and image settings need a spec. |
+| JSON/RPC automation | 🟡 partial | Pipy has `run`, metadata-only `--native-output json`, `--stream`, and an in-process Python SDK. Pi-style `--mode json`, stdin/stdout RPC protocol, prompt/steer/follow-up/abort commands, session switching, and event schemas need a spec. |
+| Export/share/distribution/package polish | ❌ mostly deferred | Pipy has metadata-only `pipy-session export`; Pi has HTML export, private gist share, package/self-update, changelog, documented npm/curl installs, and package config flows. |
+| Verification/project policy | ❌ not separately specified | The former pipy-specific `/verify just-check` command has been removed from the REPL because it was not a Pi slash command. Pi's comparable capability is broad model-visible `bash` plus extension-defined gates. Broader pipy verification policy needs its own spec and should not be scored as Pi parity without mapping it to a Pi user workflow. |
+| Multi-agent/orchestration/indexing | ❌ deferred | Mentioned in backlog only. Needs a target spec before implementation. |
+
+## Pipy-Specific Or Semantically Different Surfaces
+
+The following surfaces appear in pipy docs/backlog/specs but are not direct Pi
+features in `~/src/pi-mono`, or map only loosely to Pi behavior. Per the parity
+principle (`parity-plan.md` §1), a pipy-only surface is **removed or realigned to
+Pi** unless there is a genuinely good reason to keep it — privacy and security
+are not good reasons. The full rationale and actions are in
+[parity-plan.md](parity-plan.md) §3; this table is the criterion-side summary.
+These surfaces are kept out of Pi-parity scoring, but "keep out of scoring" no
+longer means "keep the surface."
+
+| Pipy surface | Pi comparison | Action |
+| --- | --- | --- |
+| Former `/verify just-check` REPL command | No built-in Pi `/verify` slash command in `packages/coding-agent/src/core/slash-commands.ts`. Pi verifies through the `bash` tool + extension gates. | Removed (done). Any future project verification needs its own spec mapped to a Pi workflow. |
+| `/read`, `/ask-file`, `/propose-file`, `/apply-proposal` | Pi exposes model-visible `read`/`edit`/`write`/`bash` tools rather than this human-reviewed proposal/apply flow. | **Remove** with the no-tool REPL; consolidate onto the model-visible tools (Track CQ-A slice 10, CQ-D slice 1). |
+| Metadata-first `pipy-session list/search/inspect/verify/export/resume-info` archive | Pi's durable product session is a full private JSONL tree under its own session store. | **Demote** to an optional, non-default catalog utility. The full-transcript native session tree (`docs/session-tree.md`) is the product store. Privacy/learning is not a reason to keep it as the default. |
+| `--archive-transcript` sidecar | Pi stores full sessions natively. | **Retire** once the native session tree stores full transcripts. |
+| `--native-output json` (metadata-only) | Pi has `--mode json` full-event output. | **Replace** with Pi's `--mode json`/`--mode rpc` (`docs/automation-rpc.md`). |
+| `ds4` local provider (hardcoded) | Not a Pi built-in; Pi supports local/custom models via `models.json`. | **Reframe** as a `models.json` custom-provider preset (`docs/provider-catalog.md`). |
+| Pipy-specific archive sync/reflect/learning guidance | Not a Pi feature. | Keep out of parity scope entirely; optional pipy utility at most, never a default that shapes the product session model. |
+| Code-quality audit tracks CQ-A..F | pipy cleanup, not Pi features. | Keep as engineering hygiene backlog, separate from feature parity. |
+
+## Legacy 80% Gate: Locked Feature List (50 features)
 
 For each feature: `STATUS` is one of `✅ done`, `🟡 partial`, `❌ missing`.
 `VERIFY` is the shell command(s) that decide the status; a feature is `✅` only
@@ -114,26 +176,27 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
 | E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
-## Scoring
+## Legacy Gate Scoring
 
+```text
+✅ count / 50 = legacy parity %
+
+current ✅ count (2026-06-02, verified with `just parity-score`): 50
+target  ✅ count for original 80% parity gate:                         40
+delta beyond original 80% target:                                      +10
+big features passed:                                                    10
 ```
-✅ count / 50 = parity %
 
-current ✅ count (2026-05-30, after wiring live themes/attachments/provider-swap): 49
-target  ✅ count for 80% parity:                                              40
-delta beyond 80% target:                                                      +9
-```
-
-All 50 rows are green; B7 (bash) is a real shell matching Pi. D7
-(themes), D8 (image attachments), and E5 (dynamic provider swap) are now ✅
-as **behavior checks** that exercise the real product paths: D7 drives a
-`/theme` switch and proves the rendered palette changes while NO_COLOR/TTY
-fallback is preserved; D8 drives an `@image:` prompt and proves the image
-reaches the provider as a native multimodal block while the archive keeps
-only safe metadata; E5 drives a `/model` switch through both REPLs via
-`NativeReplProviderState`. E2 (session compaction) and E3 (session
-branching) are ✅ as **behavior checks** that seed temporary records and
-prove the live `/compact`/`--branch` product paths.
+All 50 legacy rows are green; B7 (bash) is a real shell matching Pi. D7
+(themes), D8 (image attachments), and E5 (dynamic provider swap) are ✅ as
+**behavior checks** that exercise the real product paths: D7 drives a `/theme`
+switch and proves the rendered palette changes while NO_COLOR/TTY fallback is
+preserved; D8 drives an `@image:` prompt and proves the image reaches the
+provider as a native multimodal block while the archive keeps only safe
+metadata; E5 drives a `/model` switch through both REPLs via
+`NativeReplProviderState`. E2 (session compaction) and E3 (session branching)
+are ✅ as **behavior checks** that seed temporary records and prove the live
+`/compact`/`--branch` product paths.
 
 D4 (skills), D5 (prompt templates), and D6 (custom slash commands) were
 red after the 2026-05-26 audit cleanup removed their dormant helper
@@ -171,25 +234,27 @@ All 50 rows are green. B7 (bash) uses a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from the
 production registry and proves it is a real shell matching Pi (a plain command
 runs, a pipeline runs, `.git` is readable, and a non-zero exit is surfaced as a
-normal observation). The `/verify just-check` boundary still runs through the
-allowlisted `command_sandbox` executor.
+normal observation). The former `/verify just-check` REPL command has been
+removed; the legacy verification module is no longer part of the user-facing
+parity surface.
 
 ## How To Verify
 
-Run this script after each work session to recompute the score:
+Run this script to recompute the legacy score:
 
 ```sh
 just parity-score
 ```
 
 The `just parity-score` recipe re-runs the per-row `Verify` commands and
-counts how many succeed. The pass bar is **40 ✅ out of 50** with the
-constraint that **at least 5 of the implementations must be
-"big" features** (one of: anthropic provider, google provider, streaming
-output, session resume, session compaction, retry/backoff with real HTTP
-error injection tests, mistral provider, bedrock provider, dynamic provider
-swap). This anti-gaming rule prevents reaching 80% by only adding trivial
-helpers.
+counts how many succeed. The historical pass bar is **40 ✅ out of 50** with
+the constraint that **at least 5 of the implementations must be "big" features**
+(one of: anthropic provider, google provider, streaming output, session resume,
+session compaction, retry/backoff with real HTTP error injection tests, mistral
+provider, bedrock provider, dynamic provider swap). This anti-gaming rule
+prevented reaching 80% by only adding trivial helpers. The current legacy score
+is expected to stay **50/50**; regressions are still useful, but new roadmap
+work should be evaluated against the post-baseline product surface matrix.
 
 The `bash` tool (B7) is a registered big feature. It is a real shell matching
 Pi's bash tool (`pipy_harness.native.tools.bash`): it spawns `bash -c
@@ -198,9 +263,9 @@ optional timeout (the whole process group is killed on expiry), streams the
 combined stdout/stderr back as it is produced, and returns a bounded tail.
 Pipes, redirection, command substitution, globbing, chaining, and any
 executable on `PATH` are allowed. Only metadata (counters, labels) crosses the
-archive boundary — never the raw command or output. (The separate
-`/verify just-check` boundary still runs through the allowlisted
-`command_sandbox` executor.) B7's Verify command is a behavior check
+archive boundary — never the raw command or output. (The former separate
+`/verify just-check` REPL command has been removed from the user-facing
+surface.) B7's Verify command is a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from
 `production_tool_registry` and proves it runs a plain command, a real-shell
 pipeline, a `.git` read, and surfaces a non-zero exit as a normal observation;
@@ -242,20 +307,20 @@ For the anti-gaming bar:
 A "big" feature can ONLY count toward the anti-gaming bar after both:
 (a) its Verify command passes, and (b) `just check` is green with its tests.
 
-## What Is Explicitly Out Of Scope For The 80% Target
+## What Was Explicitly Out Of Scope For The Original 80% Target
 
-These pi-mono features are **excluded from the denominator** because they
-depend on prerequisites pipy has deliberately not built (and the user did not
-ask us to rebuild the prerequisite):
+These pi-mono features were **excluded from the legacy denominator** because
+they depended on larger product prerequisites, Python-vs-TypeScript differences,
+or explicit product choices. They are now represented in the post-baseline
+matrix where appropriate:
 
-- TUI keybindings, kill-ring, undo-stack, terminal-image (require full TUI
-  rewrite — pipy is line-oriented by design)
-- Extension package loading from npm-style registries (pipy is Python)
-- TypeScript SDK (pipy is Python)
-- Browser smoke tests (no browser surface in pipy)
-
-If the user later requests these, they'd be added back and the denominator
-would grow.
+- Deep TUI keybindings, kill-ring, rich selectors/overlays, terminal images,
+  mouse selection, and custom extension UI.
+- Extension package loading from npm-style registries. Pipy's future equivalent
+  is Python-only and still needs a package/security/update policy.
+- TypeScript SDK compatibility. Pipy has an in-process Python SDK; TypeScript
+  source/binary compatibility is not a goal.
+- Browser smoke tests (no browser surface in pipy).
 
 ## Architectural Constraints Retained
 

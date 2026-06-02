@@ -42,7 +42,6 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/ask-file",
     "/propose-file",
     "/apply-proposal",
-    "/verify",
     "/exit",
     "/quit",
 )
@@ -63,7 +62,6 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/ask-file": "Ask provider about a file (read-only)",
     "/propose-file": "Propose a patch for a file",
     "/apply-proposal": "Apply the pending proposal",
-    "/verify": "Run a pre-approved verification",
     "/exit": "Exit the REPL",
     "/quit": "Exit the REPL (alias)",
 }

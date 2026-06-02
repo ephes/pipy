@@ -178,7 +178,7 @@ def test_live_repl_tab_completion_surfaces_slash_command_menu(pipy_cli, tmp_path
     # Tab should at minimum complete the common prefix `/`, and a second
     # Tab should expose multiple slash commands. We check for several
     # canonical names that must appear in the menu output.
-    expected = ("/help", "/read", "/model", "/verify", "/exit")
+    expected = ("/help", "/read", "/model", "/apply-proposal", "/exit")
     found = [name for name in expected if name in captured]
     assert len(found) == len(expected), (
         f"missing slash commands in Tab menu: have {found}; output={captured!r}"

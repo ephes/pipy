@@ -51,7 +51,11 @@ from pipy_harness.native.provider_registry import (
     native_provider_spec,
 )
 from pipy_harness.native.workspace_context import default_workspace_instruction_loader
-from pipy_harness.runner import HarnessRunner
+from pipy_harness.runner import (
+    FileSessionRecorder,
+    HarnessRunner,
+    NullSessionRecorder,
+)
 
 
 STREAMING_NATIVE_PROVIDERS = frozenset({"openai-codex", "fake"})
@@ -199,8 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
             "model-driven tool loop when the selected provider advertises "
             "supports_tool_calls=True and falls back to the existing "
             "line-oriented REPL otherwise. no-tool forces the existing REPL "
-            "with /read, /ask-file, /propose-file, /apply-proposal, and "
-            "/verify just-check. tool-loop forces the bounded tool loop and "
+            "with /read, /ask-file, /propose-file, and /apply-proposal. "
+            "tool-loop forces the bounded tool loop and "
             "errors out when the provider is not tool-capable."
         ),
     )
@@ -253,6 +257,58 @@ def build_parser() -> argparse.ArgumentParser:
             "The child records safe parent id, branch label, fork timestamp, "
             "and relationship metadata; the parent record stays immutable. "
             "Requires --resume."
+        ),
+    )
+    # Native product session-tree startup controls (Pi-style). These select
+    # the durable native session under the native-session store; ``pipy-session``
+    # remains a separate metadata archive and is never the product source.
+    repl_parser.add_argument(
+        "-c",
+        "--continue",
+        dest="continue_recent",
+        action="store_true",
+        help=(
+            "Continue the most recent native product session for this workspace "
+            "(Pi `-c`). Creates a fresh native session when none exists."
+        ),
+    )
+    repl_parser.add_argument(
+        "-r",
+        "--resume-session",
+        dest="resume_picker",
+        action="store_true",
+        help=(
+            "Open the native product session at startup (Pi `-r`). In a TTY this "
+            "is the interactive picker; otherwise it continues the most recent "
+            "native session."
+        ),
+    )
+    repl_parser.add_argument(
+        "--session",
+        dest="session_target",
+        metavar="PATH_OR_ID",
+        help=(
+            "Open a specific native product session file or partial id "
+            "(Pi `--session`)."
+        ),
+    )
+    repl_parser.add_argument(
+        "--fork",
+        dest="fork_target",
+        metavar="PATH_OR_ID",
+        help=(
+            "Fork a native product session file or partial id into a new native "
+            "session (Pi `--fork`)."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-session",
+        dest="no_session",
+        action="store_true",
+        help=(
+            "Ephemeral mode (Pi `--no-session`): do not create or write a native "
+            "session tree, and suppress the pipy-session metadata archive record "
+            "for this run."
         ),
     )
 
@@ -348,6 +404,10 @@ def main(argv: list[str] | None = None) -> int:
                 native_provider=args.native_provider,
                 native_model=args.native_model,
             )
+            # Resolve the Pi-style native product session for this run from the
+            # startup flags. ``pipy-session`` is a separate metadata archive and
+            # is never the product session source.
+            native_session = _resolve_native_startup_session(args)
             if resolved_repl_mode == "tool-loop":
                 if args.tool_budget < 1 or args.tool_budget > 200:
                     raise ValueError(
@@ -367,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
                     reference_roots=reference_roots,
                     resume_context=resume_context,
                     resume_branch_label=resume_branch_label,
+                    native_session=native_session,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -388,7 +449,12 @@ def main(argv: list[str] | None = None) -> int:
                 native_model=args.native_model,
                 resume=resume_lineage,
             )
-            result = HarnessRunner(adapter=repl_adapter).run(request)
+            repl_recorder = (
+                NullSessionRecorder() if args.no_session else FileSessionRecorder()
+            )
+            result = HarnessRunner(
+                adapter=repl_adapter, recorder=repl_recorder
+            ).run(request)
             if result.error_type is not None:
                 detail = f": {result.error_message}" if result.error_message else ""
                 print(
@@ -702,6 +768,7 @@ def _tool_repl_adapter_for(
     reference_roots: tuple[Path, ...] = (),
     resume_context: Any = None,
     resume_branch_label: str | None = None,
+    native_session: Any = None,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -739,7 +806,34 @@ def _tool_repl_adapter_for(
         reference_roots=reference_roots,
         resume_context=resume_context,
         resume_branch_label=resume_branch_label,
+        native_session=native_session,
     )
+
+
+def _resolve_native_startup_session(args: Any) -> Any:
+    """Build the native product session tree for a ``pipy repl`` run.
+
+    Maps the Pi-style startup flags to a native session, preferring the most
+    specific flag: ``--no-session`` > ``--session`` > ``--fork`` >
+    ``--continue/-c`` > ``--resume-session/-r`` > default (new session).
+    """
+
+    from pipy_harness.native.session_tree_commands import resolve_startup_session
+
+    cwd = args.cwd.expanduser().resolve()
+    if getattr(args, "no_session", False):
+        mode, target = "none", None
+    elif getattr(args, "session_target", None):
+        mode, target = "session", args.session_target
+    elif getattr(args, "fork_target", None):
+        mode, target = "fork", args.fork_target
+    elif getattr(args, "continue_recent", False):
+        mode, target = "continue", None
+    elif getattr(args, "resume_picker", False):
+        mode, target = "resume", None
+    else:
+        mode, target = "new", None
+    return resolve_startup_session(cwd, mode=mode, target=target)
 
 
 PIPY_READ_ROOTS_ENV = "PIPY_READ_ROOTS"

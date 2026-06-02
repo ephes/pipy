@@ -6,8 +6,18 @@ local Pi reference in `/Users/jochen/src/pi-mono`.
 Pipy is a Python slopfork inspired by Pi. The goal is Pi-class local
 coding-agent usefulness — including the terminal UI — through pipy-owned
 Python boundaries. It is not a literal port of Pi's TypeScript packages,
-storage model, extension system, or command names: pipy slopforks the same
-end-user capability into Python, not the TypeScript code itself.
+extension system, or command names: pipy slopforks the same end-user
+capability into Python, not the TypeScript code itself.
+
+**Parity stance (2026-06-02):** real parity means Pi-equivalent *behavior*,
+including Pi's storage and output model. Where this doc previously framed pipy's
+"metadata-first" archive as a deliberate divergence, that framing is retired:
+the metadata-only archive is a pipy-specific layer, not a parity virtue, and is
+not a reason to diverge from Pi. The full-transcript native session tree
+(`docs/session-tree.md`) is the product session store, and full session content
+is streamed (`docs/automation-rpc.md`) and exported (`docs/export-distribution.md`)
+like Pi. See [parity-plan.md](parity-plan.md) for the full plan and the list of
+accidental pipy-only surfaces being removed or realigned.
 
 ## What Has Been Slopforked
 
@@ -43,7 +53,7 @@ Status labels are intentionally coarse:
 | Provider-visible file context | Implemented for user-directed `@file`; `/ask-file` partial | `/ask-file <path> -- <question>` forwards one bounded excerpt only in memory to one provider turn and consumes one successful excerpt from the shared REPL budget. Separately, a genuine user prompt that names workspace files with `@path` loads bounded UTF-8 excerpts into the next provider request in both `pipy repl --agent pipy-native` and `--repl-mode tool-loop` (and the product TUI), de-duping references and resolving through the same bounded reader as `/read`/the model-selected `read` tool (workspace-relative in the no-tool REPL, matching its other reads; workspace plus `--read-root` reference roots in tool-loop, where read-roots are configured), so missing/ignored/binary/oversized/secret-shaped/out-of-workspace paths fail closed with safe local diagnostics while the user's literal prompt is preserved; only safe counters reach the archive. |
 | Proposal flow | Partial | `/propose-file <path> -- <change-request>` forwards one bounded excerpt, consumes one successful excerpt from the shared REPL budget, and can retain a same-session proposal draft. |
 | Write/edit capability | Implemented in bounded tool loop | `/apply-proposal <path>` applies one same-session, human-reviewed, one-file proposal through `NativePatchApplyTool`. The model-driven tool loop now also exposes bounded `write`, `edit`, and `edit_diff` tools. |
-| Verification after changes | Narrow first slice | `/verify just-check` runs only the allowlisted internal `just check` command after a successful same-session apply. |
+| Verification after changes | Not a separate Pi-parity feature | The former pipy-specific `/verify just-check` no-tool REPL command was removed because Pi has no matching built-in slash command; Pi-style verification happens through model-visible `bash` and future extension/project policy. |
 | Session records | Different foundation implemented | Pipy writes metadata-first JSONL plus optional Markdown under `~/.local/state/pipy/sessions`; Pi stores full tree sessions under its own agent state. |
 | Search/inspect | Implemented for pipy records | `pipy-session list/search/inspect/export/resume-info/verify` operates over finalized metadata records, not full transcripts, and now surfaces safe resume/branch/compaction metadata read-only (lineage relationship + branch label in `list`; relationship, parent id, and `compaction_event_count` in `inspect`; a `resume` lineage object and `compaction_event_count` in `export`; branch/parent/compaction fields in `resume-info`). All catalog commands reject malformed, ambiguous, symlinked, active (`.in-progress`), or out-of-archive records without printing raw event bodies or unsafe labels. The `reflect` surface was removed in the 2026-05-26 code-quality audit cleanup. See backlog Track CQ-A. |
 | Print-like one-shot mode | Partial | `pipy run --agent pipy-native` runs one native turn; default stdout is successful final text only, and `--native-output json` gives metadata-only automation output. |
@@ -63,7 +73,9 @@ Status labels are intentionally coarse:
 ## Still To Slopfork
 
 The locked 50-feature parity criterion (see `docs/parity-criterion.md`) is now
-50/50 with 10 big features green. D4 (skills loading), D5 (prompt templates),
+a **legacy baseline**: 50/50 with 10 big features green. Future roadmap work
+uses the post-baseline product-surface matrix in that document plus the gap
+list below, not the completed 80% score alone. D4 (skills loading), D5 (prompt templates),
 and D6 (custom slash commands) went green earlier: the discovery helpers were
 reintroduced **with** a runtime consumer (`pipy_harness.native.resources`)
 wired into both REPL product paths, and their parity-score checks were
@@ -76,6 +88,18 @@ product paths, and their parity-score rows were rewritten from file-existence
 rubber-stamps to behavior checks that seed temporary records and prove the
 runtime behavior (`scripts/parity_checks/compaction_behavior.py` and
 `scripts/parity_checks/branching_behavior.py`).
+
+The Pi-style **native product session tree** now ships as the product session
+source of truth for pipy-native (see [session-tree.md](session-tree.md)). A
+private append-only JSONL store under
+`~/.local/state/pipy/native-sessions/--<encoded-cwd>--/<timestamp>_<uuid>.jsonl`
+holds the raw conversation tree; `/session`, `/name`, `/new`, `/tree`,
+`/resume`, `/fork`, `/clone`, durable `/compact`, branch summaries, and the
+startup flags `-c`/`-r`/`--session`/`--fork`/`--no-session` all read and write
+it through the product runtime. `pipy-session` remains a separate metadata-only
+archive and is **not** the product session source. The deterministic
+conformance gate `scripts/parity_checks/session_tree_conformance.py --json`
+proves the full workflow end to end.
 All 50 rows are ✅. B7 (`bash`) is green as a real shell matching Pi (arbitrary
 commands in the workspace, combined bounded output, optional timeout); D7
 (themes), D8 (image
@@ -111,7 +135,7 @@ remain Pi-class surfaces that pipy has not yet closed:
   socket transport, or wire protocol remains explicitly deferred).
 - Provider registry and broad provider/model catalog.
 - Cost/context/token footer behavior beyond safe usage counters.
-- Non-allowlisted verification.
+- Project-defined verification policy beyond the Pi-style `bash`/extension-gate workflow.
 
 ## Architecture Differences From Pi
 
@@ -175,14 +199,14 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
 | Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
 | UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Product tool-loop sessions use a pipy-owned inline-scrollback TUI (committed history in native scrollback, live input/footer frame pinned at the bottom, full window height) with prompt/footer ownership, slash menu, submitted prompt bands, tool rows, active assistant output, active-Escape abort rendering, an interactive `/settings` control dialog, an interactive `/model` provider/model selector, executable `/login`/`/logout`, and daily-driver editor ergonomics (prompt history with optional persistent cross-session recall, bracketed paste, undo/redo, resize handling). The no-tool REPL remains line-oriented with compact startup chrome, grouped help, `/status`, `/settings`, a state-aware prompt label, and an optional prompt-toolkit input adapter with command/path completion, `@file` reference labels, and multiline entry. The `@file` completion inserts labels in the editor; separately, accepted or typed `@path` references in a submitted prompt now load bounded excerpts into the provider request (see "Provider-visible file context"). Broader selectors/overlays and extension UI remain deferred. |
-| Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Immutable metadata-first JSONL plus Markdown summaries under `pipy/YYYY/MM`. Live resume (`--resume`), branch/fork (`--branch`), and in-session compaction (`/compact` + auto threshold) ship through pipy-owned boundaries: a fresh child record is seeded from the metadata-only `ResumeContext`, the parent record stays immutable, and only safe lineage/compaction metadata is recorded. Pi-style mutable session-tree navigation remains missing, and the target redesign is specified in [session-tree.md](session-tree.md). |
+| Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Two stores by design. The Pi-style **native product session tree** (`pipy_harness.native.session_tree`, private append-only JSONL under `~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`) is the product session source of truth: full conversation history with parent links, in-place `/tree` navigation, sibling branches, `/fork`/`/clone`, durable `/compact` entries, branch summaries, labels, naming, and `-c`/`-r`/`--session`/`--fork`/`--no-session` startup flags. The separate metadata-first `pipy-session` archive (immutable JSONL + Markdown summaries under `pipy/YYYY/MM`) stays a summary-safe catalog/learning surface and is **not** the product session source; it records only safe lineage/compaction counters. The full behavior and the conformance gate are specified in [session-tree.md](session-tree.md). |
 | Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, `truncate`, and `bash` behind `pipy repl --repl-mode tool-loop`; `bash` is a real shell matching Pi (arbitrary commands in the workspace, combined bounded output, optional timeout), with only metadata recorded at the archive boundary. See the [Tool-Loop Parity Track](backlog.md#tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Thirteen native provider selections behind `ProviderPort` and `provider_registry`: fake, local ds4 (`deepseek-v4-flash` via OpenAI-compatible Chat Completions with tool-loop support), OpenAI Responses, OpenAI Chat Completions, OpenAI Codex OAuth, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, and custom slash commands now load at runtime from pipy-owned `.pipy/skills`, `.pipy/templates`, and `.pipy/commands` stores (workspace + global) through `pipy_harness.native.resources`, wired into both REPL product paths; the `[Skills]` chrome section lists the loadable skill names a user can run with `/skill`. Chrome color themes also ship through `/theme` (`pipy_harness.native.themes`). A general extension/package loader and runtime UI hooks remain deferred until a consumer exists. This is deliberately **not** a general extension API — only the bounded resource kinds and the theme palette load, through the existing provider/session/tool/archive boundaries. |
 | Privacy posture | Full Pi sessions are native product transcripts. | Pipy archive is metadata-first and excludes prompts, model output, provider payloads, file contents, command output, and auth material by default. |
 | External agent wrapping | Pi is itself the product. | Pipy can wrap external CLIs for conservative capture, but external wrappers are not the product runtime. |
-| Verification | Pi exposes broad bash/tool capability. | Pipy exposes only `/verify just-check` after successful same-session apply. |
+| Verification | Pi exposes broad bash/tool capability. | Pipy now relies on the Pi-style model-visible `bash` tool for verification-like workflows; a separate project-defined verification policy remains future work. |
 
 Pi's README describes `read`, `write`, `edit`, and `bash` as the default model
 tools. The Pi codebase also includes additional tool modules such as `find`,

@@ -7,6 +7,17 @@ level. It is not a full issue tracker. Use it to choose the next small,
 reviewable change while keeping the source-of-truth design constraints in
 `docs/harness-spec.md` and `docs/session-storage.md`.
 
+**The parity roadmap lives in [parity-plan.md](parity-plan.md).** That document
+is the single clear plan for reaching real feature parity with Pi: the
+slash-command and CLI matrices, the list of accidental pipy-only surfaces to
+remove or realign (§3 there, mirrored in `Parity Cleanup` below), and the index
+of per-topic specs with their conformance gates. Read it first. The big-topic
+specs it indexes are [session-tree.md](session-tree.md),
+[extension-api.md](extension-api.md), [provider-catalog.md](provider-catalog.md),
+[settings-config.md](settings-config.md), [automation-rpc.md](automation-rpc.md),
+[tui-workflow.md](tui-workflow.md), and
+[export-distribution.md](export-distribution.md).
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
@@ -170,22 +181,23 @@ not a promise to skip review when a smaller, safer slice appears.
    below); the `[Skills]` chrome now lists loadable skill names from the real
    loader. A general extension/package loader, theme registration, and UI hooks
    remain deferred and are intentionally **not** built as part of that track.
-5. Session workflows. The existing metadata-first `pipy-session` archive is a
-   useful learning/catalog surface, but it is not sufficient as pipy's product
-   session store. Pi-compatible product resume and `/tree` require a raw private
-   native session tree like Pi's `~/.pi/agent/sessions/...` files. The next
-   session-workflow target is therefore the full native session tree bug fix and
-   parity track: product sessions must persist raw user/assistant/tool history,
-   rebuild provider context from the active branch, and expose `/session`,
-   `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable `/compact`,
-   Pi-style startup session entry, and branch summaries through pipy-owned
-   boundaries. The target design and conformance gate are in
-   [session-tree.md](session-tree.md).
-6. Tool breadth and verification. The bounded multi-step loop is real and the
+5. Session workflows — **shipped (2026-06-02)**. The native product session
+   tree (`pipy_harness.native.session_tree`) is now pipy's product session
+   store, a raw private append-only JSONL tree like Pi's
+   `~/.pi/agent/sessions/...` files. Product sessions persist raw
+   user/assistant/tool history, rebuild provider context from the active
+   branch, and expose `/session`, `/name`, `/new`, `/tree`, `/resume`,
+   `/fork`, `/clone`, durable `/compact`, Pi-style startup session entry, and
+   branch summaries through pipy-owned boundaries. The existing metadata-first
+   `pipy-session` archive stays a separate learning/catalog surface and is not
+   the product session source. Design, behavior, and the passing conformance
+   gate are in [session-tree.md](session-tree.md).
+6. Tool breadth and project policy. The bounded multi-step loop is real and the
    model-visible `bash` tool is now a real shell matching Pi (arbitrary
-   commands, combined bounded output, optional timeout, streamed live); the
-   remaining gap is broader verification than `/verify just-check` and
-   additional model-visible tools or policies inside the existing loop.
+   commands, combined bounded output, optional timeout, streamed live). The
+   former pipy-specific `/verify just-check` REPL command has been removed; any
+   future project-defined verification policy needs its own spec and should map
+   to Pi's broad `bash`/extension-gate workflow rather than a Pi slash command.
 7. User-directed context and attachments. Workspace instruction files are
    auto-loaded into the system prompt, repeated bounded file reads can load
    multiple text files across turns, and user-directed `@file` references in a
@@ -225,20 +237,24 @@ slice-selection aid for the highest-impact remaining product gaps.
    execution model, and security/update story remain the largest platform gap.
    The Python-only, Pi-shaped semantic-compatibility target API is sketched in
    [extension-api.md](extension-api.md).
-2. Full session-tree workflow. Pi stores full raw JSONL product session trees
-   with parent links and exposes `/tree`, `/fork`, `/clone`, `/session`,
-   selectors, labels, filters, HTML export, and share-oriented workflows. Pipy's
-   current product resume path is still based on metadata-only archive records;
-   that is a product bug for Pi-style workflows, not just a missing UI command.
-   The selected fix is a private native product session tree store that contains
-   the raw conversation needed for resume/context reconstruction, while
-   `pipy-session` remains a separate metadata/catalog utility. Still missing is
-   full-history tree navigation, in-place branch switching, `/new`, startup
-   session entry (`-c`, `-r`, `--no-session`, `--session`, `--fork` semantics),
-   branch cloning from arbitrary prior messages, rich native session selection
-   with rename/delete controls, durable compaction replay, branch summaries,
-   HTML export, and share/upload flow. The researched target spec and
-   conformance gate are in [session-tree.md](session-tree.md).
+2. Full session-tree workflow — **shipped (2026-06-02)**. Pipy now has a
+   private native product session tree store
+   (`pipy_harness.native.session_tree`) that is the product session source of
+   truth, replacing the metadata-only product-resume path. Full-history tree
+   navigation (`/tree` with selection semantics, filters, labels, live-TTY
+   selector), in-place branch switching with sibling branches, `/session`,
+   `/name`, `/new`, native `/resume`, `/fork`, `/clone`, durable `/compact`
+   replay, branch summaries, and the startup flags `-c`/`-r`/`--no-session`
+   (suppresses native + `pipy-session` records)/`--session`/`--fork` all ship
+   through the product runtime. `pipy-session` remains a separate
+   metadata/catalog utility. The deterministic conformance gate
+   `scripts/parity_checks/session_tree_conformance.py --json` proves the full
+   workflow. Remaining Pi follow-ons (explicitly deferred): the interactive
+   `/resume` picker overlay (search/path/sort toggles, in-overlay
+   rename/delete) and the `-r` interactive startup picker — the shipped
+   `/resume` surface is captured-stream listing plus `named`/`rename`/`delete
+   --yes`; `/export` HTML export; and `/share`/gist upload. Spec and gate:
+   [session-tree.md](session-tree.md).
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
    history, bracketed paste, undo/redo, resize handling, `/copy`, typed
@@ -272,11 +288,58 @@ slice-selection aid for the highest-impact remaining product gaps.
    Pipy remains a local `uv`-driven project with narrower local state controls
    and metadata-only archive export. These are product-readiness gaps rather
    than core runtime gaps.
-7. Verification breadth and policy. Pipy has bounded model-visible `bash` and
-   the supervised `/verify just-check` command. Pi's broader shell/tool posture
-   plus extension-defined permission gates make richer verification workflows
-   possible. Pipy still needs an explicit design before adding non-allowlisted
-   verification commands or project-defined verification policy.
+7. Verification breadth and policy. Pipy now relies on bounded model-visible
+   `bash` for Pi-style verification-like workflows. The former supervised
+   `/verify just-check` command was removed because it is not a Pi feature.
+   Pi's broader shell/tool posture plus extension-defined permission gates make
+   richer verification workflows possible. Pipy still needs an explicit design
+   before adding project-defined verification policy.
+
+## Parity Cleanup: accidental pipy-only surfaces to remove or realign
+
+These surfaces exist only in pipy and not in Pi. Per the parity principle
+(`parity-plan.md` §1), a pipy-only surface is removed or realigned to Pi unless
+there is a genuinely good reason to keep it — **privacy and security are not good
+reasons.** Pi stores full session transcripts, streams full session events, and
+exports full sessions; pipy's "metadata-first" posture is a pipy preference, not
+a parity virtue, and must not justify diverging from Pi. The full table with
+rationale is in [parity-plan.md](parity-plan.md) §3; the actionable removals are:
+
+- **Metadata-first `pipy-session` archive as the product session store.**
+  **Resolved (2026-06-02).** The full-transcript native session tree
+  ([session-tree.md](session-tree.md)) is now the product store; `pipy-session`
+  is a separate, non-default metadata catalog/learning utility. The docs/specs
+  no longer present metadata-first as the product session source.
+- **`--archive-transcript` sidecar.** Retire once the native session tree stores
+  full transcripts like Pi. The native tree *is* the transcript.
+- **`--native-output json` (metadata-only).** Replace with Pi's `--mode json`
+  full-event stream and `--mode rpc` ([automation-rpc.md](automation-rpc.md)).
+- **No-tool REPL mode and its `/read` `/ask-file` `/propose-file`
+  `/apply-proposal` commands.** Pi has one interactive mode with model-visible
+  tools. Fold into the single tool-loop product session and remove the
+  proposal/apply commands plus the archive-side parallel tool family that backs
+  them (Track CQ-A slice 10, Track CQ-D slice 1).
+- **`/clear` → `/new` + `/compact`; `/status` → `/session`.** Realign the
+  pipy-only commands to Pi's command set ([session-tree.md](session-tree.md)).
+- **`/theme` command, `/skill`/`/template` dispatcher commands, `/help`.** Pi has
+  none of these. Move theme selection under `/settings` (keep `--theme`),
+  auto-inject skills, register prompt templates as their own `/<name>` slash
+  commands, and provide `/hotkeys` ([settings-config.md](settings-config.md),
+  [provider-catalog.md](provider-catalog.md)).
+- **Hardcoded `ds4` built-in provider.** Reframe as a `models.json`
+  custom-provider preset ([provider-catalog.md](provider-catalog.md)).
+- **Verify-and-decide:** `--read-root(s)`, `--tool-budget`, `--input-runtime`,
+  and persistent prompt history (`PromptHistoryStore`) are pipy-only mechanisms
+  with possible non-privacy justifications; keep only if they map to a real Pi
+  workflow or are cheap, clearly-useful conveniences, otherwise drop.
+- **Keep (non-feature):** the CQ-A..F code-quality audit tracks are pipy
+  engineering hygiene, not Pi features, and stay as internal cleanup work.
+- **Already done:** the `/verify just-check` command was removed (not a Pi
+  feature).
+
+`docs/parity-criterion.md`, `docs/pi-parity.md`, and `docs/session-storage.md`
+have been updated so they no longer present the metadata-first/privacy posture as
+a parity virtue or a reason to diverge from Pi.
 
 ## Tool-Loop Parity Track
 
@@ -303,9 +366,9 @@ entry in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`).
 - Pi-shaped behavior: the model picks files, edits them directly, the resulting
   unified diff is written to stderr, no approval popups appear, and the loop
   iterates within a bounded tool budget.
-- Slash commands `/read`, `/ask-file`, `/propose-file`, `/apply-proposal`, and
-  `/verify just-check` keep working unchanged in both `--repl-mode no-tool` and
-  `--repl-mode tool-loop`.
+- Slash commands `/read`, `/ask-file`, `/propose-file`, and
+  `/apply-proposal` keep working unchanged in `--repl-mode no-tool`; the former
+  pipy-specific `/verify just-check` command has been removed from the user-facing REPL.
 
 ### Planned Slices
 
@@ -382,7 +445,7 @@ shipped in later parity work:
   globbing, chaining, and any executable on `PATH` are allowed. Only metadata
   (counters, labels) is recorded at the archive boundary — never the raw
   command or output.
-- Generalizing `/verify` beyond the allowlisted `just check` boundary.
+- Project-defined verification policy beyond the Pi-style model-visible `bash` workflow.
 - Live session resume, branch/fork navigation, and compaction. A metadata-only
   resume reader shipped first; live `--resume`, `--branch`, and `/compact`
   (plus an automatic compaction threshold) shipped later through the Native
@@ -488,7 +551,7 @@ These hold throughout the track, not as later deferrals:
 
 ### Out Of Scope For This Track
 
-- Generalizing `/verify` beyond `just check`, session
+- Project-defined verification policy beyond the Pi-style `bash` workflow, session
   resume/branch/compaction, RPC mode, SDK embedding, extensions,
   theme/package loading, persistent history, and a full TUI. (User-directed
   `@file` content reads were once out of scope here and have since shipped.)
@@ -598,8 +661,7 @@ These hold throughout the track, not as later deferrals:
   exclusion from `pipy-session list/search/inspect`, off-by-default)
   stay unchanged. Instruction bodies never reach the sidecar.
 - `.git` default-deny posture and existing slash commands (`/read`,
-  `/ask-file`, `/propose-file`, `/apply-proposal`,
-  `/verify just-check`) keep working unchanged in both REPL modes.
+  `/ask-file`, `/propose-file`, `/apply-proposal`) keep working unchanged in both REPL modes.
 - No new runtime dependencies. Stdlib plus manual dict validation
   only. No pydantic, jsonschema, or attrs.
 - Reuse the existing `ProviderPort` message envelope and
@@ -630,7 +692,7 @@ it lands. They are not later slices of this track:
   prompt history, bracketed paste, undo/redo, an interactive `/settings` control
   dialog, and optional persistent cross-session prompt history have since shipped
   in the product TUI.)
-- Generalizing `/verify` beyond `just check`.
+- Project-defined verification policy beyond the Pi-style model-visible `bash` workflow.
 - Watching the workspace for instruction-file changes during a
   session. The current track resolves instructions once per run.
 
@@ -672,7 +734,7 @@ parity-map entry in `docs/pi-parity.md`
   for unit-level coverage that does not depend on transport details.
 - `pipy run` without `--stream`, the no-tool REPL, the tool-loop
   REPL, `/ask-file`, `/propose-file`, `/apply-proposal`, and
-  `/verify just-check` behave exactly as today; no path is forced
+  the no-tool REPL does not force any path through streaming
   through streaming.
 
 ### Planned Slices
@@ -720,8 +782,7 @@ These hold throughout the track, not as later deferrals:
   exclusion from `pipy-session list/search/inspect`, off-by-default)
   stay unchanged. Streamed chunks never reach the sidecar.
 - `.git` default-deny posture and existing slash commands (`/read`,
-  `/ask-file`, `/propose-file`, `/apply-proposal`,
-  `/verify just-check`) keep working unchanged in both REPL modes.
+  `/ask-file`, `/propose-file`, `/apply-proposal`) keep working unchanged in both REPL modes.
 - No new runtime dependencies. Stdlib plus manual dict validation
   only. No pydantic, jsonschema, attrs, anyio, or trio.
 - Reuse the existing `ProviderPort`, `ProviderRequest`, and
@@ -799,7 +860,7 @@ shorthand for the detailed finding (e.g. `01:F3` is finding F3 in
   remain in force across every tool and resource loader.
 - The bounded model-driven tool loop, `--archive-transcript` sidecar
   contracts, `/login`/`/logout`/`/model`/`/clear`/`/status` slash
-  commands, and the public read/apply/verify boundary all keep working
+  commands, and the public read/apply boundary all keep working
   in both REPL modes.
 - "Bad state impossible by construction" beats "bad state handled at
   runtime." When a finding offers both options, prefer the structural
@@ -984,7 +1045,7 @@ Collapse the parallel families.
    `NativeToolReplSession` into one session driven by an explicit
    state machine. The no-tool REPL's shadow slash-command
    implementations of `/read`/`/ask-file`/`/propose-file`/
-   `/apply-proposal`/`/verify` re-route to the same tools the
+   `/apply-proposal` re-routes to the same tools the
    tool-loop session uses. Refs: `01:F3`, `01:F2`.
 2. Replace the 350-line `if/elif` REPL command-dispatch chain in
    `session.py` with a command table (name → handler + descriptor).
@@ -1336,8 +1397,10 @@ a temporary workspace and fail unless all required product semantics work:
 - `/tree` creates sibling branches in-place, selecting a user message
   rehydrates the editor, and selecting non-user entries moves the active leaf
   with an empty editor;
-- `/resume` picker behavior includes search, path toggle, sort toggle,
-  named-only filtering, rename, and delete-with-confirmation;
+- `/resume` lists/opens previous native sessions and supports named-only
+  listing, rename, and delete-with-confirmation (shipped captured-stream
+  subcommands); the richer interactive picker overlay (search, path/sort
+  toggles) and the `-r` interactive startup picker are deferred follow-ons;
 - reloading pipy from a native session file reconstructs the tree, active
   branch, labels, name, compaction, branch summaries, and provider context;
 - existing `pipy-session` archive commands remain metadata/catalog utilities,
@@ -1613,9 +1676,8 @@ Invariants that must hold for any near-term slice:
   is now a real shell matching Pi — arbitrary commands run in the workspace
   (`bash -c <command>`), with combined bounded output and an optional timeout.
   Only metadata is archived.
-- Generalizing `/verify` beyond the allowlisted `just check` boundary. The
-  `Tool-Loop Parity Track` keeps `/verify just-check` intact and does not
-  introduce additional verification commands.
+- Project-defined verification policy beyond the Pi-style model-visible `bash` workflow. The
+  former `/verify just-check` command has been removed from the user-facing REPL.
 - Broad repo maps or persistent workspace summaries beyond the first bounded
   provider-visible context policy.
 - Local model provider integrations for Ollama, llama.cpp, MLX, LM Studio, or
@@ -1664,8 +1726,8 @@ Invariants that must hold for any near-term slice:
 - Product distribution and sharing polish: documented package install/update
   path, self-update flow, changelog surface, HTML export, and private
   share/upload workflow.
-- Non-allowlisted verification commands or project-defined verification policy
-  beyond `/verify just-check`.
+- Project-defined verification policy beyond the Pi-style model-visible `bash`
+  and future extension-gate workflow.
 - Multi-agent task delegation.
 - Long-running dev server.
 

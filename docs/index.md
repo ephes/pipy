@@ -4,26 +4,37 @@ Pipy is a local-first coding-agent harness experiment. The product direction is
 `pipy-native`: a Python runtime that owns provider access, tool boundaries,
 session semantics, and privacy-conscious archive metadata.
 
+**Start here for the parity roadmap:** [Parity Plan](parity-plan.md) is the
+single clear plan for reaching real feature parity with Pi — the slash-command
+and CLI matrices, the list of accidental pipy-only surfaces to remove or
+realign, and the index of per-topic specs with their conformance gates.
+
 Read these documents in order to learn the project from the outside in:
 
 1. [Architecture](architecture.md): the current runtime, diagrams, codebase
    map, and the isolation boundary between domain logic and adapters.
 2. [Pi Parity](pi-parity.md): what has already been slopforked from Pi, what
    remains, and how pipy's architecture differs from Pi's.
-3. [Harness Spec](harness-spec.md): detailed design rationale, event
+3. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —
+   command/flag matrices, accidental-surface cleanup, and big-topic spec index.
+4. [Harness Spec](harness-spec.md): detailed design rationale, event
    vocabulary, native runtime direction, adapter boundaries, and deferred
    design.
-4. [Extension API](extension-api.md): draft target specification for a
-   Pythonic, Pi-inspired extension surface.
-5. [Session Storage](session-storage.md): session archive layout,
-   metadata-only capture rules, sync behavior, and privacy policy.
-6. [Session Tree](session-tree.md): target design for Pi-compatible `/tree`,
-   in-place branch navigation, and full native session-tree storage.
+5. Big-topic parity specs (target designs, one per large surface):
+   [Session Tree](session-tree.md), [Extension API](extension-api.md),
+   [Provider Catalog](provider-catalog.md), [Settings & Config](settings-config.md),
+   [Automation & RPC](automation-rpc.md), [TUI Workflow](tui-workflow.md), and
+   [Export & Distribution](export-distribution.md).
+6. [Session Storage](session-storage.md): the metadata-only catalog utility.
+   Note: this is a pipy-specific layer, **not** the product session store — the
+   full-transcript [Session Tree](session-tree.md) is the shipped product
+   session source of truth (`pipy_harness.native.session_tree`), proven by
+   `scripts/parity_checks/session_tree_conformance.py --json`.
 7. [Backlog](backlog.md): current product planning, completed slices,
    near-term priorities, and deferred boundaries.
 
 The short version: pipy is no longer just a session recorder. The repository now
 contains a line-oriented native shell, direct provider ports, bounded read,
-proposal, apply, and verification boundaries, conservative archive tooling, and
+proposal and apply boundaries, conservative archive tooling, and
 a subprocess capture path kept for reference workflows rather than the product
 runtime.

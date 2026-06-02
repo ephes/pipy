@@ -72,12 +72,37 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_compaction import (
+    DEFAULT_KEEP_RECENT_GROUPS,
     compact_tool_loop_messages,
     should_compact_tool_loop_messages,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
     compose_resume_status_line,
+)
+from pipy_harness.native.session_tree import (
+    CompactionEntry as _CompactionEntry,
+)
+from pipy_harness.native.session_tree import (
+    MessageEntry as _MessageEntry,
+)
+from pipy_harness.native.session_tree import (
+    NativeSessionTree,
+    default_native_session_dir,
+)
+from pipy_harness.native.session_tree_commands import (
+    FILTER_MODES,
+    abandoned_branch_messages,
+    apply_tree_selection,
+    branch_summary_attach_parent,
+    delete_native_session,
+    entry_preview,
+    format_session_status,
+    list_native_sessions,
+    render_tree_lines,
+    resolve_entry_ref,
+    resolve_session_target,
+    visible_tree_entries,
 )
 from pipy_harness.native.resources import (
     DISPATCH_LIST,
@@ -380,6 +405,19 @@ def _tool_loop_command_descriptions(
 
 
 @dataclass(frozen=True, slots=True)
+class _TreeCommandOutcome:
+    """Result of handling a ``/tree`` command in the tool loop.
+
+    ``prefill`` is text to rehydrate into the next prompt (user-message
+    selection); ``filter_mode`` is a new active ``/tree`` filter to remember.
+    Both are ``None`` when unchanged.
+    """
+
+    prefill: str | None = None
+    filter_mode: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class NativeToolReplResult:
     """Bounded result returned by `NativeToolReplSession.run`.
 
@@ -441,6 +479,11 @@ class NativeToolReplSession:
     prompt_history_store: PromptHistoryStore | None = None
     resume_context: ResumeContext | None = None
     resume_branch_label: str | None = None
+    # Native product session tree (the product session source of truth). When
+    # not injected the loop runs on an ephemeral in-memory tree that writes no
+    # file; the CLI/adapter injects a persistent tree under the native-session
+    # store. ``pipy-session`` remains a separate metadata-only archive.
+    native_session: "NativeSessionTree | None" = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -529,7 +572,16 @@ class NativeToolReplSession:
             )
 
         started_at = datetime.now(UTC)
-        messages: list[LoopMessage] = []
+        # Native product session tree: the durable source of truth. When not
+        # injected we run on an ephemeral in-memory tree (no file). The live
+        # ``messages`` list mirrors the tree's active branch and remains the
+        # provider-visible list (carrying any in-memory compaction); every
+        # append is mirrored to the tree so /tree navigation, resume, fork,
+        # clone, and durable compaction read the same conversation.
+        session_tree = self.native_session or NativeSessionTree.create(
+            cwd, persist=False
+        )
+        messages: list[LoopMessage] = list(session_tree.build_context().messages)
         resource_invocation_count = 0
         user_turn_count = 0
         tool_invocation_count = 0
@@ -544,6 +596,12 @@ class NativeToolReplSession:
         image_attachment_failed_count = 0
         compaction_count = 0
         compaction_dropped_group_count_total = 0
+        # Native session-tree command state. ``pending_prefill`` carries text
+        # from a ``/tree`` user-message selection back into the next prompt
+        # (rehydrated editor in the live TUI). ``tree_filter_mode`` is the
+        # active ``/tree`` filter.
+        pending_prefill: str | None = None
+        tree_filter_mode = "default"
         # Mutable safe summary suffix appended to the system prompt after a
         # /compact or auto-compaction; the base system prompt itself is never
         # mutated. base_system_prompt already carries any resume seed block.
@@ -697,10 +755,39 @@ class NativeToolReplSession:
             compaction_summary = f"\n\n{result.summary_block}"
             compaction_count += 1
             compaction_dropped_group_count_total += result.dropped_group_count
+            # Durable compaction: append a real ``compaction`` entry to the
+            # native session tree so resumed and /tree-navigated sessions
+            # rebuild the same reduced context. The boundary is the first
+            # retained user-turn on the active branch (after any prior
+            # compaction); the live in-memory reduction above keeps the
+            # provider request small for this session.
+            _append_durable_compaction(result.summary_block, result.bytes_before)
             return (
                 f"pipy: compacted conversation context ({trigger}; dropped "
                 f"{result.dropped_group_count} earlier exchange(s), kept "
                 f"{result.retained_group_count})."
+            )
+
+        def _append_durable_compaction(summary_block: str, bytes_before: int) -> None:
+            branch = session_tree.get_branch()
+            last_compaction = -1
+            for i, entry in enumerate(branch):
+                if isinstance(entry, _CompactionEntry):
+                    last_compaction = i
+            segment = branch[last_compaction + 1 :]
+            user_entries = [
+                entry
+                for entry in segment
+                if isinstance(entry, _MessageEntry)
+                and isinstance(entry.message, UserMessage)
+            ]
+            if len(user_entries) <= DEFAULT_KEEP_RECENT_GROUPS:
+                return
+            first_kept = user_entries[len(user_entries) - DEFAULT_KEEP_RECENT_GROUPS]
+            session_tree.append_compaction(
+                summary=summary_block.strip(),
+                first_kept_entry_id=first_kept.id,
+                tokens_before=bytes_before,
             )
 
         repl_input = (
@@ -751,6 +838,76 @@ class NativeToolReplSession:
         def legacy_footer_enabled() -> bool:
             return terminal_ui is None and repl_input.runtime_label != "slash-menu"
 
+        def refresh_legacy_footer() -> None:
+            if legacy_footer_enabled():
+                self._print_footer(
+                    error_stream,
+                    cwd=cwd,
+                    provider_name=effective_provider_name,
+                    model_id=effective_model_id,
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                )
+
+        def diag(message: str) -> None:
+            self._emit_diagnostic(terminal_ui, error_stream, message)
+
+        def rebuild_messages_from_tree() -> None:
+            """Rebuild the live provider-visible list from the active branch.
+
+            Used after ``/tree`` navigation, ``/new``, and ``/resume``: the
+            native tree is the source of truth, so the provider list and the
+            system-prompt compaction suffix are reset to match the (possibly
+            compacted) active branch.
+            """
+
+            nonlocal messages, compaction_summary
+            messages = list(session_tree.build_context().messages)
+            compaction_summary = ""
+
+        def summarize_branch(
+            branch_messages: list[LoopMessage], focus: str | None
+        ) -> str | None:
+            """Summarize an abandoned branch through the active provider.
+
+            Runs one bounded provider turn (no tools) and returns the summary
+            text, or ``None`` when the provider fails so the caller can leave
+            the tree and leaf unchanged.
+            """
+
+            if not branch_messages:
+                return None
+            instruction = (
+                "Summarize the following abandoned conversation branch "
+                "concisely so it can be referenced later."
+            )
+            if focus:
+                instruction += f" Focus on: {focus}."
+            request = ProviderRequest(
+                system_prompt=instruction,
+                user_prompt="Provide the branch summary now.",
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                cwd=cwd,
+                messages=tuple(branch_messages),
+                available_tools=(),
+            )
+            try:
+                result = self.provider.complete(request)
+            except Exception:  # noqa: BLE001 - never crash the REPL
+                return None
+            if result.status != HarnessStatus.SUCCEEDED:
+                return None
+            return (result.final_text or "").strip() or None
+
+        def current_session_dir() -> Path:
+            if session_tree.path is not None:
+                return session_tree.path.parent
+            return default_native_session_dir(cwd)
+
+        def resolve_session_file(ref: str) -> Path | None:
+            return resolve_session_target(current_session_dir(), ref)
+
         # Pi-parity: the slash-menu input adapter draws the bottom status
         # block (cwd + status line) live below the input area, so we only
         # emit a pre-loop frame for non-slash-menu runtimes. This avoids a
@@ -780,6 +937,23 @@ class NativeToolReplSession:
                 error_stream=error_stream,
                 usage_accumulator=usage_accumulator,
             )
+            if pending_prefill is not None:
+                # A ``/tree`` user-message selection puts the chosen text back
+                # into the editor. The live TUI rehydrates the editor directly;
+                # captured-stream callers see a hint and type the (edited) text
+                # as the next line, which branches from the selected parent.
+                if terminal_ui is not None and hasattr(
+                    terminal_ui, "set_input_text"
+                ):
+                    terminal_ui.set_input_text(pending_prefill)
+                elif terminal_ui is None:
+                    diag(
+                        "pipy: editor rehydrated with selected message; "
+                        "type your (edited) message to branch from here, or "
+                        "submit as-is.\n"
+                        f"  > {pending_prefill}"
+                    )
+                pending_prefill = None
             try:
                 # Pi's input cursor has no leading `> ` glyph; the
                 # separator pair above and below the input area is the
@@ -884,6 +1058,186 @@ class NativeToolReplSession:
                         user_turn_count=user_turn_count,
                         tool_invocation_count=tool_invocation_count,
                     )
+                continue
+            if stripped == "/session":
+                # Local-only: report safe current native-session status. No
+                # provider turn, tool call, or transcript content.
+                diag(format_session_status(session_tree))
+                refresh_legacy_footer()
+                continue
+            if stripped == "/name" or stripped.startswith("/name "):
+                argument = stripped[len("/name") :].strip()
+                if not argument:
+                    diag(
+                        "pipy: current session name: "
+                        + (session_tree.name or "(unnamed)")
+                    )
+                else:
+                    session_tree.append_session_info(argument)
+                    diag(f"pipy: session named {argument!r}.")
+                refresh_legacy_footer()
+                continue
+            if stripped == "/new":
+                # Start a fresh native product session in the same store.
+                session_dir = (
+                    session_tree.path.parent
+                    if session_tree.path is not None
+                    else None
+                )
+                session_tree = NativeSessionTree.create(
+                    cwd,
+                    session_dir=session_dir,
+                    persist=session_tree.persist,
+                )
+                rebuild_messages_from_tree()
+                diag(
+                    "pipy: started a new native session "
+                    f"({session_tree.session_id[:8]})."
+                )
+                refresh_legacy_footer()
+                continue
+            if stripped == "/tree" or stripped.startswith("/tree "):
+                argument = stripped[len("/tree") :].strip()
+                outcome = self._handle_tree_command(
+                    argument,
+                    session_tree=session_tree,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    repl_input=repl_input,
+                    filter_mode=tree_filter_mode,
+                    rebuild_messages=rebuild_messages_from_tree,
+                    summarizer=summarize_branch,
+                )
+                if outcome.filter_mode is not None:
+                    tree_filter_mode = outcome.filter_mode
+                if outcome.prefill is not None:
+                    pending_prefill = outcome.prefill
+                refresh_legacy_footer()
+                continue
+            if stripped == "/resume" or stripped.startswith("/resume "):
+                argument = stripped[len("/resume") :].strip()
+                resume_tokens = argument.split()
+                resume_sub = resume_tokens[0].lower() if resume_tokens else ""
+
+                def _list_sessions(named_only: bool = False) -> None:
+                    sessions = list_native_sessions(current_session_dir())
+                    if named_only:
+                        sessions = [s for s in sessions if s.name]
+                    if not sessions:
+                        diag("pipy: no native sessions found for this workspace.")
+                        return
+                    scope = "named " if named_only else ""
+                    diag(f"pipy: {scope}native sessions (newest first):")
+                    for index, entry in enumerate(sessions, start=1):
+                        label = entry.name or "(unnamed)"
+                        diag(
+                            f"  {index}. {entry.session_id[:8]} {label} "
+                            f"messages={entry.message_count} "
+                            f"file={entry.path.name}"
+                        )
+                    diag("pipy: use '/resume <number|id>' to open a session.")
+
+                if not argument:
+                    _list_sessions()
+                elif resume_sub == "named":
+                    _list_sessions(named_only=True)
+                elif resume_sub == "rename":
+                    if len(resume_tokens) < 3:
+                        diag("pipy: usage: /resume rename <number|id> <name>")
+                    else:
+                        target = resolve_session_file(resume_tokens[1])
+                        if target is None:
+                            diag(f"pipy: no native session matched {resume_tokens[1]!r}.")
+                        else:
+                            renamed = NativeSessionTree.open(target)
+                            new_name = " ".join(resume_tokens[2:])
+                            renamed.append_session_info(new_name)
+                            diag(
+                                f"pipy: renamed session {renamed.session_id[:8]} "
+                                f"to {new_name!r}."
+                            )
+                elif resume_sub == "delete":
+                    confirm = "--yes" in resume_tokens[1:]
+                    refs = [t for t in resume_tokens[1:] if t != "--yes"]
+                    if not refs:
+                        diag("pipy: usage: /resume delete <number|id> --yes")
+                    else:
+                        target = resolve_session_file(refs[0])
+                        if target is None:
+                            diag(f"pipy: no native session matched {refs[0]!r}.")
+                        elif session_tree.path is not None and target == session_tree.path:
+                            diag("pipy: cannot delete the active native session.")
+                        elif not confirm:
+                            diag(
+                                "pipy: deletion needs confirmation; re-run "
+                                f"'/resume delete {refs[0]} --yes'. This removes "
+                                "only the native session file, never pipy-session "
+                                "archive records."
+                            )
+                        else:
+                            ok, detail = delete_native_session(target)
+                            diag(f"pipy: {detail}" if ok else f"pipy: {detail}")
+                else:
+                    target = resolve_session_file(argument)
+                    if target is None:
+                        diag(f"pipy: no native session matched {argument!r}.")
+                    else:
+                        session_tree = NativeSessionTree.open(target)
+                        rebuild_messages_from_tree()
+                        diag(
+                            "pipy: resumed native session "
+                            f"{session_tree.session_id[:8]} "
+                            f"({session_tree.name or 'unnamed'})."
+                        )
+                refresh_legacy_footer()
+                continue
+            if stripped == "/fork" or stripped.startswith("/fork "):
+                argument = stripped[len("/fork") :].strip()
+                if session_tree.path is None:
+                    diag("pipy: /fork requires a persistent native session.")
+                    refresh_legacy_footer()
+                    continue
+                if argument:
+                    target_entry = resolve_entry_ref(
+                        session_tree, argument, filter_mode=tree_filter_mode
+                    )
+                    if target_entry is None:
+                        diag(f"pipy: no tree entry matched {argument!r}.")
+                        refresh_legacy_footer()
+                        continue
+                    fork_leaf: str | None = target_entry.id
+                else:
+                    fork_leaf = session_tree.get_leaf_id()
+                session_tree = NativeSessionTree.fork_from(
+                    session_tree.path,
+                    cwd,
+                    leaf_id=fork_leaf,
+                    session_dir=session_tree.path.parent,
+                )
+                rebuild_messages_from_tree()
+                diag(
+                    "pipy: forked into new native session "
+                    f"{session_tree.session_id[:8]}."
+                )
+                refresh_legacy_footer()
+                continue
+            if stripped == "/clone":
+                if session_tree.path is None:
+                    diag("pipy: /clone requires a persistent native session.")
+                    refresh_legacy_footer()
+                    continue
+                session_tree = NativeSessionTree.fork_from(
+                    session_tree.path,
+                    cwd,
+                    leaf_id=session_tree.get_leaf_id(),
+                    session_dir=session_tree.path.parent,
+                )
+                rebuild_messages_from_tree()
+                diag(
+                    "pipy: cloned active branch into new native session "
+                    f"{session_tree.session_id[:8]}."
+                )
+                refresh_legacy_footer()
                 continue
             if stripped == "/model" or stripped.startswith("/model "):
                 argument = stripped[len("/model") :].strip()
@@ -1047,7 +1401,8 @@ class NativeToolReplSession:
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
                         "supported local commands are /help, /model, /settings, "
-                        "/login, /logout, /copy, /compact, /skill, /template, "
+                        "/login, /logout, /copy, /compact, /session, /name, "
+                        "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
                         "(plus any workspace custom commands). Other prompts are "
                         "sent to the model."
@@ -1109,7 +1464,9 @@ class NativeToolReplSession:
                     for diagnostic in image_attachments.diagnostics():
                         self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                     turn_attachments = image_attachments.attachments()
-            messages.append(UserMessage(content=provider_user_input))
+            turn_user_message = UserMessage(content=provider_user_input)
+            messages.append(turn_user_message)
+            session_tree.append_message(turn_user_message)
             user_turn_count += 1
             # Persist the prompt for cross-session recall when the user has
             # enabled it from /settings. record() is a no-op when disabled and
@@ -1201,12 +1558,12 @@ class NativeToolReplSession:
                         )
                     break
                 tool_calls = tuple(provider_result.tool_calls)
-                messages.append(
-                    AssistantMessage(
-                        content=provider_result.final_text or "",
-                        tool_calls=tool_calls,
-                    )
+                turn_assistant_message = AssistantMessage(
+                    content=provider_result.final_text or "",
+                    tool_calls=tool_calls,
                 )
+                messages.append(turn_assistant_message)
+                session_tree.append_message(turn_assistant_message)
                 if self.transcript_sink is not None:
                     self.transcript_sink.append(
                         "assistant",
@@ -1250,15 +1607,15 @@ class NativeToolReplSession:
                             ),
                             is_error=True,
                         )
-                        messages.append(
-                            self._error_observation(
-                                call=call,
-                                output_text=(
-                                    f"tool budget exhausted "
-                                    f"(limit {self.tool_budget})"
-                                ),
-                            )
+                        budget_observation = self._error_observation(
+                            call=call,
+                            output_text=(
+                                f"tool budget exhausted "
+                                f"(limit {self.tool_budget})"
+                            ),
                         )
+                        messages.append(budget_observation)
+                        session_tree.append_message(budget_observation)
                         continue
 
                     renderer.render_tool_call(call)
@@ -1277,6 +1634,7 @@ class NativeToolReplSession:
                         malformed_argument_count += 1
                         consecutive_malformed_streak += 1
                         messages.append(observation)
+                        session_tree.append_message(observation)
                         if consecutive_malformed_streak >= self.MAX_MALFORMED_STREAK:
                             self._emit_diagnostic(
                                 terminal_ui,
@@ -1295,6 +1653,7 @@ class NativeToolReplSession:
                     tool_invocation_count += 1
                     consecutive_malformed_streak = 0
                     messages.append(observation)
+                    session_tree.append_message(observation)
                     if self.transcript_sink is not None:
                         self.transcript_sink.append(
                             "tool_result",
@@ -1840,8 +2199,16 @@ class NativeToolReplSession:
     def _help_text() -> str:
         return (
             "pipy: tool-loop mode supports `/help`, `/model`, `/settings`, "
-            "`/login`, `/logout`, `/copy`, `/compact`, `/exit`, `/quit` "
-            "locally. `/compact` reduces provider-visible context while keeping "
+            "`/login`, `/logout`, `/copy`, `/compact`, `/session`, `/name`, "
+            "`/new`, `/tree`, `/resume`, `/fork`, `/clone`, `/exit`, `/quit` "
+            "locally. `/session` shows the current native session tree status; "
+            "`/name <name>` names it; `/new` starts a fresh native session; "
+            "`/tree` navigates the session tree in place (select/label/filter); "
+            "`/resume` lists/opens prior native sessions (with `named`, "
+            "`rename <ref> <name>`, and `delete <ref> --yes` subcommands); "
+            "`/fork` and `/clone` "
+            "create new native sessions from an earlier point or the active "
+            "branch. `/compact` reduces provider-visible context while keeping "
             "recent turns plus a safe summary. `/model` "
             "opens an interactive provider/model selector (or "
             "`/model <provider>/<model>` switches directly); `/settings` opens an "
@@ -1885,6 +2252,289 @@ class NativeToolReplSession:
         if result.copied:
             return f"pipy: copied last answer to clipboard ({result.detail})."
         return f"pipy: could not copy last answer — {result.detail}."
+
+    def _run_interactive_tree_selector(
+        self,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: "ToolLoopTerminalUi",
+        error_stream: TextIO,
+        filter_mode: str,
+        rebuild_messages: Callable[[], None],
+    ) -> _TreeCommandOutcome:
+        """Drive the live-TTY ``/tree`` selector and apply the chosen entry.
+
+        Builds filtered rows for the selector, toggles labels on demand, and on
+        Enter applies Pi selection semantics: a user message rehydrates the
+        editor for a new branch; any other entry sets the leaf with an empty
+        editor. Escape cancels with the tree and leaf unchanged.
+        """
+
+        from pipy_harness.native.tui import TreeSelectorRow
+
+        def build_rows(mode: str) -> list[TreeSelectorRow]:
+            active_ids = {e.id for e in session_tree.get_branch()}
+            rows: list[TreeSelectorRow] = []
+            for entry in visible_tree_entries(session_tree, filter_mode=mode):
+                rows.append(
+                    TreeSelectorRow(
+                        entry_id=entry.id,
+                        label=entry_preview(session_tree, entry),
+                        active=entry.id in active_ids,
+                        labeled=session_tree.get_label(entry.id) is not None,
+                    )
+                )
+            return rows
+
+        def on_label_toggle(entry_id: str) -> None:
+            existing = session_tree.get_label(entry_id)
+            session_tree.append_label_change(
+                entry_id, None if existing else "marked"
+            )
+
+        chosen = terminal_ui.run_tree_selector(
+            build_rows=build_rows,
+            filter_modes=FILTER_MODES,
+            initial_filter=filter_mode
+            if filter_mode in FILTER_MODES
+            else "default",
+            on_label_toggle=on_label_toggle,
+        )
+        new_filter = terminal_ui.tree_selector_filter
+        if chosen is None:
+            self._emit_diagnostic(
+                terminal_ui, error_stream, "pipy: /tree cancelled."
+            )
+            return _TreeCommandOutcome(filter_mode=new_filter)
+        selection = apply_tree_selection(session_tree, chosen)
+        rebuild_messages()
+        if selection.is_noop:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: already at the selected point (no change).",
+            )
+            return _TreeCommandOutcome(filter_mode=new_filter)
+        if selection.is_user_selection:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: selected user message; rehydrating editor for a new "
+                "branch.",
+            )
+            return _TreeCommandOutcome(
+                prefill=selection.editor_text, filter_mode=new_filter
+            )
+        self._emit_diagnostic(
+            terminal_ui,
+            error_stream,
+            f"pipy: continuing from entry {chosen[:8]}.",
+        )
+        return _TreeCommandOutcome(filter_mode=new_filter)
+
+    def _select_with_branch_summary(
+        self,
+        *,
+        session_tree: NativeSessionTree,
+        entry: object,
+        directive: str,
+        summarizer: Callable[[list[LoopMessage], str | None], str | None],
+        rebuild_messages: Callable[[], None],
+        terminal_ui: "ToolLoopTerminalUi | None",
+        error_stream: TextIO,
+    ) -> "_TreeCommandOutcome | None":
+        """Record a branch summary while switching branches via ``/tree``.
+
+        Collects the abandoned branch (old leaf back to the common ancestor of
+        the target attachment point), summarizes it through the active
+        provider, and appends a ``branch_summary`` entry at the attachment
+        point, advancing the leaf to it. Returns ``None`` (falling back to a
+        plain selection) when there is nothing to summarize or the summary is
+        cancelled/fails, leaving the tree and leaf unchanged.
+        """
+
+        entry_id = entry.id  # type: ignore[attr-defined]
+        old_leaf = session_tree.get_leaf_id()
+        attach_parent = branch_summary_attach_parent(session_tree, entry_id)
+        abandoned = abandoned_branch_messages(session_tree, old_leaf, attach_parent)
+        if not abandoned:
+            return None
+        focus = directive.split(":", 1)[1] if ":" in directive else None
+        summary_text = summarizer(list(abandoned), focus)
+        if not summary_text:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: branch summary cancelled; tree and leaf unchanged.",
+            )
+            return _TreeCommandOutcome()
+        session_tree.branch_with_summary(attach_parent, summary_text)
+        rebuild_messages()
+        editor_text: str | None = None
+        message = getattr(entry, "message", None)
+        if isinstance(entry, _MessageEntry) and isinstance(message, UserMessage):
+            editor_text = message.content
+        self._emit_diagnostic(
+            terminal_ui,
+            error_stream,
+            "pipy: recorded branch summary and switched branches.",
+        )
+        return _TreeCommandOutcome(prefill=editor_text)
+
+    def _handle_tree_command(
+        self,
+        argument: str,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: "ToolLoopTerminalUi | None",
+        error_stream: TextIO,
+        repl_input: object,
+        filter_mode: str,
+        rebuild_messages: Callable[[], None],
+        summarizer: Callable[[list[LoopMessage], str | None], str | None]
+        | None = None,
+    ) -> _TreeCommandOutcome:
+        """Handle ``/tree`` and its captured-stream subcommands.
+
+        This runs no model-visible tool call. With no argument it prints the
+        current session tree (a live-TTY interactive selector is layered on in
+        the TUI). The ``select``/``label``/``filter`` subcommands give
+        captured-stream callers and scripts a deterministic way to drive Pi
+        ``/tree`` selection semantics without a TTY. Appending ``summarize`` (or
+        ``summarize:<focus>``) to ``select`` records a branch summary of the
+        abandoned branch through the active provider before switching.
+        """
+
+        parts = argument.split(maxsplit=1)
+        if not parts:
+            if terminal_ui is not None and hasattr(
+                terminal_ui, "run_tree_selector"
+            ):
+                return self._run_interactive_tree_selector(
+                    session_tree=session_tree,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    filter_mode=filter_mode,
+                    rebuild_messages=rebuild_messages,
+                )
+            for line in render_tree_lines(session_tree, filter_mode=filter_mode):
+                self._emit_diagnostic(terminal_ui, error_stream, line)
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: use '/tree select <n|id>' to move, "
+                "'/tree label <n|id> [text]' to (un)label, "
+                "'/tree filter <mode>' to filter.",
+            )
+            return _TreeCommandOutcome()
+
+        sub = parts[0].lower()
+        rest = parts[1].strip() if len(parts) > 1 else ""
+
+        if sub == "select":
+            select_tokens = rest.split()
+            ref = select_tokens[0] if select_tokens else ""
+            summarize_directive: str | None = None
+            for token in select_tokens[1:]:
+                if token == "summarize" or token.startswith("summarize:"):
+                    summarize_directive = token
+            entry = resolve_entry_ref(session_tree, ref, filter_mode=filter_mode)
+            if entry is None:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    f"pipy: no tree entry matched {ref!r}.",
+                )
+                return _TreeCommandOutcome()
+            if summarize_directive is not None and summarizer is not None:
+                summary_outcome = self._select_with_branch_summary(
+                    session_tree=session_tree,
+                    entry=entry,
+                    directive=summarize_directive,
+                    summarizer=summarizer,
+                    rebuild_messages=rebuild_messages,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                )
+                if summary_outcome is not None:
+                    return summary_outcome
+            selection = apply_tree_selection(session_tree, entry.id)
+            rebuild_messages()
+            if selection.is_noop:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: already at the selected point (no change).",
+                )
+                return _TreeCommandOutcome()
+            if selection.is_user_selection:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: selected user message; rehydrating editor for a "
+                    "new branch.",
+                )
+                return _TreeCommandOutcome(prefill=selection.editor_text)
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                f"pipy: continuing from entry {entry.id[:8]}.",
+            )
+            return _TreeCommandOutcome()
+
+        if sub == "label":
+            label_parts = rest.split(maxsplit=1)
+            if not label_parts:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: usage: /tree label <n|id> [text]",
+                )
+                return _TreeCommandOutcome()
+            entry = resolve_entry_ref(
+                session_tree, label_parts[0], filter_mode=filter_mode
+            )
+            if entry is None:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    f"pipy: no tree entry matched {label_parts[0]!r}.",
+                )
+                return _TreeCommandOutcome()
+            label_text = label_parts[1].strip() if len(label_parts) > 1 else ""
+            session_tree.append_label_change(entry.id, label_text or None)
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                (
+                    f"pipy: labeled {entry.id[:8]} {label_text!r}."
+                    if label_text
+                    else f"pipy: cleared label on {entry.id[:8]}."
+                ),
+            )
+            return _TreeCommandOutcome()
+
+        if sub == "filter":
+            mode = rest.lower()
+            if mode not in FILTER_MODES:
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: filter must be one of " + ", ".join(FILTER_MODES),
+                )
+                return _TreeCommandOutcome()
+            self._emit_diagnostic(
+                terminal_ui, error_stream, f"pipy: /tree filter set to {mode}."
+            )
+            return _TreeCommandOutcome(filter_mode=mode)
+
+        self._emit_diagnostic(
+            terminal_ui,
+            error_stream,
+            f"pipy: unknown /tree subcommand {sub!r}; "
+            "use select, label, or filter.",
+        )
+        return _TreeCommandOutcome()
 
     @staticmethod
     def _last_assistant_answer(messages: list[LoopMessage]) -> str:

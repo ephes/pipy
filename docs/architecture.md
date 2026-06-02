@@ -1,7 +1,7 @@
 # Pipy Architecture
 
 Status: describes the current codebase after the native shell, proposal,
-apply, verification, startup chrome, and input-adapter slices.
+apply, startup chrome, and input-adapter slices.
 
 Pipy is split into two Python packages:
 
@@ -87,7 +87,7 @@ sequenceDiagram
 
 This diagram compresses the native event stream. See
 [Harness Spec](harness-spec.md) for the detailed harness, provider, tool,
-proposal, apply, verification, and session event vocabulary.
+proposal, apply, and session event vocabulary.
 
 Provider text, prompts, raw HTTP payloads, raw tool results, diffs, file
 contents, stdout, stderr, command output, auth material, secrets, credentials,
@@ -116,7 +116,7 @@ Markdown, catalog output, and structured native JSON output by default.
 | Provider port | `src/pipy_harness/native/provider.py` | `ProviderPort.complete()` protocol plus the `supports_tool_calls` capability flag. |
 | Shared provider helpers | `src/pipy_harness/native/_provider_helpers.py` | `JsonResponse`, `JsonHTTPClient` Protocol, and the deduplicated helpers each provider used to inline (`utc_now`, `safe_response_label`, `failed_provider_result`, `extract_chat_completions_tool_calls`, `extract_usage_from_fields`, `serialize_tool_for_*`, `envelope_to_chat_message`, `extract_text_content`, `safe_http_status_metadata`). |
 | Providers | `src/pipy_harness/native/fake.py`, `ds4_provider.py`, `openai_provider.py`, `openai_completions_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py`, `anthropic_provider.py`, `google_provider.py`, `google_vertex_provider.py`, `mistral_provider.py`, `bedrock_provider.py`, `azure_openai_provider.py`, `cloudflare_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus stdlib HTTP adapters for local ds4, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. Tool-capable real adapters advertise `supports_tool_calls=True`; ds4 is tool-loop capable after a live ds4 smoke verified OpenAI-style tool calls. |
-| Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol used by `/read`, `/apply-proposal`, and `/verify just-check`. |
+| Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol used by `/read` and `/apply-proposal`. |
 | Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope. |
 | Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py`, `edit_diff.py`, `truncate.py`, `bash.py` (via `command_sandbox.py`) | Production registry tools for the bounded tool-loop. Filesystem tools reuse `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny, and stat-gate oversized file reads before loading content. `truncate` is pure transformation only. `bash` runs through the shared command sandbox (`command_sandbox.py`): a no-shell, allowlisted-executable boundary preserving secret isolation and `.git` default-deny with symlink/path-escape refusal, bounded output, and timeout/kill. |
 | Transcript sidecar | `src/pipy_harness/native/transcripts.py` | Opt-in `TranscriptSink` writing raw loop turns to `~/.local/state/pipy/transcripts/<id>.jsonl` outside the pipy session archive, excluded from `pipy-session list/search/inspect`. |
@@ -126,9 +126,11 @@ Markdown, catalog output, and structured native JSON output by default.
 | Chrome + themes | `src/pipy_harness/native/chrome.py`, `themes.py` | Shared Pi-parity terminal chrome (startup banner, separators, two-row status block) rendered through `ChromeStyle`, which holds a `ChromePalette`. `themes.py` is the palette registry (`pi`/`high-contrast`/`ocean`), `NativeThemeStore` persistence, and `resolve_active_theme_name` (env `PIPY_THEME` > store > default). The `/theme` command in both REPLs swaps the active palette; `chrome_style_for` decides color enablement (NO_COLOR / non-TTY → plain) before any palette is consulted, so a theme never overrides the no-color contract. |
 | User-directed @-context | `src/pipy_harness/native/file_references.py`, `image_attachment.py` | Resolve `@path` text excerpts and `@image:<path>` image attachments from a genuine prompt, reusing the `read` tool's path policy. `file_references` appends bounded UTF-8 excerpts to the provider prompt; `image_attachment` loads bounded, magic-byte-validated (PNG/JPEG/GIF/WebP) images onto `ProviderRequest.attachments`, which multimodal adapters render as native image blocks. Both fail closed and archive only safe metadata (counts; for images, media type / byte count / sha256) — never file contents or raw image bytes. |
 | Patch apply boundary | `src/pipy_harness/native/patch_apply.py` | One approved, human-reviewed, bounded workspace mutation request. |
-| Verification boundary | `src/pipy_harness/native/verification.py` | One allowlisted post-apply `just-check` command mapping to `just check`. |
-| Session resume | `src/pipy_harness/native/session_resume.py` | Metadata-only finalized-record reader and safe resume system-block composer; live native runtime hook remains deferred. |
-| Session recorder | `src/pipy_session/recorder.py` | Active `.in-progress/pipy` JSONL records, finalized `pipy/YYYY/MM` records, immutable finalization, and Markdown summaries. |
+| Legacy verification boundary | `src/pipy_harness/native/verification.py` | Retained legacy allowlisted `just-check` helper; no longer wired as a user-facing REPL slash command. |
+| Session resume (archive) | `src/pipy_harness/native/session_resume.py` | Metadata-only finalized-record reader and safe resume system-block composer over the `pipy-session` archive. Not the product session source. |
+| Native product session tree | `src/pipy_harness/native/session_tree.py` | The product session source of truth: append-only JSONL conversation tree (`NativeSessionTree`), entry value objects, parse/write, leaf pointer, `get_branch`/`get_tree`/`build_context`, `fork_from`, `continue_recent`, under `~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`. |
+| Session-tree commands | `src/pipy_harness/native/session_tree_commands.py` | Loop-/TTY-independent `/tree` selection semantics, filters, rendering, status, entry/session reference resolution, and `resolve_startup_session` (Pi `-c`/`-r`/`--session`/`--fork`/`--no-session`). |
+| Session recorder | `src/pipy_session/recorder.py` | Active `.in-progress/pipy` JSONL records, finalized `pipy/YYYY/MM` records, immutable finalization, and Markdown summaries (metadata archive, not the product session source). |
 | Session catalog | `src/pipy_session/catalog.py` | Read-only list, search, inspect, and verify surfaces over finalized records. |
 | Automatic capture | `src/pipy_session/auto_capture.py` | Conservative adapter helpers for wrapper and hook-based partial capture (Claude hook + generic `wrap`). |
 
@@ -156,7 +158,7 @@ flowchart TB
     CLI[CLI streams and argparse]
     HTTP[Provider HTTP clients]
     FileIO[Session archive and local state files]
-    WorkspaceIO[Read, patch apply, verification subprocess]
+    WorkspaceIO[Read and patch apply]
     ProcessIO[Subprocess capture]
   end
 
@@ -212,7 +214,7 @@ The test suite mirrors these boundaries:
 - `tests/test_harness_*` covers CLI, runner, subprocess, and native CLI
   behavior.
 - `tests/test_native_*` covers providers, session flow, conversation state,
-  read-only tools, patch apply, verification, approval helper behavior, usage
+  read-only tools, patch apply, approval helper behavior, usage
   normalization, and privacy assertions.
 - `tests/test_recorder.py`, `tests/test_catalog.py`, and
   `tests/test_auto_capture.py` cover session storage and catalog behavior.

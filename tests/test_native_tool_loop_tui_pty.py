@@ -34,6 +34,7 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     StaticNativeReplProviderState,
 )
+from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -1114,6 +1115,7 @@ def _start_pty_repl_session(
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
     store: PromptHistoryStore,
     winsize: tuple[int, int] | None = None,
+    native_session: NativeSessionTree | None = None,
 ) -> SimpleNamespace:
     """Spawn one real-PTY product-TUI session in a worker thread.
 
@@ -1140,6 +1142,7 @@ def _start_pty_repl_session(
         provider_state=provider_state,
         tool_registry={},
         prompt_history_store=store,
+        native_session=native_session,
     )
     monkeypatch.setattr(
         NativeToolReplSession,
@@ -1476,3 +1479,203 @@ def test_pty_settings_persistent_history_cross_session_recall(
     # The cleared prompt is not recalled in the fresh, disabled session.
     assert token not in captured3
     assert seen3 == []
+
+
+class _TreeMarkProvider:
+    """Tool-capable provider that streams a unique marker per turn.
+
+    The marker encodes the active-branch user messages it can see, so a PTY
+    test can both wait for each turn and assert which branch reached the model.
+    """
+
+    name = "fake"
+    supports_tool_calls = True
+    model_id = "fake-native-bootstrap"
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, ...]] = []
+        self._n = 0
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.models import ProviderResult
+        from pipy_harness.native.tools.messages import UserMessage
+
+        del reasoning_sink
+        self._n += 1
+        users = tuple(
+            m.content for m in request.messages if isinstance(m, UserMessage)
+        )
+        self.requests.append(users)
+        text = f"MARK{self._n}[{'|'.join(users)}]"
+        if stream_sink is not None:
+            stream_sink(text)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=text,
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_tree_selector_rehydrates_user_message_into_editor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Open `/tree` over a real PTY, pick a prior user message, and branch.
+
+    Proves the live selector opens, navigation works, selecting a user message
+    rehydrates the editor with that text, and submitting the (re)entered text
+    creates an alternative sibling branch whose provider context follows only
+    that branch.
+    """
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    tree = NativeSessionTree.create(workspace, session_dir=tmp_path / "sessions")
+    provider = _TreeMarkProvider()
+    store = PromptHistoryStore(tmp_path / "history.json")
+
+    ctx = _start_pty_repl_session(
+        monkeypatch,
+        workspace,
+        provider=provider,
+        provider_state=None,
+        store=store,
+        native_session=tree,
+    )
+    try:
+        assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup never painted"
+        os.write(ctx.in_master, b"alpha\n")
+        assert _wait_for(ctx.err_chunks, "MARK1["), "first turn never ran"
+        time.sleep(0.4)
+        os.write(ctx.in_master, b"beta\n")
+        assert _wait_for(ctx.err_chunks, "MARK2["), "second turn never ran"
+
+        # Let the post-turn escape watcher settle so the next line is read by
+        # the prompt rather than consumed while watching for an interrupt.
+        time.sleep(0.4)
+        # Open the interactive tree selector.
+        os.write(ctx.in_master, b"/tree\n")
+        assert _wait_for(ctx.err_chunks, "Session tree"), "selector never opened"
+        time.sleep(0.2)
+        # No provider turn while the selector is open.
+        assert len(provider.requests) == 2, "selector opened a provider turn"
+        # Default highlight is the last active row (assistant); move up to the
+        # 'beta' user message and select it.
+        os.write(ctx.in_master, b"\x1b[A")  # up -> beta user message
+        time.sleep(0.15)
+        os.write(ctx.in_master, b"\r")  # enter selects it
+        assert _wait_for(
+            ctx.err_chunks, "rehydrating editor"
+        ), "user selection did not rehydrate the editor"
+        # The editor is pre-filled with the selected text; submit it as-is to
+        # branch from beta's parent.
+        time.sleep(0.2)
+        os.write(ctx.in_master, b"\r")
+        assert _wait_for(ctx.err_chunks, "MARK3["), "branch turn never ran"
+        time.sleep(0.4)
+        os.write(ctx.in_master, b"\x04")
+        ctx.worker.join(timeout=8.0)
+    finally:
+        captured = _finish_pty_repl_session(ctx)
+
+    assert not ctx.worker.is_alive(), "tree selector session did not exit"
+    assert "\x1b[?1049h" not in captured  # never the alternate screen
+
+    # The branch turn saw alpha + beta only (single active branch), not a
+    # duplicated history.
+    branch_request = provider.requests[-1]
+    assert "alpha" in branch_request
+    assert "beta" in branch_request
+
+    # The native file now holds a sibling branch: beta's parent has two child
+    # user messages with content 'beta'.
+    from pipy_harness.native.session_tree import MessageEntry
+    from pipy_harness.native.tools.messages import UserMessage as _U
+
+    assert tree.path is not None
+    reopened = NativeSessionTree.open(tree.path)
+    beta_users = [
+        e
+        for e in reopened.get_entries()
+        if isinstance(e, MessageEntry)
+        and isinstance(e.message, _U)
+        and e.message.content == "beta"
+    ]
+    assert len(beta_users) == 2, "submitting did not create a sibling branch"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_tree_selector_escape_label_and_filter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """`/tree` Escape cancels; `L` labels; `Ctrl-O` cycles the filter mode."""
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    tree = NativeSessionTree.create(workspace, session_dir=tmp_path / "sessions")
+    provider = _TreeMarkProvider()
+    store = PromptHistoryStore(tmp_path / "history.json")
+
+    ctx = _start_pty_repl_session(
+        monkeypatch,
+        workspace,
+        provider=provider,
+        provider_state=None,
+        store=store,
+        native_session=tree,
+    )
+    try:
+        assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup never painted"
+        os.write(ctx.in_master, b"alpha\n")
+        assert _wait_for(ctx.err_chunks, "MARK1["), "first turn never ran"
+
+        # Let the post-turn escape watcher settle before opening the selector.
+        time.sleep(0.4)
+        # Open the selector; label the highlighted entry, cycle the filter once,
+        # then cancel with Escape.
+        os.write(ctx.in_master, b"/tree\n")
+        assert _wait_for(ctx.err_chunks, "Session tree"), "selector never opened"
+        time.sleep(0.2)
+        os.write(ctx.in_master, b"L")  # Shift-L toggles a label
+        time.sleep(0.15)
+        os.write(ctx.in_master, b"\x0f")  # Ctrl-O cycles filter -> no-tools
+        assert _wait_for(
+            ctx.err_chunks, "filter (no-tools)"
+        ), "filter cycle not reflected"
+        time.sleep(0.15)
+        os.write(ctx.in_master, b"\x1b")  # Escape cancels
+        assert _wait_for(ctx.err_chunks, "/tree cancelled"), "escape did not cancel"
+        os.write(ctx.in_master, b"\x04")
+        ctx.worker.join(timeout=8.0)
+    finally:
+        _finish_pty_repl_session(ctx)
+
+    assert not ctx.worker.is_alive()
+    # Selecting nothing ran no extra provider turn.
+    assert len(provider.requests) == 1
+
+    # The label keystroke persisted a label entry in the native file.
+    from pipy_harness.native.session_tree import LabelEntry
+
+    assert tree.path is not None
+    reopened = NativeSessionTree.open(tree.path)
+    assert any(
+        isinstance(e, LabelEntry) and e.label for e in reopened.get_entries()
+    ), "Shift-L did not persist a label"

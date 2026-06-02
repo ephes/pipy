@@ -332,7 +332,6 @@ READ_ONLY_REPL_COMMAND = "/read"
 ASK_FILE_REPL_COMMAND = "/ask-file"
 PROPOSE_FILE_REPL_COMMAND = "/propose-file"
 APPLY_PROPOSAL_REPL_COMMAND = "/apply-proposal"
-VERIFY_REPL_COMMAND = "/verify"
 _REPL_SUCCESSFUL_EXCERPT_LIMIT = 2
 
 
@@ -375,7 +374,6 @@ _REPL_COMMAND_GROUPS = (
             "/apply-proposal <workspace-relative-path>",
         ),
     ),
-    _ReplCommandGroup("Verification", ("/verify just-check",)),
     _ReplCommandGroup("Exit", ("/exit", "/quit")),
 )
 _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
@@ -501,7 +499,6 @@ class _ReplDisplayState:
     read_failed_attempt_used: bool
     read_recovery_used: bool
     pending_proposal_available: bool
-    verification_available: bool
 
 
 @dataclass(slots=True)
@@ -939,14 +936,12 @@ class NativeNoToolReplSession:
         # This legacy flag tracks explicit file-context handoffs only; no-tool
         # conversational context is reported through no_tool_context_* metadata.
         apply_proposal_command_used = False
-        verification_command_used = False
         provider_visible_context_used = False
         file_reference_count = 0
         file_reference_loaded_count = 0
         file_reference_failed_count = 0
         no_tool_context = NativeNoToolReplConversationContext.empty(max_exchanges=self.max_turns)
         pending_apply_draft: _PendingReplPatchApplyDraft | None = None
-        verify_after_apply_available = False
         _print_repl_startup_chrome(
             error_stream,
             provider_state,
@@ -955,7 +950,6 @@ class NativeNoToolReplSession:
             read_budgets=read_budgets,
             no_tool_context=no_tool_context,
             pending_apply_draft=pending_apply_draft,
-            verify_after_apply_available=verify_after_apply_available,
         )
         if self.resume_context is not None:
             # Safe resumed-state banner: prior session id, provider, model,
@@ -982,7 +976,6 @@ class NativeNoToolReplSession:
                 read_budgets=read_budgets,
                 no_tool_context=no_tool_context,
                 pending_apply_draft=pending_apply_draft,
-                verify_after_apply_available=verify_after_apply_available,
             )
 
         while conversation_state.turn_count < self.max_turns:
@@ -994,7 +987,6 @@ class NativeNoToolReplSession:
                 read_budgets=read_budgets,
                 no_tool_context=no_tool_context,
                 pending_apply_draft=pending_apply_draft,
-                verify_after_apply_available=verify_after_apply_available,
             )
             try:
                 line = repl_input.read_line(
@@ -1005,7 +997,6 @@ class NativeNoToolReplSession:
                         read_budgets=read_budgets,
                         no_tool_context=no_tool_context,
                         pending_apply_draft=pending_apply_draft,
-                        verify_after_apply_available=verify_after_apply_available,
                     ),
                     footer=footer_text,
                 )
@@ -1030,7 +1021,6 @@ class NativeNoToolReplSession:
                 read_budgets=read_budgets,
                 no_tool_context=no_tool_context,
                 pending_apply_draft=pending_apply_draft,
-                verify_after_apply_available=verify_after_apply_available,
             )
 
             user_prompt = line.rstrip("\r\n")
@@ -1096,7 +1086,6 @@ class NativeNoToolReplSession:
                         read_budgets=read_budgets,
                         no_tool_context=no_tool_context,
                         pending_apply_draft=pending_apply_draft,
-                        verify_after_apply_available=verify_after_apply_available,
                     )
                 else:
                     _print_repl_command_usage_diagnostic(error_stream, STATUS_REPL_COMMAND)
@@ -1391,44 +1380,6 @@ class NativeNoToolReplSession:
                 )
                 pending_apply_draft = apply_outcome.pending_draft
                 apply_proposal_command_used = apply_proposal_command_used or apply_outcome.apply_succeeded
-                verify_after_apply_available = verify_after_apply_available or apply_outcome.apply_succeeded
-                continue
-            if _is_repl_command_invocation(command, VERIFY_REPL_COMMAND):
-                command_label = command[len(VERIFY_REPL_COMMAND) :].strip()
-                if command_label != "just-check":
-                    _print_repl_command_usage_diagnostic(error_stream, VERIFY_REPL_COMMAND)
-                    continue
-                if not verify_after_apply_available:
-                    print(
-                        "pipy: verify command skipped: no_successful_apply_proposal.",
-                        file=error_stream,
-                    )
-                    continue
-                current_run_input, safe_context = _current_repl_turn_state(
-                    provider_state,
-                    run_input,
-                    self.max_turns,
-                    extra_safe_metadata=instruction_metadata,
-                )
-                verification_result = _handle_repl_verify_command(
-                    current_run_input,
-                    event_sink,
-                    safe_context,
-                    error_stream=error_stream,
-                )
-                verification_command_used = True
-                verify_after_apply_available = False
-                if verification_result.status != NativeToolStatus.SUCCEEDED:
-                    status = HarnessStatus.FAILED
-                    exit_code = 1
-                    error_type = (
-                        "NativeVerificationSkipped"
-                        if verification_result.status == NativeToolStatus.SKIPPED
-                        else "NativeVerificationFailed"
-                    )
-                    error_message = verification_result.reason_label.value
-                    exit_reason = "verification_failed"
-                    break
                 continue
             resource_dispatch = dispatch_resource_command(command, workspace_resources)
             if resource_dispatch is not None:
@@ -1676,7 +1627,6 @@ class NativeNoToolReplSession:
                 "ask_file_command_used": ask_file_command_used,
                 "propose_file_command_used": propose_file_command_used,
                 "apply_proposal_command_used": apply_proposal_command_used,
-                "verification_command_used": verification_command_used,
                 "provider_visible_context_used": provider_visible_context_used,
                 "resource_invocation_count": resource_invocation_count,
                 "file_reference_count": file_reference_count,
@@ -1813,59 +1763,6 @@ def _handle_repl_apply_proposal_command(
     return _ReplPatchApplyOutcome(apply_succeeded=result.status == NativeToolStatus.SUCCEEDED)
 
 
-def _handle_repl_verify_command(
-    run_input: NativeRunInput,
-    event_sink: EventSink,
-    safe_context: Mapping[str, object],
-    *,
-    error_stream: TextIO,
-) -> NativeVerificationResult:
-    identity = NativeToolRequestIdentity.current_noop()
-    try:
-        request = NativeVerificationRequest(
-            tool_request_id=identity.request_id,
-            turn_index=identity.turn_index,
-            command_label="just-check",
-            scope_label="interactive_verify",
-        )
-        gate = NativeVerificationGateDecision(
-            approval_decision=NativeVerificationApprovalDecision.ALLOWED,
-            reason_label="explicit_user_command",
-        )
-    except ValueError:
-        now = utc_now()
-        result = NativeVerificationResult(
-            status=NativeToolStatus.SKIPPED,
-            reason_label=NativeVerificationReason.UNSAFE_COMMAND,
-            tool_request_id=identity.request_id,
-            turn_index=identity.turn_index,
-            command_label="unsafe",
-            started_at=now,
-            ended_at=now,
-            exit_code=None,
-            approval_decision=NativeVerificationApprovalDecision.SKIPPED,
-            scope_label="interactive_verify",
-            error_label=NativeVerificationReason.UNSAFE_COMMAND.value,
-        )
-        _emit_verification_recorded(event_sink, safe_context, result)
-        print(
-            "pipy: verify command skipped: unsafe_verification_request.",
-            file=error_stream,
-        )
-        return result
-
-    try:
-        result = NativeVerificationTool(run_input.cwd).invoke(request, gate)
-    except Exception:
-        result = _failed_verification_result(request, gate)
-    _emit_verification_recorded(event_sink, safe_context, result)
-    print(
-        f"pipy: verify command {result.status.value}: {result.reason_label.value}.",
-        file=error_stream,
-    )
-    return result
-
-
 def _run_input_with_selection(
     run_input: NativeRunInput,
     selection: NativeModelSelection,
@@ -1980,7 +1877,6 @@ def _print_repl_startup_chrome(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
 ) -> None:
     del (
         provider_state,
@@ -1988,7 +1884,6 @@ def _print_repl_startup_chrome(
         read_budgets,
         no_tool_context,
         pending_apply_draft,
-        verify_after_apply_available,
     )
     print_startup_chrome(error_stream, cwd=run_input.cwd)
 
@@ -2001,7 +1896,6 @@ def _repl_footer_text(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
     error_stream: TextIO | None = None,
 ) -> str:
     """Pi-parity two-row bottom block: cwd line then status line."""
@@ -2013,7 +1907,6 @@ def _repl_footer_text(
         read_budgets=read_budgets,
         no_tool_context=no_tool_context,
         pending_apply_draft=pending_apply_draft,
-        verify_after_apply_available=verify_after_apply_available,
     )
     cwd_label = sanitize_text(str(run_input.cwd))
     fields = _repl_bottom_status_fields(state)
@@ -2037,8 +1930,6 @@ def _repl_bottom_status_fields(state: _ReplDisplayState) -> BottomStatusFields:
     attention_signals: list[str] = []
     if state.pending_proposal_available:
         attention_signals.append("proposal ready")
-    if state.verification_available:
-        attention_signals.append("verify ready")
     return BottomStatusFields(
         cwd_label="",
         cost_label=cost_label,
@@ -2083,7 +1974,6 @@ def _print_repl_footer(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
 ) -> None:
     footer = _repl_footer_text(
         provider_state,
@@ -2092,7 +1982,6 @@ def _print_repl_footer(
         read_budgets=read_budgets,
         no_tool_context=no_tool_context,
         pending_apply_draft=pending_apply_draft,
-        verify_after_apply_available=verify_after_apply_available,
         error_stream=error_stream,
     )
     cwd_label, _, status_line = footer.partition("\n")
@@ -2113,7 +2002,6 @@ def _repl_prompt_label_for(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
 ) -> str:
     state = _repl_display_state(
         provider_state,
@@ -2122,7 +2010,6 @@ def _repl_prompt_label_for(
         read_budgets=read_budgets,
         no_tool_context=no_tool_context,
         pending_apply_draft=pending_apply_draft,
-        verify_after_apply_available=verify_after_apply_available,
     )
     return _repl_prompt_label(state)
 
@@ -2141,7 +2028,6 @@ def _print_repl_status(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
 ) -> None:
     state = _repl_display_state(
         provider_state,
@@ -2150,7 +2036,6 @@ def _print_repl_status(
         read_budgets=read_budgets,
         no_tool_context=no_tool_context,
         pending_apply_draft=pending_apply_draft,
-        verify_after_apply_available=verify_after_apply_available,
     )
     print("pipy native REPL status:", file=error_stream)
     print(f"  provider: {sanitize_text(state.provider_name)}", file=error_stream)
@@ -2179,10 +2064,6 @@ def _print_repl_status(
     )
     print(
         f"  pending_proposal_available: {_status_bool(state.pending_proposal_available)}",
-        file=error_stream,
-    )
-    print(
-        f"  verification_available: {_status_bool(state.verification_available)}",
         file=error_stream,
     )
 
@@ -2216,7 +2097,6 @@ def _repl_display_state(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
-    verify_after_apply_available: bool,
 ) -> _ReplDisplayState:
     current = provider_state.current_selection()
     return _ReplDisplayState(
@@ -2238,7 +2118,6 @@ def _repl_display_state(
         read_failed_attempt_used=read_budgets.failed_or_skipped_attempt_used,
         read_recovery_used=read_budgets.recovery_attempt_after_failure_used,
         pending_proposal_available=pending_apply_draft is not None,
-        verification_available=verify_after_apply_available,
     )
 
 

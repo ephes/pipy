@@ -25,6 +25,7 @@ from pipy_harness.native.session_resume import (
     ResumeContext,
     compose_resume_system_block,
 )
+from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
@@ -269,6 +270,7 @@ class PipyNativeToolReplAdapter:
         reference_roots: tuple[Path, ...] = (),
         resume_context: ResumeContext | None = None,
         resume_branch_label: str | None = None,
+        native_session: "NativeSessionTree | None" = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -276,6 +278,11 @@ class PipyNativeToolReplAdapter:
             )
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
+        # Pre-built native product session tree (the product session source of
+        # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
+        # and injects it; when None the loop runs on an ephemeral in-memory tree
+        # so tests and library callers never write to the native-session store.
+        self.native_session = native_session
         self.provider = provider
         self.provider_state = provider_state
         self.tool_registry = (
@@ -376,6 +383,7 @@ class PipyNativeToolReplAdapter:
             reference_roots=self.reference_roots,
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
+            native_session=self.native_session,
         )
         try:
             run_output = session.run(
