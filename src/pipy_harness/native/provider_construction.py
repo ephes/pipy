@@ -9,17 +9,22 @@ name with only ``model_id``.
 The catalog only resolves *which* provider/model/auth/routing/thinking to
 construct; the concrete adapter still decides how to call its upstream API. This
 module wires the ``openai-completions`` family (custom ``models.json`` providers,
-ds4, OpenRouter are all Chat-Completions-shaped) plus the Tier 1 api-key
-families ``anthropic-messages``, ``openai-responses`` and ``mistral``. Each adapter
-places the mapped thinking effort in its own native body key (completions:
-top-level ``reasoning_effort``; responses: ``reasoning.effort``; anthropic:
-``thinking.budget_tokens``). Families not yet wired return ``None`` from
-:func:`build_provider` so the caller falls back to the legacy factory. No secret
-value is placed on any archived field.
+ds4, OpenRouter are all Chat-Completions-shaped), the Tier 1 api-key families
+``anthropic-messages``, ``openai-responses`` and ``mistral``, and the Tier 2
+composed-endpoint families ``google-generative-ai`` (model-in-path + ``?key=``),
+``azure-openai-responses`` (deployment + api-version, ``api-key`` header) and
+``cloudflare-workers-ai`` (account id substituted into the base URL via ``{ENV}``
+placeholders, OpenAI-compatible body). Each adapter places the mapped thinking
+effort in its own native body key (completions/cloudflare: top-level
+``reasoning_effort``; responses/azure: ``reasoning.effort``; anthropic:
+``thinking.budget_tokens``; google thinking is per-model and not yet injected).
+Families not yet wired return ``None`` from :func:`build_provider` so the caller
+falls back to the legacy factory. No secret value is placed on any archived field.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -36,15 +41,20 @@ from pipy_harness.native.thinking import map_thinking_level
 
 @dataclass(frozen=True, slots=True)
 class ResolvedConstruction:
-    """The catalog-resolved inputs needed to construct a provider for a turn."""
+    """The catalog-resolved inputs needed to construct a provider for a turn.
+
+    ``api_key`` and ``headers`` carry resolved secret material, so they are
+    ``repr=False`` — a stray repr/log of this object never leaks the key or an
+    auth header (parity with the repr-hidden adapter fields).
+    """
 
     provider_name: str
     model_id: str
     api: str
     base_url: str | None
     ok: bool
-    api_key: str | None = None
-    headers: Mapping[str, str] = field(default_factory=dict)
+    api_key: str | None = field(default=None, repr=False)
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     body_extra: Mapping[str, object] = field(default_factory=dict)
     reasoning_effort: str | None = None
     error: str | None = None
@@ -61,6 +71,20 @@ def resolve_construction(
 ) -> ResolvedConstruction:
     """Resolve auth + headers + routing + thinking for a catalog model."""
 
+    # ``base_url`` may carry ``{ENV_VAR}`` placeholders (Cloudflare embeds the
+    # account id this way). Substitute them from the environment, failing closed
+    # if a referenced var is unset (Pi's ``resolveCloudflareBaseUrl`` throws).
+    base_url, base_url_error = _resolve_base_url_placeholders(spec.base_url, env)
+    if base_url_error is not None:
+        return ResolvedConstruction(
+            provider_name=spec.provider_name,
+            model_id=spec.model_id,
+            api=spec.api,
+            base_url=spec.base_url,
+            ok=False,
+            error=base_url_error,
+        )
+
     auth = resolve_request_auth(
         spec.provider_name,
         store=store,
@@ -75,7 +99,7 @@ def resolve_construction(
             provider_name=spec.provider_name,
             model_id=spec.model_id,
             api=spec.api,
-            base_url=spec.base_url,
+            base_url=base_url,
             ok=False,
             error=auth.error,
         )
@@ -103,13 +127,45 @@ def resolve_construction(
         provider_name=spec.provider_name,
         model_id=spec.model_id,
         api=spec.api,
-        base_url=spec.base_url,
+        base_url=base_url,
         ok=True,
         api_key=auth.api_key,
         headers=headers,
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
     )
+
+
+_ENV_PLACEHOLDER = re.compile(r"\{([A-Z_][A-Z0-9_]*)\}")
+
+
+def _resolve_base_url_placeholders(
+    base_url: str | None, env: Mapping[str, str]
+) -> tuple[str | None, str | None]:
+    """Substitute ``{ENV_VAR}`` placeholders in ``base_url`` from ``env``.
+
+    Returns ``(resolved_url, None)`` on success, or ``(None, error)`` if a
+    referenced variable is unset (Pi's ``resolveCloudflareBaseUrl`` raises).
+    """
+
+    if not base_url or "{" not in base_url:
+        return base_url, None
+    missing: list[str] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = env.get(name)
+        if not value:
+            missing.append(name)
+            return ""
+        return value
+
+    resolved = _ENV_PLACEHOLDER.sub(_replace, base_url)
+    if missing:
+        return None, (
+            f"{missing[0]} is required for the provider base URL but is not set."
+        )
+    return resolved, None
 
 
 def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
@@ -130,7 +186,17 @@ _ENDPOINT_SUFFIX: dict[str, str] = {
     "openai-responses": "/responses",
     "mistral": "/chat/completions",
 }
-_CATALOG_WIRED_FAMILIES = frozenset(_ENDPOINT_SUFFIX)
+# Tier 2 families compose their endpoint differently (model-in-path query for
+# google, deployment/api-version for azure, account-substituted base for
+# cloudflare), so they are built explicitly rather than via _ENDPOINT_SUFFIX.
+_CATALOG_WIRED_FAMILIES = frozenset(
+    {
+        *_ENDPOINT_SUFFIX,
+        "google-generative-ai",
+        "azure-openai-responses",
+        "cloudflare-workers-ai",
+    }
+)
 
 
 def _default_endpoint(api: str) -> str:
@@ -182,6 +248,65 @@ def build_provider(
             error=resolved.error or "auth resolution failed",
         )
 
+    # The remaining families share the same injection surface (api_key +
+    # endpoint + merged headers + mapped thinking effort); each adapter places
+    # the effort in its own native body key. When ``http_client`` is None the
+    # adapter's own urllib client default applies.
+    http_kwargs = {} if http_client is None else {"http_client": http_client}
+
+    if resolved.api == "google-generative-ai":
+        from pipy_harness.native.google_provider import (
+            GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE,
+            GoogleGenerativeAIProvider,
+        )
+
+        base = (resolved.base_url or "").rstrip("/")
+        template = (
+            base + "/v1beta/models/{model}:generateContent?key={key}"
+            if base
+            else GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE
+        )
+        return GoogleGenerativeAIProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint_template=template,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "azure-openai-responses":
+        from pipy_harness.native.azure_openai_provider import (
+            AzureOpenAIResponsesProvider,
+        )
+
+        return AzureOpenAIResponsesProvider(
+            model_id=resolved.model_id,
+            endpoint_url=resolved.base_url,
+            api_key=resolved.api_key,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "cloudflare-workers-ai":
+        from pipy_harness.native.cloudflare_provider import (
+            CloudflareWorkersAIProvider,
+        )
+
+        # ``base_url`` already has the account id substituted (resolve_construction).
+        endpoint = (resolved.base_url or "").rstrip("/") + "/chat/completions"
+        return CloudflareWorkersAIProvider(
+            model_id=resolved.model_id,
+            api_token=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
     endpoint = _endpoint_for(resolved.api, resolved.base_url)
 
     if resolved.api == "openai-completions":
@@ -201,12 +326,6 @@ def build_provider(
             extra_body=dict(resolved.body_extra),
             reasoning_effort=resolved.reasoning_effort,
         )
-
-    # The remaining Tier 1 families share the same injection surface
-    # (api_key + endpoint + merged headers + mapped thinking effort); each
-    # adapter places the effort in its own native body key. When ``http_client``
-    # is None the adapter's own urllib client default applies.
-    http_kwargs = {} if http_client is None else {"http_client": http_client}
 
     if resolved.api == "anthropic-messages":
         from pipy_harness.native.anthropic_provider import AnthropicProvider

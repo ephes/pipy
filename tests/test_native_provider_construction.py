@@ -340,21 +340,21 @@ def test_auth_failure_returns_fail_closed_provider(tmp_path):
 
 
 def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
-    # google-generative-ai is not yet catalog-wired (Tier 2); it falls back to
-    # the legacy factory (build returns None to signal "not catalog-constructed
+    # amazon-bedrock is not yet catalog-wired (Tier 3); it falls back to the
+    # legacy factory (build returns None to signal "not catalog-constructed
     # here").
     spec = NativeModelSpec(
-        provider_name="google",
-        model_id="gemini-2.5-pro",
-        display_name="Gemini 2.5 Pro",
-        api="google-generative-ai",
-        base_url="https://generativelanguage.googleapis.com",
+        provider_name="amazon-bedrock",
+        model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+        display_name="Bedrock Claude",
+        api="amazon-bedrock",
+        base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
         cost=NativeModelCost(),
     )
     resolved = resolve_construction(
         spec,
         store=AuthStore(path=tmp_path / "auth.json"),
-        env={"GOOGLE_API_KEY": "k"},
+        env={"AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s"},
         runtime_api_key=None,
         models_json_auth=None,
         thinking_level=None,
@@ -557,3 +557,124 @@ def test_tier1_auth_failure_fails_closed(tmp_path):
     assert provider is not None
     result = provider.complete(_request(tmp_path))
     assert result.error_type == "CatalogAuthError"
+
+
+# ---- Slice D: Tier 2 composed/template-endpoint families --------------------
+#
+# google-generative-ai (model-in-path + ?key=), azure-openai-responses
+# (deployment + api-version), cloudflare-workers-ai (account embedded in the
+# base_url via {ENV} substitution + two-part auth).
+
+
+def _google_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="google",
+        model_id="gemini-2.5-pro",
+        display_name="Gemini 2.5 Pro",
+        api="google-generative-ai",
+        base_url="https://generativelanguage.googleapis.com",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _azure_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="azure-openai",
+        model_id="gpt-5.4",
+        display_name="Azure GPT-5.4",
+        api="azure-openai-responses",
+        base_url="https://azure-openai.example",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _cloudflare_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="cloudflare",
+        model_id="@cf/meta/llama-3.3-70b-instruct",
+        display_name="CF Llama",
+        api="cloudflare-workers-ai",
+        base_url="https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def test_google_catalog_construction(tmp_path):
+    resolved = _resolve(_google_spec(), tmp_path, {"GEMINI_API_KEY": "gk"})
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-2.5-pro:generateContent?key=gk"
+    )
+    assert sent["body"]["contents"]
+
+
+def test_google_repr_hides_secret(tmp_path):
+    resolved = _resolve(_google_spec(), tmp_path, {"GEMINI_API_KEY": "SECRET-GK"})
+    provider = build_provider(resolved, http_client=CapturingHTTPClient())
+    assert "SECRET-GK" not in repr(provider)
+
+
+def test_azure_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _azure_spec(),
+        tmp_path,
+        {"AZURE_OPENAI_API_KEY": "azk", "AZURE_OPENAI_API_VERSION": "2024-12-01-preview"},
+        thinking_level="high",
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://azure-openai.example/openai/deployments/gpt-5.4/responses"
+        "?api-version=2024-12-01-preview"
+    )
+    # Azure uses the api-key header, not Authorization: Bearer
+    assert sent["headers"]["api-key"] == "azk"
+    assert "Authorization" not in sent["headers"]
+    # Azure shares the Responses thinking shape
+    assert sent["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_cloudflare_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _cloudflare_spec(),
+        tmp_path,
+        {"CLOUDFLARE_ACCOUNT_ID": "acct-123", "CLOUDFLARE_API_KEY": "cfk"},
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    # account id substituted into the base_url, then /chat/completions appended
+    assert sent["url"] == (
+        "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/v1/chat/completions"
+    )
+    assert sent["body"]["model"] == "@cf/meta/llama-3.3-70b-instruct"
+    assert sent["headers"]["Authorization"] == "Bearer cfk"
+
+
+def test_cloudflare_missing_account_env_fails_closed(tmp_path):
+    # base_url references {CLOUDFLARE_ACCOUNT_ID} but env doesn't set it ->
+    # fail-closed (Pi's resolveCloudflareBaseUrl throws on a missing var).
+    resolved = _resolve(_cloudflare_spec(), tmp_path, {"CLOUDFLARE_API_KEY": "cfk"})
+    assert resolved.ok is False
+    provider = build_provider(resolved, http_client=None)
+    assert provider is not None
+    result = provider.complete(_request(tmp_path))
+    assert result.status.name != "SUCCEEDED"

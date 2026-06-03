@@ -83,16 +83,24 @@ class GoogleGenerativeAIProvider:
     model_id: str
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY"),
+        repr=False,
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "google"
+    # Catalog-resolved request config. ``extra_headers`` are merged
+    # models.json/model headers. Google authenticates via the URL ``?key=``
+    # query param (no auth header), so the key rides ``endpoint_template``.
+    # Thinking (generationConfig.thinkingConfig) is per-model (level enum vs
+    # budget) and not yet catalog-encoded; it is intentionally not injected here.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def name(self) -> str:
-        return "google"
+        return self.provider_name
 
     def complete(
         self,
@@ -109,7 +117,7 @@ class GoogleGenerativeAIProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="GoogleConfigurationError",
-                error_message="--native-model is required for native provider google.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
         api_key = self.api_key.strip() if self.api_key is not None else ""
         if not api_key:
@@ -119,7 +127,8 @@ class GoogleGenerativeAIProvider:
                 started_at=started_at,
                 error_type="GoogleAuthError",
                 error_message=(
-                    "Google API key is required in the environment for native provider google."
+                    "Google API key is required in the environment for native "
+                    f"provider {self.name}."
                 ),
             )
 
@@ -141,6 +150,9 @@ class GoogleGenerativeAIProvider:
                 }
             ]
         headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers.
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
 
         try:
             response = self.http_client.post_json(

@@ -1,13 +1,15 @@
 # Pi-Style Provider And Model Catalog
 
 Status: catalog foundation (2026-06-02) plus product provider construction for
-the OpenAI-Chat-Completions API family (2026-06-03) and the Tier 1 api-key
-families `anthropic-messages`, `openai-responses`, `mistral` (2026-06-03), gated
-end to end. A models.json custom provider/model now runs a real turn using the
-catalog baseUrl/model/auth/headers/routing/thinking. The remaining wiring
-includes catalog-driven construction for the Tier 2/3 non-completions families
-(template/IAM auth), one-shot startup construction, and startup CLI model
-resolution.
+the OpenAI-Chat-Completions API family (2026-06-03), the Tier 1 api-key families
+`anthropic-messages`, `openai-responses`, `mistral`, and the Tier 2
+composed-endpoint families `google-generative-ai`, `azure-openai-responses`,
+`cloudflare-workers-ai` (2026-06-03), gated end to end. A models.json custom
+provider/model now runs a real turn using the catalog
+baseUrl/model/auth/headers/routing/thinking. The remaining wiring includes
+catalog-driven construction for the Tier 3 IAM-auth families
+(`amazon-bedrock`, `google-vertex`, `openai-codex-responses`), one-shot startup
+construction, and startup CLI model resolution.
 
 ## Implemented (foundation + product construction)
 
@@ -75,16 +77,36 @@ Tier 1 catalog construction (shipped 2026-06-03):
   default per-level budgets; mistral `reasoning_effort`). Covered by conformance
   item 20.
 
+Tier 2 catalog construction (shipped 2026-06-03):
+
+- `google-generative-ai`, `azure-openai-responses`, and `cloudflare-workers-ai`
+  are catalog-constructed by `build_provider` with per-family endpoint
+  composition: google builds `base_url/v1beta/models/{model}:generateContent`
+  with the key as the `?key=` query param (no auth header); azure composes
+  `base_url/openai/deployments/{model}/responses?api-version=...` with the
+  `api-key` header and the Responses `reasoning.effort` thinking shape;
+  cloudflare substitutes `{ENV}` placeholders (e.g. `{CLOUDFLARE_ACCOUNT_ID}`)
+  into the `base_url` — failing closed if a referenced var is unset, matching
+  Pi's `resolveCloudflareBaseUrl` — appends `/chat/completions`, sends the
+  resolved key as `Authorization: Bearer`, and uses the OpenAI-compatible
+  top-level `reasoning_effort`. `{ENV}` base-URL substitution is implemented in
+  `resolve_construction`. google's `thinkingConfig` shape is per-model (level
+  enum vs token budget) and not yet catalog-encoded, so google thinking is not
+  injected. Covered by conformance item 21.
+
 Remaining wiring (not yet shipped):
 
-- Catalog-driven construction for the Tier 2/3 non-completions API families
-  (`openai-codex-responses`, `google-generative-ai`, `google-vertex`,
-  `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`). These
-  still use the legacy factory (`model_id` only); `build_provider` returns
-  `None` for them so they fall back. Tier 2 (`google-generative-ai`,
-  `azure-openai-responses`, `cloudflare-workers-ai`) needs template/composed
-  endpoints and multi-part auth; Tier 3 (`amazon-bedrock`, `google-vertex`)
-  needs IAM/SigV4/OAuth auth that does not fit the api-key shape.
+- Catalog-driven construction for the Tier 3 non-completions API families
+  (`amazon-bedrock`, `google-vertex`, `openai-codex-responses`). These still use
+  the legacy factory (`model_id` only); `build_provider` returns `None` for them
+  so they fall back. They need IAM/SigV4/OAuth auth that does not fit the api-key
+  shape.
+- Azure URL/api-version parity: the azure adapter uses the classic
+  deployment-path surface (`/openai/deployments/{deployment}/responses?api-version=2024-12-01-preview`),
+  a deliberate hand-rolled analogue of Pi's `AzureOpenAI` SDK (which normalizes
+  to a `/openai/v1` base with `api-version=v1`). Aligning the adapter's
+  URL/api-version to Pi's `/openai/v1` form is a separate azure-adapter
+  follow-on; catalog construction reuses the existing adapter contract.
 - `pipy run` (non-REPL one-shot) provider construction still uses `_adapter_for`;
   the REPL tool-loop/no-tool product path is catalog-constructed.
 - Startup CLI model resolution. `--native-provider`/`--native-model` at launch do
@@ -767,10 +789,12 @@ request paths.
     - Tier 1 (`anthropic-messages`, `openai-responses`, `mistral`): pure
       api-key + endpoint adapters. **Shipped 2026-06-03**, conformance item 20.
     - Tier 2 (`google-generative-ai`, `azure-openai-responses`,
-      `cloudflare-workers-ai`): template/composed endpoints + multi-part auth.
-      **Selected next slice.**
+      `cloudflare-workers-ai`): template/composed endpoints + multi-part auth
+      (`{ENV}` base-URL substitution). **Shipped 2026-06-03**, conformance
+      item 21.
     - Tier 3 (`amazon-bedrock`, `google-vertex`, `openai-codex-responses`):
-      IAM/SigV4/OAuth auth that does not fit the api-key shape.
+      IAM/SigV4/OAuth auth that does not fit the api-key shape. **Selected next
+      slice.**
 15. One-shot construction: make `pipy run` use the catalog-backed construction
     boundary instead of `_adapter_for`, preserving existing text/stream/json
     output contracts while honoring custom providers, runtime auth, base URLs,

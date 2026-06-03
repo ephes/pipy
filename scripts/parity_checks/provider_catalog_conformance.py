@@ -962,6 +962,129 @@ def _check_tier1_construction(checks, tmp: Path):
     checks.append(Check("20_tier1_fail_closed", failclosed_ok, "Tier 1 authHeader with no key fails closed (not legacy fallback)"))
 
 
+def _check_tier2_construction(checks, tmp: Path):
+    # Item 21: catalog construction for the Tier 2 composed-endpoint families.
+    # google-generative-ai (model-in-path + ?key=), azure-openai-responses
+    # (deployment + api-version, api-key header), cloudflare-workers-ai (account
+    # id substituted into the base_url via {ENV} + OpenAI-compatible body).
+
+    # 21a: google-generative-ai built-in row, key from env -> URL ?key=, no auth
+    # header (Google authenticates via the query param).
+    g_state = _state(tmp, tmp / "tier2_google_missing.json", {"GEMINI_API_KEY": "gk"})
+    g_spec = g_state.find("google", "gemini-2.5-pro")
+    g_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level=None)
+    google_ok = (
+        g_sent["url"]
+        == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=gk"
+        and "Authorization" not in g_sent["headers"]
+        and bool(g_sent["body"].get("contents"))
+    )
+    checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key="))
+
+    # 21b: azure-openai-responses custom provider -> deployment + api-version URL,
+    # api-key header, reasoning.effort thinking.
+    az_path = tmp / "tier2_azure.json"
+    az_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-azure": {
+                        "baseUrl": "https://acme.openai.azure.com",
+                        "apiKey": "azk",
+                        "api": "azure-openai-responses",
+                        "models": [
+                            {"id": "gpt-x", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    az_state = _state(tmp, az_path, {})
+    az_spec = az_state.find("acme-azure", "gpt-x")
+    az_sent, _ = _construct_and_capture(az_state, az_spec, runtime_api_key=None, thinking_level="high")
+    azure_ok = (
+        az_sent["url"].startswith(
+            "https://acme.openai.azure.com/openai/deployments/gpt-x/responses?api-version="
+        )
+        and az_sent["headers"]["api-key"] == "azk"
+        and "Authorization" not in az_sent["headers"]
+        and az_sent["body"]["reasoning"] == {"effort": "high"}
+    )
+    checks.append(Check("21_azure_construction", azure_ok, "azure-openai-responses: deployment/api-version URL + api-key header + reasoning.effort"))
+
+    # 21c: cloudflare-workers-ai built-in row -> account id substituted into the
+    # base_url, /chat/completions appended, Bearer token.
+    cf_state = _state(
+        tmp,
+        tmp / "tier2_cf_missing.json",
+        {"CLOUDFLARE_ACCOUNT_ID": "acct-9", "CLOUDFLARE_API_KEY": "cfk"},
+    )
+    cf_spec = cf_state.find("cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+    cf_sent, _ = _construct_and_capture(cf_state, cf_spec, runtime_api_key=None, thinking_level=None)
+    cloudflare_ok = (
+        cf_sent["url"]
+        == "https://api.cloudflare.com/client/v4/accounts/acct-9/ai/v1/chat/completions"
+        and cf_sent["headers"]["Authorization"] == "Bearer cfk"
+        and cf_sent["body"]["model"] == "@cf/meta/llama-3.3-70b-instruct"
+    )
+    checks.append(Check("21_cloudflare_construction", cloudflare_ok, "cloudflare-workers-ai: {ENV} account substitution + /chat/completions + Bearer"))
+
+    # 21d: cloudflare with a missing CLOUDFLARE_ACCOUNT_ID fails closed (the
+    # base_url {ENV} placeholder cannot resolve), not a legacy fallback.
+    cf_fc_state = _state(tmp, tmp / "tier2_cf_fc.json", {"CLOUDFLARE_API_KEY": "cfk"})
+    cf_fc_spec = cf_fc_state.find("cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+    cf_fc_resolved = resolve_construction(
+        cf_fc_spec,
+        store=cf_fc_state.auth_store,
+        env=cf_fc_state._env(),
+        runtime_api_key=None,
+        models_json_auth=cf_fc_state._models_json_auth("cloudflare"),
+        thinking_level=None,
+    )
+    cf_fc_provider = build_provider(cf_fc_resolved, http_client=None)
+    cf_failclosed_ok = (
+        cf_fc_resolved.ok is False
+        and cf_fc_provider is not None
+        and cf_fc_provider.complete(
+            _provider_request(Path("."), "cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+        ).error_type == "CatalogAuthError"
+    )
+    checks.append(Check("21_cloudflare_missing_account_fails_closed", cf_failclosed_ok, "cloudflare missing CLOUDFLARE_ACCOUNT_ID fails closed"))
+
+    # 21e: product boundary constructs a built-in azure catalog model (not legacy).
+    from pipy_harness.native.azure_openai_provider import AzureOpenAIResponsesProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    az_boundary_state = _state(
+        tmp, tmp / "tier2_azure_boundary.json", {"AZURE_OPENAI_API_KEY": "azk2"}
+    )
+    az_repl = NativeReplProviderState(
+        selection=NativeModelSelection("azure-openai", "gpt-5.4"),
+        provider_factory=_no_legacy,
+        catalog_state=az_boundary_state,
+        thinking_level="high",
+        persist_defaults=False,
+    )
+    az_provider = az_repl.current_provider()
+    azure_boundary_ok = (
+        isinstance(az_provider, AzureOpenAIResponsesProvider)
+        and az_provider.endpoint_url == "https://azure-openai.example"
+        and az_provider.api_key == "azk2"
+        and az_provider.reasoning_effort == "high"
+        and "azk2" not in repr(az_provider)
+    )
+    checks.append(Check("21_tier2_boundary_uses_catalog", azure_boundary_ok, "current_provider constructs a built-in azure catalog model (not legacy)"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -1065,6 +1188,7 @@ def run_checks() -> list[Check]:
         _check_refresh(checks, tmp)
         _check_product_construction(checks, tmp)
         _check_tier1_construction(checks, tmp)
+        _check_tier2_construction(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 

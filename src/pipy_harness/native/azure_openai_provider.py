@@ -85,6 +85,13 @@ class AzureOpenAIResponsesProvider:
     ``{endpoint_url}/openai/deployments/{deployment}/responses?api-version={api_version}``.
     Authentication uses the ``api-key`` header (Azure's convention), not
     ``Authorization: Bearer``.
+
+    This is the classic Azure OpenAI deployment-path surface, a deliberate
+    hand-rolled analogue of Pi (which delegates URL composition to the
+    ``AzureOpenAI`` SDK with a ``/openai/v1`` base and ``api-version=v1``).
+    Catalog construction reuses this existing adapter contract; aligning the
+    URL/api-version to Pi's ``/openai/v1`` normalization is a separate
+    azure-adapter follow-on, not part of catalog construction.
     """
 
     model_id: str
@@ -92,7 +99,7 @@ class AzureOpenAIResponsesProvider:
         default_factory=lambda: os.environ.get("AZURE_OPENAI_ENDPOINT")
     )
     api_key: str | None = field(
-        default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY")
+        default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY"), repr=False
     )
     api_version: str = field(
         default_factory=lambda: os.environ.get("AZURE_OPENAI_API_VERSION")
@@ -102,10 +109,17 @@ class AzureOpenAIResponsesProvider:
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "azure-openai"
+    # Catalog-resolved request config (parity with the completions adapter).
+    # ``extra_headers`` are merged models.json/model headers (an explicit
+    # ``api-key``/``Authorization`` wins over the native ``api-key``);
+    # ``reasoning_effort`` is the mapped thinking value (Responses-shaped).
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
 
     @property
     def name(self) -> str:
-        return "azure-openai"
+        return self.provider_name
 
     def complete(
         self,
@@ -123,7 +137,7 @@ class AzureOpenAIResponsesProvider:
                 started_at=started_at,
                 error_type="AzureOpenAIConfigurationError",
                 error_message=(
-                    "--native-model is required for native provider azure-openai."
+                    f"--native-model is required for native provider {self.name}."
                 ),
             )
         if not self.endpoint_url:
@@ -134,10 +148,14 @@ class AzureOpenAIResponsesProvider:
                 error_type="AzureOpenAIConfigurationError",
                 error_message=(
                     "Azure OpenAI endpoint URL is required in the environment "
-                    "for native provider azure-openai."
+                    f"for native provider {self.name}."
                 ),
             )
-        if not self.api_key:
+        has_explicit_auth = any(
+            header_name.lower() in ("authorization", "api-key")
+            for header_name in self.extra_headers
+        )
+        if not self.api_key and not has_explicit_auth:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
@@ -145,7 +163,7 @@ class AzureOpenAIResponsesProvider:
                 error_type="AzureOpenAIAuthError",
                 error_message=(
                     "Azure OpenAI API key is required in the environment "
-                    "for native provider azure-openai."
+                    f"for native provider {self.name}."
                 ),
             )
 
@@ -167,10 +185,17 @@ class AzureOpenAIResponsesProvider:
                 serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
-        headers = {
-            "api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
+        # Azure shares the Responses thinking shape (reasoning.effort).
+        if self.reasoning_effort is not None:
+            body["reasoning"] = {"effort": self.reasoning_effort}
+        headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers (may include an explicit api-key).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Apply the native ``api-key`` header only when no explicit auth header
+        # is present, so an explicit models.json auth header wins.
+        if self.api_key and not has_explicit_auth:
+            headers["api-key"] = self.api_key
 
         try:
             response = self.http_client.post_json(

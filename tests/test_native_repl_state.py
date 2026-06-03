@@ -197,17 +197,19 @@ def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
     state = ProviderCatalogState(
         models_json_path=tmp_path / "models.json",
         auth_store=AuthStore(path=tmp_path / "auth.json"),
-        env={"GOOGLE_API_KEY": "k"},
+        env={"AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
     sentinel = object()
     repl_state = NativeReplProviderState(
-        selection=NativeModelSelection("google", "gemini-2.5-pro"),
+        selection=NativeModelSelection(
+            "amazon-bedrock", "anthropic.claude-3-5-sonnet-20240620-v1:0"
+        ),
         provider_factory=lambda sel: sentinel,
         catalog_state=state,
         persist_defaults=False,
     )
-    # google-generative-ai is not yet catalog-wired (Tier 2) -> legacy factory.
+    # amazon-bedrock is not yet catalog-wired (Tier 3) -> legacy factory.
     assert repl_state.current_provider() is sentinel
 
 
