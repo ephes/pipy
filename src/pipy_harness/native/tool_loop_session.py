@@ -72,6 +72,7 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
@@ -1323,6 +1324,72 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
+            if stripped == "/scoped-models" or stripped.startswith("/scoped-models "):
+                # Local-only: view/set/clear the enabledModels patterns that
+                # constrain the model cycle, or cycle (next/prev) over the scoped
+                # set (or full available catalog when empty). Cycling rebinds the
+                # live provider through the same select_model boundary as /model;
+                # no command here runs a provider turn or a tool call.
+                argument = stripped[len("/scoped-models"):].strip()
+                state = self.provider_state
+                available_refs = (
+                    [o.selection.reference for o in state.model_options() if o.available]
+                    if isinstance(state, NativeReplProviderState)
+                    else []
+                )
+                patterns = settings.get_enabled_models()
+                scoped = filter_scoped_references(available_refs, patterns)
+                if not argument:
+                    pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
+                    cycle_text = ", ".join(scoped) if scoped else "(none available)"
+                    for line in (
+                        "pipy: scoped models:",
+                        f"  patterns: {pattern_text}",
+                        f"  cycle set: {cycle_text}",
+                    ):
+                        self._emit_diagnostic(terminal_ui, error_stream, line)
+                elif argument == "clear":
+                    try:
+                        settings.set_enabled_models([])
+                        msg = "pipy: scoped models cleared (cycle uses the full catalog)."
+                    except RuntimeError as exc:
+                        msg = f"pipy: could not update scoped models: {exc}"
+                    self._emit_diagnostic(terminal_ui, error_stream, msg)
+                elif argument in {"next", "prev"}:
+                    current_ref = (
+                        state.current_selection().reference
+                        if isinstance(state, NativeReplProviderState)
+                        else ""
+                    )
+                    cycle_target = next_reference(
+                        scoped, current_ref, forward=argument == "next"
+                    )
+                    if cycle_target is None:
+                        self._emit_diagnostic(
+                            terminal_ui, error_stream, "pipy: no models available to cycle."
+                        )
+                    else:
+                        _ok, message = apply_model_selection(cycle_target)
+                        self._emit_diagnostic(terminal_ui, error_stream, message)
+                else:
+                    new_patterns = argument.split()
+                    try:
+                        settings.set_enabled_models(new_patterns)
+                        msg = "pipy: scoped models set: " + ", ".join(new_patterns)
+                    except RuntimeError as exc:
+                        msg = f"pipy: could not update scoped models: {exc}"
+                    self._emit_diagnostic(terminal_ui, error_stream, msg)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
             if stripped == "/theme" or stripped.startswith("/theme "):
                 # Chrome-only command: swap the active color palette. No
                 # provider turn, no tool call, no archive write. The next TUI
@@ -1438,7 +1505,8 @@ class NativeToolReplSession:
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /hotkeys, /model, /settings, "
+                        "supported local commands are /help, /hotkeys, /model, "
+                        "/scoped-models, /settings, "
                         "/login, /logout, /copy, /compact, /session, /name, "
                         "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
@@ -2265,7 +2333,9 @@ class NativeToolReplSession:
             "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
             "`/copy` copies the last answer to the clipboard. `/hotkeys` shows "
-            "the resolved keyboard-shortcut table. `/skill [<name>]` "
+            "the resolved keyboard-shortcut table. `/scoped-models [next|prev|"
+            "clear|<pattern>…]` views, sets, clears, or cycles the model cycle "
+            "set. `/skill [<name>]` "
             "lists or loads a workspace/global skill, `/template [<name> [args]]` "
             "lists or runs a prompt template, and any workspace custom slash "
             "command runs as a bounded provider turn. Other input is "

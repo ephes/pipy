@@ -409,7 +409,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
         # Open the slash menu; it must list only executable commands.
         os.write(in_master, b"/")
-        assert _wait_for(err_chunks, "login"), "slash menu never opened"
+        assert _wait_for(err_chunks, "settings"), "slash menu never opened"
         # Snapshot the live menu before tearing down.
         snapshot = parse_ansi_screen(
             b"".join(err_chunks).decode("utf-8", errors="replace"),
@@ -437,7 +437,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     # commands (the menu windows to a few rows, so later commands such as /copy
     # scroll below the fold but are still reachable; the unit tests cover the
     # full advertised set).
-    for executable in ("help", "hotkeys", "model", "settings", "login"):
+    for executable in ("help", "hotkeys", "model", "scoped-models", "settings"):
         assert executable in menu_text, f"menu missing /{executable}"
 
 
@@ -929,7 +929,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
         assert _wait_for(err_chunks, sep_start), "initial-size separator missing"
         # Open the slash overlay, then resize while it is open.
         os.write(in_master, b"/")
-        assert _wait_for(err_chunks, "login"), "slash menu never opened"
+        assert _wait_for(err_chunks, "settings"), "slash menu never opened"
         _set_winsize(err_slave, end_rows, end_cols)
         # The resize repaint clears the screen and redraws the full frame at the
         # new size; the clear + redraw are flushed together, so observing the
@@ -981,7 +981,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     input_index = separator_rows[0] + 1
     assert separator_rows[1] == input_index + 1
     joined = "\n".join(viewport)
-    assert "login" in joined  # the overlay is still open at the new width
+    assert "settings" in joined  # the overlay is still open at the new width
     assert any(line.strip() for line in viewport[separator_rows[1] + 1 :]), (
         "footer row missing below the resized frame"
     )

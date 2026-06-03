@@ -5836,9 +5836,10 @@ def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> No
     )
     factory = _provider_factory_for(manager)
     provider = factory(NativeModelSelection("openai-codex", "gpt-5.5"))
-    assert provider.retry_policy.max_attempts == 6
-    assert provider.retry_policy.initial_delay_seconds == 0.5
-    assert provider.retry_policy.max_delay_seconds == 30.0
+    policy = provider.retry_policy  # type: ignore[attr-defined]
+    assert policy.max_attempts == 6
+    assert policy.initial_delay_seconds == 0.5
+    assert policy.max_delay_seconds == 30.0
 
 
 def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> None:
@@ -5847,5 +5848,6 @@ def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> N
 
     provider = _provider_factory_for(None)(NativeModelSelection("openai-codex", "gpt-5.5"))
     # Built-in openai-codex default policy (unchanged when no settings).
-    assert provider.retry_policy.max_attempts == 4
-    assert provider.retry_policy.initial_delay_seconds == 1.0
+    policy = provider.retry_policy  # type: ignore[attr-defined]
+    assert policy.max_attempts == 4
+    assert policy.initial_delay_seconds == 1.0

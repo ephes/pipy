@@ -392,6 +392,16 @@ scoped set (or full catalog when empty). Selection runs no provider turn; a
 successful change rebinds the live provider exactly like the existing `/model`
 selector.
 
+Shipped: the tool-loop `/scoped-models` command views the patterns and the
+resolved cycle set (bare), sets them (`/scoped-models <pattern>…`, persisted to
+settings), clears them (`/scoped-models clear`), and cycles
+(`/scoped-models next` / `prev`). The pattern→reference match is exact or an
+fnmatch glob (`openai/*`); see `pipy_harness.native.scoped_models`. The default
+`app.model.cycleForward` binding (Ctrl+P) cycles forward live in the product
+TUI through the same `select_model` rebind boundary (no provider turn);
+backward cycling is available via `/scoped-models prev` (most terminals cannot
+send a distinct `shift+ctrl+p`).
+
 ## Message Delivery and Transport
 
 - `steeringMode` (`all` | `one-at-a-time`): how queued steering messages are

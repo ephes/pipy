@@ -14,6 +14,7 @@ Mirrors Pi's resolvePromptInput + buildSystemPrompt customPrompt/append behavior
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from pipy_harness.native.system_prompt_inputs import (
@@ -24,7 +25,7 @@ from pipy_harness.native.system_prompt_inputs import (
 DEFAULT = "DEFAULT BASE PROMPT"
 
 
-def _warns() -> tuple[list[str], object]:
+def _warns() -> tuple[list[str], Callable[[str], None]]:
     captured: list[str] = []
     return captured, captured.append
 
@@ -188,9 +189,10 @@ def test_safe_metadata_has_no_body(tmp_path: Path) -> None:
     assert "SECRET APPEND BODY" not in blob
     # Metadata carries source label, sha256, byte length.
     assert meta["system_prompt_replaced"] is True
-    assert meta["system_prompt_replace"]["byte_length"] == len("SECRET CUSTOM PROMPT BODY")
-    assert len(meta["system_prompt_replace"]["sha256"]) == 64
-    assert meta["system_prompt_append"][0]["byte_length"] == len("SECRET APPEND BODY")
+    assert result.replace_input is not None
+    assert result.replace_input.byte_length == len("SECRET CUSTOM PROMPT BODY")
+    assert len(result.replace_input.sha256) == 64
+    assert result.append_inputs[0].byte_length == len("SECRET APPEND BODY")
 
 
 # --- empty-string flag values are treated as absent (Pi parity) -------------

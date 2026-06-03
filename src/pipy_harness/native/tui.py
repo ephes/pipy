@@ -52,6 +52,7 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/help",
     "/hotkeys",
     "/model",
+    "/scoped-models",
     "/settings",
     "/login",
     "/logout",
@@ -291,6 +292,12 @@ class ToolLoopTerminalUi:
                     if not self.input_text:
                         return ""
                     continue
+                if key == "ctrl-p":
+                    # app.model.cycleForward (default ctrl+p): cycle to the next
+                    # model in the scoped set. Delegated to the session's
+                    # /scoped-models dispatch so the live provider rebinds through
+                    # the shared select_model boundary; no provider turn.
+                    return "/scoped-models next\n"
                 if key == "paste":
                     self._insert_paste(self._pending_paste)
                     self._pending_paste = ""
@@ -1812,6 +1819,8 @@ class ToolLoopTerminalUi:
             return "end"
         if ch == "\x0f":
             return "ctrl-o"
+        if ch == "\x10":
+            return "ctrl-p"
         return ch
 
     def _read_escape_sequence(self, fd: int) -> str:

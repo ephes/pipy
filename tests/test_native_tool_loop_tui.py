@@ -550,6 +550,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/help",
         "/hotkeys",
         "/model",
+        "/scoped-models",
         "/settings",
         "/login",
         "/logout",
@@ -611,11 +612,11 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert ui.slash_menu_open is True
     assert "→ help" in rendered
     assert "Show pipy command reference" in rendered
-    # The interactive settings dialog and the auth commands are executable in
-    # tool-loop mode, so the menu advertises them in the leading rows.
+    # The interactive settings dialog is executable in tool-loop mode, so the
+    # menu advertises it in the leading rows.
     assert "  settings" in rendered
     assert "Settings and status" in rendered
-    assert "  login" in rendered
+    assert "  scoped-models" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
     input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
     menu_index = next(
@@ -623,11 +624,11 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Eleven commands match the bare "/" prefix but the menu windows to the
+    # Twelve commands match the bare "/" prefix but the menu windows to the
     # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
-    # /logout scrolls behind the "… N more" tail.
-    assert "(1/11)" in rendered
-    assert "  logout" not in rendered
+    # /login scrolls behind the "… N more" tail.
+    assert "(1/12)" in rendered
+    assert "  login" not in rendered
 
 
 def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
@@ -640,8 +641,8 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ]
     assert len(menu_rows) == 3
     rendered = "\n".join(line.text for line in frame)
-    # 11 commands match, only 3 shown -> overflow indicator present.
-    assert "(1/11)" in rendered
+    # 12 commands match, only 3 shown -> overflow indicator present.
+    assert "(1/12)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):

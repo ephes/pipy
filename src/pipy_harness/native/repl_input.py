@@ -57,6 +57,7 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/login": "Log in (openai-codex OAuth)",
     "/logout": "Log out (openai-codex OAuth)",
     "/model": "Select provider/model",
+    "/scoped-models": "View/set the Ctrl+P model cycle set",
     "/theme": "Select chrome color theme",
     "/skill": "List or load a workspace/global skill",
     "/template": "List or run a prompt template",

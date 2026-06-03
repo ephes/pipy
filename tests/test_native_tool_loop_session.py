@@ -11,6 +11,7 @@ script.
 from __future__ import annotations
 
 import io
+import json
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -578,3 +579,109 @@ def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
     )
     # Default compaction.enabled=true: the gate allows auto-compaction to run.
     assert "compacted conversation context (auto" in error_stream.getvalue()
+
+
+def _scoped_models_state(tmp_path, seen):
+    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+
+    class _Rec:
+        def __init__(self, provider_name, model_id, supports_tool_calls=True):
+            self.name = provider_name
+            self.model_id = model_id
+            self.supports_tool_calls = supports_tool_calls
+
+        def complete(self, request, **_kwargs):
+            seen.append((request.provider_name, request.model_id))
+            from datetime import UTC, datetime
+
+            now = datetime.now(UTC)
+            from pipy_harness.models import HarnessStatus
+            from pipy_harness.native.provider import ProviderResult
+
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ok",
+            )
+
+    def factory(selection):
+        return _Rec(selection.provider_name, selection.model_id)
+
+    return NativeReplProviderState(
+        selection=NativeModelSelection("openai", "gpt-5.5"),
+        provider_factory=factory,
+        env={"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x"},
+        openai_codex_auth_path=tmp_path / "missing.json",
+        persist_defaults=False,
+    )
+
+
+def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
+    from pipy_harness.native.settings import SettingsManager
+
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "nd.json"))
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text("{}", encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    seen: list = []
+    state = _scoped_models_state(tmp_path, seen)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(
+        provider=provider, provider_state=state, settings_manager=manager
+    )
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(
+            "/scoped-models\n"
+            "/scoped-models openai/*\n"
+            "/scoped-models\n"
+            "/scoped-models clear\n"
+            "/exit\n"
+        ),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    out = error_stream.getvalue()
+    assert "scoped models:" in out
+    assert "scoped models set: openai/*" in out
+    assert "scoped models cleared" in out
+    # Persisted to the settings file (set then cleared -> empty list on disk).
+    on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert on_disk.get("enabledModels") == []
+    # /scoped-models view/set/clear ran no provider turn.
+    assert seen == []
+
+
+def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(tmp_path, monkeypatch):
+    from pipy_harness.native.settings import SettingsManager
+
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "nd.json"))
+    manager = SettingsManager(
+        global_path=tmp_path / "cfg" / "settings.json",
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    seen: list = []
+    state = _scoped_models_state(tmp_path, seen)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(
+        provider=provider, provider_state=state, settings_manager=manager
+    )
+    before = state.current_selection().reference
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/scoped-models next\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    after = state.current_selection().reference
+    assert after != before  # cycled to a different available model
+    assert "selected model" in error_stream.getvalue()
+    assert seen == []  # cycling ran no provider turn
