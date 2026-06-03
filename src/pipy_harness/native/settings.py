@@ -210,11 +210,16 @@ class _FileLock:
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
+        # Only release the lock if we actually acquired it. After contention or
+        # an OSError the best-effort path proceeds with ``_fd is None`` (never
+        # deadlocking); in that case the lock file belongs to another writer and
+        # must not be removed, or we would drop a lock we never held.
+        if self._fd is None:
+            return
+        try:
+            os.close(self._fd)
+        except OSError:
+            pass
         try:
             self._lock_path.unlink()
         except OSError:

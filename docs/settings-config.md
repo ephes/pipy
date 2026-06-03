@@ -404,7 +404,10 @@ fnmatch glob (`openai/*`); see `pipy_harness.native.scoped_models`. The default
 `app.model.cycleForward` binding (Ctrl+P) cycles forward live in the product
 TUI through the same `select_model` rebind boundary (no provider turn);
 backward cycling is available via `/scoped-models prev` (most terminals cannot
-send a distinct `shift+ctrl+p`).
+send a distinct `shift+ctrl+p`). The `--models <patterns>` CLI flag applies as a
+final override of `enabledModels` for the session (CLI wins over the settings
+file), constraining the scoped set / Ctrl+P cycle; an optional per-pattern
+`:level` suffix is parsed but not yet applied as an initial preference.
 
 ## Message Delivery and Transport
 

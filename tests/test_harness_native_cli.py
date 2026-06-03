@@ -5933,3 +5933,42 @@ def test_cli_version_prints_version(capfd) -> None:
     out = capfd.readouterr().out
     assert out.startswith("pipy ")
     assert any(ch.isdigit() for ch in out)
+
+
+def test_cli_models_flag_constrains_scoped_set(tmp_path) -> None:
+    from pipy_harness.cli import _build_runtime_settings, _parse_models_flag
+
+    # --models patterns apply as a CLI override of enabledModels (CLI > file).
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text(
+        json.dumps({"enabledModels": ["anthropic/*"]}), encoding="utf-8"
+    )
+    monkeypatch_env = {"PIPY_CONFIG_HOME": str(tmp_path / "cfg")}
+    import os as _os
+
+    saved = _os.environ.get("PIPY_CONFIG_HOME")
+    _os.environ["PIPY_CONFIG_HOME"] = monkeypatch_env["PIPY_CONFIG_HOME"]
+    try:
+        mgr = _build_runtime_settings(
+            tmp_path, scoped_models=_parse_models_flag("openai/*:high,openai/gpt-4")
+        )
+    finally:
+        if saved is None:
+            _os.environ.pop("PIPY_CONFIG_HOME", None)
+        else:
+            _os.environ["PIPY_CONFIG_HOME"] = saved
+    # CLI override wins over the settings file; :level suffix is stripped.
+    assert mgr.get_enabled_models() == ["openai/*", "openai/gpt-4"]
+
+
+def test_parse_models_flag_handles_empty_and_levels() -> None:
+    from pipy_harness.cli import _parse_models_flag
+
+    assert _parse_models_flag(None) is None
+    assert _parse_models_flag("") is None
+    assert _parse_models_flag("  ") is None
+    assert _parse_models_flag("openai/*:high, anthropic/claude ") == [
+        "openai/*",
+        "anthropic/claude",
+    ]

@@ -718,3 +718,28 @@ def test_changelog_and_telemetry_getters(tmp_path: Path) -> None:
     assert mgr2.get_last_changelog_version() == "0.2.0"
     assert mgr2.get_collapse_changelog() is True
     assert mgr2.get_enable_install_telemetry() is True
+
+
+def test_file_lock_does_not_delete_a_lock_it_did_not_acquire(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import _FileLock
+
+    target = tmp_path / "settings.json"
+    lock_path = target.with_name("settings.json.lock")
+    # Simulate another writer already holding the lock.
+    lock_path.write_text("", encoding="utf-8")
+    with _FileLock(target) as lock:
+        # We could not acquire it (best-effort: proceed without the lock).
+        assert lock._fd is None
+    # The other writer's lock file must still be present (we never owned it).
+    assert lock_path.exists()
+
+
+def test_file_lock_removes_its_own_lock(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import _FileLock
+
+    target = tmp_path / "settings.json"
+    lock_path = target.with_name("settings.json.lock")
+    with _FileLock(target) as lock:
+        assert lock._fd is not None
+        assert lock_path.exists()
+    assert not lock_path.exists()

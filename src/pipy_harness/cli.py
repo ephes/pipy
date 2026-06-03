@@ -448,11 +448,12 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="PATTERNS",
         help=(
-            "Comma-separated model patterns (globs/fuzzy, each with optional "
-            ":level). Reserved: live Ctrl+P scoped-model cycling and the "
-            "first-scoped-model initial preference are not yet wired into the "
-            "session (see docs/provider-catalog.md); the value is currently "
-            "accepted but not applied."
+            "Comma-separated model patterns (globs, each with an optional "
+            ":level suffix which is ignored for scoping). In `pipy repl` these "
+            "apply as a final CLI override of `enabledModels`, constraining the "
+            "`/scoped-models` set and Ctrl+P cycling for the session (CLI wins "
+            "over settings.json). The per-pattern :level initial preference is "
+            "not yet applied (see docs/provider-catalog.md)."
         ),
     )
     parser.add_argument(
@@ -558,7 +559,10 @@ def main(argv: list[str] | None = None) -> int:
             # Layered settings: a settings.json defaultProvider/defaultModel/theme
             # is the source of truth over the legacy local-state store (CLI flags
             # still win). The store remains the fallback for selection.
-            settings_manager = _build_runtime_settings(args.cwd.expanduser().resolve())
+            settings_manager = _build_runtime_settings(
+                args.cwd.expanduser().resolve(),
+                scoped_models=_parse_models_flag(getattr(args, "scoped_models", None)),
+            )
             file_settings = settings_manager.merged_file_settings()
             _apply_settings_theme_env(file_settings)
             eff_native_provider = args.native_provider or _settings_str(
@@ -900,13 +904,27 @@ def _cmd_config(args: Any) -> int:
     return 0
 
 
-def _build_runtime_settings(cwd: Path) -> SettingsManager:
+def _parse_models_flag(value: str | None) -> list[str] | None:
+    """Parse ``--models`` into scoped-model patterns (drops an optional :level)."""
+
+    if not value:
+        return None
+    patterns = [token.split(":", 1)[0].strip() for token in value.split(",")]
+    patterns = [p for p in patterns if p]
+    return patterns or None
+
+
+def _build_runtime_settings(
+    cwd: Path, *, scoped_models: list[str] | None = None
+) -> SettingsManager:
     """Build the layered settings manager for a ``pipy repl`` run.
 
     Imports the existing local-state store values (provider/model/theme/
     prompt-history) as the lowest-precedence ``base_defaults`` layer so they
     surface through settings without rewriting the runtime-state files, while a
-    user ``settings.json`` still overrides them.
+    user ``settings.json`` still overrides them. ``--models`` patterns, when
+    given, apply as a final CLI override of ``enabledModels`` so they constrain
+    the scoped-model / Ctrl+P cycle for the session (CLI wins over the file).
     """
 
     stored = NativeDefaultsStore(default_native_defaults_path()).load()
@@ -917,7 +935,8 @@ def _build_runtime_settings(cwd: Path) -> SettingsManager:
         theme=theme,
         prompt_history_enabled=PromptHistoryStore().enabled,
     )
-    return SettingsManager.for_workspace(cwd, base_defaults=base)
+    overrides = {"enabledModels": scoped_models} if scoped_models else None
+    return SettingsManager.for_workspace(cwd, base_defaults=base, overrides=overrides)
 
 
 def _settings_str(file_settings: dict[str, object], key: str) -> str | None:

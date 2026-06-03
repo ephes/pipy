@@ -37,7 +37,6 @@ from pipy_harness.native.keybindings import (
     render_hotkeys,
 )
 from pipy_harness.native.provider import ProviderRequest, ProviderResult
-from pipy_harness.native.resource_enablement import filter_enabled, is_resource_enabled
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import (
     SettingsManager,
@@ -355,10 +354,49 @@ def check_12_no_context_files(root: Path) -> tuple[bool, str]:
 
 
 def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
-    disabled = is_resource_enabled("review", ["-review"]) is False
-    reenabled = is_resource_enabled("review", ["-review", "+review"]) is True
-    filtered = filter_enabled(["a", "b", "c"], ["-b"]) == ["a", "c"]
-    return disabled and reenabled and filtered, f"disabled={disabled} reenabled={reenabled} filtered={filtered}"
+    from pipy_harness import cli
+    from pipy_harness.native.resources import WorkspaceResources
+
+    # Product round-trip: `pipy config disable/enable` persists a -pattern/
+    # +pattern into settings and WorkspaceResources.with_enablement filters what
+    # is registered. Drive the real CLI against a per-check config home.
+    ws = root / "ws13"
+    skills_dir = ws / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    (skills_dir / "review.md").write_text("# review\n", encoding="utf-8")
+    (skills_dir / "draft.md").write_text("# draft\n", encoding="utf-8")
+    cfg = root / "cfg13"
+    cfg.mkdir(parents=True, exist_ok=True)
+    settings_path = cfg / "settings.json"
+    prior_home = os.environ.get("PIPY_CONFIG_HOME")
+    os.environ["PIPY_CONFIG_HOME"] = str(cfg)
+    try:
+        cli.main(["config", "disable", "skill", "review", "--cwd", str(ws)])
+        persisted = json.loads(settings_path.read_text(encoding="utf-8")).get("skills") == ["-review"]
+        mgr = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
+        registered = WorkspaceResources.discover(ws).with_enablement(
+            skills_patterns=mgr.get_skills_patterns(),
+            prompts_patterns=mgr.get_prompts_patterns(),
+            enable_skill_commands=mgr.get_enable_skill_commands(),
+        ).skill_names()
+        dropped = "review" not in registered and "draft" in registered
+        cli.main(["config", "enable", "skill", "review", "--cwd", str(ws)])
+        mgr2 = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
+        restored = "review" in WorkspaceResources.discover(ws).with_enablement(
+            skills_patterns=mgr2.get_skills_patterns(),
+            prompts_patterns=mgr2.get_prompts_patterns(),
+            enable_skill_commands=mgr2.get_enable_skill_commands(),
+        ).skill_names()
+        gated = WorkspaceResources.discover(ws).with_enablement(
+            enable_skill_commands=False
+        ).skill_names() == ()
+    finally:
+        if prior_home is None:
+            os.environ.pop("PIPY_CONFIG_HOME", None)
+        else:
+            os.environ["PIPY_CONFIG_HOME"] = prior_home
+    ok = persisted and dropped and restored and gated
+    return ok, f"persisted={persisted} dropped={dropped} restored={restored} gated={gated}"
 
 
 def check_14_reload(root: Path) -> tuple[bool, str]:

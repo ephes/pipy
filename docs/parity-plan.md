@@ -118,7 +118,7 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | `--session-dir <dir>` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
-| `--models <patterns>` (Ctrl+P cycling) | ✅ `enabledModels` + `/scoped-models` + live Ctrl+P cycling | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
+| `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | 🟡 provider/model shipped; `--api-key` accepted but not applied to provider calls yet | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
 | `--thinking <level>` | 🟡 accepted/local state; provider-request mapping missing | [provider-catalog.md](provider-catalog.md) |
