@@ -541,3 +541,22 @@ def test_merged_file_settings_excludes_base_defaults(tmp_path: Path) -> None:
     assert mgr.effective()["theme"] == "store-theme"
     file_only = mgr.merged_file_settings()
     assert file_only == {"defaultProvider": "anthropic"}
+
+
+def test_settings_report_lines_cover_display_and_session_keys(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import settings_report_lines
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {
+            "editorPaddingX": 2,
+            "autocompleteMaxVisible": 9,
+            "httpIdleTimeoutMs": 0,
+            "sessionDir": "/tmp/custom-sessions",
+        },
+    )
+    text = "\n".join(settings_report_lines(_manager(tmp_path)))
+    assert "editorPaddingX=2" in text
+    assert "autocompleteMaxVisible=9" in text
+    assert "httpIdleTimeoutMs: 0" in text
+    assert "/tmp/custom-sessions" in text

@@ -590,7 +590,20 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         "    branchSummary: "
         f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "
         f"skipPrompt={manager.get_branch_summary_skip_prompt()}",
+        "    display: "
+        f"editorPaddingX={manager.get_editor_padding_x()}, "
+        f"autocompleteMaxVisible={manager.get_autocomplete_max_visible()}",
+        f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
+        f"    sessionDir: {manager.get_session_dir() or '(default)'}",
     ]
+
+
+def _http_idle_timeout_display(manager: SettingsManager) -> str:
+    try:
+        value = manager.get_http_idle_timeout_ms()
+    except ValueError:
+        return "(invalid)"
+    return "(unset)" if value is None else str(value)
 
 
 def local_state_base_defaults(
