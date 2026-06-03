@@ -74,15 +74,24 @@ class OpenAIResponsesProvider:
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY"))
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
+    )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "openai"
+    # Catalog-resolved request config (parity with the completions adapter).
+    # ``extra_headers`` are merged models.json/model headers (an explicit
+    # Authorization wins over ``Bearer api_key``); ``reasoning_effort`` is the
+    # mapped thinking value, placed in the Responses ``reasoning.effort`` key.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
 
     @property
     def name(self) -> str:
-        return "openai"
+        return self.provider_name
 
     def complete(
         self,
@@ -99,15 +108,21 @@ class OpenAIResponsesProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="OpenAIConfigurationError",
-                error_message="--native-model is required for native provider openai.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
-        if not self.api_key:
+        has_explicit_authorization = any(
+            header_name.lower() == "authorization" for header_name in self.extra_headers
+        )
+        if not self.api_key and not has_explicit_authorization:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="OpenAIAuthError",
-                error_message="OpenAI API key is required in the environment for native provider openai.",
+                error_message=(
+                    "OpenAI API key is required in the environment for native "
+                    f"provider {self.name}."
+                ),
             )
 
         body: dict[str, Any] = {
@@ -121,10 +136,16 @@ class OpenAIResponsesProvider:
                 serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        # Responses-native thinking: the mapped effort goes in ``reasoning.effort``.
+        if self.reasoning_effort is not None:
+            body["reasoning"] = {"effort": self.reasoning_effort}
+        headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Apply ``Bearer api_key`` only when no explicit Authorization is present.
+        if self.api_key and not has_explicit_authorization:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             response = self.http_client.post_json(

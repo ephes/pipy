@@ -807,6 +807,161 @@ def _check_product_construction(checks, tmp: Path):
     checks.append(Check("18_product_boundary_uses_catalog", product_ok, "current_provider/provider_for constructs from the catalog (not legacy); repr hides secrets"))
 
 
+def _check_tier1_construction(checks, tmp: Path):
+    # Item 20: catalog construction for the Tier 1 api-key families
+    # (anthropic-messages, openai-responses, mistral). Each custom models.json
+    # provider runs a real (fake-HTTP) turn whose request uses the catalog
+    # baseUrl-derived endpoint, model id, the family's native auth header, merged
+    # headers, and the mapped thinking in that family's native body key.
+
+    # 20a: anthropic-messages -> x-api-key + thinking.budget_tokens, /v1/messages.
+    a_path = tmp / "tier1_anthropic.json"
+    a_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-claude": {
+                        "baseUrl": "https://acme.example",
+                        "apiKey": "amk",
+                        "api": "anthropic-messages",
+                        "headers": {"X-Acme": "1"},
+                        "models": [
+                            {"id": "claude-x", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    a_state = _state(tmp, a_path, {})
+    a_spec = a_state.find("acme-claude", "claude-x")
+    a_sent, _ = _construct_and_capture(a_state, a_spec, runtime_api_key=None, thinking_level="high")
+    anthropic_ok = (
+        a_sent["url"] == "https://acme.example/v1/messages"
+        and a_sent["body"]["model"] == "claude-x"
+        and a_sent["headers"]["x-api-key"] == "amk"
+        and "Authorization" not in a_sent["headers"]
+        and a_sent["headers"].get("X-Acme") == "1"
+        and a_sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+    )
+    checks.append(Check("20_anthropic_messages_construction", anthropic_ok, "anthropic-messages: catalog baseUrl/x-api-key/headers/thinking budget"))
+
+    # 20b: openai-responses -> Authorization Bearer + reasoning.effort, /responses.
+    r_path = tmp / "tier1_responses.json"
+    r_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-oai": {
+                        "baseUrl": "https://oai.example/v1",
+                        "apiKey": "ork",
+                        "api": "openai-responses",
+                        "models": [
+                            {"id": "o-pro", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    r_state = _state(tmp, r_path, {})
+    r_spec = r_state.find("acme-oai", "o-pro")
+    r_sent, _ = _construct_and_capture(r_state, r_spec, runtime_api_key=None, thinking_level="high")
+    responses_ok = (
+        r_sent["url"] == "https://oai.example/v1/responses"
+        and r_sent["body"]["model"] == "o-pro"
+        and r_sent["headers"]["Authorization"] == "Bearer ork"
+        and r_sent["body"]["reasoning"] == {"effort": "high"}
+    )
+    checks.append(Check("20_openai_responses_construction", responses_ok, "openai-responses: catalog baseUrl/Bearer/reasoning.effort"))
+
+    # 20c: mistral -> Authorization Bearer, /chat/completions.
+    m_path = tmp / "tier1_mistral.json"
+    m_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-mistral": {
+                        "baseUrl": "https://mistral.example/v1",
+                        "apiKey": "mmk",
+                        "api": "mistral",
+                        "models": [{"id": "mix-1"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    m_state = _state(tmp, m_path, {})
+    m_spec = m_state.find("acme-mistral", "mix-1")
+    m_sent, _ = _construct_and_capture(m_state, m_spec, runtime_api_key=None, thinking_level=None)
+    mistral_ok = (
+        m_sent["url"] == "https://mistral.example/v1/chat/completions"
+        and m_sent["body"]["model"] == "mix-1"
+        and m_sent["headers"]["Authorization"] == "Bearer mmk"
+    )
+    checks.append(Check("20_mistral_construction", mistral_ok, "mistral: catalog baseUrl/Bearer/chat-completions"))
+
+    # 20d: the product boundary (current_provider) constructs a built-in
+    # anthropic catalog model — not the legacy factory.
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    builtin_state = _state(tmp, tmp / "tier1_builtin_missing.json", {"ANTHROPIC_API_KEY": "envk"})
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
+        provider_factory=_no_legacy,
+        catalog_state=builtin_state,
+        thinking_level="xhigh",
+        persist_defaults=False,
+    )
+    provider = repl_state.current_provider()
+    boundary_ok = (
+        isinstance(provider, AnthropicProvider)
+        and provider.endpoint == "https://api.anthropic.com/v1/messages"
+        and provider.api_key == "envk"
+        and provider.reasoning_effort == "xhigh"
+        and "envk" not in repr(provider)
+    )
+    checks.append(Check("20_tier1_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in anthropic catalog model (not legacy)"))
+
+    # 20e: auth fail-closed for a Tier 1 family (authHeader set, no resolvable
+    # key) -> build_provider returns a fail-closed provider, not None (which
+    # would silently fall back to the legacy factory).
+    fc_spec = build_builtin_catalog().find("anthropic", "claude-opus-4-7")
+    fc_resolved = resolve_construction(
+        fc_spec,
+        store=AuthStore(path=tmp / "tier1_fc_auth.json"),
+        env={},
+        runtime_api_key=None,
+        models_json_auth=ProviderAuthRequestConfig(auth_header=True),
+        thinking_level=None,
+    )
+    fc_provider = build_provider(fc_resolved, http_client=None)
+    fc_result = (
+        fc_provider.complete(_provider_request(Path("."), "anthropic", "claude-opus-4-7"))
+        if fc_provider
+        else None
+    )
+    failclosed_ok = (
+        fc_resolved.ok is False
+        and fc_provider is not None
+        and fc_result is not None
+        and fc_result.error_type == "CatalogAuthError"
+    )
+    checks.append(Check("20_tier1_fail_closed", failclosed_ok, "Tier 1 authHeader with no key fails closed (not legacy fallback)"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -909,6 +1064,7 @@ def run_checks() -> list[Check]:
         _check_ds4(checks, tmp)
         _check_refresh(checks, tmp)
         _check_product_construction(checks, tmp)
+        _check_tier1_construction(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 

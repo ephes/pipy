@@ -8,10 +8,14 @@ name with only ``model_id``.
 
 The catalog only resolves *which* provider/model/auth/routing/thinking to
 construct; the concrete adapter still decides how to call its upstream API. This
-module fully wires the ``openai-completions`` API family (custom ``models.json``
-providers, ds4, OpenRouter are all Chat-Completions-shaped); other families
-return ``None`` from :func:`build_provider` so the caller falls back to the
-legacy factory. No secret value is placed on any archived field.
+module wires the ``openai-completions`` family (custom ``models.json`` providers,
+ds4, OpenRouter are all Chat-Completions-shaped) plus the Tier 1 api-key
+families ``anthropic-messages``, ``openai-responses`` and ``mistral``. Each adapter
+places the mapped thinking effort in its own native body key (completions:
+top-level ``reasoning_effort``; responses: ``reasoning.effort``; anthropic:
+``thinking.budget_tokens``). Families not yet wired return ``None`` from
+:func:`build_provider` so the caller falls back to the legacy factory. No secret
+value is placed on any archived field.
 """
 
 from __future__ import annotations
@@ -115,20 +119,44 @@ def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
     return "openrouter.ai" in (spec.base_url or "").lower()
 
 
-# API families that speak the OpenAI Chat Completions envelope and are fully
-# catalog-constructed here. Other pipy adapters keep their existing
-# (legacy-factory) construction for now.
-_COMPLETIONS_FAMILIES = {"openai-completions"}
+# API families that are fully catalog-constructed here, mapped to the path
+# suffix appended to the catalog ``base_url`` to form the request endpoint (Pi
+# delegates this to each provider SDK; pipy's hand-rolled adapters own the
+# suffix). Other pipy adapters keep their existing (legacy-factory) construction
+# for now and return ``None`` from :func:`build_provider`.
+_ENDPOINT_SUFFIX: dict[str, str] = {
+    "openai-completions": "/chat/completions",
+    "anthropic-messages": "/v1/messages",
+    "openai-responses": "/responses",
+    "mistral": "/chat/completions",
+}
+_CATALOG_WIRED_FAMILIES = frozenset(_ENDPOINT_SUFFIX)
 
 
-def _chat_completions_endpoint(base_url: str | None) -> str:
-    from pipy_harness.native.openai_completions_provider import (
-        OPENAI_CHAT_COMPLETIONS_URL,
-    )
+def _default_endpoint(api: str) -> str:
+    if api == "openai-completions":
+        from pipy_harness.native.openai_completions_provider import (
+            OPENAI_CHAT_COMPLETIONS_URL,
+        )
 
-    if not base_url:
         return OPENAI_CHAT_COMPLETIONS_URL
-    return base_url.rstrip("/") + "/chat/completions"
+    if api == "anthropic-messages":
+        from pipy_harness.native.anthropic_provider import ANTHROPIC_MESSAGES_URL
+
+        return ANTHROPIC_MESSAGES_URL
+    if api == "openai-responses":
+        from pipy_harness.native.openai_provider import OPENAI_RESPONSES_URL
+
+        return OPENAI_RESPONSES_URL
+    from pipy_harness.native.mistral_provider import MISTRAL_CHAT_COMPLETIONS_URL
+
+    return MISTRAL_CHAT_COMPLETIONS_URL
+
+
+def _endpoint_for(api: str, base_url: str | None) -> str:
+    if base_url:
+        return base_url.rstrip("/") + _ENDPOINT_SUFFIX[api]
+    return _default_endpoint(api)
 
 
 def build_provider(
@@ -145,7 +173,7 @@ def build_provider(
     using a different construction).
     """
 
-    if resolved.api not in _COMPLETIONS_FAMILIES:
+    if resolved.api not in _CATALOG_WIRED_FAMILIES:
         return None
     if not resolved.ok:
         return _FailedAuthProvider(
@@ -154,21 +182,68 @@ def build_provider(
             error=resolved.error or "auth resolution failed",
         )
 
-    from pipy_harness.native.openai_completions_provider import (
-        OpenAIChatCompletionsProvider,
-        UrllibJsonHTTPClient,
-    )
+    endpoint = _endpoint_for(resolved.api, resolved.base_url)
 
-    client = http_client if http_client is not None else UrllibJsonHTTPClient()
-    return OpenAIChatCompletionsProvider(
+    if resolved.api == "openai-completions":
+        from pipy_harness.native.openai_completions_provider import (
+            OpenAIChatCompletionsProvider,
+            UrllibJsonHTTPClient,
+        )
+
+        client = http_client if http_client is not None else UrllibJsonHTTPClient()
+        return OpenAIChatCompletionsProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            http_client=client,  # type: ignore[arg-type]
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            extra_body=dict(resolved.body_extra),
+            reasoning_effort=resolved.reasoning_effort,
+        )
+
+    # The remaining Tier 1 families share the same injection surface
+    # (api_key + endpoint + merged headers + mapped thinking effort); each
+    # adapter places the effort in its own native body key. When ``http_client``
+    # is None the adapter's own urllib client default applies.
+    http_kwargs = {} if http_client is None else {"http_client": http_client}
+
+    if resolved.api == "anthropic-messages":
+        from pipy_harness.native.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "openai-responses":
+        from pipy_harness.native.openai_provider import OpenAIResponsesProvider
+
+        return OpenAIResponsesProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    from pipy_harness.native.mistral_provider import MistralProvider
+
+    return MistralProvider(
         model_id=resolved.model_id,
         api_key=resolved.api_key,
-        http_client=client,  # type: ignore[arg-type]
-        endpoint=_chat_completions_endpoint(resolved.base_url),
+        endpoint=endpoint,
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
-        extra_body=dict(resolved.body_extra),
         reasoning_effort=resolved.reasoning_effort,
+        **http_kwargs,  # type: ignore[arg-type]
     )
 
 

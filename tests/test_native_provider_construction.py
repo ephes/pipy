@@ -340,22 +340,220 @@ def test_auth_failure_returns_fail_closed_provider(tmp_path):
 
 
 def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
+    # google-generative-ai is not yet catalog-wired (Tier 2); it falls back to
+    # the legacy factory (build returns None to signal "not catalog-constructed
+    # here").
     spec = NativeModelSpec(
-        provider_name="anthropic",
-        model_id="claude-opus-4-7",
-        display_name="Opus",
-        api="anthropic-messages",
-        base_url="https://api.anthropic.com",
+        provider_name="google",
+        model_id="gemini-2.5-pro",
+        display_name="Gemini 2.5 Pro",
+        api="google-generative-ai",
+        base_url="https://generativelanguage.googleapis.com",
         cost=NativeModelCost(),
     )
     resolved = resolve_construction(
         spec,
         store=AuthStore(path=tmp_path / "auth.json"),
-        env={"ANTHROPIC_API_KEY": "k"},
+        env={"GOOGLE_API_KEY": "k"},
         runtime_api_key=None,
         models_json_auth=None,
         thinking_level=None,
     )
-    # Non-completions families fall back to the legacy factory (build returns
-    # None to signal "not catalog-constructed here").
     assert build_provider(resolved, http_client=None) is None
+
+
+# ---- Slice C: Tier 1 non-completions families (catalog construction) --------
+#
+# anthropic-messages, openai-responses, and mistral are pure api_key + endpoint
+# adapters. Catalog construction derives the endpoint by appending each family's
+# path suffix to the catalog base_url, routes the resolved key into the family's
+# native auth header, merges models.json/model headers, and places the mapped
+# thinking effort in each family's native body key.
+
+
+def _anthropic_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="anthropic",
+        model_id="claude-opus-4-7",
+        display_name="Opus",
+        api="anthropic-messages",
+        base_url="https://api.anthropic.com",
+        reasoning=True,
+        thinking_level_map={"high": "high", "xhigh": "xhigh"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _responses_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="openai",
+        model_id="gpt-5.5",
+        display_name="GPT-5.5",
+        api="openai-responses",
+        base_url="https://api.openai.com/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _mistral_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="mistral",
+        model_id="mistral-large-latest",
+        display_name="Mistral Large",
+        api="mistral",
+        base_url="https://api.mistral.ai/v1",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _resolve(spec, tmp_path, env, *, thinking_level=None, models_json_auth=None):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env=env,
+        runtime_api_key=None,
+        models_json_auth=models_json_auth,
+        thinking_level=thinking_level,
+    )
+
+
+def test_anthropic_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="high"
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.anthropic.com/v1/messages"
+    assert sent["body"]["model"] == "claude-opus-4-7"
+    # native auth header is x-api-key (not Authorization)
+    assert sent["headers"]["x-api-key"] == "ak"
+    assert "Authorization" not in sent["headers"]
+    # thinking placed in anthropic's native key as a budget
+    assert sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+
+
+def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
+    spec = _anthropic_spec(
+        provider_name="acme", base_url="https://acme.example", headers={"X-Acme": "1"}
+    )
+    resolved = _resolve(
+        spec,
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(api_key="mk"),
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://acme.example/v1/messages"
+    assert sent["headers"]["x-api-key"] == "mk"
+    assert sent["headers"]["X-Acme"] == "1"
+    assert provider.name == "acme"
+
+
+def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
+    # Claude's budget path has no xhigh; Pi clamps it to high (16384). The
+    # opus-4-7-style row maps only xhigh, so thinking_level="xhigh" is honored.
+    spec = _anthropic_spec(thinking_level_map={"xhigh": "xhigh"})
+    resolved = _resolve(
+        spec, tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="xhigh"
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+    }
+
+
+def test_anthropic_omits_thinking_when_unset(tmp_path):
+    resolved = _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"})
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert "thinking" not in http.requests[-1]["body"]
+
+
+def test_anthropic_explicit_authorization_header_wins(tmp_path):
+    spec = _anthropic_spec(provider_name="acme", base_url="https://acme.example")
+    resolved = _resolve(
+        spec,
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(
+            api_key="mk", headers={"Authorization": "Custom tok"}
+        ),
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    sent = http.requests[-1]
+    # explicit Authorization preserved; x-api-key not added on top
+    assert sent["headers"]["Authorization"] == "Custom tok"
+    assert "x-api-key" not in sent["headers"]
+
+
+def test_anthropic_repr_hides_secret(tmp_path):
+    resolved = _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "SECRET-AK"})
+    provider = build_provider(resolved, http_client=CapturingHTTPClient())
+    assert "SECRET-AK" not in repr(provider)
+
+
+def test_openai_responses_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _responses_spec(), tmp_path, {"OPENAI_API_KEY": "ok"}, thinking_level="high"
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.openai.com/v1/responses"
+    assert sent["body"]["model"] == "gpt-5.5"
+    assert sent["headers"]["Authorization"] == "Bearer ok"
+    # responses thinking is the nested reasoning.effort object
+    assert sent["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_openai_responses_omits_reasoning_when_unset(tmp_path):
+    resolved = _resolve(_responses_spec(), tmp_path, {"OPENAI_API_KEY": "ok"})
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert "reasoning" not in http.requests[-1]["body"]
+
+
+def test_mistral_catalog_construction(tmp_path):
+    resolved = _resolve(_mistral_spec(), tmp_path, {"MISTRAL_API_KEY": "mk"})
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.mistral.ai/v1/chat/completions"
+    assert sent["body"]["model"] == "mistral-large-latest"
+    assert sent["headers"]["Authorization"] == "Bearer mk"
+
+
+def test_tier1_auth_failure_fails_closed(tmp_path):
+    # authHeader set with no resolvable key -> fail-closed provider, not None.
+    resolved = _resolve(
+        _anthropic_spec(provider_name="acme"),
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(auth_header=True),
+    )
+    assert resolved.ok is False
+    provider = build_provider(resolved, http_client=None)
+    assert provider is not None
+    result = provider.complete(_request(tmp_path))
+    assert result.error_type == "CatalogAuthError"

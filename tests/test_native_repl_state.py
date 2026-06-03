@@ -186,7 +186,33 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
     assert provider.provider_name == "ds4"
 
 
-def test_current_provider_falls_back_to_legacy_for_non_completions(tmp_path):
+def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"GOOGLE_API_KEY": "k"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    sentinel = object()
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("google", "gemini-2.5-pro"),
+        provider_factory=lambda sel: sentinel,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+    # google-generative-ai is not yet catalog-wired (Tier 2) -> legacy factory.
+    assert repl_state.current_provider() is sentinel
+
+
+def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (
@@ -200,15 +226,26 @@ def test_current_provider_falls_back_to_legacy_for_non_completions(tmp_path):
         env={"ANTHROPIC_API_KEY": "k"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-    sentinel = object()
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    # claude-opus-4-7's catalog row maps only xhigh (thinking_level_map keys
+    # override the default reasoning levels).
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
-        provider_factory=lambda sel: sentinel,
+        provider_factory=_no_legacy,
         catalog_state=state,
+        thinking_level="xhigh",
         persist_defaults=False,
     )
-    # anthropic is not the openai-completions family -> legacy factory used.
-    assert repl_state.current_provider() is sentinel
+    provider = repl_state.current_provider()
+    assert isinstance(provider, AnthropicProvider)
+    assert provider.endpoint == "https://api.anthropic.com/v1/messages"
+    assert provider.api_key == "k"
+    assert provider.reasoning_effort == "xhigh"
+    # api_key is repr-hidden so a stray log of the adapter never leaks it
+    assert "api_key" not in repr(provider)
 
 
 def _catalog_repl_state(tmp_path, env, *, models_json=None):

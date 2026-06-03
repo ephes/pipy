@@ -1,11 +1,13 @@
 # Pi-Style Provider And Model Catalog
 
 Status: catalog foundation (2026-06-02) plus product provider construction for
-the OpenAI-Chat-Completions API family (2026-06-03), gated end to end. A
-models.json custom provider/model now runs a real turn using the catalog
-baseUrl/model/auth/headers/routing/thinking. The remaining wiring includes
-catalog-driven construction for the non-completions API families, one-shot
-startup construction, and startup CLI model resolution.
+the OpenAI-Chat-Completions API family (2026-06-03) and the Tier 1 api-key
+families `anthropic-messages`, `openai-responses`, `mistral` (2026-06-03), gated
+end to end. A models.json custom provider/model now runs a real turn using the
+catalog baseUrl/model/auth/headers/routing/thinking. The remaining wiring
+includes catalog-driven construction for the Tier 2/3 non-completions families
+(template/IAM auth), one-shot startup construction, and startup CLI model
+resolution.
 
 ## Implemented (foundation + product construction)
 
@@ -60,15 +62,29 @@ openai-completions) construct from the catalog via `native/provider_construction
   (exact/bare/fuzzy/`:level`/colon-in-id/invalid-suffix fallback) gated by
   availability.
 
+Tier 1 catalog construction (shipped 2026-06-03):
+
+- `anthropic-messages`, `openai-responses`, and `mistral` are catalog-constructed
+  by `build_provider`. Each derives its endpoint by appending the family path
+  suffix to the catalog `base_url` (`/v1/messages`, `/responses`,
+  `/chat/completions`), routes the resolved key into the family's native auth
+  header (anthropic `x-api-key`; the others `Authorization: Bearer`, with an
+  explicit models.json `Authorization` winning), merges models.json/model
+  headers, and places the mapped thinking effort in the family's native body key
+  (responses `reasoning.effort`; anthropic `thinking.budget_tokens` via Pi's
+  default per-level budgets; mistral `reasoning_effort`). Covered by conformance
+  item 20.
+
 Remaining wiring (not yet shipped):
 
-- Catalog-driven construction for the non-completions API families
-  (`anthropic-messages`, `openai-responses`, `openai-codex-responses`,
-  `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
-  `azure-openai-responses`, `cloudflare-workers-ai`, `mistral`). These still use
-  the legacy factory (`model_id` only); `build_provider` returns `None` for them
-  so they fall back. Their catalog-resolved auth/headers/routing/thinking — and
-  the per-format thinking shapes beyond OpenAI/OpenRouter — are the next slice.
+- Catalog-driven construction for the Tier 2/3 non-completions API families
+  (`openai-codex-responses`, `google-generative-ai`, `google-vertex`,
+  `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`). These
+  still use the legacy factory (`model_id` only); `build_provider` returns
+  `None` for them so they fall back. Tier 2 (`google-generative-ai`,
+  `azure-openai-responses`, `cloudflare-workers-ai`) needs template/composed
+  endpoints and multi-part auth; Tier 3 (`amazon-bedrock`, `google-vertex`)
+  needs IAM/SigV4/OAuth auth that does not fit the api-key shape.
 - `pipy run` (non-REPL one-shot) provider construction still uses `_adapter_for`;
   the REPL tool-loop/no-tool product path is catalog-constructed.
 - Startup CLI model resolution. `--native-provider`/`--native-model` at launch do
@@ -745,13 +761,16 @@ request paths.
     runtime/stored/env auth, mapped thinking levels, and direct `/model <ref>`
     through the shared resolver. **Shipped 2026-06-03** and covered by
     conformance item 18 with fake HTTP.
-14. Product provider-construction wiring for non-completions API families:
-    extend the same boundary to `anthropic-messages`, `openai-responses`,
-    `openai-codex-responses`, `google-generative-ai`, `google-vertex`,
-    `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`, and
-    `mistral`, with per-family request-shape assertions for auth, headers, base
-    URL/model id, routing/compat where supported, and mapped thinking where
-    supported. **Selected next slice.**
+14. Product provider-construction wiring for non-completions API families,
+    extending the same boundary with per-family request-shape assertions for
+    auth, headers, base URL/model id, and mapped thinking where supported.
+    - Tier 1 (`anthropic-messages`, `openai-responses`, `mistral`): pure
+      api-key + endpoint adapters. **Shipped 2026-06-03**, conformance item 20.
+    - Tier 2 (`google-generative-ai`, `azure-openai-responses`,
+      `cloudflare-workers-ai`): template/composed endpoints + multi-part auth.
+      **Selected next slice.**
+    - Tier 3 (`amazon-bedrock`, `google-vertex`, `openai-codex-responses`):
+      IAM/SigV4/OAuth auth that does not fit the api-key shape.
 15. One-shot construction: make `pipy run` use the catalog-backed construction
     boundary instead of `_adapter_for`, preserving existing text/stream/json
     output contracts while honoring custom providers, runtime auth, base URLs,
