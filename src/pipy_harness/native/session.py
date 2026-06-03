@@ -1121,6 +1121,18 @@ class NativeNoToolReplSession:
                         prompts_patterns=settings.get_prompts_patterns(),
                         enable_skill_commands=settings.get_enable_skill_commands(),
                     )
+                    # Refresh the slash-menu completion set so newly enabled/
+                    # disabled resources are reflected (the slash-menu adapter
+                    # exposes settable command_names/descriptions; the plain
+                    # fallback has neither and is skipped).
+                    if hasattr(repl_input, "command_names"):
+                        repl_input.command_names = _no_tool_repl_command_names(
+                            workspace_resources
+                        )
+                    if hasattr(repl_input, "command_descriptions"):
+                        repl_input.command_descriptions = (
+                            _no_tool_repl_command_descriptions(workspace_resources)
+                        )
                     reloaded_theme = settings.get_theme()
                     if reloaded_theme:
                         os.environ["PIPY_THEME"] = reloaded_theme

@@ -74,9 +74,14 @@ class _CapturingProvider:
         )
 
 
-class _NullSink:
-    def emit(self, *_args: object, **_kwargs: object) -> None:
-        return None
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, object]] = []
+
+    def emit(self, *_args: object, **kwargs: object) -> None:
+        payload = kwargs.get("payload")
+        if isinstance(payload, dict):
+            self.payloads.append(payload)
 
 
 def _run_tool_adapter(
@@ -86,7 +91,7 @@ def _run_tool_adapter(
     *,
     provider: object,
     **adapter_kwargs: object,
-) -> None:
+) -> _RecordingSink:
     """Drive the tool-loop adapter end-to-end (composes the system prompt)."""
 
     adapter = PipyNativeToolReplAdapter(
@@ -99,7 +104,9 @@ def _run_tool_adapter(
     prepared = adapter.prepare(
         RunRequest(agent="pipy-native", slug="gate", command=[], cwd=workspace, goal="g", root=root)
     )
-    adapter.run(prepared, event_sink=_NullSink(), capture_policy=CapturePolicy())
+    sink = _RecordingSink()
+    adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
+    return sink
 
 
 def _write(path: Path, body: object) -> None:
@@ -315,18 +322,36 @@ def check_11_system_prompt(root: Path) -> tuple[bool, str]:
 
 
 def check_12_no_context_files(root: Path) -> tuple[bool, str]:
-    from pipy_harness.native.workspace_context import empty_workspace_instruction_loader
+    from pipy_harness.native.workspace_context import (
+        default_workspace_instruction_loader,
+        empty_workspace_instruction_loader,
+    )
 
     ws = root / "ws12"
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "AGENTS.md").write_text("SECRET PROJECT INSTRUCTIONS", encoding="utf-8")
-    prov = _CapturingProvider()
-    _run_tool_adapter(
-        ws, root, "hi\n/exit\n", provider=prov,
+
+    # Baseline: with the default loader the AGENTS.md body IS injected and the
+    # instruction metadata records the file (proves the mechanism can fail).
+    prov_on = _CapturingProvider()
+    sink_on = _run_tool_adapter(
+        ws, root, "hi\n/exit\n", provider=prov_on,
+        instruction_loader=default_workspace_instruction_loader,
+    )
+    appears = bool(prov_on.requests) and "SECRET PROJECT INSTRUCTIONS" in prov_on.requests[0].system_prompt
+    recorded = any(p.get("workspace_instruction_files") for p in sink_on.payloads)
+
+    # --no-context-files maps to the empty loader: body absent AND no
+    # workspace_instruction_files metadata recorded.
+    prov_off = _CapturingProvider()
+    sink_off = _run_tool_adapter(
+        ws, root, "hi\n/exit\n", provider=prov_off,
         instruction_loader=empty_workspace_instruction_loader,
     )
-    suppressed = bool(prov.requests) and "SECRET PROJECT INSTRUCTIONS" not in prov.requests[0].system_prompt
-    return suppressed, f"suppressed={suppressed}"
+    suppressed = bool(prov_off.requests) and "SECRET PROJECT INSTRUCTIONS" not in prov_off.requests[0].system_prompt
+    no_metadata = all(not p.get("workspace_instruction_files") for p in sink_off.payloads)
+    ok = appears and recorded and suppressed and no_metadata
+    return ok, f"appears={appears} recorded={recorded} suppressed={suppressed} no_metadata={no_metadata}"
 
 
 def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
@@ -426,9 +451,12 @@ def run_all() -> list[dict[str, object]]:
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     as_json = "--json" in args
-    # Deterministic, offline, isolated config home.
+    # Deterministic, offline, isolated config home. Force (not setdefault) so an
+    # exported PIPY_CONFIG_HOME/XDG_CONFIG_HOME in the caller's env cannot leak
+    # into the adapter-driven checks (11/12) or trigger a real first-run write.
     os.environ["PIPY_OFFLINE"] = "1"
-    os.environ.setdefault("PIPY_CONFIG_HOME", tempfile.mkdtemp())
+    os.environ["PIPY_CONFIG_HOME"] = tempfile.mkdtemp()
+    os.environ.pop("XDG_CONFIG_HOME", None)
     results = run_all()
     all_passed = all(bool(r["passed"]) for r in results)
     if as_json:

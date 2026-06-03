@@ -26,6 +26,15 @@ def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyp
     # POSIX, so this keeps both the chrome's global resource discovery and
     # ``resolve_session_root()`` aligned with the per-test isolation.
     monkeypatch.setenv("HOME", str(fake_home))
+    # Isolate the settings/config home too. The global config root resolves via
+    # PIPY_CONFIG_HOME -> ${XDG_CONFIG_HOME}/pipy -> ~/.pipy (when present) ->
+    # ~/.config/pipy, so a test that builds a session without injecting a
+    # SettingsManager (and the first-run /changelog version write) must not touch
+    # the developer's real config via an exported PIPY_CONFIG_HOME/XDG_CONFIG_HOME.
+    # Clear those env overrides so resolution falls back to the isolated HOME;
+    # tests that need a specific config home still set PIPY_CONFIG_HOME themselves.
+    monkeypatch.delenv("PIPY_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return fake_home
 
 
