@@ -197,19 +197,17 @@ def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
     state = ProviderCatalogState(
         models_json_path=tmp_path / "models.json",
         auth_store=AuthStore(path=tmp_path / "auth.json"),
-        env={"AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s"},
+        env={},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
     sentinel = object()
     repl_state = NativeReplProviderState(
-        selection=NativeModelSelection(
-            "amazon-bedrock", "anthropic.claude-3-5-sonnet-20240620-v1:0"
-        ),
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         provider_factory=lambda sel: sentinel,
         catalog_state=state,
         persist_defaults=False,
     )
-    # amazon-bedrock is not yet catalog-wired (Tier 3) -> legacy factory.
+    # the deterministic fake bootstrap is not catalog-constructed -> legacy factory.
     assert repl_state.current_provider() is sentinel
 
 

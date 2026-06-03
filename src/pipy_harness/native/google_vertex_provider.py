@@ -106,6 +106,12 @@ class GoogleVertexProvider:
     track's "no new runtime dependencies" invariant; native service-account
     JWT signing is a future extension. The access token is never logged or
     archived; only sanitized metadata leaves the provider boundary.
+
+    This adapter is ADC/OAuth-bearer-token only. Pi also supports a Vertex API
+    key (``GOOGLE_CLOUD_API_KEY``); pipy's catalog construction therefore does
+    not forward the resolved key as a credential (an API key is not an OAuth
+    bearer token), leaving auth env-resolved. A native Vertex API-key auth path
+    is a separate adapter follow-on.
     """
 
     model_id: str
@@ -118,16 +124,23 @@ class GoogleVertexProvider:
         or "us-central1"
     )
     access_token: str | None = field(
-        default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN")
+        default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN"), repr=False
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = GOOGLE_VERTEX_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "google-vertex"
+    # Catalog-resolved request config. The OAuth2 access token and
+    # project/location stay env-resolved (ADC-style, not an api key); catalog
+    # construction injects only ``extra_headers``. Thinking (thinkingConfig) is
+    # per-model (level enum vs budget) like google-generative-ai and not yet
+    # catalog-encoded, so it is intentionally not injected here.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def name(self) -> str:
-        return "google-vertex"
+        return self.provider_name
 
     def complete(
         self,
@@ -212,6 +225,9 @@ class GoogleVertexProvider:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {access_token}",
         }
+        # Merged models.json/model headers.
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
 
         try:
             response = self.http_client.post_json(

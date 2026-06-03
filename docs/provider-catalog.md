@@ -2,14 +2,15 @@
 
 Status: catalog foundation (2026-06-02) plus product provider construction for
 the OpenAI-Chat-Completions API family (2026-06-03), the Tier 1 api-key families
-`anthropic-messages`, `openai-responses`, `mistral`, and the Tier 2
-composed-endpoint families `google-generative-ai`, `azure-openai-responses`,
-`cloudflare-workers-ai` (2026-06-03), gated end to end. A models.json custom
-provider/model now runs a real turn using the catalog
-baseUrl/model/auth/headers/routing/thinking. The remaining wiring includes
-catalog-driven construction for the Tier 3 IAM-auth families
-(`amazon-bedrock`, `google-vertex`, `openai-codex-responses`), one-shot startup
-construction, and startup CLI model resolution.
+`anthropic-messages`, `openai-responses`, `mistral`, the Tier 2 composed-endpoint
+families `google-generative-ai`, `azure-openai-responses`,
+`cloudflare-workers-ai`, and the Tier 3 IAM families `amazon-bedrock`,
+`google-vertex` (2026-06-03), gated end to end. Every real adapter family is now
+catalog-constructed except `openai-codex-responses` (kept on the legacy factory
+for its settings-derived `RetryPolicy`) and the deterministic `fake` bootstrap.
+A models.json custom provider/model now runs a real turn using the catalog
+baseUrl/model/auth/headers/routing/thinking. The remaining wiring is the
+one-shot `pipy run` construction path and startup CLI model resolution.
 
 ## Implemented (foundation + product construction)
 
@@ -94,13 +95,38 @@ Tier 2 catalog construction (shipped 2026-06-03):
   enum vs token budget) and not yet catalog-encoded, so google thinking is not
   injected. Covered by conformance item 21.
 
+Tier 3 catalog construction (shipped 2026-06-03):
+
+- `amazon-bedrock` and `google-vertex` are catalog-constructed by
+  `build_provider`. Their auth (AWS SigV4 / GCP ADC OAuth token) and the
+  region/project-derived endpoint stay self-resolved by the adapter from the
+  environment — the api-key shape does not apply, so the resolved api key is not
+  forwarded as a credential. Catalog construction injects model_id +
+  provider_name + merged headers, plus thinking for bedrock (Bedrock Claude
+  speaks the Anthropic body, so thinking is placed at the body top level:
+  adaptive thinking — `thinking:{type:"adaptive"}` + `output_config.effort` — for
+  the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6, per Pi's
+  `supportsAdaptiveThinking`), and the `thinking.budget_tokens` path otherwise).
+  Custom bedrock headers are merged into the SigV4-signed request with the
+  reserved `authorization`/`host`/`x-amz-*` set dropped so they cannot collide
+  with the signing headers. Vertex thinking (thinkingConfig) is per-model like
+  google-generative-ai and not yet injected. Covered by conformance item 22.
+- `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
+  factory builds it with a settings-derived `RetryPolicy` (cli.py) that catalog
+  construction would drop, and its OAuth/SSE auth is fully self-contained.
+  `build_provider` returns `None` for it so it keeps the legacy factory.
+
 Remaining wiring (not yet shipped):
 
-- Catalog-driven construction for the Tier 3 non-completions API families
-  (`amazon-bedrock`, `google-vertex`, `openai-codex-responses`). These still use
-  the legacy factory (`model_id` only); `build_provider` returns `None` for them
-  so they fall back. They need IAM/SigV4/OAuth auth that does not fit the api-key
-  shape.
+- Vertex API-key auth: pipy's vertex adapter is ADC/OAuth-bearer-token only
+  (`GOOGLE_ACCESS_TOKEN`). Pi also supports a Vertex API key
+  (`GOOGLE_CLOUD_API_KEY`); catalog construction does not forward the resolved
+  key (an API key is not an OAuth bearer token), so a native Vertex API-key auth
+  path is a separate adapter follow-on.
+- Anthropic-messages adaptive thinking: the `anthropic-messages` adapter uses
+  the `thinking.budget_tokens` path for all reasoning models. Aligning it to the
+  adaptive `output_config.effort` path for the adaptive Claude models (as the
+  bedrock adapter now does) is a follow-on.
 - Azure URL/api-version parity: the azure adapter uses the classic
   deployment-path surface (`/openai/deployments/{deployment}/responses?api-version=2024-12-01-preview`),
   a deliberate hand-rolled analogue of Pi's `AzureOpenAI` SDK (which normalizes
@@ -792,9 +818,12 @@ request paths.
       `cloudflare-workers-ai`): template/composed endpoints + multi-part auth
       (`{ENV}` base-URL substitution). **Shipped 2026-06-03**, conformance
       item 21.
-    - Tier 3 (`amazon-bedrock`, `google-vertex`, `openai-codex-responses`):
-      IAM/SigV4/OAuth auth that does not fit the api-key shape. **Selected next
-      slice.**
+    - Tier 3 (`amazon-bedrock`, `google-vertex`): IAM/SigV4/OAuth auth that does
+      not fit the api-key shape — auth + region/project endpoint stay
+      env-resolved; construction injects model id + headers + thinking (bedrock
+      Anthropic budget; vertex thinking deferred). `openai-codex-responses` is
+      kept on the legacy factory for its settings-derived `RetryPolicy`.
+      **Shipped 2026-06-03**, conformance item 22.
 15. One-shot construction: make `pipy run` use the catalog-backed construction
     boundary instead of `_adapter_for`, preserving existing text/stream/json
     output contracts while honoring custom providers, runtime auth, base URLs,

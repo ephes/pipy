@@ -340,21 +340,21 @@ def test_auth_failure_returns_fail_closed_provider(tmp_path):
 
 
 def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
-    # amazon-bedrock is not yet catalog-wired (Tier 3); it falls back to the
-    # legacy factory (build returns None to signal "not catalog-constructed
-    # here").
+    # The deterministic ``fake`` bootstrap is not catalog-constructed; it falls
+    # back to the legacy factory (build returns None to signal "not
+    # catalog-constructed here").
     spec = NativeModelSpec(
-        provider_name="amazon-bedrock",
-        model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
-        display_name="Bedrock Claude",
-        api="amazon-bedrock",
-        base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+        provider_name="fake",
+        model_id="fake-native-bootstrap",
+        display_name="Fake",
+        api="fake",
+        base_url=None,
         cost=NativeModelCost(),
     )
     resolved = resolve_construction(
         spec,
         store=AuthStore(path=tmp_path / "auth.json"),
-        env={"AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s"},
+        env={},
         runtime_api_key=None,
         models_json_auth=None,
         thinking_level=None,
@@ -678,3 +678,179 @@ def test_cloudflare_missing_account_env_fails_closed(tmp_path):
     assert provider is not None
     result = provider.complete(_request(tmp_path))
     assert result.status.name != "SUCCEEDED"
+
+
+# ---- Slice E: Tier 3 IAM/OAuth families -------------------------------------
+#
+# amazon-bedrock (SigV4), google-vertex (ADC OAuth token), openai-codex-responses
+# (Codex OAuth). Auth + region/project endpoint stay env-resolved by the adapter;
+# catalog construction injects model_id + provider_name + headers + thinking
+# (bedrock Anthropic budget, codex reasoning.effort; vertex thinking deferred).
+
+
+def _bedrock_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="amazon-bedrock",
+        model_id="us.anthropic.claude-opus-4-6-v1",
+        display_name="Bedrock Opus",
+        api="amazon-bedrock",
+        base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def test_bedrock_catalog_construction_type_and_thinking_wired(tmp_path):
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+    resolved = _resolve(
+        _bedrock_spec(),
+        tmp_path,
+        {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+        thinking_level="high",
+    )
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, AmazonBedrockProvider)
+    assert provider.model_id == "us.anthropic.claude-opus-4-6-v1"
+    assert provider.provider_name == "amazon-bedrock"
+    # thinking effort is threaded; auth stays env-resolved (not from catalog)
+    assert provider.reasoning_effort == "high"
+
+
+def _bedrock_adapter(model_id, **over):
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+    defaults = dict(
+        model_id=model_id,
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        _clock=lambda: datetime(2015, 8, 30, 12, 36, 0, tzinfo=UTC),
+    )
+    defaults.update(over)
+    return AmazonBedrockProvider(**defaults)
+
+
+def test_bedrock_adaptive_thinking_reaches_signed_body(tmp_path):
+    # opus-4-6 is an adaptive Claude model -> adaptive thinking + output_config.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "us.anthropic.claude-opus-4-6-v1", http_client=http, reasoning_effort="high"
+    )
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/"
+        "us.anthropic.claude-opus-4-6-v1/invoke"
+    )
+    assert sent["body"]["thinking"] == {"type": "adaptive"}
+    assert sent["body"]["output_config"] == {"effort": "high"}
+    # the SigV4 Authorization header is present and signed
+    assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+
+
+def test_bedrock_budget_thinking_for_non_adaptive_model(tmp_path):
+    # A non-adaptive Claude model uses the budget_tokens path.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        http_client=http,
+        reasoning_effort="high",
+    )
+    provider.complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+    }
+    assert "output_config" not in http.requests[-1]["body"]
+
+
+def test_bedrock_drops_reserved_headers_before_signing(tmp_path):
+    # authorization/host/x-amz-* custom headers must not collide with SigV4.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        http_client=http,
+        extra_headers={
+            "X-Custom": "ok",
+            "Authorization": "Bearer nope",
+            "x-amz-target": "nope",
+            "Host": "evil",
+        },
+    )
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["headers"].get("X-Custom") == "ok"
+    # the custom Authorization did not override the SigV4 signature
+    assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+    assert "x-amz-target" not in sent["headers"]
+
+
+def test_vertex_catalog_construction(tmp_path):
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+    spec = NativeModelSpec(
+        provider_name="google-vertex",
+        model_id="gemini-2.5-pro",
+        display_name="Vertex Gemini",
+        api="google-vertex",
+        base_url="https://aiplatform.googleapis.com",
+        cost=NativeModelCost(),
+    )
+    resolved = _resolve(spec, tmp_path, {"GOOGLE_CLOUD_API_KEY": "vk"})
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, GoogleVertexProvider)
+    assert provider.model_id == "gemini-2.5-pro"
+    assert provider.provider_name == "google-vertex"
+
+
+def test_codex_stays_on_legacy_factory(tmp_path):
+    # openai-codex-responses is deliberately NOT catalog-constructed (the legacy
+    # factory injects a settings-derived RetryPolicy that catalog construction
+    # would drop); build_provider returns None so the caller falls back.
+    spec = NativeModelSpec(
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        display_name="Codex GPT-5.5",
+        api="openai-codex-responses",
+        base_url="https://chatgpt.com/backend-api/codex",
+        cost=NativeModelCost(),
+    )
+    resolved = _resolve(spec, tmp_path, {})
+    assert build_provider(resolved, http_client=None) is None
+
+
+def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection(
+            "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
+        ),
+        provider_factory=_no_legacy,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+    provider = repl_state.current_provider()
+    assert isinstance(provider, AmazonBedrockProvider)
+    assert provider.model_id == "us.anthropic.claude-opus-4-6-v1"

@@ -14,12 +14,18 @@ ds4, OpenRouter are all Chat-Completions-shaped), the Tier 1 api-key families
 composed-endpoint families ``google-generative-ai`` (model-in-path + ``?key=``),
 ``azure-openai-responses`` (deployment + api-version, ``api-key`` header) and
 ``cloudflare-workers-ai`` (account id substituted into the base URL via ``{ENV}``
-placeholders, OpenAI-compatible body). Each adapter places the mapped thinking
-effort in its own native body key (completions/cloudflare: top-level
-``reasoning_effort``; responses/azure: ``reasoning.effort``; anthropic:
-``thinking.budget_tokens``; google thinking is per-model and not yet injected).
-Families not yet wired return ``None`` from :func:`build_provider` so the caller
-falls back to the legacy factory. No secret value is placed on any archived field.
+placeholders, OpenAI-compatible body), and the Tier 3 IAM families
+``amazon-bedrock`` (SigV4) and ``google-vertex`` (ADC token) — whose credentials
+and region/project-derived endpoint stay self-resolved by the adapter from the
+environment (the resolved api key is not forwarded for these). Each adapter
+places the mapped thinking effort in its own native body key
+(completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
+``reasoning.effort``; anthropic/bedrock: ``thinking.budget_tokens``; google and
+vertex thinking are per-model and not yet injected). ``openai-codex-responses``
+and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
+the legacy factory's settings-derived ``RetryPolicy`` injection): they return
+``None`` from :func:`build_provider` so the caller falls back to the legacy
+factory. No secret value is placed on any archived field.
 """
 
 from __future__ import annotations
@@ -189,12 +195,23 @@ _ENDPOINT_SUFFIX: dict[str, str] = {
 # Tier 2 families compose their endpoint differently (model-in-path query for
 # google, deployment/api-version for azure, account-substituted base for
 # cloudflare), so they are built explicitly rather than via _ENDPOINT_SUFFIX.
+# Tier 3 IAM families: auth (AWS SigV4 / GCP ADC token) and the
+# region/project-derived endpoint stay self-resolved by the adapter from the
+# environment — catalog construction injects only model_id + provider_name +
+# merged headers + mapped thinking where the body shape is known.
+#
+# ``openai-codex-responses`` is deliberately NOT catalog-constructed: the legacy
+# factory builds it with a settings-derived ``RetryPolicy`` (cli.py), which
+# catalog construction would drop, and its OAuth/SSE auth is fully self-contained.
+# It stays on the legacy factory (``build_provider`` returns ``None`` for it).
+_IAM_FAMILIES = frozenset({"amazon-bedrock", "google-vertex"})
 _CATALOG_WIRED_FAMILIES = frozenset(
     {
         *_ENDPOINT_SUFFIX,
         "google-generative-ai",
         "azure-openai-responses",
         "cloudflare-workers-ai",
+        *_IAM_FAMILIES,
     }
 )
 
@@ -307,6 +324,9 @@ def build_provider(
             **http_kwargs,  # type: ignore[arg-type]
         )
 
+    if resolved.api in _IAM_FAMILIES:
+        return _build_iam_provider(resolved, http_kwargs)
+
     endpoint = _endpoint_for(resolved.api, resolved.base_url)
 
     if resolved.api == "openai-completions":
@@ -362,6 +382,40 @@ def build_provider(
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
         reasoning_effort=resolved.reasoning_effort,
+        **http_kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _build_iam_provider(
+    resolved: ResolvedConstruction,
+    http_kwargs: Mapping[str, object],
+) -> ProviderPort:
+    """Construct a Tier 3 IAM/OAuth adapter from a resolved catalog model.
+
+    AWS SigV4 / GCP ADC / Codex OAuth credentials and the region/project-derived
+    endpoint stay self-resolved by the adapter (they are not api keys), so
+    ``resolved.api_key`` is intentionally not forwarded as a credential. Only the
+    model id, provider name, merged headers, and the mapped thinking effort (for
+    families whose body shape is known) are injected.
+    """
+
+    if resolved.api == "amazon-bedrock":
+        from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+        return AmazonBedrockProvider(
+            model_id=resolved.model_id,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+    return GoogleVertexProvider(
+        model_id=resolved.model_id,
+        provider_name=resolved.provider_name,
+        extra_headers=dict(resolved.headers),
         **http_kwargs,  # type: ignore[arg-type]
     )
 

@@ -1085,6 +1085,120 @@ def _check_tier2_construction(checks, tmp: Path):
     checks.append(Check("21_tier2_boundary_uses_catalog", azure_boundary_ok, "current_provider constructs a built-in azure catalog model (not legacy)"))
 
 
+def _check_tier3_construction(checks, tmp: Path):
+    # Item 22: catalog construction for the Tier 3 IAM/OAuth families. Auth
+    # (AWS SigV4 / GCP ADC / Codex OAuth) and the region/project endpoint stay
+    # env-resolved by the adapter; catalog construction injects model_id +
+    # provider_name + headers + thinking (bedrock Anthropic budget, codex
+    # reasoning.effort; vertex thinking deferred). The resolved api_key is NOT
+    # forwarded as a credential.
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    # 22a: bedrock built-in row -> AmazonBedrockProvider with thinking threaded.
+    bd_state = _state(tmp, tmp / "tier3_bd_missing.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bd_spec = bd_state.find("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1")
+    bd_resolved = resolve_construction(
+        bd_spec,
+        store=bd_state.auth_store,
+        env=bd_state._env(),
+        runtime_api_key=None,
+        models_json_auth=bd_state._models_json_auth("amazon-bedrock"),
+        thinking_level="high",
+    )
+    bd_provider = build_provider(bd_resolved, http_client=None)
+    bedrock_ok = (
+        isinstance(bd_provider, AmazonBedrockProvider)
+        and bd_provider.model_id == "us.anthropic.claude-opus-4-6-v1"
+        and bd_provider.reasoning_effort == "high"
+    )
+    checks.append(Check("22_bedrock_construction", bedrock_ok, "amazon-bedrock: catalog construction threads model id + thinking effort"))
+
+    # 22b: bedrock thinking reaches the signed request body. opus-4-6 is an
+    # adaptive Claude model, so it uses adaptive thinking + output_config.effort
+    # (Pi's supportsAdaptiveThinking), not the budget path.
+    bd_http = _CapturingHTTP()
+    bd_signed = AmazonBedrockProvider(
+        model_id="us.anthropic.claude-opus-4-6-v1",
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        http_client=bd_http,
+        reasoning_effort="high",
+        _clock=lambda: datetime(2015, 8, 30, 12, 36, 0, tzinfo=UTC),
+    )
+    bd_signed.complete(_provider_request(Path("."), "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"))
+    bd_sent = bd_http.requests[-1]
+    bedrock_body_ok = (
+        bd_sent["url"]
+        == "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-4-6-v1/invoke"
+        and bd_sent["body"]["thinking"] == {"type": "adaptive"}
+        and bd_sent["body"]["output_config"] == {"effort": "high"}
+        and bd_sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+    )
+    checks.append(Check("22_bedrock_thinking_body", bedrock_body_ok, "amazon-bedrock: adaptive thinking (output_config.effort) reaches the SigV4-signed body"))
+
+    # 22c: vertex built-in row -> GoogleVertexProvider (auth/project env-resolved).
+    vx_state = _state(tmp, tmp / "tier3_vx_missing.json", {"GOOGLE_CLOUD_API_KEY": "vk"})
+    vx_spec = vx_state.find("google-vertex", "gemini-2.5-pro")
+    vx_resolved = resolve_construction(
+        vx_spec,
+        store=vx_state.auth_store,
+        env=vx_state._env(),
+        runtime_api_key=None,
+        models_json_auth=vx_state._models_json_auth("google-vertex"),
+        thinking_level=None,
+    )
+    vx_provider = build_provider(vx_resolved, http_client=None)
+    vertex_ok = (
+        isinstance(vx_provider, GoogleVertexProvider)
+        and vx_provider.model_id == "gemini-2.5-pro"
+        and vx_provider.provider_name == "google-vertex"
+    )
+    checks.append(Check("22_vertex_construction", vertex_ok, "google-vertex: catalog construction (auth/project env-resolved)"))
+
+    # 22d: codex is deliberately NOT catalog-constructed (the legacy factory
+    # injects a settings-derived RetryPolicy that catalog construction would
+    # drop); build_provider returns None so it falls back to the legacy factory.
+    cx_state = _state(tmp, tmp / "tier3_cx_missing.json", {})
+    cx_spec = cx_state.find("openai-codex", "gpt-5.5")
+    cx_resolved = resolve_construction(
+        cx_spec,
+        store=cx_state.auth_store,
+        env=cx_state._env(),
+        runtime_api_key=None,
+        models_json_auth=cx_state._models_json_auth("openai-codex"),
+        thinking_level="high",
+    )
+    codex_ok = build_provider(cx_resolved, http_client=None) is None
+    checks.append(Check("22_codex_stays_on_legacy", codex_ok, "openai-codex-responses stays on the legacy factory (settings-derived RetryPolicy)"))
+
+    # 22e: product boundary constructs a built-in bedrock catalog model (not legacy).
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    bnd_state = _state(tmp, tmp / "tier3_boundary.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bnd_repl = NativeReplProviderState(
+        selection=NativeModelSelection("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
+        provider_factory=_no_legacy,
+        catalog_state=bnd_state,
+        thinking_level="high",
+        persist_defaults=False,
+    )
+    bnd_provider = bnd_repl.current_provider()
+    boundary_ok = (
+        isinstance(bnd_provider, AmazonBedrockProvider)
+        and bnd_provider.reasoning_effort == "high"
+    )
+    checks.append(Check("22_tier3_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in bedrock catalog model (not legacy)"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -1189,6 +1303,7 @@ def run_checks() -> list[Check]:
         _check_product_construction(checks, tmp)
         _check_tier1_construction(checks, tmp)
         _check_tier2_construction(checks, tmp)
+        _check_tier3_construction(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 
