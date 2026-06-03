@@ -13,6 +13,7 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
@@ -151,6 +152,7 @@ class PipyNativeReplAdapter:
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
         resume_context: ResumeContext | None = None,
         resume_branch_label: str | None = None,
+        settings_manager: "SettingsManager | None" = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -163,6 +165,7 @@ class PipyNativeReplAdapter:
         self.instruction_loader = instruction_loader
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
+        self.settings_manager = settings_manager
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -199,6 +202,7 @@ class PipyNativeReplAdapter:
             instruction_loader=self.instruction_loader,
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
+            settings_manager=self.settings_manager,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
@@ -271,6 +275,7 @@ class PipyNativeToolReplAdapter:
         resume_context: ResumeContext | None = None,
         resume_branch_label: str | None = None,
         native_session: "NativeSessionTree | None" = None,
+        settings_manager: "SettingsManager | None" = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -278,6 +283,7 @@ class PipyNativeToolReplAdapter:
             )
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
+        self.settings_manager = settings_manager
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -384,6 +390,7 @@ class PipyNativeToolReplAdapter:
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
             native_session=self.native_session,
+            settings_manager=self.settings_manager,
         )
         try:
             run_output = session.run(

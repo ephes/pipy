@@ -961,6 +961,7 @@ class NativeNoToolReplSession:
             read_budgets=read_budgets,
             no_tool_context=no_tool_context,
             pending_apply_draft=pending_apply_draft,
+            quiet=settings.get_quiet_startup(),
         )
         if self.resume_context is not None:
             # Safe resumed-state banner: prior session id, provider, model,
@@ -1899,6 +1900,7 @@ def _print_repl_startup_chrome(
     read_budgets: _ReplReadBudgets,
     no_tool_context: NativeNoToolReplConversationContext,
     pending_apply_draft: _PendingReplPatchApplyDraft | None,
+    quiet: bool = False,
 ) -> None:
     del (
         provider_state,
@@ -1907,7 +1909,7 @@ def _print_repl_startup_chrome(
         no_tool_context,
         pending_apply_draft,
     )
-    print_startup_chrome(error_stream, cwd=run_input.cwd)
+    print_startup_chrome(error_stream, cwd=run_input.cwd, quiet=quiet)
 
 
 def _repl_footer_text(

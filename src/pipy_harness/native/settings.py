@@ -301,12 +301,14 @@ class SettingsManager:
         env: dict[str, str] | os._Environ[str] | None = None,
         home_dir: Path | None = None,
         overrides: dict[str, Any] | None = None,
+        base_defaults: dict[str, Any] | None = None,
     ) -> "SettingsManager":
         return cls(
             global_path=global_settings_path(env=env, home_dir=home_dir),
             project_path=project_settings_path(workspace_root),
             env=env,
             overrides=overrides,
+            base_defaults=base_defaults,
         )
 
     # --- loading -----------------------------------------------------------
@@ -337,6 +339,19 @@ class SettingsManager:
 
     def raw_scope(self, scope: str) -> dict[str, Any]:
         return copy.deepcopy(self._raw.get(scope, {}))
+
+    def merged_file_settings(self) -> dict[str, Any]:
+        """Merge of the global+project settings *files* only.
+
+        Excludes both the ``base_defaults`` (imported local-state) layer and the
+        CLI/env override layer, so callers can read what the user actually wrote
+        in a ``settings.json`` — used by the CLI to resolve provider/model/theme
+        precedence (file value wins over the legacy store; store remains the
+        fallback) without the store value masking an unset file key.
+        """
+
+        merged = deep_merge_settings({}, self._raw.get(SCOPE_GLOBAL, {}))
+        return deep_merge_settings(merged, self._raw.get(SCOPE_PROJECT, {}))
 
     # --- writing -----------------------------------------------------------
 

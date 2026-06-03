@@ -528,3 +528,16 @@ def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
     assert "compaction:" in text
     assert "retry:" in text
     assert "openai/gpt-5.5" in text
+
+
+def test_merged_file_settings_excludes_base_defaults(tmp_path: Path) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"defaultProvider": "anthropic"})
+    mgr = SettingsManager(
+        global_path=tmp_path / "config" / "settings.json",
+        project_path=tmp_path / "proj" / ".pipy" / "settings.json",
+        base_defaults={"defaultProvider": "openai", "theme": "store-theme"},
+    )
+    # effective() includes base_defaults; merged_file_settings() does not.
+    assert mgr.effective()["theme"] == "store-theme"
+    file_only = mgr.merged_file_settings()
+    assert file_only == {"defaultProvider": "anthropic"}

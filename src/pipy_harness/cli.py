@@ -52,6 +52,12 @@ from pipy_harness.native.provider_registry import (
 )
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
+from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.settings import (
+    SettingsManager,
+    local_state_base_defaults,
+)
+from pipy_harness.native.themes import NativeThemeStore, THEME_ENV_VAR, resolve_active_theme_name
 from pipy_harness.native.workspace_context import default_workspace_instruction_loader
 from pipy_harness.runner import (
     FileSessionRecorder,
@@ -459,10 +465,22 @@ def main(argv: list[str] | None = None) -> int:
                 branch=args.branch,
                 root=args.root,
             )
+            # Layered settings: a settings.json defaultProvider/defaultModel/theme
+            # is the source of truth over the legacy local-state store (CLI flags
+            # still win). The store remains the fallback for selection.
+            settings_manager = _build_runtime_settings(args.cwd.expanduser().resolve())
+            file_settings = settings_manager.merged_file_settings()
+            _apply_settings_theme_env(file_settings)
+            eff_native_provider = args.native_provider or _settings_str(
+                file_settings, "defaultProvider"
+            )
+            eff_native_model = args.native_model or _settings_str(
+                file_settings, "defaultModel"
+            )
             resolved_repl_mode = _resolve_repl_mode(
                 args.repl_mode,
-                native_provider=args.native_provider,
-                native_model=args.native_model,
+                native_provider=eff_native_provider,
+                native_model=eff_native_model,
             )
             # Resolve the Pi-style native product session for this run from the
             # startup flags. ``pipy-session`` is a separate metadata archive and
@@ -479,8 +497,8 @@ def main(argv: list[str] | None = None) -> int:
                     cwd=args.cwd.expanduser().resolve(),
                 )
                 repl_adapter = _tool_repl_adapter_for(
-                    args.native_provider,
-                    args.native_model,
+                    eff_native_provider,
+                    eff_native_model,
                     tool_budget=args.tool_budget,
                     archive_transcript=args.archive_transcript,
                     input_runtime=args.input_runtime,
@@ -490,16 +508,18 @@ def main(argv: list[str] | None = None) -> int:
                     native_session=native_session,
                     thinking=args.thinking,
                     api_key=args.api_key,
+                    settings_manager=settings_manager,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
-                    args.native_provider,
-                    args.native_model,
+                    eff_native_provider,
+                    eff_native_model,
                     input_runtime=args.input_runtime,
                     resume_context=resume_context,
                     resume_branch_label=resume_branch_label,
                     thinking=args.thinking,
                     api_key=args.api_key,
+                    settings_manager=settings_manager,
                 )
             request = RunRequest(
                 agent=args.agent,
@@ -685,6 +705,45 @@ def _adapter_for(
     return SubprocessAdapter()
 
 
+def _build_runtime_settings(cwd: Path) -> SettingsManager:
+    """Build the layered settings manager for a ``pipy repl`` run.
+
+    Imports the existing local-state store values (provider/model/theme/
+    prompt-history) as the lowest-precedence ``base_defaults`` layer so they
+    surface through settings without rewriting the runtime-state files, while a
+    user ``settings.json`` still overrides them.
+    """
+
+    stored = NativeDefaultsStore(default_native_defaults_path()).load()
+    theme = resolve_active_theme_name(store=NativeThemeStore())
+    base = local_state_base_defaults(
+        provider=stored.provider_name if stored is not None else None,
+        model=stored.model_id if stored is not None else None,
+        theme=theme,
+        prompt_history_enabled=PromptHistoryStore().enabled,
+    )
+    return SettingsManager.for_workspace(cwd, base_defaults=base)
+
+
+def _settings_str(file_settings: dict[str, object], key: str) -> str | None:
+    value = file_settings.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _apply_settings_theme_env(file_settings: dict[str, object]) -> None:
+    """Make a ``settings.json`` ``theme`` take effect via the theme env var.
+
+    Settings is the source of truth over the persisted theme store, but an
+    explicit ``PIPY_THEME`` in the environment is a final override and wins. So
+    the file theme is injected into ``PIPY_THEME`` only when the env var is unset
+    (the rest of the chrome already reads ``PIPY_THEME`` per render).
+    """
+
+    file_theme = _settings_str(file_settings, "theme")
+    if file_theme and not os.environ.get(THEME_ENV_VAR):
+        os.environ[THEME_ENV_VAR] = file_theme
+
+
 def _repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
@@ -694,6 +753,7 @@ def _repl_adapter_for(
     resume_branch_label: str | None = None,
     thinking: str | None = None,
     api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
 ) -> PipyNativeReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -721,6 +781,7 @@ def _repl_adapter_for(
         instruction_loader=default_workspace_instruction_loader,
         resume_context=resume_context,
         resume_branch_label=resume_branch_label,
+        settings_manager=settings_manager,
     )
 
 
@@ -839,6 +900,7 @@ def _tool_repl_adapter_for(
     native_session: Any = None,
     thinking: str | None = None,
     api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -879,6 +941,7 @@ def _tool_repl_adapter_for(
         resume_context=resume_context,
         resume_branch_label=resume_branch_label,
         native_session=native_session,
+        settings_manager=settings_manager,
     )
 
 

@@ -5679,3 +5679,49 @@ def test_cli_list_models_fuzzy_search(tmp_path, capsys, monkeypatch):
     # Fuzzy filter over "provider id": only mistral rows match "mistral".
     assert body
     assert all(line.split()[0] == "mistral" for line in body)
+
+
+def test_cli_native_repl_honors_settings_json_quiet_startup_and_theme(
+    tmp_path, capfd, monkeypatch
+) -> None:
+    """A settings.json drives quietStartup + theme and /settings reports them.
+
+    Product-path evidence: the real `pipy repl` invocation reads
+    <config>/settings.json, suppresses the startup banner when quietStartup is
+    set, surfaces the resolved theme via /settings, and runs no provider turn
+    for /settings/exit.
+    """
+
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    (config_home / "settings.json").write_text(
+        json.dumps({"quietStartup": True, "theme": "ocean", "transport": "sse"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    monkeypatch.delenv("PIPY_THEME", raising=False)
+    monkeypatch.setattr(sys, "stdin", StringIO("/settings\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-settings",
+            "--root",
+            str(tmp_path / "sessions"),
+            "--cwd",
+            str(tmp_path),
+            "--no-session",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    # quietStartup suppressed the verbose startup banner (no version title).
+    assert "pipy v" not in captured.err
+    # /settings reported the resolved settings sourced from settings.json.
+    assert "settings (resolved):" in captured.err
+    assert "theme: ocean" in captured.err
+    assert "transport: sse" in captured.err

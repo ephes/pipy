@@ -329,7 +329,9 @@ def _short_token_count(value: int) -> str:
     return str(value)
 
 
-def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
+def print_startup_chrome(
+    error_stream: TextIO, *, cwd: Path, quiet: bool = False
+) -> None:
     """Render the Pi-parity compact startup chrome on `error_stream`.
 
     Layout: ` pipy v…` title row (one-space indent), dim controls
@@ -337,8 +339,13 @@ def print_startup_chrome(error_stream: TextIO, *, cwd: Path) -> None:
     ``AGENTS.md`` files discovered in the workspace, its ancestors,
     and ``~/.pipy/AGENTS.md``. The section is omitted when no
     candidates are found.
+
+    When ``quiet`` is set (the ``quietStartup`` setting), the verbose startup
+    banner is suppressed entirely, matching Pi's quiet-startup behavior.
     """
 
+    if quiet:
+        return
     style = chrome_style_for(error_stream)
     width = chrome_width(error_stream)
     resource_labels = _resource_labels(cwd)

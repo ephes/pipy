@@ -817,7 +817,9 @@ class NativeToolReplSession:
             )
         )
         if terminal_ui is None:
-            print_startup_chrome(error_stream, cwd=cwd)
+            print_startup_chrome(
+                error_stream, cwd=cwd, quiet=settings.get_quiet_startup()
+            )
             if self.resume_context is not None:
                 print(
                     "pipy: "
