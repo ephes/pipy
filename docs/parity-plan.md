@@ -61,15 +61,15 @@ Pi's built-in slash commands (source:
 | --- | --- | --- | --- |
 | `/settings` | Open settings menu | ✅ interactive dialog | [settings-config.md](settings-config.md) |
 | `/model` | Select model (selector UI) | ✅ | [provider-catalog.md](provider-catalog.md) |
-| `/scoped-models` | Enable/disable models for Ctrl+P cycling | ❌ missing | [provider-catalog.md](provider-catalog.md) |
+| `/scoped-models` | Enable/disable models for Ctrl+P cycling | ✅ command (view/set/clear/cycle) + Ctrl+P | [settings-config.md](settings-config.md) |
 | `/export` | Export session (HTML default, `.html`/`.jsonl`) | ❌ (only metadata-only `pipy-session export`) | [export-distribution.md](export-distribution.md) |
 | `/import` | Import + resume a session from JSONL | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `/share` | Share session as a secret GitHub gist | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `/copy` | Copy last agent message to clipboard | ✅ shipped | — (no spec needed) |
 | `/name` | Set session display name | ❌ missing | [session-tree.md](session-tree.md) |
 | `/session` | Show session info and stats | 🟡 pipy has `/status` (different shape) | [session-tree.md](session-tree.md) |
-| `/changelog` | Show changelog entries | ❌ missing | [settings-config.md](settings-config.md) |
-| `/hotkeys` | Show all keyboard shortcuts | 🟡 pipy has `/help` (grouped commands) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
+| `/changelog` | Show changelog entries | ✅ command + startup display | [settings-config.md](settings-config.md) |
+| `/hotkeys` | Show all keyboard shortcuts | ✅ rendered from the resolved keybinding manager | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `/fork` | New fork from a previous user message | ❌ missing | [session-tree.md](session-tree.md) |
 | `/clone` | Duplicate current session at current position | ❌ missing | [session-tree.md](session-tree.md) |
 | `/tree` | Navigate session tree (switch branches) | ❌ missing | [session-tree.md](session-tree.md) |
@@ -78,7 +78,7 @@ Pi's built-in slash commands (source:
 | `/new` | Start a new session | 🟡 pipy has `/clear` (different shape) | [session-tree.md](session-tree.md) |
 | `/compact` | Manually compact session context | ✅ (durable replay pending) | [session-tree.md](session-tree.md) |
 | `/resume` | Resume a different session | 🟡 metadata-only today | [session-tree.md](session-tree.md) |
-| `/reload` | Reload keybindings/extensions/skills/prompts/themes | ❌ missing | [settings-config.md](settings-config.md) |
+| `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
 
 **Pipy-only commands (not in Pi → remove or realign — see §3):** `/clear`,
@@ -118,20 +118,20 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | `--session-dir <dir>` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
-| `--models <patterns>` (Ctrl+P cycling) | 🟡 flag + resolver helpers shipped; live Ctrl+P cycling missing | [provider-catalog.md](provider-catalog.md), [tui-workflow.md](tui-workflow.md) |
+| `--models <patterns>` (Ctrl+P cycling) | ✅ `enabledModels` + `/scoped-models` + live Ctrl+P cycling | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | 🟡 provider/model shipped; `--api-key` accepted but not applied to provider calls yet | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
 | `--thinking <level>` | 🟡 accepted/local state; provider-request mapping missing | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` (`-xt` is 0.78.0; not in source checkout) | ❌ missing | [settings-config.md](settings-config.md) |
-| `--system-prompt` / `--append-system-prompt` | ❌ missing | [settings-config.md](settings-config.md) |
+| `--system-prompt` / `--append-system-prompt` | ✅ replace + repeatable append (text or file) + SYSTEM.md/APPEND_SYSTEM.md | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ❌ missing | [extension-api.md](extension-api.md) |
 | `--skill` / `--no-skills, -ns` | 🟡 discovery only (no load flag) | [settings-config.md](settings-config.md) |
 | `--prompt-template` / `--no-prompt-templates, -np` | 🟡 discovery only | [settings-config.md](settings-config.md) |
 | `--theme` / `--no-themes` | 🟡 `PIPY_THEME` + `/theme` (no flag) | [settings-config.md](settings-config.md) |
-| `--no-context-files, -nc` | ❌ missing | [settings-config.md](settings-config.md) |
+| `--no-context-files, -nc` | ✅ disables AGENTS/CLAUDE discovery | [settings-config.md](settings-config.md) |
 | `--export <file>` | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
-| `--help, -h` / `--version, -v` | 🟡 pipy has `--help` via its CLI; confirm `--version` | [settings-config.md](settings-config.md) |
+| `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |
 | `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | ❌ missing | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | ❌ missing | [extension-api.md](extension-api.md) |
 
@@ -185,7 +185,7 @@ the product state, not the spec state.
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume`, durable compaction, startup session flags) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` pass the conformance gate (full-transcript store, branch/fork/clone, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 draft spec, bounded Markdown-resource subset only | golden conformance extension (in spec) |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 foundation shipped; product provider construction/auth/thinking wiring incomplete | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes helper-layer gate; must be upgraded for product paths) |
-| Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | 🟡 interactive `/settings` + local defaults only | `scripts/parity_checks/settings_config_conformance.py --json` |
+| Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 metadata-only JSON + Python SDK only | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys, folding, queued steering, mouse selection, true cancellation) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship | real-PTY tests + conformance gate (in spec) |
 | Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only | `scripts/parity_checks/export_distribution_conformance.py --json` |
@@ -216,9 +216,13 @@ is kept aligned with the ranked [Pi-Mono Gap Audit](pi-mono-gap-audit.md):
    follow-ons are `/scoped-models`, live Ctrl+P model cycling from
    `--models`/settings, and live Anthropic/Copilot login UX.
 3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
-   — next after the provider-catalog wiring fix-up: `settings.json`,
-   `keybindings.json`, `/reload`, `/changelog`, system-prompt files,
-   tool/resource toggles, and the settings side of scoped models.
+   — ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped
+   models + live Ctrl+P cycling, system-prompt files + `--no-context-files`,
+   `pipy config` resource toggles, `/reload`, `/changelog`, and `--version`,
+   with the 17-check conformance gate passing. Remaining follow-on: live
+   re-application surfaces for a few display/transport keys (editor padding,
+   hardware cursor, clear-on-shrink, websocket transport, in-turn steering) that
+   are currently accept+round-trip+report.
 4. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — can run alongside implementation tracks; pipy needs Pi-like user docs, not
    only internal planning/spec docs.

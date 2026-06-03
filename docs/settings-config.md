@@ -1,19 +1,23 @@
 # Pi-Style Settings, Config, and Keybindings Parity
 
-Status: target specification researched from the local Pi reference on 2026-06-02.
+Status: target specification researched from the local Pi reference on
+2026-06-02; **implemented and shipped 2026-06-03** (see the per-section
+"Shipped" notes and the conformance gate below).
 
 This document defines the pipy target for real feature parity with Pi's
 settings/config/keybindings system through pipy-owned Python boundaries. It is
-not a TypeScript port. Today pipy has only an interactive `/settings` overlay
-plus a few non-secret local defaults (provider/model via `NativeDefaultsStore`,
-theme via `NativeThemeStore`/`PIPY_THEME`, and a persistent-prompt-history
-toggle via `PromptHistoryStore`). Pi has a layered settings system, a
-configurable keybindings file (single or alternative key specs per action),
-scoped models, transport/delivery controls,
-compaction/retry/branch-summary tuning, system-prompt replace/append inputs,
-resource-enablement config, context-file discovery toggles, `/reload`,
-`/changelog`, `/hotkeys`, and version/update checks. The objective for this
-track is full Pi-equivalent settings capability, not a metadata-only subset.
+not a TypeScript port. This surface now ships: a layered settings system
+(`pipy_harness.native.settings`), a configurable `keybindings.json` (single or
+alternative key specs per action) with `/hotkeys`, scoped models with Ctrl+P
+cycling, transport/delivery + compaction/retry/branch-summary settings (honored
+where a runtime surface exists, otherwise accepted + round-tripped + reported),
+system-prompt replace/append inputs, resource-enablement config (`pipy config`),
+context-file discovery toggles (`--no-context-files`), `/reload`, `/changelog`,
+and a `--version` surface with a default-off update check. The objective for this
+track was full Pi-equivalent settings capability, not a metadata-only subset; it
+is verified by `scripts/parity_checks/settings_config_conformance.py`. The
+sections below keep the full target spec and add a "Shipped" note where the
+delivered behavior or a deliberate divergence needs calling out.
 
 ## Sources
 

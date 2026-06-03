@@ -285,6 +285,8 @@ boundary records counters and labels alone — never the raw command or output.
 The line-oriented mode also exposes these explicit commands:
 
 - `/settings`, `/status`, `/clear`, `/compact`
+- `/hotkeys` (resolved keyboard-shortcut table), `/reload` (re-read settings,
+  keybindings, and resources), `/changelog` (release notes)
 - `/login [openai-codex]`, `/logout [openai-codex]`,
   `/model [<provider>/<model>]`
 - `/theme [<name>]` — list available chrome themes, or switch the terminal

@@ -283,14 +283,19 @@ slice-selection aid for the highest-impact remaining product gaps.
    metadata-only `--native-output json`, subprocess capture, and an in-process
    Python SDK. A protocol-level JSON/RPC mode, long-running process integration
    surface, and event-stream automation contract remain open.
-6. Settings, distribution, and sharing polish. Pi has global/project
-   `settings.json`, keybinding config, scoped models, message-delivery and
-   transport settings, system-prompt replacement/append files, resource
-   enablement, version/update checks, package/self-update commands, documented
-   npm/curl installs, changelog command, HTML export, and private gist share.
-   Pipy remains a local `uv`-driven project with narrower local state controls
-   and metadata-only archive export. These are product-readiness gaps rather
-   than core runtime gaps.
+6. Settings, distribution, and sharing polish. The settings/config/keybindings
+   surface now ships (see the Settings track below and
+   [settings-config.md](settings-config.md)): layered global/project
+   `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P,
+   message-delivery/transport settings (reported; honored where a surface
+   exists), system-prompt replace/append files + `--no-context-files`, `pipy
+   config` resource enablement, `/reload`, `/changelog`, and `--version` with a
+   default-off update check — all covered by
+   `scripts/parity_checks/settings_config_conformance.py`. The remaining gaps in
+   this item are distribution/sharing only: package/self-update commands,
+   documented npm/curl installs, HTML export, and private gist share. Pipy
+   remains a local `uv`-driven project with metadata-only archive export. These
+   are product-readiness gaps rather than core runtime gaps.
 7. User documentation parity. Pi has product docs for quickstart, usage,
    providers, settings, keybindings, sessions, compaction, customization,
    packages, models, SDK/RPC/JSON, terminal setup, tmux, and platforms. Pipy's
@@ -331,8 +336,9 @@ rationale is in [parity-plan.md](parity-plan.md) §3; the actionable removals ar
   pipy-only commands to Pi's command set ([session-tree.md](session-tree.md)).
 - **`/theme` command, `/skill`/`/template` dispatcher commands, `/help`.** Pi has
   none of these. Move theme selection under `/settings` (keep `--theme`),
-  auto-inject skills, register prompt templates as their own `/<name>` slash
-  commands, and provide `/hotkeys` ([settings-config.md](settings-config.md),
+  auto-inject skills, and register prompt templates as their own `/<name>` slash
+  commands. (`/hotkeys` now ships, rendered from the resolved keybinding
+  manager.) ([settings-config.md](settings-config.md),
   [provider-catalog.md](provider-catalog.md)).
 - **Hardcoded `ds4` built-in provider.** Reframe as a `models.json`
   custom-provider preset ([provider-catalog.md](provider-catalog.md)).
@@ -1407,12 +1413,39 @@ uv run pytest tests/test_native_*provider*.py tests/test_native_repl_state.py \
 just check
 ```
 
-### Settings / config / keybindings (next after catalog wiring)
+### Settings / config / keybindings (landed 2026-06-03)
 
-Once the provider-catalog product wiring fix-up is complete, the next big topic
-returns to Pi-style settings, config, and keybindings from
-[settings-config.md](settings-config.md), starting with the settings core and the
-`settings_config_conformance.py` gate.
+The Pi-style settings/config/keybindings track from
+[settings-config.md](settings-config.md) has shipped through pipy-owned Python:
+
+- `pipy_harness.native.settings` — layered global `<config>/settings.json` +
+  project `.pipy/settings.json`, Pi migrations, one-level deep merge with project
+  precedence, CLI/env overrides, parse-error isolation, field-scoped lock-guarded
+  writes preserving unknown keys, and typed accessors.
+- `pipy_harness.native.keybindings` — default editor/app binding table (35+ app
+  bindings), `keybindings.json` load with legacy-name migration and
+  malformed-file fallback to defaults, and `/hotkeys` rendered from the resolved
+  manager.
+- Settings drive provider/model/theme/quietStartup/prompt-history/
+  autocompleteMaxVisible at startup; `/settings` reports the resolved config.
+- System-prompt inputs (`--system-prompt`, repeatable `--append-system-prompt`,
+  `SYSTEM.md`/`APPEND_SYSTEM.md`, `--no-context-files`/`-nc`); `retry.*` and
+  `compaction.enabled` honored; scoped models (`enabledModels` + `/scoped-models`
+  + Ctrl+P); resource enablement via `pipy config`; `/reload`; `/changelog` +
+  startup display; `--version` and a default-off update gate.
+
+The shipped conformance gate is:
+
+```sh
+uv run python scripts/parity_checks/settings_config_conformance.py --json
+```
+
+A few display/transport keys (editor padding, hardware cursor, clear-on-shrink,
+websocket transport, in-turn steering/follow-up queueing,
+compaction.reserveTokens/keepRecentTokens, branchSummary) are accepted,
+round-tripped, and reported by `/settings` but not yet live-applied, pending the
+corresponding runtime surfaces; see the honoring-status notes in
+[settings-config.md](settings-config.md).
 
 ### Full Pi-style native session tree workflow (landed 2026-06-02)
 
