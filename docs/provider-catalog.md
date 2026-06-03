@@ -9,8 +9,8 @@ families `google-generative-ai`, `azure-openai-responses`,
 catalog-constructed except `openai-codex-responses` (kept on the legacy factory
 for its settings-derived `RetryPolicy`) and the deterministic `fake` bootstrap.
 A models.json custom provider/model now runs a real turn using the catalog
-baseUrl/model/auth/headers/routing/thinking. The remaining wiring is the
-one-shot `pipy run` construction path and startup CLI model resolution.
+baseUrl/model/auth/headers/routing/thinking, in both the REPL and the one-shot
+`pipy run` path. The remaining wiring is startup CLI model resolution.
 
 ## Implemented (foundation + product construction)
 
@@ -133,8 +133,15 @@ Remaining wiring (not yet shipped):
   to a `/openai/v1` base with `api-version=v1`). Aligning the adapter's
   URL/api-version to Pi's `/openai/v1` form is a separate azure-adapter
   follow-on; catalog construction reuses the existing adapter contract.
-- `pipy run` (non-REPL one-shot) provider construction still uses `_adapter_for`;
-  the REPL tool-loop/no-tool product path is catalog-constructed.
+- (shipped 2026-06-03) `pipy run` (non-REPL one-shot) provider construction now
+  routes through catalog construction via `_run_provider_for_selection`
+  (`NativeReplProviderState.current_provider`), the same boundary as the REPL, so
+  `--api-key`, `--thinking`, custom `models.json` providers, base URLs, headers
+  and routing all reach the one-shot turn. As a result `pipy run` for a custom
+  `openai-completions` provider (openrouter, ds4) now uses the catalog
+  completions adapter rather than the legacy per-provider adapter — matching the
+  REPL. `openai-codex` and `fake` keep the legacy factory. Covered by conformance
+  item 23.
 - Startup CLI model resolution. `--native-provider`/`--native-model` at launch do
   not yet resolve through `resolve_cli_model` against the catalog: a custom
   `models.json` provider name is not accepted by `--native-provider` (argparse
@@ -827,7 +834,8 @@ request paths.
 15. One-shot construction: make `pipy run` use the catalog-backed construction
     boundary instead of `_adapter_for`, preserving existing text/stream/json
     output contracts while honoring custom providers, runtime auth, base URLs,
-    headers, routing, and thinking.
+    headers, routing, and thinking. **Shipped 2026-06-03** via
+    `_run_provider_for_selection` (`current_provider`), conformance item 23.
 16. Startup CLI resolution: route launch-time `--native-provider` and
     `--native-model` through `resolve_cli_model`, including custom
     `models.json` providers and bare provider/model refs; remove argparse

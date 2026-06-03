@@ -1199,6 +1199,29 @@ def _check_tier3_construction(checks, tmp: Path):
     checks.append(Check("22_tier3_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in bedrock catalog model (not legacy)"))
 
 
+def _check_run_path_construction(checks, tmp: Path):
+    # Item 23: the one-shot ``pipy run`` boundary constructs its provider via
+    # catalog construction (the same boundary as the REPL), not the legacy
+    # factory. A runtime --api-key + --thinking must reach the constructed
+    # adapter; the legacy factory would ignore both.
+    from pipy_harness.cli import _run_provider_for_selection
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.repl_state import NativeModelSelection
+
+    provider = _run_provider_for_selection(
+        NativeModelSelection("anthropic", "claude-opus-4-7"),
+        thinking="xhigh",
+        api_key="RUNTIME-RUN-KEY",
+    )
+    run_ok = (
+        isinstance(provider, AnthropicProvider)
+        and provider.api_key == "RUNTIME-RUN-KEY"
+        and provider.reasoning_effort == "xhigh"
+        and "RUNTIME-RUN-KEY" not in repr(provider)
+    )
+    checks.append(Check("23_run_path_uses_catalog", run_ok, "pipy run one-shot construction uses catalog construction (honors --api-key/--thinking)"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -1304,6 +1327,7 @@ def run_checks() -> list[Check]:
         _check_tier1_construction(checks, tmp)
         _check_tier2_construction(checks, tmp)
         _check_tier3_construction(checks, tmp)
+        _check_run_path_construction(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 

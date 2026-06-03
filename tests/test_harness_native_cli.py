@@ -212,7 +212,7 @@ def test_cli_native_repl_repeats_no_tool_provider_turns_and_finalizes_record(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -316,7 +316,7 @@ def test_cli_native_repl_eof_exits_cleanly_without_provider_turn(tmp_path, capfd
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -446,7 +446,7 @@ def test_cli_native_repl_skips_blank_lines_and_accepts_quit(tmp_path, capfd, mon
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -506,7 +506,7 @@ def test_cli_native_repl_help_prints_static_usage_without_provider_or_tools(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -584,7 +584,7 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -660,7 +660,7 @@ def test_cli_native_repl_model_status_prints_to_stderr_without_provider_or_read_
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -720,7 +720,7 @@ def test_cli_native_repl_model_selection_late_binds_subsequent_provider_turn_and
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -787,7 +787,7 @@ def test_cli_native_repl_clear_clears_context_without_resetting_model_or_turn_in
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -881,7 +881,7 @@ def test_cli_native_repl_login_invokes_openai_codex_auth_manager_without_provide
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -942,7 +942,7 @@ def test_cli_native_repl_login_logout_reject_unsupported_provider_without_side_e
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1000,7 +1000,7 @@ def test_cli_native_repl_model_resolution_rejects_unavailable_ambiguous_and_unkn
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1065,7 +1065,7 @@ def test_cli_native_repl_model_bare_single_match_and_unavailable_provider_gate(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1182,7 +1182,7 @@ def test_cli_native_repl_logout_removes_openai_codex_credentials_and_resets_sele
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1238,7 +1238,7 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, mon
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1280,7 +1280,7 @@ def test_cli_native_repl_malformed_help_prints_usage_without_provider_or_tools(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1339,7 +1339,7 @@ def test_cli_native_repl_discovery_diagnostics_do_not_consume_read_limit(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1418,7 +1418,7 @@ def test_cli_native_repl_malformed_clear_prints_usage_without_provider_or_tools(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1477,7 +1477,7 @@ def test_cli_native_repl_read_command_prints_excerpt_without_approval_prompt(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1549,7 +1549,7 @@ def test_cli_native_repl_malformed_read_prints_usage_without_consuming_read_limi
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1614,7 +1614,7 @@ def test_cli_native_repl_ask_file_sends_excerpt_to_provider_without_approval_pro
     class CliFakeAskFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1713,7 +1713,7 @@ def test_cli_native_repl_ask_file_accepts_whitespace_delimited_separator(
     class CliFakeAskFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1782,7 +1782,7 @@ def test_cli_native_repl_propose_file_records_metadata_only_proposal(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1899,7 +1899,7 @@ def test_cli_native_repl_propose_file_accepts_whitespace_delimited_separator(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -1966,7 +1966,7 @@ def test_cli_native_repl_malformed_propose_file_does_not_consume_read_limit(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2035,7 +2035,7 @@ def test_cli_native_repl_propose_file_rejects_unsafe_target_before_provider(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2094,7 +2094,7 @@ def test_cli_native_repl_read_command_rejects_unsafe_target_before_read(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2155,7 +2155,7 @@ def test_cli_native_repl_unsafe_read_target_preserves_successful_read_budget(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2219,7 +2219,7 @@ def test_cli_native_repl_ask_file_failed_read_preserves_later_read_budget(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2290,7 +2290,7 @@ def test_cli_native_repl_propose_file_skipped_read_preserves_later_success_budge
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2371,7 +2371,7 @@ def test_cli_native_repl_two_failed_read_attempts_exhaust_recovery_before_later_
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2442,7 +2442,7 @@ def test_cli_native_repl_interleaved_success_failure_success_blocks_later_read(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2546,7 +2546,7 @@ def test_cli_native_repl_local_commands_do_not_consume_failed_read_recovery_budg
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2644,7 +2644,7 @@ def test_cli_native_repl_read_command_is_limited_to_two_successful_excerpts(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2718,7 +2718,7 @@ def test_cli_native_repl_two_read_commands_block_later_ask_file(tmp_path, capfd,
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2780,7 +2780,7 @@ def test_cli_native_repl_ask_file_and_read_exhaust_successful_read_budget(
     class CliFakeAskFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2866,7 +2866,7 @@ def test_cli_native_repl_read_and_ask_file_block_later_propose_file_before_read_
     class CliFakeAskFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -2965,7 +2965,7 @@ def test_cli_native_repl_malformed_ask_file_after_read_limit_prints_usage(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3032,7 +3032,7 @@ def test_cli_native_repl_malformed_propose_file_after_read_limit_prints_usage(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3102,7 +3102,7 @@ def test_cli_native_repl_two_read_commands_block_later_propose_file(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3167,7 +3167,7 @@ def test_cli_native_repl_ask_file_and_propose_file_exhaust_successful_read_budge
     class CliFakeAskFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3242,7 +3242,7 @@ def test_cli_native_repl_propose_file_and_read_block_later_ask_file(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3323,7 +3323,7 @@ def test_cli_native_repl_repeated_propose_file_is_limited_to_two_successful_exce
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3396,7 +3396,7 @@ def test_cli_native_repl_propose_file_unsafe_proposal_metadata_is_skipped_metada
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3481,7 +3481,7 @@ def test_cli_native_repl_malformed_apply_proposal_does_not_call_provider_or_muta
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3533,7 +3533,7 @@ def test_cli_native_repl_apply_proposal_without_pending_fails_closed_without_mut
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3588,7 +3588,7 @@ def test_cli_native_repl_apply_proposal_mismatched_path_fails_closed_without_mut
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3657,7 +3657,7 @@ def test_cli_native_repl_apply_proposal_mutates_one_file_and_archives_metadata_o
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3763,7 +3763,7 @@ def test_cli_native_repl_visible_apply_draft_without_metadata_does_not_synthesiz
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3831,7 +3831,7 @@ def test_cli_native_repl_local_command_clears_pending_apply_proposal(
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3901,7 +3901,7 @@ def test_cli_native_repl_apply_proposal_stale_hash_fails_closed_without_mutation
     class CliFakeProposeFileProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -3982,7 +3982,7 @@ def test_cli_native_repl_malformed_ask_file_does_not_consume_read_limit(
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4047,7 +4047,7 @@ def test_cli_native_repl_unsupported_slash_command_prints_usage_without_provider
     class CliFakeReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4101,7 +4101,7 @@ def test_cli_native_repl_provider_failure_stops_without_printing_final_text(
     class CliFailingReplProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4280,7 +4280,7 @@ def test_cli_native_json_mode_omits_patch_proposal_raw_content(tmp_path, capfd, 
     class CliFakeProposalProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4425,7 +4425,7 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
         name = "openai"
         model_id = "gpt-test"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4441,7 +4441,9 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
                 metadata={"provider_response_store_requested": False, "response_status": "completed"},
             )
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAIResponsesProvider", CliFakeOpenAIProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFakeOpenAIProvider
+    )
 
     exit_code = main(
         [
@@ -4498,7 +4500,7 @@ def test_cli_native_openai_provider_json_mode_omits_provider_final_text(
         name = "openai"
         model_id = "gpt-test"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4514,7 +4516,9 @@ def test_cli_native_openai_provider_json_mode_omits_provider_final_text(
                 metadata={"provider_response_store_requested": False, "response_status": "completed"},
             )
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAIResponsesProvider", CliFakeOpenAIProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFakeOpenAIProvider
+    )
 
     exit_code = main(
         [
@@ -4564,7 +4568,7 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
         name = "openrouter"
         model_id = "openai/gpt-test"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4585,7 +4589,7 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.cli.OpenRouterChatCompletionsProvider",
+        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
         CliFakeOpenRouterProvider,
     )
 
@@ -4648,7 +4652,7 @@ def test_cli_native_openrouter_provider_json_mode_omits_provider_final_text(
     class CliFakeOpenRouterProvider:
         name = "openrouter"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4665,7 +4669,7 @@ def test_cli_native_openrouter_provider_json_mode_omits_provider_final_text(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.cli.OpenRouterChatCompletionsProvider",
+        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
         CliFakeOpenRouterProvider,
     )
 
@@ -4717,7 +4721,7 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
         name = "openai-codex"
         model_id = "gpt-test"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4918,7 +4922,7 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     class CliFailingOpenAIProvider:
         name = "openai"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -4935,7 +4939,9 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
                 error_message="provider failed safely",
             )
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAIResponsesProvider", CliFailingOpenAIProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFailingOpenAIProvider
+    )
 
     exit_code = main(
         [
@@ -4986,7 +4992,7 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
     class CliFailingOpenRouterProvider:
         name = "openrouter"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -5004,7 +5010,7 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
             )
 
     monkeypatch.setattr(
-        "pipy_harness.cli.OpenRouterChatCompletionsProvider",
+        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
         CliFailingOpenRouterProvider,
     )
 
@@ -5059,7 +5065,7 @@ def test_cli_native_provider_failure_json_mode_emits_metadata_only_json(
     class CliFailingOpenAIProvider:
         name = "openai"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
@@ -5076,7 +5082,9 @@ def test_cli_native_provider_failure_json_mode_emits_metadata_only_json(
                 error_message="provider failed safely",
             )
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAIResponsesProvider", CliFailingOpenAIProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFailingOpenAIProvider
+    )
 
     exit_code = main(
         [
@@ -5151,7 +5159,10 @@ def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     captured = capfd.readouterr()
     assert exit_code == 1
     assert captured.out == ""
-    assert "OpenRouterAuthError" in captured.err
+    # openrouter is the openai-completions family, so catalog construction (run
+    # now uses it, matching the REPL) builds the completions adapter; its auth
+    # error type is OpenAICompletionsAuthError, reported under provider=openrouter.
+    assert "OpenAICompletionsAuthError" in captured.err
     assert "API key is required" in captured.err
     assert "session finalized" in captured.err
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
@@ -5160,7 +5171,7 @@ def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
     assert provider_failed["payload"]["provider"] == "openrouter"
     assert provider_failed["payload"]["model_id"] == "openai/gpt-test"
-    assert provider_failed["payload"]["error_type"] == "OpenRouterAuthError"
+    assert provider_failed["payload"]["error_type"] == "OpenAICompletionsAuthError"
     assert "API key is required" in provider_failed["payload"]["error_message"]
     assert "OPENROUTER_API_KEY" not in finalized[0].read_text(encoding="utf-8")
     tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
@@ -5462,7 +5473,7 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
     class CliStreamingFakeProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
             self.programmable_text_chunks = ("STREAM_", "CHUNK_", "ABC")
 
@@ -5532,7 +5543,7 @@ def test_cli_stream_in_json_output_mode_routes_chunks_to_stderr(
     class CliStreamingFakeProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
             self.programmable_text_chunks = ("ALPHA", "BETA")
 
@@ -5599,7 +5610,7 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
     class CliBufferedFakeProvider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(
@@ -5733,7 +5744,7 @@ def _capturing_repl_provider(captured: list) -> type:
     class _Provider:
         name = "fake"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
         def complete(self, request, **_kwargs):

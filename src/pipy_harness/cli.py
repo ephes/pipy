@@ -512,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.native_provider,
                 args.native_model,
                 stream_sink=stream_sink,
+                thinking=getattr(args, "thinking", None),
+                api_key=getattr(args, "api_key", None),
             )
             request = RunRequest(
                 agent=args.agent,
@@ -773,6 +775,9 @@ def _adapter_for(
     native_model: str | None,
     *,
     stream_sink: StreamChunkSink | None = None,
+    thinking: str | None = None,
+    api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
         if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
@@ -784,17 +789,21 @@ def _adapter_for(
                     f"--native-model is required for --native-provider {native_provider}"
                 )
             model_id = native_model or DEFAULT_NATIVE_MODELS[native_provider]
-            return PipyNativeAdapter(
-                provider=_native_provider_for_selection(
-                    NativeModelSelection(
-                        provider_name=native_provider, model_id=model_id
-                    )
-                ),
-                instruction_loader=default_workspace_instruction_loader,
-                stream_sink=stream_sink,
+            selection = NativeModelSelection(
+                provider_name=native_provider, model_id=model_id
+            )
+        else:
+            selection = NativeModelSelection(
+                provider_name="fake",
+                model_id=native_model or "fake-native-bootstrap",
             )
         return PipyNativeAdapter(
-            provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap"),
+            provider=_run_provider_for_selection(
+                selection,
+                thinking=thinking,
+                api_key=api_key,
+                settings_manager=settings_manager,
+            ),
             instruction_loader=default_workspace_instruction_loader,
             stream_sink=stream_sink,
         )
@@ -803,6 +812,36 @@ def _adapter_for(
     if stream_sink is not None:
         raise ValueError("--stream requires --agent pipy-native")
     return SubprocessAdapter()
+
+
+def _run_provider_for_selection(
+    selection: NativeModelSelection,
+    *,
+    thinking: str | None = None,
+    api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
+) -> ProviderPort:
+    """Construct the one-shot ``pipy run`` provider via catalog construction.
+
+    Mirrors the REPL's catalog-first construction
+    (:class:`NativeReplProviderState`): catalog-wired families are built from the
+    selected ``NativeModelSpec`` plus resolved auth/headers/thinking, so a custom
+    ``models.json`` provider, ``--api-key``, base URLs, headers and ``--thinking``
+    all reach the one-shot turn the same way they reach a REPL turn. ``fake`` and
+    ``openai-codex`` fall back to the legacy factory (codex keeps its
+    settings-derived ``RetryPolicy``).
+    """
+
+    provider_state = NativeReplProviderState(
+        selection=selection,
+        provider_factory=_provider_factory_for(settings_manager),
+        auth_manager_factory=OpenAICodexAuthManager,
+        openai_codex_auth_path=default_openai_codex_auth_path(),
+        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        thinking_level=_validated_thinking_level(thinking),
+        persist_defaults=False,
+    )
+    return provider_state.current_provider()
 
 
 _CONFIG_RESOURCE_KEYS = {
