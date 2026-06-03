@@ -5922,3 +5922,14 @@ def test_cli_config_enable_skill_commands_false_drops_all_skills(tmp_path) -> No
         enable_skill_commands=False,
     )
     assert resources.skill_names() == ()
+
+
+def test_cli_version_prints_version(capfd) -> None:
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    out = capfd.readouterr().out
+    assert out.startswith("pipy ")
+    assert any(ch.isdigit() for ch in out)

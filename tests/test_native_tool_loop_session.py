@@ -742,3 +742,68 @@ def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
     assert "kept prior global settings" in out
     # Prior good theme survives the malformed reload.
     assert "theme: ocean" in out
+
+
+def test_changelog_command_renders_without_provider_turn(tmp_path):
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/changelog\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    assert "What's New" in error_stream.getvalue()
+    assert provider._call_counter[0] == 0
+
+
+def test_startup_changelog_shows_new_entries_on_version_bump(tmp_path):
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    # A stale lastChangelogVersion forces a bump against the shipped version.
+    settings_path.write_text(
+        json.dumps({"lastChangelogVersion": "0.0.0"}), encoding="utf-8"
+    )
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    out = error_stream.getvalue()
+    assert "What's New" in out  # new entries shown at startup
+    # The shipped version was recorded so the next run does not re-show.
+    on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert on_disk["lastChangelogVersion"] != "0.0.0"
+
+
+def test_startup_changelog_first_run_records_version_shows_nothing(tmp_path):
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text("{}", encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    assert "What's New" not in error_stream.getvalue()
+    on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert on_disk.get("lastChangelogVersion")  # recorded on first run

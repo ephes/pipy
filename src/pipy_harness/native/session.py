@@ -29,8 +29,14 @@ from pipy_harness.native.conversation import (
     NativeTurnMetadata,
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
+from pipy_harness.native.changelog import (
+    changelog_startup,
+    read_changelog_entries,
+    render_changelog,
+)
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
+from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.image_attachment import (
@@ -325,6 +331,7 @@ NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 HOTKEYS_REPL_COMMAND = "/hotkeys"
 RELOAD_REPL_COMMAND = "/reload"
+CHANGELOG_REPL_COMMAND = "/changelog"
 CLEAR_REPL_COMMAND = "/clear"
 COMPACT_REPL_COMMAND = "/compact"
 STATUS_REPL_COMMAND = "/status"
@@ -379,7 +386,7 @@ _REPL_COMMAND_GROUPS = (
             "/apply-proposal <workspace-relative-path>",
         ),
     ),
-    _ReplCommandGroup("Reload", ("/reload",)),
+    _ReplCommandGroup("Reload", ("/reload", "/changelog")),
     _ReplCommandGroup("Exit", ("/exit", "/quit")),
 )
 _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
@@ -995,6 +1002,22 @@ class NativeNoToolReplSession:
                 f"pipy: {compose_resume_status_line(self.resume_context, branch_label=self.resume_branch_label)}",
                 file=error_stream,
             )
+        # Startup changelog: show entries new since lastChangelogVersion on a
+        # fresh session (nothing on first run / resumed); record the version.
+        changelog_lines, store_version = changelog_startup(
+            read_changelog_entries(),
+            last_version=settings.get_last_changelog_version(),
+            current_version=pipy_version(),
+            collapse=settings.get_collapse_changelog(),
+            is_fresh=self.resume_context is None,
+        )
+        for line in changelog_lines:
+            print(line, file=error_stream)
+        if store_version is not None:
+            try:
+                settings.set_last_changelog_version(store_version)
+            except RuntimeError:
+                pass
         # Pi-parity: the slash-menu input adapter draws the persistent bottom
         # status block (cwd + status line) live below the input area, so for
         # interactive TTY sessions the loop does not need a pre-loop frame.
@@ -1115,6 +1138,17 @@ class NativeNoToolReplSession:
                 else:
                     _print_repl_command_usage_diagnostic(
                         error_stream, RELOAD_REPL_COMMAND
+                    )
+                continue
+            if _is_repl_command_invocation(command, CHANGELOG_REPL_COMMAND):
+                pending_apply_draft = None
+                if command == CHANGELOG_REPL_COMMAND:
+                    print(
+                        render_changelog(read_changelog_entries()), file=error_stream
+                    )
+                else:
+                    _print_repl_command_usage_diagnostic(
+                        error_stream, CHANGELOG_REPL_COMMAND
                     )
                 continue
             if _is_repl_command_invocation(command, CLEAR_REPL_COMMAND):

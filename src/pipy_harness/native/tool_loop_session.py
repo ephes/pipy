@@ -70,10 +70,16 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
+from pipy_harness.native.changelog import (
+    changelog_startup,
+    read_changelog_entries,
+    render_changelog,
+)
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
     compact_tool_loop_messages,
@@ -861,6 +867,28 @@ class NativeToolReplSession:
                     )
                 )
 
+        # Startup changelog: on a fresh session, show the entries new since the
+        # stored lastChangelogVersion (or a condensed line under collapseChangelog)
+        # and record the current version. First run / resumed sessions show
+        # nothing. Runs no provider turn.
+        changelog_lines, store_version = changelog_startup(
+            read_changelog_entries(),
+            last_version=settings.get_last_changelog_version(),
+            current_version=pipy_version(),
+            collapse=settings.get_collapse_changelog(),
+            is_fresh=self.resume_context is None,
+        )
+        for line in changelog_lines:
+            if terminal_ui is not None:
+                terminal_ui.add_notice(line)
+            else:
+                print(line, file=error_stream)
+        if store_version is not None:
+            try:
+                settings.set_last_changelog_version(store_version)
+            except RuntimeError:
+                pass
+
         def legacy_footer_enabled() -> bool:
             return terminal_ui is None and repl_input.runtime_label != "slash-menu"
 
@@ -1091,6 +1119,24 @@ class NativeToolReplSession:
                     error_stream,
                     "pipy: reloaded settings, keybindings, and resources.",
                 )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
+            if stripped == "/changelog":
+                # Local-only: render the full changelog (oldest-first) under a
+                # "What's New" header. Runs no provider turn.
+                changelog_text = render_changelog(read_changelog_entries())
+                if terminal_ui is not None:
+                    terminal_ui.add_notice(changelog_text)
+                else:
+                    print(changelog_text, file=error_stream)
                 if legacy_footer_enabled():
                     self._print_footer(
                         error_stream,
@@ -1566,7 +1612,7 @@ class NativeToolReplSession:
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
                         "supported local commands are /help, /hotkeys, /reload, "
-                        "/model, /scoped-models, /settings, "
+                        "/changelog, /model, /scoped-models, /settings, "
                         "/login, /logout, /copy, /compact, /session, /name, "
                         "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
@@ -2394,7 +2440,8 @@ class NativeToolReplSession:
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
             "`/copy` copies the last answer to the clipboard. `/hotkeys` shows "
             "the resolved keyboard-shortcut table. `/reload` re-reads settings, "
-            "keybindings, and resources. `/scoped-models [next|prev|"
+            "keybindings, and resources. `/changelog` shows the release notes. "
+            "`/scoped-models [next|prev|"
             "clear|<pattern>…]` views, sets, clears, or cycles the model cycle "
             "set. `/skill [<name>]` "
             "lists or loads a workspace/global skill, `/template [<name> [args]]` "

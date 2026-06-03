@@ -55,6 +55,7 @@ from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl_state import NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
+from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.settings import (
     SettingsManager,
     local_state_base_defaults,
@@ -82,6 +83,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pipy",
         description="Run coding-agent tasks through the pipy harness.",
+    )
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="version",
+        version=f"pipy {pipy_version()}",
+        help="Print the pipy version and exit.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

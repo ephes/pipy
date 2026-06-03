@@ -696,3 +696,25 @@ def test_reload_picks_up_edited_settings(tmp_path: Path) -> None:
     mgr.reload()
     assert mgr.get_theme() == "light"
     assert mgr.load_errors() == {}
+
+
+def test_changelog_and_telemetry_getters(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_last_changelog_version() is None
+    assert mgr.get_collapse_changelog() is False
+    assert mgr.get_enable_install_telemetry() is False  # pipy default off
+    mgr.set_last_changelog_version("0.1.0")
+    reloaded = _manager(tmp_path)
+    assert reloaded.get_last_changelog_version() == "0.1.0"
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {
+            "lastChangelogVersion": "0.2.0",
+            "collapseChangelog": True,
+            "enableInstallTelemetry": True,
+        },
+    )
+    mgr2 = _manager(tmp_path)
+    assert mgr2.get_last_changelog_version() == "0.2.0"
+    assert mgr2.get_collapse_changelog() is True
+    assert mgr2.get_enable_install_telemetry() is True

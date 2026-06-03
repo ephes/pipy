@@ -630,6 +630,15 @@ startup auto-display below, which shows only the new entries.) pipy ships a
 - `lastChangelogVersion` is stored in global settings (Pi
   `setLastChangelogVersion`).
 
+Shipped: `pipy_harness.native.changelog` parses the repo/package `CHANGELOG.md`
+(`read_changelog_entries`), `/changelog` renders it oldest-first under "What's
+New" in both REPL paths (no provider turn, plain-text in the captured-stream
+fallback), and `changelog_startup` implements the startup display — nothing on
+first run (records `lastChangelogVersion`) or resumed sessions, the new entries
+on a version bump, or a condensed "Updated to vX. Use /changelog…" line under
+`collapseChangelog`. The stored version uses the package version from
+`pipy_version()`.
+
 ## Version/Update Checks
 
 Pi performs a best-effort version check (`utils/version-check.ts`, skipped under
@@ -648,6 +657,14 @@ pipy target (privacy-respecting by default):
   reaches Pi-equivalent capability.
 - No secrets/credentials/identifiers in any check; only a version string when
   the user has explicitly opted in.
+
+Shipped: `pipy --version` / `-v` prints the package version.
+`pipy_harness.native.version_check` provides the opt-in gate
+(`update_check_enabled` / `resolve_telemetry_enabled`): default off,
+`PIPY_TELEMETRY` overrides the `enableInstallTelemetry` setting (pipy default
+`false`), and `PIPY_OFFLINE` / `PIPY_SKIP_VERSION_CHECK` force it off. The module
+contains **no network code** — a default run performs no ping; there is nothing
+to send unless a future opt-in check is added behind this gate.
 
 ## Settings Migration
 

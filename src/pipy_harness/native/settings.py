@@ -531,6 +531,25 @@ class SettingsManager:
     def get_enable_skill_commands(self) -> bool:
         return self._get_bool("enableSkillCommands", default=True)
 
+    # --- changelog / telemetry --------------------------------------------
+
+    def get_last_changelog_version(self) -> str | None:
+        return self._get_str("lastChangelogVersion")
+
+    def set_last_changelog_version(
+        self, version: str, *, scope: str = SCOPE_GLOBAL
+    ) -> None:
+        self.set_value("lastChangelogVersion", version, scope=scope)
+
+    def get_collapse_changelog(self) -> bool:
+        return self._get_bool("collapseChangelog", default=False)
+
+    def get_enable_install_telemetry(self) -> bool:
+        # pipy default is OFF (a local uv-driven project, not a published
+        # auto-updating binary); this is the one intentional divergence from
+        # Pi's default-on telemetry.
+        return self._get_bool("enableInstallTelemetry", default=False)
+
     def set_resource_patterns(
         self, key: str, patterns: list[str], *, scope: str = SCOPE_GLOBAL
     ) -> None:
