@@ -6,14 +6,101 @@ from pathlib import Path
 from typing import cast
 
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.catalog import (
+    NativeModelCost,
+    NativeModelSpec,
+    build_builtin_catalog,
+)
 from pipy_harness.native.repl_state import (
     AUTO_DEFAULT_PROVIDER_PRIORITY,
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     auto_default_selection,
+    default_selection_for,
+    resolve_cli_selection,
     settings_overlay_lines,
 )
+
+
+def _builtin_rows():
+    return build_builtin_catalog().get_all()
+
+
+def _custom_rows():
+    # built-in rows plus a custom models.json-style provider
+    rows = list(_builtin_rows())
+    rows.append(
+        NativeModelSpec(
+            provider_name="acme",
+            model_id="rocket-1",
+            display_name="Acme Rocket 1",
+            api="openai-completions",
+            base_url="https://acme.example/v1",
+            cost=NativeModelCost(),
+        )
+    )
+    return rows
+
+
+def test_resolve_cli_selection_bare_model_infers_provider():
+    # a bare --native-model resolves its provider (not fake/<ref>)
+    selection, error = resolve_cli_selection(None, "claude-opus-4-7", _builtin_rows())
+    assert error is None
+    assert selection == NativeModelSelection("anthropic", "claude-opus-4-7")
+
+
+def test_resolve_cli_selection_provider_slash_model():
+    selection, error = resolve_cli_selection(
+        None, "anthropic/claude-sonnet-4-5", _builtin_rows()
+    )
+    assert error is None
+    assert selection == NativeModelSelection("anthropic", "claude-sonnet-4-5")
+
+
+def test_resolve_cli_selection_custom_models_json_provider():
+    selection, error = resolve_cli_selection("acme", "rocket-1", _custom_rows())
+    assert error is None
+    assert selection == NativeModelSelection("acme", "rocket-1")
+
+
+def test_resolve_cli_selection_provider_only_uses_default_model():
+    selection, error = resolve_cli_selection("anthropic", None, _builtin_rows())
+    assert error is None
+    assert selection is not None
+    assert selection.provider_name == "anthropic"
+    # the default model is a real anthropic catalog row
+    assert any(
+        r.provider_name == "anthropic" and r.model_id == selection.model_id
+        for r in _builtin_rows()
+    )
+
+
+def test_resolve_cli_selection_unknown_provider_errors():
+    selection, error = resolve_cli_selection("nope", None, _builtin_rows())
+    assert selection is None
+    assert error is not None
+    assert 'Unknown provider "nope"' in error
+
+
+def test_resolve_cli_selection_neither_flag_returns_none():
+    assert resolve_cli_selection(None, None, _builtin_rows()) == (None, None)
+
+
+def test_default_selection_for_rows_accepts_custom_provider():
+    selection = default_selection_for(
+        native_provider="acme", native_model="rocket-1", rows=_custom_rows()
+    )
+    assert selection == NativeModelSelection("acme", "rocket-1")
+
+
+def test_default_selection_for_rows_unknown_provider_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match='Unknown provider "nope"'):
+        default_selection_for(
+            native_provider="nope", native_model=None, rows=_builtin_rows()
+        )
 
 
 class _StubProvider:

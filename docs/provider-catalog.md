@@ -10,7 +10,10 @@ catalog-constructed except `openai-codex-responses` (kept on the legacy factory
 for its settings-derived `RetryPolicy`) and the deterministic `fake` bootstrap.
 A models.json custom provider/model now runs a real turn using the catalog
 baseUrl/model/auth/headers/routing/thinking, in both the REPL and the one-shot
-`pipy run` path. The remaining wiring is startup CLI model resolution.
+`pipy run` path. Startup `--native-provider`/`--native-model` resolution now
+also routes through the catalog, so the provider/model catalog construction
+track is fully wired (only the deliberate `openai-codex` legacy-factory
+exception and documented adapter follow-ons remain — see below).
 
 ## Implemented (foundation + product construction)
 
@@ -142,14 +145,18 @@ Remaining wiring (not yet shipped):
   completions adapter rather than the legacy per-provider adapter — matching the
   REPL. `openai-codex` and `fake` keep the legacy factory. Covered by conformance
   item 23.
-- Startup CLI model resolution. `--native-provider`/`--native-model` at launch do
-  not yet resolve through `resolve_cli_model` against the catalog: a custom
-  `models.json` provider name is not accepted by `--native-provider` (argparse
-  `choices`), and a bare `--native-model <ref>` becomes `fake/<ref>` rather than
-  resolving its provider. Mid-session `/model <ref>` is fully catalog-resolved;
-  startup parity remains a catalog CLI follow-on.
+- (shipped 2026-06-03) Startup CLI model resolution. The argparse `choices`
+  constraint is removed from `--native-provider`, and launch-time
+  `--native-provider`/`--native-model` resolve through the catalog via
+  `resolve_cli_selection`/`default_selection_for(rows=...)`
+  (`resolve_cli_model`): a custom `models.json` provider name is accepted, a bare
+  `--native-model <ref>` resolves its provider (instead of `fake/<ref>`), a
+  provider-only flag resolves the provider's default catalog model, and an
+  unknown provider/model errors clearly — matching mid-session `/model`. The
+  one-shot `pipy run` requires-an-explicit-model rule is preserved for built-in
+  real providers. Covered by conformance item 24.
 
-Current closeout sequence:
+Current closeout sequence (all shipped 2026-06-03):
 
 1. Wire non-completions API-family construction first. This is the selected next
    reviewable slice because it extends the already-proven construction boundary
@@ -841,6 +848,8 @@ request paths.
     `models.json` providers and bare provider/model refs; remove argparse
     `choices` that reject custom providers; keep the legacy
     `--native-provider ds4` shim only as a compatibility bridge.
+    **Shipped 2026-06-03** via `resolve_cli_selection` /
+    `default_selection_for(rows=...)`, conformance item 24.
 
 ## Verification Plan
 

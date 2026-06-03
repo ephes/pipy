@@ -1222,6 +1222,76 @@ def _check_run_path_construction(checks, tmp: Path):
     checks.append(Check("23_run_path_uses_catalog", run_ok, "pipy run one-shot construction uses catalog construction (honors --api-key/--thinking)"))
 
 
+def _check_startup_cli_resolution(checks, tmp: Path):
+    # Item 24: startup --native-provider/--native-model resolution accepts custom
+    # models.json providers and bare model refs (Pi's resolveCliModel), and
+    # rejects unknown providers — matching mid-session /model. Previously a bare
+    # --native-model became fake/<ref> and a custom provider name was rejected by
+    # the argparse choices.
+    from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        default_selection_for,
+        resolve_cli_selection,
+    )
+
+    rows = build_builtin_catalog().get_all()
+    custom_rows = list(rows) + [
+        NativeModelSpec(
+            provider_name="acme",
+            model_id="rocket-1",
+            display_name="Acme Rocket 1",
+            api="openai-completions",
+            base_url="https://acme.example/v1",
+            cost=NativeModelCost(),
+        )
+    ]
+
+    # 24a: a bare --native-model infers its provider (not fake/<ref>).
+    sel_bare, err_bare = resolve_cli_selection(None, "claude-opus-4-7", rows)
+    bare_ok = err_bare is None and sel_bare == NativeModelSelection(
+        "anthropic", "claude-opus-4-7"
+    )
+    checks.append(Check("24_startup_bare_model", bare_ok, "bare --native-model resolves its provider (not fake/<ref>)"))
+
+    # 24b: a custom models.json provider name is accepted at startup.
+    sel_custom, err_custom = resolve_cli_selection("acme", "rocket-1", custom_rows)
+    custom_ok = err_custom is None and sel_custom == NativeModelSelection(
+        "acme", "rocket-1"
+    )
+    checks.append(Check("24_startup_custom_provider", custom_ok, "custom models.json provider name accepted at startup"))
+
+    # 24c: provider-only resolves the provider's default catalog model.
+    sel_prov, err_prov = resolve_cli_selection("anthropic", None, rows)
+    provider_only_ok = (
+        err_prov is None
+        and sel_prov is not None
+        and sel_prov.provider_name == "anthropic"
+        and any(
+            r.provider_name == "anthropic" and r.model_id == sel_prov.model_id
+            for r in rows
+        )
+    )
+    checks.append(Check("24_startup_provider_default", provider_only_ok, "provider-only --native-provider resolves the catalog default model"))
+
+    # 24d: an unknown provider errors clearly (no argparse choices guard).
+    sel_unknown, err_unknown = resolve_cli_selection("nope", None, rows)
+    unknown_ok = (
+        sel_unknown is None
+        and err_unknown is not None
+        and 'Unknown provider "nope"' in err_unknown
+    )
+    checks.append(Check("24_startup_unknown_provider", unknown_ok, "unknown --native-provider errors clearly"))
+
+    # 24e: default_selection_for(rows=...) raises ValueError on an unknown provider.
+    raised = False
+    try:
+        default_selection_for(native_provider="nope", native_model=None, rows=rows)
+    except ValueError:
+        raised = True
+    checks.append(Check("24_startup_default_selection_raises", raised, "default_selection_for(rows) raises on an unknown provider"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -1328,6 +1398,7 @@ def run_checks() -> list[Check]:
         _check_tier2_construction(checks, tmp)
         _check_tier3_construction(checks, tmp)
         _check_run_path_construction(checks, tmp)
+        _check_startup_cli_resolution(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 

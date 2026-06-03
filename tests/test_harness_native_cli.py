@@ -5179,6 +5179,154 @@ def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     assert verify_session_archive(root=root).ok is True
 
 
+def test_cli_native_run_bare_model_resolves_provider_at_launch(
+    tmp_path, capfd, monkeypatch
+):
+    # Slice: startup CLI resolution. A bare --native-model (no --native-provider)
+    # now resolves its provider through the catalog (anthropic), instead of the
+    # old fake/<ref> behavior. With no key the anthropic adapter fails closed, so
+    # the failed record names provider=anthropic (proving it did NOT become fake).
+    root = tmp_path / "sessions"
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_OAUTH_TOKEN", raising=False)
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-model",
+            "claude-opus-4-7",
+            "--slug",
+            "bare-model-resolves",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+
+    assert exit_code == 1
+    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
+    assert len(finalized) == 1
+    events = read_jsonl(finalized[0])
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
+    # resolved to anthropic (NOT fake) from the bare model reference
+    assert provider_failed["payload"]["provider"] == "anthropic"
+    assert provider_failed["payload"]["model_id"] == "claude-opus-4-7"
+    assert verify_session_archive(root=root).ok is True
+
+
+def test_cli_native_run_stream_validates_resolved_provider(tmp_path, capfd):
+    # --stream + a bare --native-model that resolves to a non-streaming provider
+    # (anthropic) must be rejected: stream validation now uses the RESOLVED
+    # provider, not the raw (None -> "fake") one.
+    root = tmp_path / "sessions"
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-model",
+            "claude-opus-4-7",
+            "--stream",
+            "--slug",
+            "stream-bare-model",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+    captured = capfd.readouterr()
+    assert exit_code != 0
+    assert "streaming-capable native provider" in captured.err
+
+
+def test_cli_native_run_stream_bare_fake_model_ok(tmp_path, capfd):
+    # A bare --native-model that resolves to fake (a streaming provider) still
+    # passes stream validation.
+    root = tmp_path / "sessions"
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-model",
+            "fake-native-bootstrap",
+            "--stream",
+            "--slug",
+            "stream-bare-fake",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+    assert exit_code == 0
+
+
+def test_cli_native_run_requires_model_for_case_variant_provider(tmp_path, capfd):
+    # A case-variant of a built-in real provider must still trigger the run-only
+    # "explicit model required" rule (checked against the RESOLVED canonical
+    # provider, so native_provider_spec("OpenAI") -> None no longer bypasses it).
+    root = tmp_path / "sessions"
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "OpenAI",
+            "--slug",
+            "case-variant-requires-model",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+    captured = capfd.readouterr()
+    assert exit_code != 0
+    assert "--native-model is required" in captured.err
+
+
+def test_cli_native_run_unknown_provider_errors(tmp_path, capfd):
+    # argparse no longer rejects custom names; an unknown provider now surfaces
+    # the catalog resolver's clear error instead of an argparse choice failure.
+    root = tmp_path / "sessions"
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "definitely-not-a-provider",
+            "--slug",
+            "unknown-provider",
+            "--root",
+            str(root),
+            "--cwd",
+            str(tmp_path),
+            "--goal",
+            "Say hello briefly",
+        ]
+    )
+    captured = capfd.readouterr()
+    assert exit_code != 0
+    assert 'Unknown provider "definitely-not-a-provider"' in captured.err
+
+
 def test_cli_native_openai_codex_missing_credentials_finalizes_failed_record(
     tmp_path, capfd, monkeypatch
 ):
