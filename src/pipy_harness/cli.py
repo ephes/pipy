@@ -904,13 +904,33 @@ def _cmd_config(args: Any) -> int:
     return 0
 
 
+_MODELS_THINKING_LEVELS = frozenset(
+    {"off", "minimal", "low", "medium", "high", "xhigh"}
+)
+
+
 def _parse_models_flag(value: str | None) -> list[str] | None:
-    """Parse ``--models`` into scoped-model patterns (drops an optional :level)."""
+    """Parse ``--models`` into scoped-model patterns.
+
+    Each comma-separated token is a model pattern with an optional trailing
+    ``:level`` thinking-level suffix. Model references can themselves contain
+    colons (e.g. Bedrock ``...sonnet-...-v1:0``), so only a **trailing** suffix
+    after the **last** colon is stripped, and only when it is a known thinking
+    level; otherwise the token is kept verbatim (the ``:level`` initial
+    preference is not yet applied — see docs/provider-catalog.md).
+    """
 
     if not value:
         return None
-    patterns = [token.split(":", 1)[0].strip() for token in value.split(",")]
-    patterns = [p for p in patterns if p]
+    patterns: list[str] = []
+    for raw in value.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        head, sep, tail = token.rpartition(":")
+        if sep and head.strip() and tail.strip().lower() in _MODELS_THINKING_LEVELS:
+            token = head.strip()
+        patterns.append(token)
     return patterns or None
 
 

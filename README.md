@@ -150,9 +150,13 @@ Optional:
   real request — mapped thinking as `reasoning_effort`/`reasoning.effort` and the
   key as the `Authorization` header (highest auth priority). Non-completions
   families are still tracked in `docs/provider-catalog.md`.
-- `--models <patterns>`: accepted as Pi-style scoped-model patterns; the
-  catalog resolver exists, but live Ctrl+P model cycling from this scope is
-  still tracked as a provider-catalog/TUI follow-on.
+- `--models <patterns>`: Pi-style scoped-model patterns. In `pipy repl` these
+  apply as a final CLI override of `enabledModels` (CLI wins over
+  `settings.json`), constraining the `/scoped-models` set and live Ctrl+P
+  cycling for the session. A colon inside a model id is preserved; only a
+  trailing known `:level` thinking suffix is stripped, and that per-pattern
+  initial-level preference is not yet applied (tracked in
+  `docs/provider-catalog.md`).
 
 Provider/model catalog (`docs/provider-catalog.md`):
 

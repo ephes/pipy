@@ -16,6 +16,7 @@ check passes, 1 otherwise. No real network or AI calls.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -371,7 +372,10 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
     prior_home = os.environ.get("PIPY_CONFIG_HOME")
     os.environ["PIPY_CONFIG_HOME"] = str(cfg)
     try:
-        cli.main(["config", "disable", "skill", "review", "--cwd", str(ws)])
+        # The `pipy config` command prints a human status line to stdout; capture
+        # it so it cannot pollute the gate's --json output.
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["config", "disable", "skill", "review", "--cwd", str(ws)])
         persisted = json.loads(settings_path.read_text(encoding="utf-8")).get("skills") == ["-review"]
         mgr = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
         registered = WorkspaceResources.discover(ws).with_enablement(
@@ -380,7 +384,8 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
             enable_skill_commands=mgr.get_enable_skill_commands(),
         ).skill_names()
         dropped = "review" not in registered and "draft" in registered
-        cli.main(["config", "enable", "skill", "review", "--cwd", str(ws)])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["config", "enable", "skill", "review", "--cwd", str(ws)])
         mgr2 = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
         restored = "review" in WorkspaceResources.discover(ws).with_enablement(
             skills_patterns=mgr2.get_skills_patterns(),
@@ -495,7 +500,11 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["PIPY_OFFLINE"] = "1"
     os.environ["PIPY_CONFIG_HOME"] = tempfile.mkdtemp()
     os.environ.pop("XDG_CONFIG_HOME", None)
-    results = run_all()
+    # Run the checks with stdout swallowed so no check (e.g. a product CLI status
+    # line) can corrupt the gate's machine-readable --json output; only the
+    # report below is written to the real stdout.
+    with contextlib.redirect_stdout(io.StringIO()):
+        results = run_all()
     all_passed = all(bool(r["passed"]) for r in results)
     if as_json:
         print(json.dumps({"passed": all_passed, "checks": results}, indent=2))

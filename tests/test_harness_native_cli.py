@@ -5972,3 +5972,11 @@ def test_parse_models_flag_handles_empty_and_levels() -> None:
         "openai/*",
         "anthropic/claude",
     ]
+    # A colon inside a model id (e.g. Bedrock ...v1:0) is NOT a thinking-level
+    # suffix and must be preserved; only a trailing known level is stripped.
+    assert _parse_models_flag(
+        "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+    ) == ["amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"]
+    assert _parse_models_flag(
+        "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0:high"
+    ) == ["amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"]
