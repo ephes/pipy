@@ -592,6 +592,23 @@ restarting (Pi `handleReloadCommand`). Target behavior:
 - Run no provider turn. After reload, re-print the loaded-resources banner
   (honoring `quietStartup`) and report "Reloaded …".
 
+Shipped: `/reload` is implemented in both the tool-loop and no-tool REPL paths.
+It re-reads settings (both scopes, re-migrating + deep-merging), reloads
+`keybindings.json` (malformed → built-in defaults, not the prior bindings),
+re-runs resource discovery and re-applies the enablement directives, re-applies
+the edited theme (settings is source of truth over the persisted store, so the
+resolved theme is re-injected into `PIPY_THEME`), and (tool-loop) re-applies the
+derived UI setting `autocompleteMaxVisible` plus the refreshed command menu. A
+settings scope that became malformed keeps its prior good state and emits a
+"kept prior <scope> settings" diagnostic. It runs no provider turn, re-prints
+the startup banner honoring `quietStartup`, and reports "reloaded settings,
+keybindings, and resources." `/reload` is dispatched between turns at the input
+prompt, so no provider turn or compaction is ever in flight when it runs; the
+editor-padding / hardware-cursor / clear-on-shrink / HTTP-idle-timeout settings
+listed above are re-read from settings on the next use but have no live
+re-application surface yet (they are accepted + reported, per the honoring-status
+note in the Compaction/Retry section).
+
 ## `/changelog`
 
 `/changelog` prints the full changelog (Pi `handleChangelogCommand` reads

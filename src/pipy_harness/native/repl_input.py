@@ -43,12 +43,14 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/ask-file",
     "/propose-file",
     "/apply-proposal",
+    "/reload",
     "/exit",
     "/quit",
 )
 DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/help": "Show pipy command reference",
     "/hotkeys": "Show keyboard shortcuts",
+    "/reload": "Reload settings, keybindings, and resources",
     "/clear": "Clear local conversation context",
     "/compact": "Compact context, keep a safe summary",
     "/status": "Show REPL state (read-only)",

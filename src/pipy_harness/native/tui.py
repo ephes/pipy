@@ -58,6 +58,7 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/logout",
     "/copy",
     "/compact",
+    "/reload",
     "/theme",
     "/exit",
     "/quit",

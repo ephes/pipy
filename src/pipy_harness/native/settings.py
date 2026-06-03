@@ -317,17 +317,31 @@ class SettingsManager:
     # --- loading -----------------------------------------------------------
 
     def reload(self) -> None:
+        """Re-read both scopes (re-running migration + merge).
+
+        A scope that fails to parse keeps its **prior good state** rather than
+        blanking to ``{}`` (matching Pi: a settings/theme load error surfaces a
+        diagnostic but the previously-loaded good values stay in effect). On the
+        first load there is no prior, so an error falls back to ``{}``.
+        Keybindings are handled separately and instead fall back to defaults.
+        """
+
+        prior = self._raw
         self._raw = {}
         self._errors = {}
-        raw_global, err_global = _load_scope(self.global_path)
-        self._raw[SCOPE_GLOBAL] = raw_global
-        if err_global is not None:
-            self._errors[SCOPE_GLOBAL] = err_global
-        if self.project_path is not None:
-            raw_project, err_project = _load_scope(self.project_path)
-            self._raw[SCOPE_PROJECT] = raw_project
-            if err_project is not None:
-                self._errors[SCOPE_PROJECT] = err_project
+        scopes: list[tuple[str, Path | None]] = [
+            (SCOPE_GLOBAL, self.global_path),
+            (SCOPE_PROJECT, self.project_path),
+        ]
+        for scope, path in scopes:
+            if path is None:
+                continue
+            raw, err = _load_scope(path)
+            if err is not None:
+                self._errors[scope] = err
+                self._raw[scope] = prior.get(scope, {})
+            else:
+                self._raw[scope] = raw
 
     def load_errors(self) -> dict[str, str]:
         return dict(self._errors)

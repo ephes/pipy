@@ -685,3 +685,60 @@ def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(tmp_path, m
     assert after != before  # cycled to a different available model
     assert "selected model" in error_stream.getvalue()
     assert seen == []  # cycling ran no provider turn
+
+
+def test_reload_rereads_edited_settings_without_provider_turn(tmp_path, monkeypatch):
+    from pipy_harness.native.settings import SettingsManager
+
+    monkeypatch.delenv("PIPY_THEME", raising=False)
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    # Edit the file after the manager loaded the original value.
+    settings_path.write_text(json.dumps({"theme": "ocean"}), encoding="utf-8")
+
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/settings\n/reload\n/settings\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    out = error_stream.getvalue()
+    # First /settings shows the originally-loaded theme; after /reload the second
+    # /settings reflects the edited file.
+    assert "theme: dark" in out.split("reloaded settings")[0]
+    assert "theme: ocean" in out.split("reloaded settings")[1]
+    assert "reloaded settings, keybindings, and resources." in out
+    # /reload and /settings ran no provider turn.
+    assert provider._call_counter[0] == 0
+
+
+def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text(json.dumps({"theme": "ocean"}), encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    settings_path.write_text("{broken", encoding="utf-8")
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/reload\n/settings\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    out = error_stream.getvalue()
+    assert "kept prior global settings" in out
+    # Prior good theme survives the malformed reload.
+    assert "theme: ocean" in out

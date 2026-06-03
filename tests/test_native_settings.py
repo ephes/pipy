@@ -672,3 +672,27 @@ def test_retry_policy_clamps_inversion_and_negatives(tmp_path: Path) -> None:
     assert policy.max_attempts >= 1
     assert 0 < policy.initial_delay_seconds <= 30
     assert policy.max_delay_seconds >= policy.initial_delay_seconds
+
+
+def test_reload_keeps_prior_good_state_when_scope_becomes_malformed(tmp_path: Path) -> None:
+    gpath = tmp_path / "config" / "settings.json"
+    _write_json(gpath, {"theme": "dark"})
+    mgr = _manager(tmp_path)
+    assert mgr.get_theme() == "dark"
+    # The file becomes malformed after the good load.
+    gpath.write_text("{broken", encoding="utf-8")
+    mgr.reload()
+    # Prior good state is kept for the errored scope (not blanked to {}), and the
+    # error is recorded for a safe diagnostic.
+    assert mgr.get_theme() == "dark"
+    assert "global" in mgr.load_errors()
+
+
+def test_reload_picks_up_edited_settings(tmp_path: Path) -> None:
+    gpath = tmp_path / "config" / "settings.json"
+    _write_json(gpath, {"theme": "dark"})
+    mgr = _manager(tmp_path)
+    _write_json(gpath, {"theme": "light"})
+    mgr.reload()
+    assert mgr.get_theme() == "light"
+    assert mgr.load_errors() == {}

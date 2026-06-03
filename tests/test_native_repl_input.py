@@ -673,7 +673,7 @@ def test_repl_completer_attaches_descriptions_to_slash_command_completions() -> 
 
     matches = list(completer.get_completions(FakeDocument("/r"), None))
 
-    assert [match.text for match in matches] == ["/read"]
+    assert [match.text for match in matches] == ["/read", "/reload"]
     assert matches[0].display_meta == DEFAULT_REPL_COMMAND_DESCRIPTIONS["/read"]
 
 
@@ -695,7 +695,7 @@ def test_readline_repl_input_matches_for_slash_prefix_filters_commands() -> None
     instance = ReadlineNativeReplInput(error_stream=StringIO())
     matches = instance.matches_for("/r")
 
-    assert matches == ["/read"]
+    assert matches == ["/read", "/reload"]
 
 
 def test_readline_repl_input_matches_for_non_command_text_returns_empty() -> None:

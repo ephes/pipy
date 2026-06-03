@@ -324,6 +324,7 @@ NO_TOOL_REPL_EXIT_COMMANDS = frozenset({"/exit", "/quit"})
 NO_TOOL_REPL_EXIT_COMMAND_ORDER = ("/exit", "/quit")
 HELP_REPL_COMMAND = "/help"
 HOTKEYS_REPL_COMMAND = "/hotkeys"
+RELOAD_REPL_COMMAND = "/reload"
 CLEAR_REPL_COMMAND = "/clear"
 COMPACT_REPL_COMMAND = "/compact"
 STATUS_REPL_COMMAND = "/status"
@@ -378,6 +379,7 @@ _REPL_COMMAND_GROUPS = (
             "/apply-proposal <workspace-relative-path>",
         ),
     ),
+    _ReplCommandGroup("Reload", ("/reload",)),
     _ReplCommandGroup("Exit", ("/exit", "/quit")),
 )
 _REPL_FILE_CONTEXT_SEPARATOR_PATTERN = re.compile(r"\s+--\s+")
@@ -1078,6 +1080,41 @@ class NativeNoToolReplSession:
                 else:
                     _print_repl_command_usage_diagnostic(
                         error_stream, HOTKEYS_REPL_COMMAND
+                    )
+                continue
+            if _is_repl_command_invocation(command, RELOAD_REPL_COMMAND):
+                pending_apply_draft = None
+                if command == RELOAD_REPL_COMMAND:
+                    # Local-only: re-read settings (both scopes; a malformed
+                    # scope keeps prior good state), keybindings (malformed ->
+                    # defaults), and workspace resources; re-apply the edited
+                    # theme. No provider turn.
+                    settings.reload()
+                    keybindings.reload()
+                    workspace_resources = WorkspaceResources.discover(
+                        run_input.cwd
+                    ).with_enablement(
+                        skills_patterns=settings.get_skills_patterns(),
+                        prompts_patterns=settings.get_prompts_patterns(),
+                        enable_skill_commands=settings.get_enable_skill_commands(),
+                    )
+                    reloaded_theme = settings.get_theme()
+                    if reloaded_theme:
+                        os.environ["PIPY_THEME"] = reloaded_theme
+                    for scope, detail in settings.load_errors().items():
+                        print(
+                            f"pipy: kept prior {scope} settings ({detail}).",
+                            file=error_stream,
+                        )
+                    if not settings.get_quiet_startup():
+                        print_startup_chrome(error_stream, cwd=run_input.cwd)
+                    print(
+                        "pipy: reloaded settings, keybindings, and resources.",
+                        file=error_stream,
+                    )
+                else:
+                    _print_repl_command_usage_diagnostic(
+                        error_stream, RELOAD_REPL_COMMAND
                     )
                 continue
             if _is_repl_command_invocation(command, CLEAR_REPL_COMMAND):

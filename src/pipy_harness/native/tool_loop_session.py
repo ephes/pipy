@@ -1047,6 +1047,60 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
+            if stripped == "/reload":
+                # Local-only: re-read settings (both scopes), keybindings, and
+                # workspace resources, then re-apply derived UI settings. Runs
+                # between turns at the prompt, so no provider turn or compaction
+                # is in flight. A settings/theme load error keeps the prior good
+                # state for that scope; a malformed keybindings.json falls back
+                # to the built-in defaults. No provider turn, no tool call.
+                settings.reload()
+                keybindings.reload()
+                workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
+                    skills_patterns=settings.get_skills_patterns(),
+                    prompts_patterns=settings.get_prompts_patterns(),
+                    enable_skill_commands=settings.get_enable_skill_commands(),
+                )
+                # Re-apply the edited theme (settings is source of truth over the
+                # persisted store) and the derived UI settings.
+                reloaded_theme = settings.get_theme()
+                if reloaded_theme:
+                    os.environ["PIPY_THEME"] = reloaded_theme
+                if terminal_ui is not None:
+                    terminal_ui.autocomplete_max_visible = (
+                        settings.get_autocomplete_max_visible()
+                    )
+                    terminal_ui.command_names = _tool_loop_command_names(
+                        workspace_resources
+                    )
+                    terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+                        workspace_resources
+                    )
+                load_errors = settings.load_errors()
+                if load_errors:
+                    for scope, detail in load_errors.items():
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            f"pipy: kept prior {scope} settings ({detail}).",
+                        )
+                if not settings.get_quiet_startup():
+                    print_startup_chrome(error_stream, cwd=cwd)
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: reloaded settings, keybindings, and resources.",
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                    )
+                continue
             if stripped == "/settings":
                 if terminal_ui is not None:
                     self._drive_settings_dialog(
@@ -1511,8 +1565,8 @@ class NativeToolReplSession:
                     error_stream,
                     (
                         f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /hotkeys, /model, "
-                        "/scoped-models, /settings, "
+                        "supported local commands are /help, /hotkeys, /reload, "
+                        "/model, /scoped-models, /settings, "
                         "/login, /logout, /copy, /compact, /session, /name, "
                         "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
@@ -2339,7 +2393,8 @@ class NativeToolReplSession:
             "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
             "`/logout [openai-codex]` manage OAuth without a provider turn; "
             "`/copy` copies the last answer to the clipboard. `/hotkeys` shows "
-            "the resolved keyboard-shortcut table. `/scoped-models [next|prev|"
+            "the resolved keyboard-shortcut table. `/reload` re-reads settings, "
+            "keybindings, and resources. `/scoped-models [next|prev|"
             "clear|<pattern>…]` views, sets, clears, or cycles the model cycle "
             "set. `/skill [<name>]` "
             "lists or loads a workspace/global skill, `/template [<name> [args]]` "

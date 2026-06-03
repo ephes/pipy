@@ -3032,3 +3032,38 @@ def test_native_runner_finalizes_prepare_failure_for_missing_cwd(tmp_path):
     events = read_jsonl(result.record.jsonl_path)
     assert [event["type"] for event in events[-2:]] == ["harness.run.failed", "session.finalized"]
     assert verify_session_archive(root=root).ok is True
+
+
+def test_native_no_tool_repl_reload_rereads_settings(tmp_path, monkeypatch):
+    from pipy_harness.native.settings import SettingsManager
+
+    monkeypatch.delenv("PIPY_THEME", raising=False)
+    (tmp_path / "cfg").mkdir()
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
+    manager = SettingsManager(
+        global_path=settings_path, project_path=tmp_path / ".pipy" / "settings.json"
+    )
+    settings_path.write_text(json.dumps({"theme": "ocean"}), encoding="utf-8")
+    provider = SequentialCapturingProvider(results=[])
+    error_stream = StringIO()
+    NativeNoToolReplSession(
+        provider=provider, max_turns=4, settings_manager=manager
+    ).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO("/settings\n/reload\n/settings\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+    out = error_stream.getvalue()
+    assert "reloaded settings, keybindings, and resources." in out
+    assert "theme: ocean" in out.split("reloaded settings")[1]
+    assert provider.captured_requests in (None, [])
