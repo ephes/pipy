@@ -137,7 +137,7 @@ def _drive_session(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result_holder: list[object] = []

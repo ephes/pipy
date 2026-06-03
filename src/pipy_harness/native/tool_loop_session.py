@@ -541,19 +541,20 @@ class NativeToolReplSession:
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
         workspace_resources = WorkspaceResources.discover(cwd)
+        keybindings = self.keybindings_manager or KeybindingsManager.create()
+        settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=cwd,
             resources=workspace_resources,
+            autocomplete_max_visible=settings.get_autocomplete_max_visible(),
         )
         # Local-only persistent prompt-history store (independent of the
         # metadata-first session archive). Built once per session; the
         # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
         # session seeds its in-memory recall buffer from the saved prompts.
         prompt_history_store = self.prompt_history_store or PromptHistoryStore()
-        keybindings = self.keybindings_manager or KeybindingsManager.create()
-        settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         # Settings is the source of truth for the prompt-history toggle: when it
         # sets promptHistory.enabled, surface that into the store (which remains
         # the on-disk recall cache) so a fresh session honors the setting.
@@ -1785,6 +1786,7 @@ class NativeToolReplSession:
         error_stream: TextIO,
         workspace: Path,
         resources: WorkspaceResources,
+        autocomplete_max_visible: int = 5,
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -1796,6 +1798,7 @@ class NativeToolReplSession:
             cwd=workspace,
             command_names=_tool_loop_command_names(resources),
             command_descriptions=_tool_loop_command_descriptions(resources),
+            autocomplete_max_visible=autocomplete_max_visible,
         )
 
     def _complete_provider_turn(

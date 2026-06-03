@@ -171,6 +171,10 @@ class ToolLoopTerminalUi:
     command_descriptions: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     )
+    # Max rows shown in the slash-command/autocomplete menu (Pi
+    # ``autocompleteMaxVisible``; default 5, clamped 3..20 by the settings
+    # getter). Overflow rows scroll behind a "… N more" tail.
+    autocomplete_max_visible: int = 5
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
     model_selector_open: bool = False
@@ -2157,7 +2161,8 @@ class ToolLoopTerminalUi:
         matches = self._filtered_commands()
         if not self.slash_menu_open or not matches or max_rows <= 0:
             return []
-        visible_count = min(len(matches), max_rows, 6)
+        menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        visible_count = min(len(matches), max_rows, menu_cap)
         start = max(
             0,
             min(

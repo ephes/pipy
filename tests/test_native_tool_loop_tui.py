@@ -616,7 +616,6 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert "  settings" in rendered
     assert "Settings and status" in rendered
     assert "  login" in rendered
-    assert "  logout" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
     input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
     menu_index = next(
@@ -624,8 +623,24 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Eleven commands match the bare "/" prefix but the menu windows to six
-    # rows, so a scroll indicator appears.
+    # Eleven commands match the bare "/" prefix but the menu windows to the
+    # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
+    # /logout scrolls behind the "… N more" tail.
+    assert "(1/11)" in rendered
+    assert "  logout" not in rendered
+
+
+def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.autocomplete_max_visible = 3
+    ui._insert_input_text("/")
+    frame = ui._frame_lines(width=88, height=24, pad=False)
+    menu_rows = [
+        line for line in frame if line.kind in {"slash_menu", "slash_menu_selected"}
+    ]
+    assert len(menu_rows) == 3
+    rendered = "\n".join(line.text for line in frame)
+    # 11 commands match, only 3 shown -> overflow indicator present.
     assert "(1/11)" in rendered
 
 
@@ -1137,7 +1152,7 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result = session.run(
@@ -1348,7 +1363,7 @@ def test_persistent_history_seeds_tui_recall_when_enabled(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     session.run(
@@ -1387,7 +1402,7 @@ def test_disabled_store_does_not_seed_tui_recall(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     session.run(
@@ -1440,7 +1455,7 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result = session.run(
@@ -1575,7 +1590,7 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result = session.run(
@@ -1628,7 +1643,7 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result = session.run(
@@ -1689,7 +1704,7 @@ def test_tui_session_does_not_print_legacy_separator(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
     error_stream = io.StringIO()
 
@@ -2057,7 +2072,7 @@ def test_tui_login_refreshes_availability_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     # Before login, openai-codex is unavailable (no credentials).
@@ -2104,7 +2119,7 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     assert _codex_option(provider_state).available is True

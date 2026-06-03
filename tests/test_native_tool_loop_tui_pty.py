@@ -132,7 +132,7 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result_holder: list[object] = []
@@ -295,7 +295,7 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     result_holder: list[object] = []
@@ -392,7 +392,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -409,7 +409,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
         # Open the slash menu; it must list only executable commands.
         os.write(in_master, b"/")
-        assert _wait_for(err_chunks, "logout"), "slash menu never opened"
+        assert _wait_for(err_chunks, "login"), "slash menu never opened"
         # Snapshot the live menu before tearing down.
         snapshot = parse_ansi_screen(
             b"".join(err_chunks).decode("utf-8", errors="replace"),
@@ -437,7 +437,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     # commands (the menu windows to a few rows, so later commands such as /copy
     # scroll below the fold but are still reachable; the unit tests cover the
     # full advertised set).
-    for executable in ("help", "hotkeys", "model", "settings", "login", "logout"):
+    for executable in ("help", "hotkeys", "model", "settings", "login"):
         assert executable in menu_text, f"menu missing /{executable}"
 
 
@@ -503,7 +503,7 @@ def _run_editor_pty(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -621,7 +621,7 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -812,7 +812,7 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -908,7 +908,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -929,7 +929,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
         assert _wait_for(err_chunks, sep_start), "initial-size separator missing"
         # Open the slash overlay, then resize while it is open.
         os.write(in_master, b"/")
-        assert _wait_for(err_chunks, "logout"), "slash menu never opened"
+        assert _wait_for(err_chunks, "login"), "slash menu never opened"
         _set_winsize(err_slave, end_rows, end_cols)
         # The resize repaint clears the screen and redraws the full frame at the
         # new size; the clear + redraw are flushed together, so observing the
@@ -981,7 +981,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     input_index = separator_rows[0] + 1
     assert separator_rows[1] == input_index + 1
     joined = "\n".join(viewport)
-    assert "logout" in joined  # the overlay is still open at the new width
+    assert "login" in joined  # the overlay is still open at the new width
     assert any(line.strip() for line in viewport[separator_rows[1] + 1 :]), (
         "footer row missing below the resized frame"
     )
@@ -1042,7 +1042,7 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
 
     worker = threading.Thread(
@@ -1148,7 +1148,7 @@ def _start_pty_repl_session(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
     )
     result_holder: list[object] = []
 
