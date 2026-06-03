@@ -927,7 +927,11 @@ class NativeNoToolReplSession:
             self.max_turns,
             extra_safe_metadata=instruction_metadata,
         )
-        workspace_resources = WorkspaceResources.discover(run_input.cwd)
+        workspace_resources = WorkspaceResources.discover(run_input.cwd).with_enablement(
+            skills_patterns=settings.get_skills_patterns(),
+            prompts_patterns=settings.get_prompts_patterns(),
+            enable_skill_commands=settings.get_enable_skill_commands(),
+        )
         resource_invocation_count = 0
         repl_input = native_repl_input_for(
             input_stream=input_stream,

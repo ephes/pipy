@@ -296,7 +296,16 @@ class ToolLoopTerminalUi:
                     # app.model.cycleForward (default ctrl+p): cycle to the next
                     # model in the scoped set. Delegated to the session's
                     # /scoped-models dispatch so the live provider rebinds through
-                    # the shared select_model boundary; no provider turn.
+                    # the shared select_model boundary; no provider turn. Any
+                    # partially-typed input is preserved and re-injected into the
+                    # next prompt so the cycle never drops what the user was
+                    # typing (Pi's in-editor model swap keeps the buffer).
+                    if self.input_text:
+                        self._pending_initial_text = self.input_text
+                    self.input_text = ""
+                    self.input_cursor = 0
+                    self.slash_menu_open = False
+                    self._reset_line_editor_state()
                     return "/scoped-models next\n"
                 if key == "paste":
                     self._insert_paste(self._pending_paste)

@@ -360,6 +360,46 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    config_parser = subparsers.add_parser(
+        "config",
+        help="View or toggle resource enablement (skills/prompts/themes/extensions).",
+    )
+    config_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["list", "enable", "disable"],
+        default="list",
+        help="list (default) shows discovered resources and their enabled state; "
+        "enable/disable write a +pattern/-pattern entry to settings.",
+    )
+    config_parser.add_argument(
+        "resource_type",
+        nargs="?",
+        choices=["skill", "prompt", "theme", "extension"],
+        help="Resource type for enable/disable.",
+    )
+    config_parser.add_argument(
+        "name", nargs="?", help="Resource name (or glob) for enable/disable."
+    )
+    config_parser.add_argument(
+        "--scope",
+        choices=["global", "project"],
+        default="global",
+        help="Settings scope to write to (default global).",
+    )
+    config_parser.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path.cwd(),
+        help="Workspace directory for project scope and resource discovery.",
+    )
+    config_parser.add_argument(
+        "--json",
+        dest="config_json",
+        action="store_true",
+        help="Emit machine-readable JSON (for list).",
+    )
+
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
 
@@ -429,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if getattr(args, "list_models", None) is not None:
             return _handle_list_models(args.list_models or None)
+        if args.command == "config":
+            return _cmd_config(args)
         if args.command == "auth":
             if args.auth_provider == "openai-codex" and args.auth_action == "login":
                 OpenAICodexAuthManager().login_interactive(
@@ -749,6 +791,105 @@ def _adapter_for(
     if stream_sink is not None:
         raise ValueError("--stream requires --agent pipy-native")
     return SubprocessAdapter()
+
+
+_CONFIG_RESOURCE_KEYS = {
+    "skill": "skills",
+    "prompt": "prompts",
+    "theme": "themes",
+    "extension": "extensions",
+}
+
+
+def _cmd_config(args: Any) -> int:
+    """`pipy config`: view or toggle resource enablement via settings patterns.
+
+    `list` reports the discovered skills/prompts and their enabled state under
+    the resolved settings; `enable`/`disable` write a `+pattern`/`-pattern` entry
+    into the relevant settings array at the chosen scope (Pi's `pi config`
+    model — discovered paths are never removed). Runs no provider turn.
+    """
+
+    from pipy_harness.native.resource_enablement import (
+        disable_entry,
+        enable_entry,
+        is_resource_enabled,
+    )
+    from pipy_harness.native.resources import WorkspaceResources
+    from pipy_harness.native.settings import SCOPE_GLOBAL, SCOPE_PROJECT
+
+    cwd = args.cwd.expanduser().resolve()
+    manager = SettingsManager.for_workspace(cwd)
+    action = getattr(args, "action", "list") or "list"
+
+    if action == "list":
+        skills_patterns = manager.get_skills_patterns()
+        prompts_patterns = manager.get_prompts_patterns()
+        enable_skill_commands = manager.get_enable_skill_commands()
+        resources = WorkspaceResources.discover(cwd)
+        skills = [
+            {
+                "name": s.name,
+                "enabled": enable_skill_commands
+                and is_resource_enabled(s.name, skills_patterns),
+            }
+            for s in resources.skills
+        ]
+        prompts = [
+            {"name": t.name, "enabled": is_resource_enabled(t.name, prompts_patterns)}
+            for t in resources.templates
+        ]
+        report = {
+            "enableSkillCommands": enable_skill_commands,
+            "skills": skills,
+            "prompts": prompts,
+            "skillsPatterns": skills_patterns,
+            "promptsPatterns": prompts_patterns,
+            "themesPatterns": manager.get_themes_patterns(),
+            "extensionsPatterns": manager.get_extensions_patterns(),
+        }
+        if getattr(args, "config_json", False):
+            print(json.dumps(report, sort_keys=True))
+        else:
+            print("pipy config — resource enablement:")
+            print(f"  enableSkillCommands: {enable_skill_commands}")
+            for label, items in (("skills", skills), ("prompts", prompts)):
+                print(f"  {label}:")
+                if not items:
+                    print("    (none discovered)")
+                for item in items:
+                    state = "enabled" if item["enabled"] else "disabled"
+                    print(f"    {item['name']} [{state}]")
+        return 0
+
+    resource_type = getattr(args, "resource_type", None)
+    name = getattr(args, "name", None)
+    if resource_type is None or not name:
+        print(
+            f"pipy: `pipy config {action}` requires a resource type and name, "
+            "e.g. `pipy config disable skill review`.",
+            file=sys.stderr,
+        )
+        return 2
+    key = _CONFIG_RESOURCE_KEYS[resource_type]
+    scope = SCOPE_PROJECT if args.scope == "project" else SCOPE_GLOBAL
+    current = manager.get_extensions_patterns() if key == "extensions" else (
+        manager.get_skills_patterns()
+        if key == "skills"
+        else manager.get_prompts_patterns()
+        if key == "prompts"
+        else manager.get_themes_patterns()
+    )
+    updated = (
+        enable_entry(current, name) if action == "enable" else disable_entry(current, name)
+    )
+    try:
+        manager.set_resource_patterns(key, updated, scope=scope)
+    except (RuntimeError, ValueError) as exc:
+        print(f"pipy: could not update {key}: {exc}", file=sys.stderr)
+        return 1
+    print(f"pipy: {action}d {resource_type} {name!r} in {scope} settings ({key}).")
+    return 0
 
 
 def _build_runtime_settings(cwd: Path) -> SettingsManager:
@@ -1200,10 +1341,12 @@ def _provider_factory_for(
 ) -> NativeProviderFactory:
     """Return the provider factory, binding the settings-derived retry policy.
 
-    The ``retry.*`` settings feed the provider HTTP retry policy: when settings
-    are available the factory builds retry-aware providers (e.g. openai-codex)
-    with the mapped ``RetryPolicy``; otherwise the providers keep their built-in
-    defaults.
+    The ``retry.*`` settings feed the provider HTTP retry policy. In normal REPL
+    startup a settings manager is always present, so retry-aware providers (e.g.
+    openai-codex) are built from the settings-derived ``RetryPolicy`` (its
+    defaults honor the documented ``baseDelayMs``/``maxRetryDelayMs``). The
+    ``None`` branch — provider keeps its built-in field default — is for direct
+    or test callers that pass no settings manager.
     """
 
     if settings_manager is None:

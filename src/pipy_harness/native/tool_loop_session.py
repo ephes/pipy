@@ -541,9 +541,15 @@ class NativeToolReplSession:
 
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
-        workspace_resources = WorkspaceResources.discover(cwd)
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        # Apply the settings resource enable/disable directives (Pi pi config):
+        # disabled skills/prompts are dropped from what is registered.
+        workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
+            skills_patterns=settings.get_skills_patterns(),
+            prompts_patterns=settings.get_prompts_patterns(),
+            enable_skill_commands=settings.get_enable_skill_commands(),
+        )
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,

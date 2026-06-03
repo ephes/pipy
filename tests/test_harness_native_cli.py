@@ -5851,3 +5851,74 @@ def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> N
     policy = provider.retry_policy  # type: ignore[attr-defined]
     assert policy.max_attempts == 4
     assert policy.initial_delay_seconds == 1.0
+
+
+def _make_skill(cwd, name: str) -> None:
+    skills_dir = cwd / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    (skills_dir / f"{name}.md").write_text(f"# {name}\n\nbody\n", encoding="utf-8")
+
+
+def test_cli_config_disable_then_enable_skill_writes_patterns(tmp_path, capfd, monkeypatch) -> None:
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    _make_skill(tmp_path, "review")
+
+    assert main(["config", "disable", "skill", "review", "--cwd", str(tmp_path)]) == 0
+    on_disk = json.loads((config_home / "settings.json").read_text(encoding="utf-8"))
+    assert on_disk["skills"] == ["-review"]
+
+    assert main(["config", "enable", "skill", "review", "--cwd", str(tmp_path)]) == 0
+    on_disk = json.loads((config_home / "settings.json").read_text(encoding="utf-8"))
+    assert on_disk["skills"] == ["+review"]
+
+
+def test_cli_config_list_json_reports_enabled_state(tmp_path, capfd, monkeypatch) -> None:
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    _make_skill(tmp_path, "review")
+    (config_home / "settings.json").write_text(
+        json.dumps({"skills": ["-review"]}), encoding="utf-8"
+    )
+
+    assert main(["config", "list", "--json", "--cwd", str(tmp_path)]) == 0
+    out = capfd.readouterr().out
+    report = json.loads(out)
+    review = next(s for s in report["skills"] if s["name"] == "review")
+    assert review["enabled"] is False
+
+
+def test_cli_config_disabled_skill_dropped_from_registration(tmp_path) -> None:
+    from pipy_harness.native.resources import WorkspaceResources
+    from pipy_harness.native.settings import SettingsManager
+
+    _make_skill(tmp_path, "review")
+    _make_skill(tmp_path, "draft")
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "settings.json").write_text(
+        json.dumps({"skills": ["-review"]}), encoding="utf-8"
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "cfg" / "settings.json",
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    resources = WorkspaceResources.discover(tmp_path).with_enablement(
+        skills_patterns=manager.get_skills_patterns(),
+        prompts_patterns=manager.get_prompts_patterns(),
+        enable_skill_commands=manager.get_enable_skill_commands(),
+    )
+    names = resources.skill_names()
+    assert "draft" in names
+    assert "review" not in names
+
+
+def test_cli_config_enable_skill_commands_false_drops_all_skills(tmp_path) -> None:
+    from pipy_harness.native.resources import WorkspaceResources
+
+    _make_skill(tmp_path, "review")
+    resources = WorkspaceResources.discover(tmp_path).with_enablement(
+        enable_skill_commands=False,
+    )
+    assert resources.skill_names() == ()

@@ -494,6 +494,36 @@ class SettingsManager:
     ) -> None:
         self.set_value("enabledModels", list(models), scope=scope)
 
+    # --- resource enablement ----------------------------------------------
+
+    def _get_str_list(self, key: str) -> list[str]:
+        value = self._get(key)
+        if isinstance(value, list):
+            return [entry for entry in value if isinstance(entry, str)]
+        return []
+
+    def get_skills_patterns(self) -> list[str]:
+        return self._get_str_list("skills")
+
+    def get_prompts_patterns(self) -> list[str]:
+        return self._get_str_list("prompts")
+
+    def get_themes_patterns(self) -> list[str]:
+        return self._get_str_list("themes")
+
+    def get_extensions_patterns(self) -> list[str]:
+        return self._get_str_list("extensions")
+
+    def get_enable_skill_commands(self) -> bool:
+        return self._get_bool("enableSkillCommands", default=True)
+
+    def set_resource_patterns(
+        self, key: str, patterns: list[str], *, scope: str = SCOPE_GLOBAL
+    ) -> None:
+        if key not in {"skills", "prompts", "themes", "extensions"}:
+            raise ValueError(f"unknown resource array: {key!r}")
+        self.set_value(key, list(patterns), scope=scope)
+
     # --- delivery / transport ---------------------------------------------
 
     def _get_choice(self, key: str, choices: set[str], default: str) -> str:

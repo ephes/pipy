@@ -176,6 +176,49 @@ class WorkspaceResources:
             commands_cap_reached=commands_cap,
         )
 
+    def with_enablement(
+        self,
+        *,
+        skills_patterns: list[str] | None = None,
+        prompts_patterns: list[str] | None = None,
+        enable_skill_commands: bool = True,
+    ) -> "WorkspaceResources":
+        """Return a copy with disabled resources removed (Pi `pi config` model).
+
+        `skills_patterns` / `prompts_patterns` are the settings `-pattern`/
+        `+pattern` directive arrays; a discovered skill/template whose name is
+        disabled by them is dropped from what is registered (its file is left on
+        disk). When `enable_skill_commands` is False, skills are dropped entirely
+        (Pi's `enableSkillCommands=false` stops skill command registration).
+        """
+
+        from pipy_harness.native.resource_enablement import is_resource_enabled
+
+        if not enable_skill_commands:
+            kept_skills: tuple[SkillFile, ...] = ()
+        elif skills_patterns:
+            kept_skills = tuple(
+                s for s in self.skills if is_resource_enabled(s.name, skills_patterns)
+            )
+        else:
+            kept_skills = self.skills
+        if prompts_patterns:
+            kept_templates = tuple(
+                t
+                for t in self.templates
+                if is_resource_enabled(t.name, prompts_patterns)
+            )
+        else:
+            kept_templates = self.templates
+        return WorkspaceResources(
+            skills=kept_skills,
+            templates=kept_templates,
+            commands=self.commands,
+            skills_cap_reached=self.skills_cap_reached,
+            templates_cap_reached=self.templates_cap_reached,
+            commands_cap_reached=self.commands_cap_reached,
+        )
+
     def has_any(self) -> bool:
         return bool(self.skills or self.templates or self.commands)
 

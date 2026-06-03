@@ -547,6 +547,20 @@ The first milestone may implement the persisted toggles + non-interactive form
 and defer the full interactive TUI selector, as long as the same settings keys
 drive what `resources.py` loads.
 
+Shipped: the non-interactive `pipy config` subcommand is implemented.
+`pipy config list [--json] [--cwd PATH]` reports the discovered skills/prompts
+and their resolved enabled state; `pipy config enable|disable <skill|prompt|
+theme|extension> <name> [--scope global|project]` writes a `+name`/`-name` entry
+into the relevant settings array (via
+`pipy_harness.native.resource_enablement`), never removing the discovered path.
+`WorkspaceResources.with_enablement` applies those directives at session startup
+so a disabled skill/prompt is dropped from what is registered (last matching
+directive wins; bare source-path entries are ignored for enablement and remain
+for the extension/distribution track). `enableSkillCommands=false` drops all
+skills from registration. The interactive `pi config`-style TUI selector and
+package/`PackageSource` per-source filters remain on the extension/distribution
+track.
+
 ## Context-File Discovery Toggles
 
 - `--no-context-files` / `-nc`: disable `AGENTS.md` / `CLAUDE.md` discovery and

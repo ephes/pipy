@@ -641,3 +641,34 @@ def test_retry_policy_clamps_out_of_range(tmp_path: Path) -> None:
     assert policy.max_attempts == 10  # clamped to RetryPolicy bound
     assert policy.initial_delay_seconds <= 30
     assert policy.max_delay_seconds <= 120
+
+
+def test_resource_pattern_getters_and_enable_skill_commands(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    assert mgr.get_skills_patterns() == []
+    assert mgr.get_prompts_patterns() == []
+    assert mgr.get_themes_patterns() == []
+    assert mgr.get_enable_skill_commands() is True
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"skills": ["-review", "+draft"], "prompts": ["-x"], "enableSkillCommands": False},
+    )
+    mgr2 = _manager(tmp_path)
+    assert mgr2.get_skills_patterns() == ["-review", "+draft"]
+    assert mgr2.get_prompts_patterns() == ["-x"]
+    assert mgr2.get_enable_skill_commands() is False
+
+
+def test_retry_policy_clamps_inversion_and_negatives(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    # baseDelayMs > maxRetryDelayMs (inversion) and negative values must still
+    # produce a valid RetryPolicy (no __post_init__ raise).
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"retry": {"maxRetries": -3, "baseDelayMs": 90000, "provider": {"maxRetryDelayMs": 1000}}},
+    )
+    policy = retry_policy_from_settings(_manager(tmp_path))
+    assert policy.max_attempts >= 1
+    assert 0 < policy.initial_delay_seconds <= 30
+    assert policy.max_delay_seconds >= policy.initial_delay_seconds
