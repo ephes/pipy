@@ -23,9 +23,12 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .workspace_context import resolve_global_instruction_root
+
+if TYPE_CHECKING:
+    from .retry import RetryPolicy
 
 SCOPE_GLOBAL = "global"
 SCOPE_PROJECT = "project"
@@ -573,6 +576,33 @@ class SettingsManager:
         if isinstance(value, bool):
             return value
         return self._env_flag("PIPY_CLEAR_ON_SHRINK")
+
+
+def retry_policy_from_settings(manager: SettingsManager) -> "RetryPolicy":
+    """Map the ``retry.*`` settings onto the provider HTTP ``RetryPolicy``.
+
+    ``retry.maxRetries`` (n retries) becomes ``max_attempts = n + 1``;
+    ``retry.baseDelayMs`` and ``retry.provider.maxRetryDelayMs`` convert ms→s.
+    ``retry.enabled = false`` yields a single attempt (no retries). Values are
+    clamped to the ``RetryPolicy`` bounds so a misconfigured settings file never
+    raises at construction time.
+    """
+
+    from .retry import RetryPolicy
+
+    if not manager.get_retry_enabled():
+        return RetryPolicy(max_attempts=1)
+
+    max_attempts = max(1, min(10, manager.get_retry_max_retries() + 1))
+    initial = manager.get_retry_base_delay_ms() / 1000.0
+    initial = min(30.0, initial) if initial > 0 else 0.5
+    max_delay = manager.get_retry_provider_max_retry_delay_ms() / 1000.0
+    max_delay = max(initial, min(120.0, max_delay))
+    return RetryPolicy(
+        max_attempts=max_attempts,
+        initial_delay_seconds=initial,
+        max_delay_seconds=max_delay,
+    )
 
 
 def settings_report_lines(manager: SettingsManager) -> list[str]:

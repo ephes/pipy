@@ -142,11 +142,16 @@ def resolve_system_prompt(
     afterwards.
     """
 
-    # Replace.
+    # Replace. An empty flag value is treated as absent (Pi's resolvePromptInput
+    # returns undefined for "" -> the default prompt is kept), and — matching
+    # Pi's `source ?? discover()` where a present-but-empty value blocks the
+    # nullish fallthrough — it does not trigger SYSTEM.md auto-discovery either.
     replace_input: SystemPromptInput | None = None
     base = default_prompt
     replaced = False
-    if system_prompt_source is not None:
+    if system_prompt_source == "":
+        pass  # explicit empty: keep default, no replace, no discovery
+    elif system_prompt_source is not None:
         text, _ = resolve_prompt_input(system_prompt_source, cwd=cwd, warn=warn)
         base = text
         replaced = True
@@ -160,10 +165,14 @@ def resolve_system_prompt(
             replaced = True
             replace_input = SystemPromptInput.of(source_label=label, text=text)
 
-    # Append.
+    # Append. An explicit append list (even all-empty) suppresses
+    # APPEND_SYSTEM.md auto-discovery; empty values within it are dropped (Pi's
+    # resolvePromptInput("") -> undefined, then filtered out).
     append_specs: list[tuple[str, str]] = []  # (source_label, raw_value)
     if append_sources is not None:
-        append_specs = [("--append-system-prompt", value) for value in append_sources]
+        append_specs = [
+            ("--append-system-prompt", value) for value in append_sources if value != ""
+        ]
     else:
         discovered = _discover(cwd, config_home, APPEND_SYSTEM_PROMPT_FILENAME)
         if discovered is not None:

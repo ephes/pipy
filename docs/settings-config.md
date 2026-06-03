@@ -425,7 +425,35 @@ so config is forward-compatible and Pi-written files do not lose data.
   (`pipy_harness.native.retry`). Migrated legacy `retry.maxDelayMs` →
   `retry.provider.maxRetryDelayMs` (Pi `migrateSettings`).
 - Branch summary: `branchSummary.reserveTokens` (16384), `skipPrompt` (false).
-  Consumed by the `/tree` branch-summary flow in `session-tree.md`.
+  Related to the `/tree` branch-summary flow in `session-tree.md`.
+
+### Current honoring status (shipped)
+
+These keys are all accepted, round-tripped, and reported by `/settings`. What is
+actively *honored* today vs. accepted-and-reported-but-inert (because pipy's
+runtime has no matching surface yet) is:
+
+- **Honored:**
+  - `retry.{enabled,maxRetries,baseDelayMs}` and
+    `retry.provider.maxRetryDelayMs` — mapped onto the provider HTTP
+    `RetryPolicy` via `settings.retry_policy_from_settings` and applied to the
+    retry-aware native provider(s) (openai-codex) at REPL startup. `maxRetries`
+    n → `max_attempts = n + 1`; ms→s; `enabled=false` → a single attempt;
+    values are clamped to the `RetryPolicy` bounds.
+  - `compaction.enabled` — gates pipy's automatic tool-loop compaction
+    threshold (and `/compact` remains available regardless).
+- **Accepted + round-tripped + reported, currently inert** (no matching pipy
+  surface; preserved so Pi-written/forward config survives):
+  - `compaction.reserveTokens` / `keepRecentTokens` — pipy's compaction is
+    user-turn/exchange-count based, not token-budget based, so these token knobs
+    are not yet consumed.
+  - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
+    attaches parent summaries by a different mechanism than a token reserve.
+  - `transport` (no websocket transport surface), `steeringMode` / `followUpMode`
+    (no in-turn steering/follow-up queue yet — see backlog), and
+    `retry.provider.{timeoutMs,maxRetries}` (the shared `RetryPolicy` models a
+    single attempts/delay policy, not separate provider-vs-app retry counts).
+  These are surfaced by `/settings` so the user can see the effective value.
 
 ## System-Prompt Replace/Append Files
 

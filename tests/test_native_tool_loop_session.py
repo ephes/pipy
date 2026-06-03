@@ -524,3 +524,57 @@ def test_native_tool_repl_result_has_only_metadata_fields():
         "tool_payload",
     }
     assert forbidden.isdisjoint(field_names)
+
+
+def test_compaction_enabled_false_disables_auto_compaction(tmp_path, monkeypatch):
+    import pipy_harness.native.tool_loop_session as tls
+    from pipy_harness.native.settings import SettingsManager
+
+    # Force the threshold so auto-compaction would fire if enabled.
+    monkeypatch.setattr(tls, "should_compact_tool_loop_messages", lambda messages: True)
+
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "settings.json").write_text(
+        '{"compaction": {"enabled": false}}', encoding="utf-8"
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "cfg" / "settings.json",
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    provider = FakeNativeProvider(
+        supports_tool_calls=True,
+        final_text="answer",
+    )
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("one\ntwo\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    # compaction.enabled=false short-circuits the auto-compaction gate, so the
+    # "compacted conversation context (auto; ...)" notice never appears.
+    assert "compacted conversation context (auto" not in error_stream.getvalue()
+
+
+def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
+    import pipy_harness.native.tool_loop_session as tls
+    from pipy_harness.native.settings import SettingsManager
+
+    monkeypatch.setattr(tls, "should_compact_tool_loop_messages", lambda messages: True)
+    manager = SettingsManager(
+        global_path=tmp_path / "cfg" / "settings.json",  # missing -> defaults (enabled)
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="answer")
+    session = NativeToolReplSession(provider=provider, settings_manager=manager)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("one\ntwo\nthree\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    # Default compaction.enabled=true: the gate allows auto-compaction to run.
+    assert "compacted conversation context (auto" in error_stream.getvalue()

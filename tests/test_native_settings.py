@@ -596,3 +596,48 @@ def test_report_includes_thinking_and_cursor(tmp_path: Path) -> None:
     text = "\n".join(settings_report_lines(_manager(tmp_path)))
     assert "defaultThinkingLevel: high" in text
     assert "showHardwareCursor=True" in text
+
+def test_retry_policy_from_settings_defaults(tmp_path: Path) -> None:
+    from pipy_harness.native.retry import RetryPolicy
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    policy = retry_policy_from_settings(_manager(tmp_path))
+    assert isinstance(policy, RetryPolicy)
+    # Pi defaults: 3 retries (-> 4 attempts), baseDelayMs 2000 -> 2.0s,
+    # provider.maxRetryDelayMs 60000 -> 60.0s.
+    assert policy.max_attempts == 4
+    assert policy.initial_delay_seconds == 2.0
+    assert policy.max_delay_seconds == 60.0
+
+
+def test_retry_policy_from_settings_overrides(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"retry": {"maxRetries": 5, "baseDelayMs": 500, "provider": {"maxRetryDelayMs": 30000}}},
+    )
+    policy = retry_policy_from_settings(_manager(tmp_path))
+    assert policy.max_attempts == 6
+    assert policy.initial_delay_seconds == 0.5
+    assert policy.max_delay_seconds == 30.0
+
+
+def test_retry_policy_disabled_is_single_attempt(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    _write_json(tmp_path / "config" / "settings.json", {"retry": {"enabled": False}})
+    assert retry_policy_from_settings(_manager(tmp_path)).max_attempts == 1
+
+
+def test_retry_policy_clamps_out_of_range(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"retry": {"maxRetries": 99, "baseDelayMs": 999999, "provider": {"maxRetryDelayMs": 999999}}},
+    )
+    policy = retry_policy_from_settings(_manager(tmp_path))
+    assert policy.max_attempts == 10  # clamped to RetryPolicy bound
+    assert policy.initial_delay_seconds <= 30
+    assert policy.max_delay_seconds <= 120

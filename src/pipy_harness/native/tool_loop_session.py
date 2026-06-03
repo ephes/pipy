@@ -1532,7 +1532,9 @@ class NativeToolReplSession:
                 # building the next request. The cut is at a UserMessage
                 # boundary so no tool result is orphaned, and the safe summary
                 # rides in the system prompt suffix below.
-                if should_compact_tool_loop_messages(messages):
+                if settings.get_compaction_enabled() and should_compact_tool_loop_messages(
+                    messages
+                ):
                     notice = apply_compaction("auto")
                     self._emit_diagnostic(terminal_ui, error_stream, notice)
                 provider_request = ProviderRequest(

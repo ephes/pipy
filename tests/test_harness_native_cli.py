@@ -4795,8 +4795,9 @@ def test_cli_native_openai_codex_provider_json_mode_omits_provider_final_text(
     class CliFakeOpenAICodexProvider:
         name = "openai-codex"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id: str, retry_policy: object = None) -> None:
             self.model_id = model_id
+            self.retry_policy = retry_policy
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
@@ -4858,8 +4859,9 @@ def test_cli_native_repl_openai_codex_provider_is_selectable(tmp_path, capfd, mo
     class CliFakeOpenAICodexProvider:
         name = "openai-codex"
 
-        def __init__(self, model_id: str) -> None:
+        def __init__(self, model_id: str, retry_policy: object = None) -> None:
             self.model_id = model_id
+            self.retry_policy = retry_policy
 
         def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
             now = datetime.now(UTC)
@@ -5814,3 +5816,36 @@ def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
     )
     # AGENTS.md content must not be injected into the system prompt.
     assert "SECRET PROJECT INSTRUCTIONS" not in captured[0].system_prompt
+
+
+def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> None:
+    from pipy_harness.cli import _provider_factory_for
+    from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "settings.json").write_text(
+        json.dumps(
+            {"retry": {"maxRetries": 5, "baseDelayMs": 500, "provider": {"maxRetryDelayMs": 30000}}}
+        ),
+        encoding="utf-8",
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "config" / "settings.json",
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    factory = _provider_factory_for(manager)
+    provider = factory(NativeModelSelection("openai-codex", "gpt-5.5"))
+    assert provider.retry_policy.max_attempts == 6
+    assert provider.retry_policy.initial_delay_seconds == 0.5
+    assert provider.retry_policy.max_delay_seconds == 30.0
+
+
+def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> None:
+    from pipy_harness.cli import _provider_factory_for
+    from pipy_harness.native import NativeModelSelection
+
+    provider = _provider_factory_for(None)(NativeModelSelection("openai-codex", "gpt-5.5"))
+    # Built-in openai-codex default policy (unchanged when no settings).
+    assert provider.retry_policy.max_attempts == 4
+    assert provider.retry_policy.initial_delay_seconds == 1.0

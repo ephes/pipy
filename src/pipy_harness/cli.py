@@ -53,9 +53,12 @@ from pipy_harness.native.provider_registry import (
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.repl_state import NativeProviderFactory
+from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.settings import (
     SettingsManager,
     local_state_base_defaults,
+    retry_policy_from_settings,
 )
 from pipy_harness.native.themes import NativeThemeStore, THEME_ENV_VAR, resolve_active_theme_name
 from pipy_harness.native.workspace_context import (
@@ -812,7 +815,7 @@ def _repl_adapter_for(
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
         selection=selection,
-        provider_factory=_native_provider_for_selection,
+        provider_factory=_provider_factory_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
@@ -970,7 +973,7 @@ def _tool_repl_adapter_for(
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
         selection=selection,
-        provider_factory=_native_provider_for_selection,
+        provider_factory=_provider_factory_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
@@ -1192,7 +1195,32 @@ def _handle_list_models(search: str | None) -> int:
     return 0
 
 
-def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderPort:
+def _provider_factory_for(
+    settings_manager: SettingsManager | None,
+) -> NativeProviderFactory:
+    """Return the provider factory, binding the settings-derived retry policy.
+
+    The ``retry.*`` settings feed the provider HTTP retry policy: when settings
+    are available the factory builds retry-aware providers (e.g. openai-codex)
+    with the mapped ``RetryPolicy``; otherwise the providers keep their built-in
+    defaults.
+    """
+
+    if settings_manager is None:
+        return _native_provider_for_selection
+    policy = retry_policy_from_settings(settings_manager)
+
+    def _factory(selection: NativeModelSelection) -> ProviderPort:
+        return _native_provider_for_selection(selection, retry_policy=policy)
+
+    return _factory
+
+
+def _native_provider_for_selection(
+    selection: NativeModelSelection,
+    *,
+    retry_policy: "RetryPolicy | None" = None,
+) -> ProviderPort:
     if selection.provider_name == "openai":
         return OpenAIResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-completions":
@@ -1206,6 +1234,10 @@ def _native_provider_for_selection(selection: NativeModelSelection) -> ProviderP
 
         return Ds4ChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-codex":
+        if retry_policy is not None:
+            return OpenAICodexResponsesProvider(
+                model_id=selection.model_id, retry_policy=retry_policy
+            )
         return OpenAICodexResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "openrouter":
         return OpenRouterChatCompletionsProvider(model_id=selection.model_id)

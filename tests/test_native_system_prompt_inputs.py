@@ -191,3 +191,38 @@ def test_safe_metadata_has_no_body(tmp_path: Path) -> None:
     assert meta["system_prompt_replace"]["byte_length"] == len("SECRET CUSTOM PROMPT BODY")
     assert len(meta["system_prompt_replace"]["sha256"]) == 64
     assert meta["system_prompt_append"][0]["byte_length"] == len("SECRET APPEND BODY")
+
+
+# --- empty-string flag values are treated as absent (Pi parity) -------------
+
+
+def test_empty_system_prompt_flag_keeps_default_and_skips_discovery(tmp_path: Path) -> None:
+    # Pi's resolvePromptInput("") -> undefined -> default; the empty flag value
+    # does not wipe the prompt, and (matching `"" ?? discover`) does not consult
+    # SYSTEM.md auto-discovery.
+    (tmp_path / ".pipy").mkdir()
+    (tmp_path / ".pipy" / "SYSTEM.md").write_text("SHOULD NOT BE USED", encoding="utf-8")
+    result = resolve_system_prompt(
+        DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", system_prompt_source=""
+    )
+    assert result.base_prompt == DEFAULT
+    assert result.replaced is False
+    assert result.replace_input is None
+
+
+def test_empty_append_flag_value_is_dropped(tmp_path: Path) -> None:
+    result = resolve_system_prompt(
+        DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", append_sources=[""]
+    )
+    assert result.base_prompt == DEFAULT
+    assert result.append_inputs == ()
+
+
+def test_empty_append_flag_does_not_fall_through_to_file(tmp_path: Path) -> None:
+    (tmp_path / ".pipy").mkdir()
+    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text("FILE APPEND", encoding="utf-8")
+    # An explicit (even if empty) append flag list suppresses APPEND_SYSTEM.md.
+    result = resolve_system_prompt(
+        DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", append_sources=[""]
+    )
+    assert result.base_prompt == DEFAULT
