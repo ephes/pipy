@@ -36,14 +36,11 @@ This file is for coding agents working in this repository. It records local proj
 
 ## Workflow Learning Capture
 - When a session involves implementation, review, subagents, model comparison, or a meaningful workflow decision, record summary-safe workflow events before finalizing the session.
-- Use `pipy-session workflow role` for implementer/reviewer/planner roles and model identifiers when known.
-- Use `pipy-session workflow subagent` when delegated explorer/worker/subagent work materially affects the result.
-- Use `pipy-session workflow review-outcome` after review cycles to capture
-  finding counts by severity and closure counts: accepted, fixed, rejected, and
-  deferred. State whether the counts are for the current review round or
-  cumulative across the review cycle.
-- Use `pipy-session workflow evaluation` when there is a useful judgment about whether to keep, switch, or compare a workflow pattern.
-- Do not put prompts, transcript bodies, tool output, secrets, credentials, or sensitive personal data in workflow fields.
+- The dedicated `pipy-session workflow` subcommand has been removed. Use
+  `pipy-session append <active-path> --type <event> --summary <summary>` or
+  `--event-json` for summary-safe role, subagent, review-outcome, or evaluation
+  events when an active record exists.
+- Do not put prompts, transcript bodies, tool output, secrets, credentials, or sensitive personal data in appended workflow fields.
 - Prefer summary-safe learning events over relying on memory when evaluating patterns such as Codex implementation plus Claude review.
 - Prefer descriptive session slugs for intentional records. Avoid generic slugs
   such as `codex-yolo` when the recorder or wrapper allows a better task name.
@@ -53,8 +50,10 @@ This file is for coding agents working in this repository. It records local proj
 ## Session Learning Checks
 - Before backlog grooming, workflow changes, model/provider comparisons, or
   "where are we?" planning, inspect the existing archive through summary-safe
-  surfaces such as `uv run pipy-session reflect --json` and targeted
-  `uv run pipy-session search <topic> --json`.
+  surfaces such as targeted
+  `uv run pipy-session search "<topic>" --json` and
+  `uv run pipy-session list --json`. The removed `reflect` command is no longer
+  available.
 - Use only metadata, event summaries, and Markdown summaries by default. Do not
   inspect or promote raw transcript bodies unless explicitly needed and
   privacy-reviewed.

@@ -119,9 +119,9 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
 | `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
 | `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
-| `--provider` / `--model` / `--api-key` | 🟡 provider/model shipped; `--api-key` accepted but not applied to provider calls yet | [provider-catalog.md](provider-catalog.md) |
+| `--provider` / `--model` / `--api-key` | 🟡 provider/model shipped; `--api-key` reaches catalog-backed Chat Completions product calls, but non-completions, one-shot startup, and custom-provider launch resolution still need closeout | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | 🟡 accepted/local state; provider-request mapping missing | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | 🟡 mapped into catalog-backed Chat Completions/OpenRouter requests; non-completions request-shape mapping still needs closeout | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` (`-xt` is 0.78.0; not in source checkout) | ❌ missing | [settings-config.md](settings-config.md) |
 | `--system-prompt` / `--append-system-prompt` | ✅ replace + repeatable append (text or file) + SYSTEM.md/APPEND_SYSTEM.md | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ❌ missing | [extension-api.md](extension-api.md) |
@@ -184,10 +184,10 @@ the product state, not the spec state.
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume`, durable compaction, startup session flags) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` pass the conformance gate (full-transcript store, branch/fork/clone, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 draft spec, bounded Markdown-resource subset only | golden conformance extension (in spec) |
-| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 foundation shipped; product provider construction/auth/thinking wiring incomplete | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes helper-layer gate; must be upgraded for product paths) |
+| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 foundation + Chat Completions product construction shipped; remaining closeout is non-completions construction, one-shot construction, and startup CLI resolver/custom-provider launch support | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-19 including product construction for Chat Completions; must be extended for the remaining product paths) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 metadata-only JSON + Python SDK only | `scripts/parity_checks/automation_rpc_conformance.py --json` |
-| TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, scoped-model cycling, thinking hotkeys, folding, queued steering, mouse selection, true cancellation) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship | real-PTY tests + conformance gate (in spec) |
+| TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection, true cancellation; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship | real-PTY tests + conformance gate (in spec) |
 | Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only | `scripts/parity_checks/export_distribution_conformance.py --json` |
 | User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ❌ mostly internal specs today | docs parity review checklist in spec |
 
@@ -210,11 +210,16 @@ is kept aligned with the ranked [Pi-Mono Gap Audit](pi-mono-gap-audit.md):
    unblocks `/export`, `/import`, `/share`, durable `/compact`, `--mode json/rpc`
    session events, and retiring `--archive-transcript` as follow-up cleanup.
 2. **Provider / model catalog** ([provider-catalog.md](provider-catalog.md)) —
-   current fix-up: wire catalog-selected `NativeModelSpec` and request config
-   into real provider construction/calls, apply auth/headers/routing/thinking,
-   and route direct `/model` through the shared resolver. After that, remaining
-   follow-ons are `/scoped-models`, live Ctrl+P model cycling from
-   `--models`/settings, and live Anthropic/Copilot login UX.
+   current closeout: the catalog foundation, direct `/model <ref>` resolver, and
+   OpenAI-compatible Chat Completions product construction are shipped and gated.
+   The next slice is catalog-backed construction for the non-completions API
+   families (`anthropic-messages`, `openai-responses`,
+   `openai-codex-responses`, `google-generative-ai`, `google-vertex`,
+   `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`,
+   `mistral`). Follow with `pipy run` one-shot construction and startup
+   `--native-provider`/`--native-model` resolution for custom providers.
+   Live Anthropic/Copilot login UX and extension-registered providers remain
+   later follow-ons.
 3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
    — ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped
    models + live Ctrl+P cycling, system-prompt files + `--no-context-files`,

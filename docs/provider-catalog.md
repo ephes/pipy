@@ -78,10 +78,25 @@ Remaining wiring (not yet shipped):
   resolving its provider. Mid-session `/model <ref>` is fully catalog-resolved;
   startup parity remains a catalog CLI follow-on.
 
-Other product follow-ons: `/scoped-models` and `--models` Ctrl+P live
-scoped-model cycling in the product TUI, live OAuth login orchestration for
-Anthropic/Copilot (callback server / device-code prompting), and
-extension-registered providers once the extension platform exists.
+Current closeout sequence:
+
+1. Wire non-completions API-family construction first. This is the selected next
+   reviewable slice because it extends the already-proven construction boundary
+   without also changing command dispatch. The gate should capture one
+   deterministic fake request per newly wired API family and assert the selected
+   model id, base URL, auth/header source, and provider-specific thinking/routing
+   shape where applicable.
+2. Move `pipy run` one-shot provider construction onto the same
+   catalog-backed provider-state/construction boundary.
+3. Route startup `--native-provider`/`--native-model` through
+   `resolve_cli_model`, including custom `models.json` providers and bare
+   provider/model references, and remove the argparse `choices` constraint that
+   rejects custom providers at launch.
+
+Other product follow-ons: live OAuth login orchestration for Anthropic/Copilot
+(callback server / device-code prompting) and extension-registered providers
+once the extension platform exists. `/scoped-models` and `--models` Ctrl+P live
+cycling ship through the settings/keybindings track.
 
 This document defines the pipy target and partial shipped behavior for full
 feature parity with Pi's provider/model catalog system. Before this track, pipy shipped
@@ -686,7 +701,8 @@ request paths.
    (incl. `provider/id:level`, colon-in-id handling, strict vs scope mode),
    fuzzy alias-vs-dated preference, `resolve_model_scope` globs (`fnmatch`),
    `resolve_cli_model` (provider inference, per-provider fallback synthesis).
-   Route `--native-model`/`--native-provider` through it.
+   Route mid-session `/model <ref>` through it. Startup
+   `--native-model`/`--native-provider` routing is still a closeout slice.
 3. `models.json` loader: config-root resolution, comment/trailing-comma strip,
    stdlib parse, pipy-owned schema validation with path-qualified errors,
    provider/model override deep-merge, custom-model merge by `provider+id`,
@@ -711,6 +727,7 @@ request paths.
    `:level` support, context-clear/rebind, no provider turn.
 10. `--models` scoped cycling: scope resolution, Ctrl+P forward/backward,
     pinned levels, initial-model preference for the first scoped model.
+    **Shipped through the settings/keybindings track.**
 11. ds4 reframe: remove the special-cased built-in `ds4` registry row, ship a
     documented `models.json` ds4 example/preset, keep the env-var convenience
     shim as a synthesized custom-provider entry.
@@ -721,12 +738,29 @@ request paths.
     replacement, override-only, OAuth registration). The extension-facing API
     that drives this boundary is specified in `docs/extension-api.md`; the
     underlying registry capability ships here.
-13. Product provider-construction wiring: construct real provider adapters from
-    the selected `NativeModelSpec` and resolved request config, including custom
+13. Product provider-construction wiring for the OpenAI-compatible Chat
+    Completions family: construct real provider adapters from the selected
+    `NativeModelSpec` and resolved request config, including custom
     `models.json` providers, `baseUrl`, headers, `authHeader`, routing,
-    runtime/stored/env auth, and mapped thinking levels; route direct `/model`
-    through the shared resolver; upgrade the conformance gate to exercise these
-    paths with fake HTTP.
+    runtime/stored/env auth, mapped thinking levels, and direct `/model <ref>`
+    through the shared resolver. **Shipped 2026-06-03** and covered by
+    conformance item 18 with fake HTTP.
+14. Product provider-construction wiring for non-completions API families:
+    extend the same boundary to `anthropic-messages`, `openai-responses`,
+    `openai-codex-responses`, `google-generative-ai`, `google-vertex`,
+    `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`, and
+    `mistral`, with per-family request-shape assertions for auth, headers, base
+    URL/model id, routing/compat where supported, and mapped thinking where
+    supported. **Selected next slice.**
+15. One-shot construction: make `pipy run` use the catalog-backed construction
+    boundary instead of `_adapter_for`, preserving existing text/stream/json
+    output contracts while honoring custom providers, runtime auth, base URLs,
+    headers, routing, and thinking.
+16. Startup CLI resolution: route launch-time `--native-provider` and
+    `--native-model` through `resolve_cli_model`, including custom
+    `models.json` providers and bare provider/model refs; remove argparse
+    `choices` that reject custom providers; keep the legacy
+    `--native-provider ds4` shim only as a compatibility bridge.
 
 ## Verification Plan
 
@@ -739,9 +773,10 @@ uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
 The conformance script drives the catalog and product provider-construction
 paths with deterministic fixtures (a temp config root, a temp `models.json`, a
-fake auth store, fake HTTP transports, no network) and fails unless the full
-capability set works. The current landed gate covers the catalog/helper portion;
-the selected fix-up expands it to the product paths. It must verify:
+fake auth store, fake HTTP transports, no network) and fails unless the covered
+capability set works. The current landed gate covers items 1-19, including the
+Chat-Completions product path in item 18. The selected closeout work extends the
+same gate with items 20-22 below. It must verify:
 
 1. the built-in catalog loads with multiple rows per implemented provider and
    real capability metadata (context window, max out, reasoning, image input,
@@ -785,14 +820,27 @@ the selected fix-up expands it to the product paths. It must verify:
     built-in row, and the env-var shim produces an equivalent entry;
 17. catalog `refresh()` picks up a `models.json` edit and a simulated
     login/logout without a process restart;
-18. product provider-construction paths use the selected `NativeModelSpec` and
-    resolved request config: custom `models.json` providers can complete a fake
-    provider turn, built-in custom rows preserve `baseUrl`/headers/routing,
-    runtime `--api-key` reaches the provider auth boundary, `--thinking` reaches
-    a reasoning-capable adapter, and direct `/model <ref>` goes through the
-    shared resolver;
+18. Chat-Completions-family product provider-construction paths use the selected
+    `NativeModelSpec` and resolved request config: custom `models.json`
+    providers can complete a fake provider turn, built-in custom rows preserve
+    `baseUrl`/headers/routing, runtime `--api-key` reaches the provider auth
+    boundary, `--thinking` reaches a reasoning-capable adapter, and direct
+    `/model <ref>` goes through the shared resolver;
 19. no secret/token/`Authorization`/PKCE-verifier/authorization-URL value
     appears in any archive surface produced during the run.
+20. non-completions API-family product construction uses the selected
+    `NativeModelSpec` and resolved request config for every implemented family
+    (`anthropic-messages`, `openai-responses`, `openai-codex-responses`,
+    `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
+    `azure-openai-responses`, `cloudflare-workers-ai`, `mistral`), with fake HTTP
+    captures proving model id, base URL, auth/header source, routing/compat where
+    supported, and thinking shape where supported;
+21. `pipy run` one-shot product construction uses the same catalog-backed
+    boundary as REPL product turns, including custom providers and runtime auth,
+    without changing stdout/stderr output conventions;
+22. startup `--native-provider`/`--native-model` resolve through the shared
+    matcher, accepting custom provider names and bare refs while preserving
+    documented fallback/error behavior.
 
 Focused tests should also cover:
 
@@ -824,6 +872,7 @@ uv run pytest tests/test_native_provider_catalog*.py
 uv run pytest tests/test_native_model_resolver*.py
 uv run pytest tests/test_native_models_json*.py
 uv run pytest tests/test_native_oauth*.py
+uv run pytest tests/test_native_provider_construction*.py
 uv run pytest tests/test_harness_native_cli.py -k "list_models or models or thinking"
 uv run pytest tests/test_native_tool_loop_tui_pty.py -k "model"
 just check
