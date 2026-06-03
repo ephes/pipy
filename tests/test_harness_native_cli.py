@@ -5725,3 +5725,92 @@ def test_cli_native_repl_honors_settings_json_quiet_startup_and_theme(
     assert "settings (resolved):" in captured.err
     assert "theme: ocean" in captured.err
     assert "transport: sse" in captured.err
+
+
+def _capturing_repl_provider(captured: list) -> type:
+    class _Provider:
+        name = "fake"
+
+        def __init__(self, model_id: str) -> None:
+            self.model_id = model_id
+
+        def complete(self, request, **_kwargs):
+            captured.append(request)
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="OK",
+                usage={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                metadata={},
+            )
+
+    return _Provider
+
+
+def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> None:
+    captured: list = []
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
+    main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "sp", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "--system-prompt", "REPLACED SYSTEM PROMPT BODY",
+        ]
+    )
+    assert captured, "no provider request captured"
+    sp = captured[0].system_prompt
+    assert "REPLACED SYSTEM PROMPT BODY" in sp
+    assert "pipy" not in sp.split("REPLACED")[0]  # default bootstrap text gone before custom
+
+
+def test_cli_append_system_prompt_flag_appends(tmp_path, monkeypatch) -> None:
+    captured: list = []
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
+    main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "ap", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "--append-system-prompt", "APPENDED ONE",
+            "--append-system-prompt", "APPENDED TWO",
+        ]
+    )
+    sp = captured[0].system_prompt
+    assert "APPENDED ONE" in sp
+    assert "APPENDED TWO" in sp
+
+
+def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
+    (tmp_path / ".pipy").mkdir()
+    (tmp_path / ".pipy" / "SYSTEM.md").write_text("DISCOVERED SYSTEM MD", encoding="utf-8")
+    captured: list = []
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
+    main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "smd", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+        ]
+    )
+    assert "DISCOVERED SYSTEM MD" in captured[0].system_prompt
+
+
+def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
+    (tmp_path / "AGENTS.md").write_text("SECRET PROJECT INSTRUCTIONS", encoding="utf-8")
+    captured: list = []
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
+    main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "nc", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "--no-context-files",
+        ]
+    )
+    # AGENTS.md content must not be injected into the system prompt.
+    assert "SECRET PROJECT INSTRUCTIONS" not in captured[0].system_prompt

@@ -30,7 +30,8 @@ from pipy_harness.native.conversation import (
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
-from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.settings import SettingsManager, resolve_config_home
+from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.image_attachment import (
     ProviderImageAttachment,
@@ -863,6 +864,11 @@ class NativeNoToolReplSession:
     # Resolved layered settings, surfaced read-only by /settings. When not
     # injected the session loads the global+project settings for the workspace.
     settings_manager: "SettingsManager | None" = None
+    # System-prompt replace/append inputs (Pi --system-prompt /
+    # --append-system-prompt). When None, SYSTEM.md/APPEND_SYSTEM.md
+    # auto-discovery applies.
+    system_prompt_source: str | None = None
+    append_system_prompt_sources: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -886,8 +892,17 @@ class NativeNoToolReplSession:
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(run_input.cwd)
         discovery = self.instruction_loader(run_input.cwd)
+        # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
+        # auto-discovery) to the base prompt before workspace context is added.
+        resolved_prompt = resolve_system_prompt(
+            NATIVE_BOOTSTRAP_SYSTEM_PROMPT,
+            cwd=run_input.cwd,
+            config_home=resolve_config_home(),
+            system_prompt_source=self.system_prompt_source,
+            append_sources=self.append_system_prompt_sources,
+        )
         composed_system_prompt = compose_system_prompt(
-            NATIVE_BOOTSTRAP_SYSTEM_PROMPT, discovery
+            resolved_prompt.base_prompt, discovery
         )
         # Resume seeding: a fresh session started with --resume is seeded only
         # with the safe metadata-only resume block (provider/model/turn labels).
@@ -902,7 +917,10 @@ class NativeNoToolReplSession:
         base_system_prompt = composed_system_prompt
         compaction_summary = ""
         compaction_count = 0
-        instruction_metadata = workspace_instruction_safe_metadata(discovery)
+        instruction_metadata = {
+            **workspace_instruction_safe_metadata(discovery),
+            **resolved_prompt.safe_metadata(),
+        }
         current_run_input, safe_context = _current_repl_turn_state(
             provider_state,
             run_input,
@@ -918,6 +936,7 @@ class NativeNoToolReplSession:
             workspace=run_input.cwd,
             command_names=_no_tool_repl_command_names(workspace_resources),
             command_descriptions=_no_tool_repl_command_descriptions(workspace_resources),
+            autocomplete_max_visible=settings.get_autocomplete_max_visible(),
         )
         conversation_state = NativeConversationState.for_native_run(max_turns=self.max_turns)
         event_sink.emit(

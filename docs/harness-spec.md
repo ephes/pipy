@@ -536,8 +536,9 @@ commands); Up/Down moves the selected row, Tab or Enter accepts the selected
 command, and Escape closes the menu without exiting the session. The menu is
 honest — it advertises a command only once the dispatcher can execute it, so
 no-tool-only commands (`read`, `ask-file`, `propose-file`, `apply-proposal`,
-`verify`) never appear here — and windows to six visible rows with a scroll
-indicator when more match. `/copy` is a local-only command: it copies the
+`verify`) never appear here — and windows to the `autocompleteMaxVisible`
+setting (Pi default 5, clamped 3..20; honored in both the tool-loop TUI and the
+no-tool stdlib slash menu) with a scroll indicator when more match. `/copy` is a local-only command: it copies the
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
@@ -561,6 +562,19 @@ clear persisted history). Provider/model and auth actions return to the dialog
 afterward so the user can keep adjusting settings; the prompt-history toggles are
 applied in place without leaving the dialog. The captured-stream (non-TTY)
 fallback keeps printing the shared read-only `settings_overlay_lines` text.
+
+`settings_overlay_lines` also appends a resolved layered-settings block from the
+`pipy_harness.native.settings.SettingsManager` (theme, quietStartup,
+hideThinkingBlock, promptHistory.enabled, transport/steering/followUp,
+scopedModels, compaction/retry/branchSummary, the display settings, and
+sessionDir) so `/settings` reports the effective configuration. The settings
+system layers a global `<config>/settings.json` (the `PIPY_CONFIG_HOME` →
+`${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy` chain) and a project
+`<cwd>/.pipy/settings.json`; a settings file drives provider/model
+(`defaultProvider`/`defaultModel`), theme, quietStartup, prompt-history, and
+`autocompleteMaxVisible` at startup, with CLI flags as a final override and the
+legacy local-state stores kept as caches/fallbacks. See
+[settings-config.md](settings-config.md) for the full surface.
 
 `/model` is an executable interactive provider/model selector in the product
 TUI. Bare `/model` opens an in-frame selector (`ToolLoopTerminalUi.run_model_selector`)

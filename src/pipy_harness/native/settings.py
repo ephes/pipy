@@ -555,6 +555,25 @@ class SettingsManager:
     def get_branch_summary_skip_prompt(self) -> bool:
         return self._nested_bool("branchSummary", "skipPrompt", default=False)
 
+    def _env_flag(self, name: str) -> bool:
+        return str(self._env.get(name, "")).strip() == "1"
+
+    def get_show_hardware_cursor(self) -> bool:
+        """Hardware-cursor toggle; falls back to the ``PIPY_HARDWARE_CURSOR`` env."""
+
+        value = self._get("showHardwareCursor")
+        if isinstance(value, bool):
+            return value
+        return self._env_flag("PIPY_HARDWARE_CURSOR")
+
+    def get_clear_on_shrink(self) -> bool:
+        """terminal.clearOnShrink toggle; falls back to ``PIPY_CLEAR_ON_SHRINK`` env."""
+
+        value = self._get_nested("terminal", "clearOnShrink")
+        if isinstance(value, bool):
+            return value
+        return self._env_flag("PIPY_CLEAR_ON_SHRINK")
+
 
 def settings_report_lines(manager: SettingsManager) -> list[str]:
     """Safe, human-readable resolved-settings lines for the ``/settings`` view.
@@ -590,9 +609,12 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         "    branchSummary: "
         f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "
         f"skipPrompt={manager.get_branch_summary_skip_prompt()}",
+        f"    defaultThinkingLevel: {manager.get_default_thinking_level() or '(default)'}",
         "    display: "
         f"editorPaddingX={manager.get_editor_padding_x()}, "
-        f"autocompleteMaxVisible={manager.get_autocomplete_max_visible()}",
+        f"autocompleteMaxVisible={manager.get_autocomplete_max_visible()}, "
+        f"showHardwareCursor={manager.get_show_hardware_cursor()}, "
+        f"clearOnShrink={manager.get_clear_on_shrink()}",
         f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
         f"    sessionDir: {manager.get_session_dir() or '(default)'}",
     ]

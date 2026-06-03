@@ -58,7 +58,10 @@ from pipy_harness.native.settings import (
     local_state_base_defaults,
 )
 from pipy_harness.native.themes import NativeThemeStore, THEME_ENV_VAR, resolve_active_theme_name
-from pipy_harness.native.workspace_context import default_workspace_instruction_loader
+from pipy_harness.native.workspace_context import (
+    default_workspace_instruction_loader,
+    empty_workspace_instruction_loader,
+)
 from pipy_harness.runner import (
     FileSessionRecorder,
     HarnessRunner,
@@ -319,6 +322,40 @@ def build_parser() -> argparse.ArgumentParser:
             "for this run."
         ),
     )
+    repl_parser.add_argument(
+        "--system-prompt",
+        dest="system_prompt",
+        metavar="TEXT_OR_FILE",
+        help=(
+            "Replace the default system prompt (Pi `--system-prompt`). The value "
+            "is literal text, or a file path when it names an existing file "
+            "(read unbounded). Also auto-discovered from .pipy/SYSTEM.md then "
+            "<config>/SYSTEM.md when omitted."
+        ),
+    )
+    repl_parser.add_argument(
+        "--append-system-prompt",
+        dest="append_system_prompt",
+        metavar="TEXT_OR_FILE",
+        action="append",
+        help=(
+            "Append to the system prompt (Pi `--append-system-prompt`, "
+            "repeatable). Each value is literal text or an existing file path. "
+            "Also auto-discovered from .pipy/APPEND_SYSTEM.md then "
+            "<config>/APPEND_SYSTEM.md when omitted."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-context-files",
+        "-nc",
+        dest="no_context_files",
+        action="store_true",
+        help=(
+            "Disable AGENTS.md / CLAUDE.md context-file discovery for this run "
+            "(Pi `--no-context-files`/`-nc`): no instruction files are read, "
+            "injected into the system prompt, or recorded as safe metadata."
+        ),
+    )
 
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
@@ -509,6 +546,9 @@ def main(argv: list[str] | None = None) -> int:
                     thinking=args.thinking,
                     api_key=args.api_key,
                     settings_manager=settings_manager,
+                    system_prompt_source=args.system_prompt,
+                    append_system_prompt_sources=args.append_system_prompt,
+                    no_context_files=args.no_context_files,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -520,6 +560,9 @@ def main(argv: list[str] | None = None) -> int:
                     thinking=args.thinking,
                     api_key=args.api_key,
                     settings_manager=settings_manager,
+                    system_prompt_source=args.system_prompt,
+                    append_system_prompt_sources=args.append_system_prompt,
+                    no_context_files=args.no_context_files,
                 )
             request = RunRequest(
                 agent=args.agent,
@@ -754,6 +797,9 @@ def _repl_adapter_for(
     thinking: str | None = None,
     api_key: str | None = None,
     settings_manager: SettingsManager | None = None,
+    system_prompt_source: str | None = None,
+    append_system_prompt_sources: list[str] | None = None,
+    no_context_files: bool = False,
 ) -> PipyNativeReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -778,10 +824,16 @@ def _repl_adapter_for(
     return PipyNativeReplAdapter(
         provider_state=provider_state,
         input_runtime=input_runtime,
-        instruction_loader=default_workspace_instruction_loader,
+        instruction_loader=(
+            empty_workspace_instruction_loader
+            if no_context_files
+            else default_workspace_instruction_loader
+        ),
         resume_context=resume_context,
         resume_branch_label=resume_branch_label,
         settings_manager=settings_manager,
+        system_prompt_source=system_prompt_source,
+        append_system_prompt_sources=append_system_prompt_sources,
     )
 
 
@@ -901,6 +953,9 @@ def _tool_repl_adapter_for(
     thinking: str | None = None,
     api_key: str | None = None,
     settings_manager: SettingsManager | None = None,
+    system_prompt_source: str | None = None,
+    append_system_prompt_sources: list[str] | None = None,
+    no_context_files: bool = False,
 ) -> PipyNativeToolReplAdapter:
     if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
         raise ValueError(f"unsupported native provider: {native_provider}")
@@ -935,13 +990,19 @@ def _tool_repl_adapter_for(
         provider_state=provider_state,
         tool_budget=tool_budget,
         transcript_sink=transcript_sink,
-        instruction_loader=default_workspace_instruction_loader,
+        instruction_loader=(
+            empty_workspace_instruction_loader
+            if no_context_files
+            else default_workspace_instruction_loader
+        ),
         input_runtime=input_runtime,
         reference_roots=reference_roots,
         resume_context=resume_context,
         resume_branch_label=resume_branch_label,
         native_session=native_session,
         settings_manager=settings_manager,
+        system_prompt_source=system_prompt_source,
+        append_system_prompt_sources=append_system_prompt_sources,
     )
 
 

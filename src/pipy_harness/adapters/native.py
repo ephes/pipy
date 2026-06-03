@@ -13,7 +13,8 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
-from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.settings import SettingsManager, resolve_config_home
+from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
@@ -153,6 +154,8 @@ class PipyNativeReplAdapter:
         resume_context: ResumeContext | None = None,
         resume_branch_label: str | None = None,
         settings_manager: "SettingsManager | None" = None,
+        system_prompt_source: str | None = None,
+        append_system_prompt_sources: list[str] | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -166,6 +169,8 @@ class PipyNativeReplAdapter:
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
         self.settings_manager = settings_manager
+        self.system_prompt_source = system_prompt_source
+        self.append_system_prompt_sources = append_system_prompt_sources
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -203,6 +208,8 @@ class PipyNativeReplAdapter:
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
             settings_manager=self.settings_manager,
+            system_prompt_source=self.system_prompt_source,
+            append_system_prompt_sources=self.append_system_prompt_sources,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
@@ -276,6 +283,8 @@ class PipyNativeToolReplAdapter:
         resume_branch_label: str | None = None,
         native_session: "NativeSessionTree | None" = None,
         settings_manager: "SettingsManager | None" = None,
+        system_prompt_source: str | None = None,
+        append_system_prompt_sources: list[str] | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -284,6 +293,8 @@ class PipyNativeToolReplAdapter:
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
         self.settings_manager = settings_manager
+        self.system_prompt_source = system_prompt_source
+        self.append_system_prompt_sources = append_system_prompt_sources
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -349,7 +360,16 @@ class PipyNativeToolReplAdapter:
                 "tool-capable provider"
             )
         discovery = self.instruction_loader(prepared.cwd)
-        base_prompt = NATIVE_TOOL_LOOP_SYSTEM_PROMPT
+        # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
+        # auto-discovery) to the base prompt before workspace context is added.
+        resolved_prompt = resolve_system_prompt(
+            NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
+            cwd=prepared.cwd,
+            config_home=resolve_config_home(),
+            system_prompt_source=self.system_prompt_source,
+            append_sources=self.append_system_prompt_sources,
+        )
+        base_prompt = resolved_prompt.base_prompt
         if self.reference_roots:
             ref_lines = ["", "Reference roots (read-only, absolute paths):"]
             for root in self.reference_roots:
@@ -377,6 +397,7 @@ class PipyNativeToolReplAdapter:
                 "adapter": self.name,
                 "repl_mode": "tool-loop",
                 **instruction_metadata,
+                **resolved_prompt.safe_metadata(),
             },
         )
         session = NativeToolReplSession(

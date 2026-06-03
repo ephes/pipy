@@ -560,3 +560,39 @@ def test_settings_report_lines_cover_display_and_session_keys(tmp_path: Path) ->
     assert "autocompleteMaxVisible=9" in text
     assert "httpIdleTimeoutMs: 0" in text
     assert "/tmp/custom-sessions" in text
+
+
+def test_hardware_cursor_and_clear_on_shrink_getters(tmp_path: Path) -> None:
+    mgr = _manager(tmp_path)
+    # Defaults are False unless the setting or the env default opts in.
+    assert mgr.get_show_hardware_cursor() is False
+    assert mgr.get_clear_on_shrink() is False
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"showHardwareCursor": True, "terminal": {"clearOnShrink": True}},
+    )
+    mgr2 = _manager(tmp_path)
+    assert mgr2.get_show_hardware_cursor() is True
+    assert mgr2.get_clear_on_shrink() is True
+
+
+def test_hardware_cursor_env_default(tmp_path: Path) -> None:
+    mgr = SettingsManager(
+        global_path=tmp_path / "config" / "settings.json",
+        project_path=None,
+        env={"PIPY_HARDWARE_CURSOR": "1", "PIPY_CLEAR_ON_SHRINK": "1"},
+    )
+    assert mgr.get_show_hardware_cursor() is True
+    assert mgr.get_clear_on_shrink() is True
+
+
+def test_report_includes_thinking_and_cursor(tmp_path: Path) -> None:
+    from pipy_harness.native.settings import settings_report_lines
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"defaultThinkingLevel": "high", "showHardwareCursor": True},
+    )
+    text = "\n".join(settings_report_lines(_manager(tmp_path)))
+    assert "defaultThinkingLevel: high" in text
+    assert "showHardwareCursor=True" in text

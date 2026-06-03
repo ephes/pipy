@@ -383,6 +383,8 @@ class SlashMenuNativeReplInput:
     command_descriptions: Mapping[str, str] = field(
         default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     )
+    # Max rows shown in the slash-command menu (Pi autocompleteMaxVisible).
+    autocomplete_max_visible: int = 8
     runtime_label: str = REPL_INPUT_RUNTIME_SLASH_MENU
     _termios_module: Any | None = None
     _tty_module: Any | None = None
@@ -397,6 +399,7 @@ class SlashMenuNativeReplInput:
         workspace: Path | None = None,
         command_names: tuple[str, ...] | None = None,
         command_descriptions: Mapping[str, str] | None = None,
+        autocomplete_max_visible: int = 8,
     ) -> "SlashMenuNativeReplInput":
         del workspace
         if not _slash_menu_streams_supported(input_stream, error_stream):
@@ -426,6 +429,7 @@ class SlashMenuNativeReplInput:
                 if command_descriptions is not None
                 else dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
             ),
+            autocomplete_max_visible=autocomplete_max_visible,
         )
         instance._termios_module = termios_module
         instance._tty_module = tty_module
@@ -443,6 +447,7 @@ class SlashMenuNativeReplInput:
             input_fd=self._input_fd,
             prompt_label=prompt_label,
             footer=footer,
+            autocomplete_max_visible=self.autocomplete_max_visible,
         )
         return editor.run()
 
@@ -466,6 +471,7 @@ class _SlashMenuLineEditor:
     input_fd: int
     prompt_label: str
     footer: str | None
+    autocomplete_max_visible: int = _SLASH_MENU_MAX_ITEMS
     _buffer: str = ""
     _cursor: int = 0
     _menu_open: bool = False
@@ -734,7 +740,8 @@ class _SlashMenuLineEditor:
         rows_below = 0
         matches = self._filtered_commands()
         if self._menu_open and matches:
-            visible = matches[:_SLASH_MENU_MAX_ITEMS]
+            menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else _SLASH_MENU_MAX_ITEMS
+            visible = matches[:menu_cap]
             total = len(matches)
             for idx, name in enumerate(visible):
                 description = self.command_descriptions.get(name, "")
@@ -890,6 +897,7 @@ def native_repl_input_for(
     workspace: Path | None = None,
     command_names: tuple[str, ...] | None = None,
     command_descriptions: Mapping[str, str] | None = None,
+    autocomplete_max_visible: int = 8,
 ) -> NativeReplInput:
     """Choose the REPL input adapter while preserving plain-stream fallback.
 
@@ -926,6 +934,7 @@ def native_repl_input_for(
             workspace=workspace,
             command_names=command_names,
             command_descriptions=command_descriptions,
+            autocomplete_max_visible=autocomplete_max_visible,
         )
 
     if _slash_menu_streams_supported(input_stream, error_stream):
@@ -936,6 +945,7 @@ def native_repl_input_for(
                 workspace=workspace,
                 command_names=command_names,
                 command_descriptions=command_descriptions,
+            autocomplete_max_visible=autocomplete_max_visible,
             )
         except Exception:
             pass
