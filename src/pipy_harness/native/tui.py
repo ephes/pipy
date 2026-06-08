@@ -2261,6 +2261,11 @@ class ToolLoopTerminalUi:
             if byte == "":
                 break
             sequence += byte
+            # Stop at any CSI final byte in 0x40–0x7e. This covers the legacy
+            # finals (``A``–``F``, ``Z``=0x5a), the bracketed-paste ``~`` (0x7e),
+            # AND the kitty keyboard-protocol ``u`` (0x75) — so CSI-u sequences
+            # like ``112;6u`` (Shift+Ctrl+P) are read whole and reach the
+            # matchers below, not timed out as a bare Esc.
             if "\x40" <= byte <= "\x7e":
                 break
         if sequence == _BRACKETED_PASTE_START:

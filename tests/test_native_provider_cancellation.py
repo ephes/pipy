@@ -514,6 +514,13 @@ def test_cancellable_https_handler_https_open_has_no_missing_attribute() -> None
 
     https_handler.do_open = _fake_do_open  # type: ignore[method-assign]
     request = urllib.request.Request("https://example.invalid/path")
-    # Must not raise AttributeError; must forward the SSL context.
+    # The core invariant: https_open must not raise AttributeError (the 3.14
+    # `_check_hostname` regression). It forwards each connection kwarg only when
+    # the handler attribute exists and is non-None, so assert that any forwarded
+    # kwarg matches the handler — without requiring a specific key to be present
+    # (e.g. `_context` may be None on some Python versions).
     assert https_handler.https_open(request) == "opened"
-    assert "context" in captured
+    for key in ("context", "check_hostname"):
+        attr = getattr(https_handler, f"_{key}", None)
+        if attr is not None:
+            assert captured.get(key) is attr
