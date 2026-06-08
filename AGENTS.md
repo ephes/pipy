@@ -21,7 +21,13 @@ This file is for coding agents working in this repository. It records local proj
 - Update release notes in the same change when they apply. Treat missing or stale docs or release notes as incomplete work.
 
 ## Source Control
-- This repo uses trunk-based development. Commit directly to `main` in small, reviewable, green increments; do not create long-lived `feature/*` branches for routine work.
+- This repo uses trunk-based development. Do routine work directly on `main` in
+  small, reviewable, green increments.
+- Do not create `feature/*`, topic, or other side branches for routine work. If
+  you start a session and discover you are on a non-`main` branch, switch back
+  to `main` before making changes when the worktree is clean. If the branch
+  already contains completed work, merge it back to `main` promptly, validate
+  `main`, and continue from `main`.
 - Respect pre-commit hooks and keep each commit's tests/lint/typecheck green so `main` stays releasable.
 
 ## Session Capture
