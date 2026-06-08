@@ -212,7 +212,7 @@ def path_candidates(
     quoted = prefix.startswith('"')
     raw = prefix[1:] if quoted else prefix
 
-    search_dir, search_prefix, display_base = _resolve_search_dir(workspace, raw)
+    search_dir, search_prefix = _resolve_search_dir(workspace, raw)
     if search_dir is None:
         return []
 
@@ -336,17 +336,17 @@ def _safe_completion_prefix(prefix: str) -> bool:
 
 def _resolve_search_dir(
     workspace: Path, raw: str
-) -> tuple[Path | None, str, str]:
-    """Return ``(search_dir, search_prefix, display_base)`` for path completion.
+) -> tuple[Path | None, str]:
+    """Return ``(search_dir, search_prefix)`` for path completion.
 
-    ``display_base`` is the textual prefix preserved in the returned value
-    (so ``./`` and ``~/`` survive); ``search_prefix`` is the filename fragment.
+    ``search_prefix`` is the filename fragment; the caller keeps ``raw`` for the
+    display prefix (so ``./`` and ``~/`` survive on the rendered value).
     """
 
     try:
         workspace_root = workspace.expanduser().resolve()
     except OSError:
-        return None, "", raw
+        return None, ""
     home = Path.home()
 
     def expand(path_text: str) -> Path | None:
@@ -369,18 +369,18 @@ def _resolve_search_dir(
         search_prefix = PurePosixPath(raw).name
 
     if target is None:
-        return None, "", raw
+        return None, ""
     try:
         resolved = target.resolve()
     except OSError:
-        return None, "", raw
+        return None, ""
     if not resolved.is_dir():
-        return None, "", raw
+        return None, ""
     # Workspace-relative prefixes must stay inside the workspace; ``~/`` and
     # absolute prefixes are explicit user navigation (Pi behavior) and allowed.
     if not raw.startswith(("~", "/")) and not _is_relative_to(resolved, workspace_root):
-        return None, "", raw
-    return resolved, search_prefix, raw
+        return None, ""
+    return resolved, search_prefix
 
 
 def _compose_relative_path(raw: str, name: str) -> str:
