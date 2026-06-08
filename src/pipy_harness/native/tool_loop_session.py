@@ -2246,35 +2246,38 @@ class NativeToolReplSession:
         )
 
         output_text = result.output or "(no output)"
-        if terminal_ui is not None:
-            rendered = output_text.splitlines() or [""]
-            if result.cancelled:
-                rendered = [*rendered, "(cancelled by escape)"]
-            elif result.timed_out:
-                rendered = [*rendered, "(timed out)"]
-            terminal_ui.add_tool_result(
-                lines=rendered,
-                is_error=result.timed_out or not result.started,
+        # Status line mirrors the bash tool's _shape: a timeout, the exit code,
+        # or cancellation. A non-zero exit (e.g. !false) is an error the model
+        # should see, matching the real bash execution boundary.
+        if result.cancelled:
+            status_line = "(cancelled by escape)"
+        elif result.timed_out:
+            status_line = "(timed out)"
+        else:
+            status_line = f"exit code: {result.exit_code}"
+        is_error = (
+            result.timed_out
+            or not result.started
+            or (
+                not result.cancelled
+                and result.exit_code is not None
+                and result.exit_code != 0
             )
+        )
+        if terminal_ui is not None:
+            rendered = [status_line, *(output_text.splitlines() or [""])]
+            terminal_ui.add_tool_result(lines=rendered, is_error=is_error)
         else:
             # Captured-stream path: the body already streamed through the sink,
-            # so print only a trailing newline plus a terminal-state note —
-            # never re-print the output (that duplicated every command's output).
-            if not result.output:
-                print("(no output)", file=error_stream)
-            if result.cancelled:
-                print("(cancelled)", file=error_stream)
-            elif result.timed_out:
-                print("(timed out)", file=error_stream)
-            else:
-                print(file=error_stream)
+            # so print only the status line (never re-print the output — that
+            # duplicated every command's output).
+            print(status_line, file=error_stream)
 
         if exclude_from_context or not result.started:
             return None
-        suffix = "\n\n(command cancelled before completion)" if result.cancelled else ""
         return (
             "I ran a shell command in the workspace (not a tool call):\n\n"
-            f"$ {command}\n\n{output_text}{suffix}"
+            f"$ {command}\n{status_line}\n\n{output_text}"
         )
 
     # Pi's reasoning-level cycle order (THINKING_LEVELS in agent-session.ts).

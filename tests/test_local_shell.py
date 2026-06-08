@@ -60,3 +60,46 @@ def test_cancel_event_terminates_long_command(tmp_path: Path) -> None:
     elapsed = time.monotonic() - start
     assert result.cancelled
     assert elapsed < 5.0, "cancel did not interrupt the sleep promptly"
+
+
+def test_failing_command_records_nonzero_exit_in_context(tmp_path: Path) -> None:
+    import io
+    from typing import TextIO, cast
+
+    from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
+    )
+    err = io.StringIO()
+    # !false exits non-zero; the recorded context must surface that status so
+    # the next provider turn is not misled into thinking it succeeded.
+    context = session._run_local_shell_shortcut(
+        "!false",
+        terminal_ui=None,
+        error_stream=cast(TextIO, err),
+        cwd=tmp_path,
+    )
+    assert context is not None
+    assert "exit code: 1" in context
+    assert "exit code: 1" in err.getvalue()
+
+
+def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
+    import io
+    from typing import TextIO, cast
+
+    from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
+    )
+    context = session._run_local_shell_shortcut(
+        "!echo hi",
+        terminal_ui=None,
+        error_stream=cast(TextIO, io.StringIO()),
+        cwd=tmp_path,
+    )
+    assert context is not None
+    assert "exit code: 0" in context
+    assert "hi" in context
