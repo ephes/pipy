@@ -219,6 +219,18 @@ def path_candidates(
     if not _listable_search_dir(search_dir, workspace):
         return []
 
+    # Workspace-relative completion applies the same ignored/generated deny and
+    # symlink-containment policy as the `@` picker walk, so it never offers an
+    # ignored entry (e.g. node_modules/) or a symlink escaping the workspace.
+    # Explicit absolute/home navigation (a search dir outside the workspace) is
+    # listed as-is — the user pointed Tab there directly (Pi parity).
+    try:
+        workspace_root = workspace.expanduser().resolve()
+        search_resolved = search_dir.resolve()
+    except OSError:
+        return []
+    filter_to_workspace = _is_relative_to(search_resolved, workspace_root)
+
     try:
         entries = list(os.scandir(search_dir))
     except OSError:
@@ -231,6 +243,12 @@ def path_candidates(
             continue
         if not name.lower().startswith(search_prefix.lower()):
             continue
+        if filter_to_workspace:
+            rel = (search_resolved / name).relative_to(workspace_root).as_posix()
+            if _is_ignored_or_generated(rel, workspace_root):
+                continue
+            if not _contained_in_workspace(Path(search_dir) / name, workspace_root):
+                continue
         try:
             is_dir = entry.is_dir()
         except OSError:

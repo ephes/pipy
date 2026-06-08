@@ -213,8 +213,12 @@ extend: an empty/space-trailing token, or a token (path-like or prose) that
 matches no workspace entry — in which case Tab inserts nothing rather than a tab
 character. A bare Tab on a path-like prefix completes the longest unambiguous
 segment and then re-opens the popup for the next segment. Completion is
-read-only filesystem inspection scoped by the existing path policy; it never
-reads file contents and never invokes the provider.
+read-only filesystem inspection scoped by the existing path policy: for a
+workspace-relative directory it applies the same `.git`/ignored-generated deny
+and symlink-containment check as the `@` picker (so it never offers an ignored
+entry such as `node_modules/` or a symlink escaping the workspace), while
+explicit absolute/`~/` navigation the user pointed Tab at is listed as-is (Pi
+parity). It never reads file contents and never invokes the provider.
 
 ## Clipboard / Drag Image Paste
 

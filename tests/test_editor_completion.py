@@ -212,6 +212,58 @@ class TestPathCandidates:
         items = path_candidates(tmp_path, '"my dir/')
         assert any(item.value == '"my dir/file.txt"' for item in items)
 
+    def test_generated_dir_entry_is_not_offered(self, tmp_path: Path) -> None:
+        # Tab completion must not offer ignored/generated entries (node_modules,
+        # build, __pycache__, …), matching the `@` picker walk and the fact that
+        # completion already refuses to list *into* such a directory. A normal
+        # sibling that shares the prefix is still offered.
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "pkg.js").write_text("x\n")
+        (tmp_path / "nodething").mkdir()
+        items = path_candidates(tmp_path, "node")
+        labels = {item.label for item in items}
+        assert "nodething/" in labels
+        assert "node_modules/" not in labels
+
+    def test_workspace_escaping_symlink_entry_is_not_offered(
+        self, tmp_path: Path
+    ) -> None:
+        # A symlink entry whose target escapes the workspace is not offered (it
+        # would fail the read policy anyway), matching the `@` picker's
+        # containment check. A contained sibling with the same prefix is offered.
+        import os
+
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.py").write_text("s\n")
+        (ws / "linked.py").write_text("c\n")  # contained, same "li" prefix
+        try:
+            os.symlink(outside / "secret.py", ws / "linkescape.py")
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable on this platform")
+        items = path_candidates(ws, "link")
+        labels = {item.label for item in items}
+        assert "linked.py" in labels
+        assert "linkescape.py" not in labels
+
+    def test_absolute_outside_dir_listing_is_unfiltered(
+        self, tmp_path: Path
+    ) -> None:
+        # Explicit absolute/home navigation outside the workspace is Pi-like:
+        # the workspace-relative ignored/containment filter does not apply, so an
+        # entry named like a generated dir is still listed when the user pointed
+        # Tab directly at that external directory.
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "node_modules").mkdir()
+        items = path_candidates(ws, f"{outside}/node")
+        labels = {item.label for item in items}
+        assert "node_modules/" in labels
+
 
 class TestQuotedReferenceResolution:
     """The @path / @image: resolvers must load quoted, space-containing paths
