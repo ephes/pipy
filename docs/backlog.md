@@ -220,10 +220,18 @@ not a promise to skip review when a smaller, safer slice appears.
    renders red `Operation aborted`, returning to a usable prompt. Cancellation
    is cooperative: the aborted turn returns without appending an assistant/tool
    observation and late chunks are suppressed, so even a provider that ignored
-   the token cannot mutate session/context state. Proven by boundary unit tests
-   (real-socket proofs for the header wait, a `Content-Length` body read, and a
-   `Connection: close` body read; an SSE EOF-on-cancel guard) and a real-PTY
-   test that drives the actual Escape/Ctrl-C key sequences mid-turn.
+   the token cannot mutate session/context state. The socket-shutdown read path
+   tolerates CPython's `http.client._close_conn` shutdown race — a concurrent
+   `self.fp = None` can surface as `AttributeError: 'NoneType' object has no
+   attribute 'close'` rather than `OSError` — by mapping that (plus
+   `OSError`/`ValueError`/`HTTPException`) to `ProviderCancelledError` only when
+   the token is cancelled, so an aborted body read never leaks a spurious
+   provider error while a genuine non-cancel error still propagates. Proven by
+   boundary unit tests (real-socket proofs for the header wait, a
+   `Content-Length` body read, and a `Connection: close` body read; an SSE
+   EOF-on-cancel guard; deterministic `AttributeError`-mapping proofs in both the
+   cancelled and not-cancelled directions) and a real-PTY test that drives the
+   actual Escape/Ctrl-C key sequences mid-turn.
 9. RPC, multi-agent orchestration, indexing, and local-provider maturity. The
    local ds4 provider now has real large-model one-shot and tool-call smoke
    coverage; remaining product maturity work is broader local-provider

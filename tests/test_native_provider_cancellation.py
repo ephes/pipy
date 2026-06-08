@@ -247,6 +247,76 @@ def test_urlopen_read_cancellable_interrupts_connection_close_body() -> None:
     assert not worker.is_alive()
 
 
+class _AttributeErrorOnReadResponse:
+    """Fake urllib response whose body read raises ``AttributeError``.
+
+    Reproduces CPython's ``http.client`` shutdown race deterministically: when
+    :meth:`CancelToken.cancel` shuts the socket down mid-read,
+    ``HTTPResponse._close_conn`` can call ``fp.close()`` after a concurrent path
+    already set ``self.fp = None``, surfacing ``AttributeError: 'NoneType'
+    object has no attribute 'close'`` instead of an ``OSError``.
+    """
+
+    def getcode(self) -> int:
+        return 200
+
+    def read(self) -> bytes:
+        raise AttributeError("'NoneType' object has no attribute 'close'")
+
+    def close(self) -> None:
+        pass
+
+
+def test_urlopen_read_cancellable_maps_attributeerror_when_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read ``AttributeError`` after cancel is a cancellation, not a failure.
+
+    Shutting the socket down mid-read can race ``http.client`` into raising
+    ``AttributeError`` rather than ``OSError``. With the token cancelled the
+    helper must still surface :class:`ProviderCancelledError` so the abort path
+    is taken instead of leaking a spurious provider error.
+    """
+
+    import pipy_harness.native._provider_helpers as helpers
+
+    monkeypatch.setattr(
+        helpers,
+        "open_url_cancellable",
+        lambda *a, **k: _AttributeErrorOnReadResponse(),
+    )
+    token = CancelToken()
+    token.cancel()
+    request = urllib.request.Request("http://127.0.0.1:1/", method="POST")
+
+    with pytest.raises(ProviderCancelledError):
+        urlopen_read_cancellable(request, timeout_seconds=5.0, cancel_token=token)
+
+
+def test_urlopen_read_cancellable_attributeerror_propagates_without_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ``AttributeError`` that is *not* a cancellation must still surface.
+
+    The cancel mapping is scoped to ``cancel_token.cancelled``: a genuine bug
+    that raises ``AttributeError`` while the token is live must propagate as
+    itself, never be silently swallowed as a cancellation.
+    """
+
+    import pipy_harness.native._provider_helpers as helpers
+
+    monkeypatch.setattr(
+        helpers,
+        "open_url_cancellable",
+        lambda *a, **k: _AttributeErrorOnReadResponse(),
+    )
+    token = CancelToken()  # never cancelled
+    request = urllib.request.Request("http://127.0.0.1:1/", method="POST")
+
+    with pytest.raises(AttributeError):
+        urlopen_read_cancellable(request, timeout_seconds=5.0, cancel_token=token)
+
+
 def test_urlopen_read_cancellable_passthrough_without_token() -> None:
     """With no token the helper behaves like a plain urlopen+read."""
 

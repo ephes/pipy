@@ -21,6 +21,23 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
+# Exceptions that a concurrent :meth:`CancelToken.cancel` can surface from a
+# blocked ``http.client`` read once it shuts the socket down. The expected
+# symptom is ``OSError`` (the shut-down ``recv`` returns/raises), but the same
+# shutdown also races ``http.client.HTTPResponse._close_conn``: one path sets
+# ``self.fp = None`` while another calls ``fp.close()``, yielding
+# ``AttributeError: 'NoneType' object has no attribute 'close'``. ``ValueError``
+# / ``HTTPException`` cover partially-read or torn-down responses. All are benign
+# artifacts of the deliberate cancellation, so callers map them to
+# :class:`ProviderCancelledError` *only* when the token is actually cancelled;
+# otherwise they re-raise so a genuine bug still surfaces.
+CANCELLED_READ_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    ValueError,
+    http.client.HTTPException,
+    AttributeError,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class JsonResponse:
@@ -167,7 +184,7 @@ def open_url_cancellable(
         return opener.open(request, timeout=timeout_seconds)
     except urllib.error.HTTPError:
         raise
-    except (OSError, ValueError, http.client.HTTPException) as exc:
+    except CANCELLED_READ_ERRORS as exc:
         if cancel_token.cancelled:
             raise ProviderCancelledError("native provider turn cancelled") from exc
         raise
@@ -202,7 +219,7 @@ def urlopen_read_cancellable(
         payload = response.read()
     except urllib.error.HTTPError:
         raise
-    except (OSError, ValueError, http.client.HTTPException) as exc:
+    except CANCELLED_READ_ERRORS as exc:
         if cancel_token.cancelled:
             raise ProviderCancelledError(
                 "native provider turn cancelled"

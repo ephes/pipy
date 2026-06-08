@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import http.client
 import json
 import os
 import secrets
@@ -22,7 +21,7 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object, open_url_cancellable
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object, open_url_cancellable, CANCELLED_READ_ERRORS
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
@@ -195,7 +194,7 @@ class UrllibSseHTTPClient:
                     if cancel_token is not None:
                         cancel_token.raise_if_cancelled()
                     yield event
-            except (OSError, ValueError, http.client.HTTPException) as exc:
+            except CANCELLED_READ_ERRORS as exc:
                 if cancel_token is not None and cancel_token.cancelled:
                     raise ProviderCancelledError(
                         "native provider turn cancelled"
