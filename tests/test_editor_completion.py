@@ -267,3 +267,22 @@ class TestQuotedDirectoryContinuation:
         # ...and completes the directory's contents.
         nested = path_candidates(tmp_path, "my dir/")
         assert any(i.label == "sub/" for i in nested)
+
+
+class TestPathCompletionGitDeny:
+    def test_listing_into_git_dir_is_denied(self, tmp_path: Path) -> None:
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        # `.git/<Tab>` must not list the .git directory's contents.
+        assert path_candidates(tmp_path, ".git/") == []
+
+    def test_listing_into_git_subdir_is_denied(self, tmp_path: Path) -> None:
+        (tmp_path / ".git" / "refs").mkdir(parents=True)
+        (tmp_path / ".git" / "refs" / "tagfile").write_text("x\n")
+        assert path_candidates(tmp_path, ".git/refs/") == []
+
+    def test_normal_dir_still_lists(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "a.py").write_text("x\n")
+        labels = {item.label for item in path_candidates(tmp_path, "src/")}
+        assert "a.py" in labels

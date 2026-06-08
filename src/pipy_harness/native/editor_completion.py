@@ -204,7 +204,8 @@ def path_candidates(
     ranking). ``~/`` is expanded to the home directory, ``.``/``./`` and
     absolute prefixes are preserved in the returned ``value``, directories keep
     a trailing ``/``, and a ``value`` containing a space is double-quoted. Reads
-    no file contents; ``.git`` entries are never listed.
+    no file contents; ``.git`` entries are never listed, and a ``.git`` (or
+    other hard-denied / ignored) directory is never listed *into* either.
     """
 
     if not _safe_completion_prefix(prefix):
@@ -214,6 +215,8 @@ def path_candidates(
 
     search_dir, search_prefix = _resolve_search_dir(workspace, raw)
     if search_dir is None:
+        return []
+    if not _listable_search_dir(search_dir, workspace):
         return []
 
     try:
@@ -353,6 +356,29 @@ def _safe_completion_prefix(prefix: str) -> bool:
     if "\x00" in prefix:
         return False
     return not any(ord(char) < 32 for char in prefix)
+
+
+def _listable_search_dir(search_dir: Path, workspace: Path) -> bool:
+    """Whether a Tab-completion search directory may be listed at all.
+
+    Never lists into a hard-denied directory (``.git`` as any path component),
+    and for workspace-relative directories applies the same ignored/generated
+    deny the ``@`` picker walk uses — so ``.git/<Tab>`` (and other ignored
+    roots) cannot bypass the completion boundary by being the search dir itself.
+    """
+
+    if any(part in _HARD_DENY_DIR_NAMES for part in search_dir.parts):
+        return False
+    try:
+        workspace_root = workspace.expanduser().resolve()
+        resolved = search_dir.resolve()
+    except OSError:
+        return False
+    if _is_relative_to(resolved, workspace_root):
+        rel = resolved.relative_to(workspace_root).as_posix()
+        if rel not in {"", "."} and _is_ignored_or_generated(rel, workspace_root):
+            return False
+    return True
 
 
 def _resolve_search_dir(
