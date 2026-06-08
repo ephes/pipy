@@ -2809,9 +2809,21 @@ class ToolLoopTerminalUi:
         resets ``input_text`` unless ``_pending_initial_text`` is set — so
         without this the restored messages would be wiped before the user saw
         them.
+
+        Includes ``_pending_drain``: once a turn settles (or steering promotes)
+        the lanes are emptied into the drain, so on an Escape-abort the
+        not-yet-delivered drain entries must come back too — otherwise they stay
+        hidden and keep auto-submitting to the provider after the cancellation.
+        They lead (they are next to deliver) ahead of any steering/follow-up
+        enqueued after promotion.
         """
 
-        queued = [*self._pending_steering, *self._pending_follow_up]
+        queued = [
+            *self._pending_drain,
+            *self._pending_steering,
+            *self._pending_follow_up,
+        ]
+        self._pending_drain.clear()
         self._pending_steering.clear()
         self._pending_follow_up.clear()
         if not queued:

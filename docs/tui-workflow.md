@@ -198,18 +198,23 @@ alphabetically (no fuzzy ranking), with the same `~/` expansion, space-quoting,
 and trailing-slash rules as the `@` picker. This makes `./src/<Tab>` or
 `~/pr<Tab>` complete inline without an `@`.
 
-**Pipy target** (same editor/provider boundary as the `@` picker): when the
-token before the cursor looks path-like (contains `/`, or starts with `.` or
-`~/`), Tab completes against the directory listing for that prefix using a single
+**Pipy target** (same editor/provider boundary as the `@` picker): Tab completes
+against the directory listing for the token before the cursor using a single
 bounded stdlib `os.scandir` of the prefix's directory, case-insensitive
 `startswith` prefix matching, and directories-first-then-alphabetical ordering
 (not fuzzy ranking), with the same `~/` expansion, space-quoting, and
-trailing-slash behavior. A bare Tab on a path-like prefix completes the longest
-unambiguous segment and then re-opens the popup for the next segment. A Tab in a
-clearly non-path context (e.g. mid-prose) is a no-op rather than inserting a tab
-character, matching Pi's "Tab = path completion / accept autocomplete" binding.
-Completion is read-only filesystem inspection scoped by the existing path
-policy; it never reads file contents and never invokes the provider.
+trailing-slash behavior. Matching Pi's forced extraction (`extractPathPrefix`
+with the Tab `forceExtract` flag "always returns something"), Tab does not
+require a path-like token: a bare workspace prefix such as `scr<Tab>` or
+`read<Tab>` completes to a matching entry (`scripts/`, `README.md`) just as
+`./src/<Tab>` or `~/pr<Tab>` does — Pi force-completes any token whose name
+prefix-matches a workspace entry. Tab is a no-op only when there is nothing to
+extend: an empty/space-trailing token, or a token (path-like or prose) that
+matches no workspace entry — in which case Tab inserts nothing rather than a tab
+character. A bare Tab on a path-like prefix completes the longest unambiguous
+segment and then re-opens the popup for the next segment. Completion is
+read-only filesystem inspection scoped by the existing path policy; it never
+reads file contents and never invokes the provider.
 
 ## Clipboard / Drag Image Paste
 

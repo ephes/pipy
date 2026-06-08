@@ -100,6 +100,39 @@ def test_restore_prepends_to_existing_editor_text(tmp_path: Path) -> None:
     assert ui.input_text == "queued\n\ntyped so far"
 
 
+def test_abort_restores_remaining_drain_to_editor(tmp_path: Path) -> None:
+    # Once promoted, queued messages live in the drain. If the user aborts while
+    # a drained turn is running, the remaining drain entries must be restored to
+    # the editor — not silently kept and auto-submitted to the provider after
+    # the cancellation.
+    ui = _ui(tmp_path)
+    ui.input_text = ""
+    ui.enqueue_steering("S1")
+    ui.enqueue_follow_up("F1")
+    ui.promote_pending_to_drain()
+    # The first drained item was delivered as a turn (popped) before the abort.
+    assert ui.take_next_drain() == "S1"
+    ui.restore_pending_to_editor()
+    # Nothing remains to auto-submit; the remaining queued prompt is in the editor.
+    assert ui.take_next_drain() is None
+    assert not ui.has_pending_messages()
+    assert ui.input_text == "F1"
+
+
+def test_abort_restores_drain_before_unpromoted_lanes(tmp_path: Path) -> None:
+    # Restored order: not-yet-delivered drain entries (next up) precede any
+    # newly enqueued steering/follow-up that had not been promoted yet.
+    ui = _ui(tmp_path)
+    ui.input_text = ""
+    ui.enqueue_follow_up("F1")
+    ui.promote_pending_to_drain()  # drain = [F1]
+    ui.enqueue_steering("S2")  # enqueued after promotion, not yet drained
+    ui.restore_pending_to_editor()
+    assert ui.input_text == "F1\n\nS2"
+    assert ui.take_next_drain() is None
+    assert not ui.has_pending_messages()
+
+
 def test_pending_region_is_capped(tmp_path: Path) -> None:
     # A large queue must not grow the pinned chrome unbounded; the pending
     # region caps message rows and summarizes the rest.
