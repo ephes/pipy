@@ -43,6 +43,7 @@ Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 from __future__ import annotations
 
 import argparse
+import base64
 import io
 import json
 import os
@@ -598,8 +599,9 @@ def _check_non_tty_fallback(base: Path) -> Check:
 
 
 def _check_archive_privacy(base: Path) -> Check:
-    """No prompt body, command output, or image bytes reach the metadata
-    archive (the native transcript keeps them; the archive does not)."""
+    """No prompt body, command output, image bytes, or provider payload reaches
+    the metadata archive (the native transcript keeps them; the archive does
+    not). Exercises all four payload kinds the gate's item 12 claims."""
 
     from pipy_harness.adapters.native import PipyNativeToolReplAdapter
     from pipy_harness.runner import FileSessionRecorder, HarnessRunner
@@ -611,12 +613,20 @@ def _check_archive_privacy(base: Path) -> Check:
     ws.mkdir(parents=True, exist_ok=True)
     secret_prompt = "SECRET_PROMPT_BODY"
     secret_cmd = "SECRET_CMD_OUTPUT"
+    secret_provider = "SECRET_PROVIDER_PAYLOAD"
+    secret_image_marker = "SECRETIMAGEBYTES"
+    # A valid PNG (magic bytes) carrying a unique ASCII marker in its body, so a
+    # raw-image-bytes leak into the archive would be detectable as that marker.
+    (ws / "secret-image.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + secret_image_marker.encode("ascii") + b"\x00" * 32
+    )
     tree = NativeSessionTree.create(ws, session_dir=native_dir)
     adapter = PipyNativeToolReplAdapter(
-        provider=_FakeProvider("ARCHIVE_DONE"),
+        provider=_FakeProvider(secret_provider),
         native_session=tree,
         input_stream=io.StringIO(
-            f"{secret_prompt}\n!echo {secret_cmd}\n/exit\n"
+            f"{secret_prompt} @image:secret-image.png\n"
+            f"!echo {secret_cmd}\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
@@ -634,15 +644,21 @@ def _check_archive_privacy(base: Path) -> Check:
     )
     archive_body = result.record.jsonl_path.read_text(encoding="utf-8")
     native_body = tree.path.read_text(encoding="utf-8") if tree.path else ""
+    image_b64 = base64.b64encode(secret_image_marker.encode("ascii")).decode("ascii")
     prompt_ok = secret_prompt in native_body and secret_prompt not in archive_body
     cmd_ok = secret_cmd in native_body and secret_cmd not in archive_body
+    # The provider final text is in the native transcript but never archived.
+    provider_ok = secret_provider in native_body and secret_provider not in archive_body
+    # Neither the raw image marker nor its base64 encoding reaches the archive.
+    image_ok = (
+        secret_image_marker not in archive_body and image_b64 not in archive_body
+    )
+    ok = prompt_ok and cmd_ok and provider_ok and image_ok
     return Check(
         "archive_privacy_no_leak",
-        prompt_ok and cmd_ok,
-        f"prompt_in_native={secret_prompt in native_body} "
-        f"prompt_in_archive={secret_prompt in archive_body} "
-        f"cmd_in_native={secret_cmd in native_body} "
-        f"cmd_in_archive={secret_cmd in archive_body}",
+        ok,
+        f"prompt_ok={prompt_ok} cmd_ok={cmd_ok} provider_ok={provider_ok} "
+        f"image_ok={image_ok}",
     )
 
 
