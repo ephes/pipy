@@ -30,6 +30,14 @@ from pipy_harness.native.chrome import (
     discover_loaded_resource_names,
     pipy_version_label,
 )
+from pipy_harness.native.clipboard import ImageClipboardResult
+from pipy_harness.native.editor_completion import (
+    CompletionItem,
+    at_candidates,
+    extract_at_token,
+    extract_path_prefix,
+    path_candidates,
+)
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
@@ -92,6 +100,22 @@ _BRACKETED_PASTE_END = "\x1b[201~"
 # East-Asian-width "Narrow", so it occupies one terminal cell.
 _INPUT_NEWLINE_GLYPH = "⏎"
 
+# Internal sentinel "commands" returned by ``read_line`` for in-editor hotkeys
+# that the session dispatches without rendering a user-message bubble. The
+# leading control byte cannot be produced by ordinary typing or paste, so these
+# never collide with a real prompt. The session translates the model-cycle
+# sentinels into the existing ``/scoped-models next``/``prev`` dispatch.
+HOTKEY_THINKING_CYCLE = "\x00pipy-hotkey:thinking-cycle"
+HOTKEY_MODEL_CYCLE_NEXT = "\x00pipy-hotkey:model-cycle-next"
+HOTKEY_MODEL_CYCLE_PREV = "\x00pipy-hotkey:model-cycle-prev"
+HOTKEY_TOGGLE_TOOLS = "\x00pipy-hotkey:toggle-tools"
+HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
+
+# Outcomes of the active-turn watcher / mid-turn editor.
+TURN_SETTLED = "settled"  # the provider turn finished on its own
+TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
+TURN_STEERED = "steered"  # a steering message interrupted the turn
+
 
 @dataclass(frozen=True, slots=True)
 class ModelSelectorOption:
@@ -125,6 +149,18 @@ class SettingsRow:
     label: str
     kind: str = "status"
     action: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScopedModelRow:
+    """One row in the interactive ``/scoped-models`` multi-select overlay.
+
+    ``reference`` is the ``provider/model`` reference; ``available`` marks
+    auth-available rows (unavailable rows stay visible but are not togglable).
+    """
+
+    reference: str
+    available: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +216,16 @@ class ToolLoopTerminalUi:
     autocomplete_max_visible: int = 5
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
+    # Editor autocomplete popup state (the ``@`` file picker and Tab path
+    # completion). Mutually exclusive with the slash menu (which keeps priority
+    # for a leading ``/``). ``autocomplete_mode`` is ``"at"`` or ``"path"``;
+    # ``autocomplete_token_start`` is the index in ``input_text`` of the span
+    # that an accepted candidate replaces.
+    autocomplete_open: bool = False
+    autocomplete_items: tuple[CompletionItem, ...] = ()
+    autocomplete_selection: int = 0
+    autocomplete_mode: str = "at"
+    autocomplete_token_start: int = 0
     model_selector_open: bool = False
     model_selector_options: tuple[ModelSelectorOption, ...] = ()
     model_selector_selection: int = 0
@@ -190,6 +236,34 @@ class ToolLoopTerminalUi:
     tree_selector_rows: tuple["TreeSelectorRow", ...] = ()
     tree_selector_selection: int = 0
     tree_selector_filter: str = "default"
+    # /scoped-models multi-select overlay state.
+    scoped_models_open: bool = False
+    scoped_models_rows: tuple["ScopedModelRow", ...] = ()
+    scoped_models_selection: int = 0
+    scoped_models_checked: set[int] = field(default_factory=set)
+    # Folding/expansion view flags (Pi: Ctrl+O tool-output expansion, Ctrl+T
+    # thinking-block fold). These govern how the live region and newly committed
+    # blocks render; blocks already scrolled into native scrollback keep the
+    # form they were committed with (inline-rendering limitation versus Pi's
+    # full retro-rebuild, which would rewrite the host terminal's scrollback).
+    tools_expanded: bool = False
+    thinking_hidden: bool = False
+    # Queued steering / follow-up messages (Pi parity). While a provider turn
+    # streams, a normal Enter enqueues a steering message (interrupts the turn at
+    # the next safe point) and Alt+Enter enqueues a follow-up (runs after the
+    # turn settles). They render in a pending region; Alt+Up restores them to the
+    # editor. ``_pending_drain`` holds messages promoted for sequential delivery
+    # (steering first, then follow-up) once the turn stops.
+    _pending_steering: list[str] = field(default_factory=list)
+    _pending_follow_up: list[str] = field(default_factory=list)
+    _pending_drain: list[str] = field(default_factory=list)
+    # Clipboard / drag image paste (Pi Ctrl+V). ``clipboard_image_read`` reads an
+    # image from the OS clipboard; ``clipboard_temp_dir`` is an owner-only dir
+    # (also registered as an image reference root by the session) where pasted
+    # image bytes are written before an ``@image:`` reference is inserted.
+    clipboard_image_read: Callable[[], ImageClipboardResult] | None = None
+    clipboard_temp_dir: Path | None = None
+    _clipboard_image_count: int = 0
     _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     _old_termios: Any = None
     _closed: bool = False
@@ -266,6 +340,7 @@ class ToolLoopTerminalUi:
             self.input_cursor = 0
         self.slash_menu_open = False
         self.slash_menu_selection = 0
+        self._close_autocomplete()
         self._reset_line_editor_state()
         self.paint()
         fd = self.input_stream.fileno()
@@ -276,6 +351,11 @@ class ToolLoopTerminalUi:
                 if key is None:
                     return ""
                 if key == "enter":
+                    if self.autocomplete_open:
+                        # Enter accepts the highlighted completion (Pi: Enter/Tab
+                        # accept) and keeps editing rather than submitting.
+                        self._accept_autocomplete_selection()
+                        continue
                     if self.slash_menu_open and self._filtered_commands():
                         matches = self._filtered_commands()
                         if self.input_text not in matches:
@@ -285,6 +365,7 @@ class ToolLoopTerminalUi:
                     self.input_text = ""
                     self.input_cursor = 0
                     self.slash_menu_open = False
+                    self._close_autocomplete()
                     self._reset_line_editor_state()
                     self.paint()
                     return f"{submitted}\n"
@@ -294,24 +375,68 @@ class ToolLoopTerminalUi:
                     if not self.input_text:
                         return ""
                     continue
-                if key == "ctrl-p":
-                    # app.model.cycleForward (default ctrl+p): cycle to the next
-                    # model in the scoped set. Delegated to the session's
-                    # /scoped-models dispatch so the live provider rebinds through
-                    # the shared select_model boundary; no provider turn. Any
-                    # partially-typed input is preserved and re-injected into the
-                    # next prompt so the cycle never drops what the user was
-                    # typing (Pi's in-editor model swap keeps the buffer).
+                if key in {"ctrl-p", "shift-ctrl-p"}:
+                    # app.model.cycleForward (ctrl+p) / cycleBackward
+                    # (shift+ctrl+p): cycle the active model through the scoped
+                    # set. Delegated to the session's /scoped-models dispatch so
+                    # the live provider rebinds through the shared select_model
+                    # boundary; no provider turn. Any partially-typed input is
+                    # preserved and re-injected into the next prompt so the cycle
+                    # never drops what the user was typing. (shift+ctrl+p is only
+                    # decodable on terminals speaking the kitty keyboard
+                    # protocol; legacy terminals send plain ctrl+p and cycle
+                    # forward — a documented input-decoding limit.)
                     if self.input_text:
                         self._pending_initial_text = self.input_text
                     self.input_text = ""
                     self.input_cursor = 0
                     self.slash_menu_open = False
+                    self._close_autocomplete()
                     self._reset_line_editor_state()
-                    return "/scoped-models next\n"
+                    return (
+                        f"{HOTKEY_MODEL_CYCLE_PREV}\n"
+                        if key == "shift-ctrl-p"
+                        else f"{HOTKEY_MODEL_CYCLE_NEXT}\n"
+                    )
+                if key == "shift-tab":
+                    # app.thinking.cycle: cycle the reasoning level. Dispatched
+                    # by the session without a provider turn; the partially-typed
+                    # buffer is preserved into the next prompt.
+                    if self.input_text:
+                        self._pending_initial_text = self.input_text
+                    self.input_text = ""
+                    self.input_cursor = 0
+                    self.slash_menu_open = False
+                    self._close_autocomplete()
+                    self._reset_line_editor_state()
+                    return f"{HOTKEY_THINKING_CYCLE}\n"
+                if key in {"ctrl-o", "ctrl-t"}:
+                    # app.tools.expand (ctrl+o) / app.thinking.toggle (ctrl+t):
+                    # renderer view-flag toggles dispatched by the session (so the
+                    # thinking-visibility setting can be persisted and a status
+                    # shown). The partially-typed buffer is preserved.
+                    if self.input_text:
+                        self._pending_initial_text = self.input_text
+                    self.input_text = ""
+                    self.input_cursor = 0
+                    self.slash_menu_open = False
+                    self._close_autocomplete()
+                    self._reset_line_editor_state()
+                    return (
+                        f"{HOTKEY_TOGGLE_TOOLS}\n"
+                        if key == "ctrl-o"
+                        else f"{HOTKEY_TOGGLE_THINKING}\n"
+                    )
                 if key == "paste":
                     self._insert_paste(self._pending_paste)
                     self._pending_paste = ""
+                    self.paint()
+                    continue
+                if key == "ctrl-v":
+                    # app.clipboard.pasteImage: read an image from the OS
+                    # clipboard, write it to an owner-only temp file, and insert
+                    # an @image: reference. No provider turn.
+                    self._paste_clipboard_image()
                     self.paint()
                     continue
                 if key == "backspace":
@@ -322,16 +447,26 @@ class ToolLoopTerminalUi:
                     if self.slash_menu_open:
                         self.slash_menu_open = False
                         self.paint()
+                    elif self.autocomplete_open:
+                        self._close_autocomplete()
+                        self.paint()
                     continue
                 if key in {"up", "down"}:
                     if self.slash_menu_open:
                         self._navigate_slash_menu(key)
+                    elif self.autocomplete_open:
+                        self._navigate_autocomplete(key)
                     else:
                         self._navigate_history(key)
                     continue
                 if key == "tab":
                     if self.slash_menu_open and self._filtered_commands():
                         self._accept_slash_menu_selection()
+                    elif self.autocomplete_open:
+                        self._accept_autocomplete_selection()
+                    else:
+                        self._attempt_path_completion()
+                        self.paint()
                     continue
                 if key in {"left", "right", "home", "end"}:
                     self._move_input_cursor(key)
@@ -356,9 +491,25 @@ class ToolLoopTerminalUi:
             self._restore_terminal_mode()
 
     def wait_for_active_turn_interrupt(
-        self, done_event: Any, abort_event: Any, *, poll_seconds: float = 0.05
-    ) -> bool:
-        """Watch raw stdin for Pi-style active-turn Escape cancellation."""
+        self,
+        done_event: Any,
+        abort_event: Any,
+        *,
+        poll_seconds: float = 0.05,
+        accept_queue: bool = False,
+    ) -> str:
+        """Watch stdin during an active turn; optionally a mid-turn editor.
+
+        Returns one of :data:`TURN_SETTLED`, :data:`TURN_ABORTED`, or
+        :data:`TURN_STEERED`. With ``accept_queue=False`` (e.g. a ``!`` shell
+        run) it only watches for Escape (sets ``abort_event``, returns
+        ``aborted``) and Ctrl-C (sets ``abort_event``, raises). With
+        ``accept_queue=True`` (a provider turn) it also accepts editor input
+        mid-turn: a normal Enter enqueues a steering message and interrupts the
+        turn (returns ``steered``), Alt+Enter enqueues a follow-up without
+        interrupting, Alt+Up restores queued messages to the editor, and
+        Escape/Ctrl-C abort (the caller restores the queue to the editor).
+        """
 
         fd = self.input_stream.fileno()
         try:
@@ -369,20 +520,66 @@ class ToolLoopTerminalUi:
                 # stalled stream would not, so poll here too.
                 self._poll_resize_repaint()
                 key = self._read_key_if_available(fd, poll_seconds)
-                if key == "paste":
-                    # A paste mid-turn is not editor input; drop it so its body
-                    # does not linger and is never inserted on the next prompt.
-                    self._pending_paste = ""
+                if key is None:
                     continue
                 if key == "esc":
                     abort_event.set()
-                    return True
+                    return TURN_ABORTED
                 if key == "ctrl-c":
                     abort_event.set()
                     raise KeyboardInterrupt
-            return False
+                if not accept_queue:
+                    if key == "paste":
+                        # A paste mid-turn is not editor input; drop it so its
+                        # body never lingers into the next prompt.
+                        self._pending_paste = ""
+                    continue
+                # accept_queue: a mid-turn editor for steering/follow-up.
+                if key == "enter":
+                    text = self.input_text
+                    self._reset_mid_turn_input()
+                    if text.strip():
+                        self.enqueue_steering(text)
+                        abort_event.set()
+                        self.paint()
+                        return TURN_STEERED
+                    self.paint()
+                    continue
+                if key == "alt-enter":
+                    text = self.input_text
+                    self._reset_mid_turn_input()
+                    self.enqueue_follow_up(text)
+                    self.paint()
+                    continue
+                if key == "alt-up":
+                    self.restore_pending_to_editor()
+                    self.paint()
+                    continue
+                if key == "paste":
+                    self._insert_paste(self._pending_paste)
+                    self._pending_paste = ""
+                    self.paint()
+                    continue
+                if key == "backspace":
+                    self._delete_before_cursor()
+                    self.paint()
+                    continue
+                if key in {"left", "right", "home", "end"}:
+                    self._move_input_cursor(key)
+                    self.paint()
+                    continue
+                if len(key) == 1 and key.isprintable():
+                    self._insert_input_text(key)
+                    self.paint()
+            return TURN_SETTLED
         finally:
             self._restore_terminal_mode()
+
+    def _reset_mid_turn_input(self) -> None:
+        self.input_text = ""
+        self.input_cursor = 0
+        self.slash_menu_open = False
+        self._close_autocomplete()
 
     def run_model_selector(
         self,
@@ -447,6 +644,160 @@ class ToolLoopTerminalUi:
         self.model_selector_options = ()
         self.model_selector_selection = 0
         self.paint()
+
+    def run_scoped_models_selector(
+        self,
+        rows: Sequence[ScopedModelRow],
+        *,
+        checked: Iterable[int] = (),
+    ) -> frozenset[str] | None:
+        """Drive the ``/scoped-models`` multi-select overlay; return the scope.
+
+        Renders one checkbox row per available model. Up/Down move, Space toggles
+        membership of the highlighted row, ``a`` enables all, ``c`` clears all,
+        Enter saves and returns the chosen ``provider/model`` reference set, and
+        Esc/Ctrl-C/Ctrl-D cancel (returning ``None``). Runs no provider turn.
+        """
+
+        self.scoped_models_rows = tuple(rows)
+        if not self.scoped_models_rows:
+            return None
+        self.scoped_models_checked = {
+            index
+            for index in checked
+            if 0 <= index < len(self.scoped_models_rows)
+            and self.scoped_models_rows[index].available
+        }
+        self.scoped_models_selection = next(
+            (i for i, row in enumerate(self.scoped_models_rows) if row.available), 0
+        )
+        self.scoped_models_open = True
+        self.paint()
+        fd = self.input_stream.fileno()
+        try:
+            self._enter_raw_mode()
+            while True:
+                key = self._read_key_polling_resize(fd)
+                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
+                    self._close_scoped_models_selector()
+                    return None
+                if key == "paste":
+                    self._pending_paste = ""
+                    continue
+                if key in {"up", "down"}:
+                    self._navigate_scoped_models(key)
+                    continue
+                if key == " ":
+                    self._toggle_scoped_models_row()
+                    continue
+                if key == "a":
+                    self.scoped_models_checked = {
+                        i for i, row in enumerate(self.scoped_models_rows) if row.available
+                    }
+                    self.paint()
+                    continue
+                if key == "c":
+                    self.scoped_models_checked = set()
+                    self.paint()
+                    continue
+                if key == "enter":
+                    chosen = frozenset(
+                        self.scoped_models_rows[i].reference
+                        for i in sorted(self.scoped_models_checked)
+                    )
+                    self._close_scoped_models_selector()
+                    return chosen
+        finally:
+            self._restore_terminal_mode()
+
+    def _navigate_scoped_models(self, key: str) -> None:
+        total = len(self.scoped_models_rows)
+        if total == 0:
+            return
+        delta = -1 if key == "up" else 1
+        index = self.scoped_models_selection
+        for _ in range(total):
+            index = (index + delta) % total
+            if self.scoped_models_rows[index].available:
+                break
+        self.scoped_models_selection = index
+        self.paint()
+
+    def _toggle_scoped_models_row(self) -> None:
+        index = self.scoped_models_selection
+        if not (0 <= index < len(self.scoped_models_rows)):
+            return
+        if not self.scoped_models_rows[index].available:
+            return
+        if index in self.scoped_models_checked:
+            self.scoped_models_checked.discard(index)
+        else:
+            self.scoped_models_checked.add(index)
+        self.paint()
+
+    def _close_scoped_models_selector(self) -> None:
+        self.scoped_models_open = False
+        self.scoped_models_rows = ()
+        self.scoped_models_selection = 0
+        self.scoped_models_checked = set()
+        self.paint()
+
+    def _scoped_models_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        rows = self.scoped_models_rows
+        footer = [
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        title = _FrameLine(
+            self._clip(
+                " Scoped models — ↑/↓ move · space toggle · a all · c clear · "
+                "enter save · esc cancel",
+                width,
+            ),
+            "selector_title",
+        )
+        max_rows = max(1, height - 4)
+        total = len(rows)
+        visible_count = min(total, max_rows)
+        start = max(
+            0,
+            min(
+                self.scoped_models_selection - (visible_count // 2),
+                max(0, total - visible_count),
+            ),
+        )
+        rendered: list[_FrameLine] = []
+        for offset in range(start, start + visible_count):
+            row = rows[offset]
+            selected = offset == self.scoped_models_selection
+            box = "[x]" if offset in self.scoped_models_checked else "[ ]"
+            suffix = "" if row.available else "  [unavailable]"
+            prefix = "→ " if selected else "  "
+            if selected:
+                kind = "selector_option_selected"
+            elif row.available:
+                kind = "selector_option"
+            else:
+                kind = "selector_option_disabled"
+            rendered.append(
+                _FrameLine(
+                    self._clip(f"{prefix}{box} {row.reference}{suffix}", width), kind
+                )
+            )
+        lines = [title, *rendered]
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  ({self.scoped_models_selection + 1}/{total})", width
+                    ),
+                    "slash_menu_scroll",
+                )
+            )
+        lines.extend(footer)
+        return lines
 
     def run_settings_dialog(
         self,
@@ -835,9 +1186,12 @@ class ToolLoopTerminalUi:
     def _settle_reasoning(self) -> None:
         if not self.reasoning_text:
             return
-        self._history_blocks.append(
-            ("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
-        )
+        # When thinking blocks are folded (Ctrl+T), reasoning is dropped rather
+        # than committed to scrollback, so subsequent renders honor the fold.
+        if not self.thinking_hidden:
+            self._history_blocks.append(
+                ("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
+            )
         self.reasoning_text = ""
 
     def add_notice(self, text: str) -> None:
@@ -932,7 +1286,7 @@ class ToolLoopTerminalUi:
                     width=width,
                 )
             )
-        if self.reasoning_text:
+        if self.reasoning_text and not self.thinking_hidden:
             history_lines.extend(
                 self._block_frame_lines(
                     "reasoning",
@@ -941,9 +1295,12 @@ class ToolLoopTerminalUi:
                 )
             )
         if self.tool_output_text:
-            stream_lines = (self.tool_output_text.splitlines() or [""])[
-                -_TOOL_STREAM_LIVE_LINES:
-            ]
+            live_cap = (
+                len(self.tool_output_text.splitlines()) + 1
+                if self.tools_expanded
+                else _TOOL_STREAM_LIVE_LINES
+            )
+            stream_lines = (self.tool_output_text.splitlines() or [""])[-live_cap:]
             history_lines.extend(
                 self._block_frame_lines("tool_result", stream_lines, width=width)
             )
@@ -955,6 +1312,7 @@ class ToolLoopTerminalUi:
             self.settings_dialog_open
             or self.model_selector_open
             or self.tree_selector_open
+            or self.scoped_models_open
         ):
             # The overlay replaces the input/menu region; keep as much trailing
             # history as fits above it so render_lines() agrees with the paint()
@@ -965,6 +1323,10 @@ class ToolLoopTerminalUi:
                 )
             elif self.tree_selector_open:
                 selector = self._tree_selector_region_lines(
+                    width=width, height=height
+                )
+            elif self.scoped_models_open:
+                selector = self._scoped_models_region_lines(
                     width=width, height=height
                 )
             else:
@@ -990,7 +1352,7 @@ class ToolLoopTerminalUi:
                 _FrameLine(line.text[:width], line.kind, line.meta)
                 for line in frame[:height]
             ]
-        menu_lines = self._slash_menu_frame_lines(
+        menu_lines = self._popup_menu_frame_lines(
             width=width,
             max_rows=max(1, height - 7),
         )
@@ -1020,14 +1382,17 @@ class ToolLoopTerminalUi:
                 for _ in range(min_history_lines - len(history_lines))
             )
 
-        separator = "─" * width
         input_line = self._clip(self._input_view(width)[0] + " ", width)
+        top_separator = self._input_frame_separator(width, label=False)
+        bottom_separator = self._input_frame_separator(width, label=True)
+        pending_lines = self._pending_region_lines(width)
         if menu_lines:
             frame = [
                 *history_lines,
-                _FrameLine(separator, "separator"),
+                *pending_lines,
+                top_separator,
                 _FrameLine(input_line, "input"),
-                _FrameLine(separator, "separator"),
+                bottom_separator,
                 *menu_lines,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
@@ -1035,9 +1400,10 @@ class ToolLoopTerminalUi:
         else:
             frame = [
                 *history_lines,
-                _FrameLine(separator, "separator"),
+                *pending_lines,
+                top_separator,
                 _FrameLine(input_line, "input"),
-                _FrameLine(separator, "separator"),
+                bottom_separator,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
             ]
@@ -1109,6 +1475,7 @@ class ToolLoopTerminalUi:
             self.model_selector_open
             or self.settings_dialog_open
             or self.tree_selector_open
+            or self.scoped_models_open
         ):
             # Park on the cursor's column *within the visible (possibly
             # horizontally scrolled) input slice*, so the hardware cursor and
@@ -1144,26 +1511,29 @@ class ToolLoopTerminalUi:
             return self._settings_dialog_region_lines(width=width, height=height)
         if self.tree_selector_open:
             return self._tree_selector_region_lines(width=width, height=height)
+        if self.scoped_models_open:
+            return self._scoped_models_region_lines(width=width, height=height)
         if self.model_selector_open:
             return self._model_selector_region_lines(width=width, height=height)
-        menu_lines = self._slash_menu_frame_lines(
+        menu_lines = self._popup_menu_frame_lines(
             width=width,
             max_rows=max(1, height - 7),
         )
-        # Chrome below the transient tail: two separators + input + menu rows
-        # + two footer rows.
-        chrome_height = 3 + len(menu_lines) + 2
+        pending_lines = self._pending_region_lines(width)
+        # Chrome below the transient tail: pending region + two separators +
+        # input + menu rows + two footer rows.
+        chrome_height = 3 + len(menu_lines) + len(pending_lines) + 2
         transient_budget = max(0, height - chrome_height - 1)
         transient = self._transient_tail_lines(width)
         if len(transient) > transient_budget:
             transient = transient[len(transient) - transient_budget :]
-        separator = "─" * width
         input_line = self._clip(self._input_view(width)[0] + " ", width)
         lines: list[_FrameLine] = [
             *transient,
-            _FrameLine(separator, "separator"),
+            *pending_lines,
+            self._input_frame_separator(width, label=False),
             _FrameLine(input_line, "input"),
-            _FrameLine(separator, "separator"),
+            self._input_frame_separator(width, label=True),
             *menu_lines,
             _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
             _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
@@ -1301,6 +1671,26 @@ class ToolLoopTerminalUi:
         lines.extend(footer)
         return lines
 
+    def _pending_region_lines(self, width: int) -> list[_FrameLine]:
+        """Render the queued steering/follow-up messages (Pi pending area)."""
+
+        if not self.has_pending_messages():
+            return []
+        lines: list[_FrameLine] = []
+        for text in self._pending_steering:
+            label = text.replace("\n", " ")
+            lines.append(_FrameLine(self._clip(f"  Steering: {label}", width), "notice"))
+        for text in self._pending_follow_up:
+            label = text.replace("\n", " ")
+            lines.append(_FrameLine(self._clip(f"  Follow-up: {label}", width), "notice"))
+        lines.append(
+            _FrameLine(
+                self._clip("  (alt+up to restore queued messages to the editor)", width),
+                "slash_menu_scroll",
+            )
+        )
+        return lines
+
     def _transient_tail_lines(self, width: int) -> list[_FrameLine]:
         lines: list[_FrameLine] = []
         if self.assistant_text:
@@ -1311,7 +1701,7 @@ class ToolLoopTerminalUi:
                     width=width,
                 )
             )
-        if self.reasoning_text:
+        if self.reasoning_text and not self.thinking_hidden:
             lines.extend(
                 self._block_frame_lines(
                     "reasoning",
@@ -1320,9 +1710,14 @@ class ToolLoopTerminalUi:
                 )
             )
         if self.tool_output_text:
-            stream_lines = (self.tool_output_text.splitlines() or [""])[
-                -_TOOL_STREAM_LIVE_LINES:
-            ]
+            # Ctrl+O expands the live tool-output tail from the bounded preview
+            # to the full retained stream (still capped by the live char bound).
+            live_cap = (
+                len(self.tool_output_text.splitlines()) + 1
+                if self.tools_expanded
+                else _TOOL_STREAM_LIVE_LINES
+            )
+            stream_lines = (self.tool_output_text.splitlines() or [""])[-live_cap:]
             lines.extend(
                 self._block_frame_lines("tool_result", stream_lines, width=width)
             )
@@ -1348,6 +1743,8 @@ class ToolLoopTerminalUi:
             return style.section_label(text)
         if line.kind == "separator":
             return style.separator(text)
+        if line.kind == "bash_separator":
+            return style.error(text)
         if line.kind == "working":
             return style.secondary_dim(text)
         if line.kind == "reasoning":
@@ -1474,10 +1871,12 @@ class ToolLoopTerminalUi:
                 "controls",
                 (
                     " escape interrupt · ctrl+c/ctrl+d clear/exit · ↑↓ history · "
-                    "ctrl+z/ctrl+y undo · / commands · ! bash · ctrl+o more",
+                    "/ commands · @ files · ! bash · tab paths",
+                    " shift+tab thinking · ctrl+p model · ctrl+o tool output · "
+                    "ctrl+t thinking fold · ctrl+v paste image · drop files to attach",
                 ),
             ),
-            ("dim", (" Press ctrl+o to show full startup help and loaded resources.",)),
+            ("dim", (" Type /hotkeys for the full key reference and loaded resources.",)),
             ("normal", ("",)),
             (
                 "dim",
@@ -1832,6 +2231,10 @@ class ToolLoopTerminalUi:
             return "ctrl-o"
         if ch == "\x10":
             return "ctrl-p"
+        if ch == "\x14":
+            return "ctrl-t"
+        if ch == "\x16":
+            return "ctrl-v"
         return ch
 
     def _read_escape_sequence(self, fd: int) -> str:
@@ -1845,7 +2248,12 @@ class ToolLoopTerminalUi:
         """
 
         next1 = self._read_byte_with_timeout(fd, 0.05)
-        if next1 == "" or next1 != "[":
+        if next1 == "":
+            return "esc"
+        # Alt+Enter (queue a follow-up) arrives as ESC followed by CR/LF.
+        if next1 in {"\r", "\n"}:
+            return "alt-enter"
+        if next1 != "[":
             return "esc"
         sequence = ""
         while True:
@@ -1858,6 +2266,19 @@ class ToolLoopTerminalUi:
         if sequence == _BRACKETED_PASTE_START:
             self._pending_paste = self._read_bracketed_paste(fd)
             return "paste"
+        # Alt-modified arrows / Enter arrive as CSI sequences with a `;3`
+        # (alt) modifier; map the ones this track binds. ``alt+up`` dequeues
+        # queued messages; ``alt+enter`` queues a follow-up.
+        if sequence in {"1;3A", "1;9A"}:
+            return "alt-up"
+        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P, when the
+        # terminal speaks the kitty keyboard protocol, arrives as CSI u with a
+        # ctrl+shift modifier (6); legacy terminals cannot distinguish it from
+        # Ctrl+P and fall through to forward cycling (documented decode limit).
+        if sequence == "Z":
+            return "shift-tab"
+        if sequence == "112;6u":
+            return "shift-ctrl-p"
         return {
             "A": "up",
             "B": "down",
@@ -1986,12 +2407,95 @@ class ToolLoopTerminalUi:
 
         if not text:
             return
+        # Terminal drag-drop arrives as a bracketed paste; a single existing
+        # file path is treated as an attachment reference (Pi "drop files to
+        # attach") — an image path becomes ``@image:``, any other existing path
+        # becomes ``@path`` — so submit resolves it through the usual loaders.
+        reference = self._as_drag_reference(text)
+        if reference is not None:
+            text = reference
         self._snapshot_for_undo()
         self._reset_history_nav()
         cursor = self._effective_input_cursor()
         self.input_text = self.input_text[:cursor] + text + self.input_text[cursor:]
         self.input_cursor = cursor + len(text)
         self._refresh_slash_menu_state()
+
+    @staticmethod
+    def _as_drag_reference(text: str) -> str | None:
+        """Return an ``@image:``/``@path`` reference for a dropped file path.
+
+        Returns ``None`` for ordinary pasted text (multi-line, or not an
+        existing single file path), which is then inserted literally.
+        """
+
+        candidate = text.strip()
+        if not candidate or "\n" in candidate:
+            return None
+        if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in "\"'":
+            candidate = candidate[1:-1]
+        if not candidate or "\x00" in candidate:
+            return None
+        try:
+            if not Path(candidate).expanduser().is_file():
+                return None
+        except OSError:
+            return None
+        # Re-quote a path containing a space so the reference resolves as a
+        # single token (the @path/@image: resolvers accept @"…"); an unquoted
+        # spaced path would otherwise break at the space.
+        rendered = f'"{candidate}"' if " " in candidate else candidate
+        image_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+        if Path(candidate).suffix.lower() in image_suffixes:
+            return f"@image:{rendered} "
+        return f"@{rendered} "
+
+    def _paste_clipboard_image(self) -> None:
+        """Insert an ``@image:`` reference for the OS clipboard image (Ctrl+V).
+
+        Reads the clipboard image through the injected reader, writes it to an
+        owner-only temp file under the session clipboard dir (registered as an
+        image reference root), and inserts an ``@image:<path>`` reference so the
+        existing attachment resolver loads it on submit. Reports a local notice
+        when no image / no tool is available; no image bytes reach the archive.
+        """
+
+        if self.clipboard_image_read is None or self.clipboard_temp_dir is None:
+            self.add_notice("pipy: clipboard image paste is not available here.")
+            return
+        result = self.clipboard_image_read()
+        if not result.found:
+            self.add_notice(f"pipy: {result.detail}.")
+            return
+        extension = {
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/gif": "gif",
+            "image/webp": "webp",
+        }.get(result.media_type, "png")
+        try:
+            self.clipboard_temp_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.clipboard_temp_dir.chmod(0o700)
+            except OSError:
+                pass
+            self._clipboard_image_count += 1
+            path = (
+                self.clipboard_temp_dir
+                / f"pipy-clipboard-{self._clipboard_image_count}.{extension}"
+            )
+            descriptor = os.open(
+                path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(result.data)
+        except OSError:
+            self.add_notice("pipy: could not save the pasted clipboard image.")
+            return
+        # Quote the reference when the temp path contains a space (e.g. a TMPDIR
+        # with spaces) so the @image: resolver loads it as a single token.
+        reference = f'"{path}"' if " " in str(path) else str(path)
+        self._insert_input_text(f"@image:{reference} ")
 
     def _delete_before_cursor(self) -> None:
         cursor = self._effective_input_cursor()
@@ -2151,6 +2655,197 @@ class ToolLoopTerminalUi:
         else:
             self.slash_menu_open = False
             self.slash_menu_selection = 0
+        self._refresh_autocomplete_state()
+
+    def _refresh_autocomplete_state(self) -> None:
+        """Open/refresh the ``@`` file picker as the editor content changes.
+
+        The slash menu keeps priority for a leading ``/``; while it is open the
+        autocomplete popup stays closed so the two never co-open. Otherwise an
+        ``@``-prefixed token at the cursor opens a scored, workspace-bounded
+        file picker (Pi's content trigger). Tab path completion is forced (not
+        auto), so it is not opened here.
+        """
+
+        if self.slash_menu_open:
+            self._close_autocomplete()
+            return
+        before_cursor = self.input_text[: self._effective_input_cursor()]
+        token = extract_at_token(before_cursor)
+        if token is None:
+            self._close_autocomplete()
+            return
+        start, query = token
+        items = at_candidates(self.cwd, query)
+        if not items:
+            self._close_autocomplete()
+            return
+        self.autocomplete_open = True
+        self.autocomplete_mode = "at"
+        self.autocomplete_items = tuple(items)
+        self.autocomplete_token_start = start
+        if self.autocomplete_selection >= len(items):
+            self.autocomplete_selection = 0
+
+    def _close_autocomplete(self) -> None:
+        self.autocomplete_open = False
+        self.autocomplete_items = ()
+        self.autocomplete_selection = 0
+
+    def enqueue_steering(self, text: str) -> None:
+        if text.strip():
+            self._pending_steering.append(text)
+
+    def enqueue_follow_up(self, text: str) -> None:
+        if text.strip():
+            self._pending_follow_up.append(text)
+
+    def has_pending_messages(self) -> bool:
+        return bool(self._pending_steering or self._pending_follow_up)
+
+    def promote_pending_to_drain(self) -> None:
+        """Move queued messages into the sequential drain (steering first).
+
+        Called once a turn stops with queued messages so the session delivers
+        them in order — all steering, then all follow-up — as the next prompts.
+        """
+
+        self._pending_drain.extend(self._pending_steering)
+        self._pending_drain.extend(self._pending_follow_up)
+        self._pending_steering.clear()
+        self._pending_follow_up.clear()
+
+    def restore_pending_to_editor(self) -> None:
+        """Restore queued messages into the editor joined by blank lines (Alt+Up
+        / Escape-abort), then clear the lanes."""
+
+        queued = [*self._pending_steering, *self._pending_follow_up]
+        self._pending_steering.clear()
+        self._pending_follow_up.clear()
+        if not queued:
+            return
+        joined = "\n\n".join(queued)
+        existing = self.input_text
+        self.input_text = f"{joined}\n\n{existing}" if existing else joined
+        self.input_cursor = len(self.input_text)
+        self._refresh_slash_menu_state()
+
+    def take_next_drain(self) -> str | None:
+        """Pop the next queued message to deliver as a prompt, or None."""
+
+        if not self._pending_drain:
+            return None
+        return self._pending_drain.pop(0)
+
+    def _is_bash_mode(self) -> bool:
+        """True when the editor buffer is a ``!``/``!!`` local-shell shortcut.
+
+        Mirrors Pi's ``isBashMode`` editor border: while the first non-space
+        character of the input is ``!`` the input frame paints a distinct
+        bash-mode affordance (Enter runs a shell command, not a provider turn).
+        """
+
+        return self.input_text.lstrip().startswith("!")
+
+    def _input_frame_separator(self, width: int, *, label: bool) -> _FrameLine:
+        """Return an input-frame separator, bash-styled while in bash mode."""
+
+        if not self._is_bash_mode():
+            return _FrameLine("─" * width, "separator")
+        text = "─" * width
+        if label:
+            tag = " ! bash "
+            if width > len(tag) + 2:
+                text = "─" + tag + "─" * (width - len(tag) - 1)
+        return _FrameLine(text, "bash_separator")
+
+    def _navigate_autocomplete(self, key: str) -> None:
+        if not self.autocomplete_open or not self.autocomplete_items:
+            return
+        delta = -1 if key == "up" else 1
+        self.autocomplete_selection = (
+            self.autocomplete_selection + delta
+        ) % len(self.autocomplete_items)
+        self.paint()
+
+    def _accept_autocomplete_selection(self) -> None:
+        """Replace the active ``@``/path token with the highlighted candidate.
+
+        Accepting an ``@`` candidate leaves a literal ``@path`` in the buffer so
+        the existing ``file_references`` resolver loads its bounded excerpt on
+        submit. Accepting a directory in path mode re-opens the popup for the
+        next segment, mirroring Pi's progressive Tab completion.
+        """
+
+        if not self.autocomplete_open or not self.autocomplete_items:
+            return
+        item = self.autocomplete_items[self.autocomplete_selection]
+        cursor = self._effective_input_cursor()
+        start = self.autocomplete_token_start
+        self._snapshot_for_undo()
+        self._reset_history_nav()
+        self.input_text = self.input_text[:start] + item.value + self.input_text[cursor:]
+        self.input_cursor = start + len(item.value)
+        self._close_autocomplete()
+        if self.autocomplete_mode == "path" and item.value.rstrip('"').endswith("/"):
+            # Directory accepted: re-open the popup for the next segment.
+            self._attempt_path_completion()
+        self.paint()
+
+    def _attempt_path_completion(self) -> bool:
+        """Forced Tab path completion against the prefix before the cursor.
+
+        Returns ``True`` when a path-like prefix produced candidates (and the
+        editor was updated/opened), ``False`` for a no-op (e.g. Tab in prose).
+        Completes the longest unambiguous prefix and opens the popup when more
+        than one candidate remains.
+        """
+
+        before_cursor = self.input_text[: self._effective_input_cursor()]
+        extracted = extract_path_prefix(before_cursor, force=False)
+        if extracted is None:
+            return False
+        start, prefix = extracted
+        items = path_candidates(self.cwd, prefix)
+        if not items:
+            return False
+        cursor = self._effective_input_cursor()
+        common = self._longest_common_value(items)
+        if common and len(common) > len(prefix):
+            self._snapshot_for_undo()
+            self._reset_history_nav()
+            self.input_text = (
+                self.input_text[:start] + common + self.input_text[cursor:]
+            )
+            self.input_cursor = start + len(common)
+            cursor = self.input_cursor
+        if len(items) == 1:
+            single = items[0].value
+            self._snapshot_for_undo()
+            self._reset_history_nav()
+            self.input_text = (
+                self.input_text[:start] + single + self.input_text[cursor:]
+            )
+            self.input_cursor = start + len(single)
+            self._close_autocomplete()
+            return True
+        self.autocomplete_open = True
+        self.autocomplete_mode = "path"
+        self.autocomplete_items = tuple(items)
+        self.autocomplete_token_start = start
+        self.autocomplete_selection = 0
+        return True
+
+    @staticmethod
+    def _longest_common_value(items: Sequence[CompletionItem]) -> str:
+        values = [item.value for item in items]
+        if not values:
+            return ""
+        shortest = min(values, key=len)
+        for index, char in enumerate(shortest):
+            if any(value[index] != char for value in values):
+                return shortest[:index]
+        return shortest
 
     def _filtered_commands(self) -> tuple[str, ...]:
         if not self.slash_menu_open:
@@ -2176,6 +2871,70 @@ class ToolLoopTerminalUi:
         delta = -1 if key == "up" else 1
         self.slash_menu_selection = (self.slash_menu_selection + delta) % len(matches)
         self.paint()
+
+    def _popup_menu_frame_lines(self, *, width: int, max_rows: int) -> list[_FrameLine]:
+        """Return the active in-frame completion popup (slash menu or editor).
+
+        The slash menu keeps priority when it is open; otherwise the editor
+        autocomplete popup (``@`` file picker or Tab path completion) draws in
+        the same rows. The two never co-open, mirroring Pi.
+        """
+
+        if self.slash_menu_open:
+            return self._slash_menu_frame_lines(width=width, max_rows=max_rows)
+        if self.autocomplete_open:
+            return self._autocomplete_frame_lines(width=width, max_rows=max_rows)
+        return []
+
+    def _autocomplete_frame_lines(
+        self, *, width: int, max_rows: int
+    ) -> list[_FrameLine]:
+        items = self.autocomplete_items
+        if not self.autocomplete_open or not items or max_rows <= 0:
+            return []
+        menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        visible_count = min(len(items), max_rows, menu_cap)
+        start = max(
+            0,
+            min(
+                self.autocomplete_selection - (visible_count // 2),
+                max(0, len(items) - visible_count),
+            ),
+        )
+        visible = items[start : start + visible_count]
+        total = len(items)
+        lines: list[_FrameLine] = []
+        for offset, item in enumerate(visible, start=start):
+            prefix = "→ " if offset == self.autocomplete_selection else "  "
+            label = item.label
+            description_start = len(prefix) + len(label)
+            line = f"{prefix}{label}"
+            # Show the full inserted value (dimmed) when it differs from the
+            # short label and the row has room, so a scoped/quoted path is
+            # legible before acceptance.
+            if item.value not in {label, f"@{label}"} and width > 40:
+                spacing = " " * max(1, 24 - len(line))
+                remaining = width - len(line) - len(spacing) - 2
+                if remaining > 6:
+                    line = f"{line}{spacing}{item.value[:remaining]}"
+                    description_start = len(prefix) + len(label) + len(spacing)
+            lines.append(
+                _FrameLine(
+                    self._clip(line, width),
+                    "slash_menu_selected"
+                    if offset == self.autocomplete_selection
+                    else "slash_menu",
+                    {"description_start": description_start},
+                )
+            )
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(f"  ({self.autocomplete_selection + 1}/{total})", width),
+                    "slash_menu_scroll",
+                )
+            )
+        return lines
 
     def _slash_menu_frame_lines(self, *, width: int, max_rows: int) -> list[_FrameLine]:
         matches = self._filtered_commands()

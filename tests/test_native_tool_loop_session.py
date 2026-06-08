@@ -33,6 +33,7 @@ from pipy_harness.native import (
     production_tool_registry,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -244,11 +245,16 @@ def test_provider_turn_escape_abort_cancels_provider_at_boundary(
     provider = _CancelObservingProvider()
 
     class InterruptingUi:
-        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+        def wait_for_active_turn_interrupt(
+            self, done_event, abort_event, **kwargs
+        ) -> str:
             assert provider.started.wait(timeout=2)
             assert not done_event.is_set()
             abort_event.set()
-            return True
+            return _TURN_ABORTED
+
+        def restore_pending_to_editor(self) -> None:
+            return None
 
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
     renderer = _RecordingAbortRenderer()
@@ -278,12 +284,17 @@ def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
     provider = _CancelObservingProvider()
 
     class CtrlCUi:
-        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+        def wait_for_active_turn_interrupt(
+            self, done_event, abort_event, **kwargs
+        ) -> str:
             assert provider.started.wait(timeout=2)
             assert not done_event.is_set()
             # Mirror the TUI's active-turn Ctrl-C: set the abort flag and raise.
             abort_event.set()
             raise KeyboardInterrupt
+
+        def restore_pending_to_editor(self) -> None:
+            return None
 
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
     renderer = _RecordingAbortRenderer()
@@ -357,10 +368,15 @@ def test_non_cooperative_provider_abort_is_still_safe(
     provider = _IgnoresCancelProvider()
 
     class InterruptingUi:
-        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+        def wait_for_active_turn_interrupt(
+            self, done_event, abort_event, **kwargs
+        ) -> str:
             assert provider.started.wait(timeout=2)
             abort_event.set()
-            return True
+            return _TURN_ABORTED
+
+        def restore_pending_to_editor(self) -> None:
+            return None
 
     # Keep the bounded join short so the test does not wait the full 2s.
     monkeypatch.setattr(

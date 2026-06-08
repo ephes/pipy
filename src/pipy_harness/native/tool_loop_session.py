@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -43,7 +44,12 @@ from typing import Any, ClassVar, TextIO
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.clipboard import ClipboardResult, copy_to_clipboard
+from pipy_harness.native.clipboard import (
+    ClipboardResult,
+    ImageClipboardResult,
+    copy_to_clipboard,
+    read_clipboard_image,
+)
 from pipy_harness.native.chrome import (
     BottomStatusFields,
     chrome_width,
@@ -125,12 +131,21 @@ from pipy_harness.native.themes import (
     theme_status_lines,
 )
 from pipy_harness.native.tui import (
+    HOTKEY_MODEL_CYCLE_NEXT,
+    HOTKEY_MODEL_CYCLE_PREV,
+    HOTKEY_THINKING_CYCLE,
+    HOTKEY_TOGGLE_THINKING,
+    HOTKEY_TOGGLE_TOOLS,
+    TURN_ABORTED,
+    TURN_STEERED,
     ModelSelectorOption,
+    ScopedModelRow,
     SettingsRow,
     TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     ToolLoopTerminalUi,
 )
 from pipy_harness.native.transcripts import TranscriptSink
+from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
 from pipy_harness.native.file_references import resolve_file_references
 from pipy_harness.native.image_attachment import (
     ProviderImageAttachment,
@@ -486,6 +501,9 @@ class NativeToolReplSession:
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
     clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
+    # OS clipboard-image reader for the editor's Ctrl+V image paste (Pi parity);
+    # tests inject a deterministic fake. Returns image bytes + media type.
+    clipboard_image_read: Callable[[], ImageClipboardResult] = read_clipboard_image
     prompt_history_store: PromptHistoryStore | None = None
     # Resolved keybindings for /hotkeys (and future bound surfaces). When not
     # injected the session loads <config>/keybindings.json via the shared config
@@ -564,6 +582,22 @@ class NativeToolReplSession:
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
         )
+        # Image attachments may reference an owner-only clipboard temp dir
+        # (Ctrl+V paste); that dir is added to the image reference roots so a
+        # pasted ``@image:<temp>`` resolves while the workspace path policy is
+        # otherwise unchanged. File-reference (@path) reads do not use it.
+        image_reference_roots = self.reference_roots
+        if terminal_ui is not None:
+            # Seed the thinking-block fold (Ctrl+T) from the persisted setting.
+            terminal_ui.thinking_hidden = settings.get_hide_thinking_block()
+            clipboard_dir = Path(tempfile.mkdtemp(prefix="pipy-clipboard-"))
+            try:
+                clipboard_dir.chmod(0o700)
+            except OSError:
+                pass
+            terminal_ui.clipboard_temp_dir = clipboard_dir
+            terminal_ui.clipboard_image_read = self.clipboard_image_read
+            image_reference_roots = (*self.reference_roots, clipboard_dir)
         # Local-only persistent prompt-history store (independent of the
         # metadata-first session archive). Built once per session; the
         # ``/settings`` dialog toggles/clears it. When enabled, a fresh TUI
@@ -1009,25 +1043,105 @@ class NativeToolReplSession:
                         f"  > {pending_prefill}"
                     )
                 pending_prefill = None
-            try:
-                # Pi's input cursor has no leading `> ` glyph; the
-                # separator pair above and below the input area is the
-                # visual frame instead. Pass an empty prompt so the
-                # readline / slash-menu adapter renders just the cursor.
-                line = repl_input.read_line("", footer=footer_text)
-            except KeyboardInterrupt:
-                print(file=error_stream)
-                break
+            # Deliver any queued steering/follow-up messages (Pi) before reading
+            # fresh input: a steering interrupt or a turn that settled with
+            # follow-ups promotes them to a sequential drain, delivered in order
+            # (all steering, then all follow-up) as the next prompts.
+            drained = (
+                terminal_ui.take_next_drain() if terminal_ui is not None else None
+            )
+            if drained is not None:
+                line = f"{drained}\n"
+            else:
+                try:
+                    # Pi's input cursor has no leading `> ` glyph; the
+                    # separator pair above and below the input area is the
+                    # visual frame instead. Pass an empty prompt so the
+                    # readline / slash-menu adapter renders just the cursor.
+                    line = repl_input.read_line("", footer=footer_text)
+                except KeyboardInterrupt:
+                    print(file=error_stream)
+                    break
             if not line:
                 break
             user_input = line.rstrip("\n")
             stripped = user_input.strip()
+            # In-editor hotkeys arrive as private sentinel "commands" from the
+            # TUI so they dispatch without rendering a user-message bubble.
+            # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
+            # the model (translated to the existing /scoped-models dispatch).
+            if stripped in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
+                self._toggle_view_fold(
+                    stripped,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    settings=settings,
+                )
+                continue
+            if stripped == HOTKEY_THINKING_CYCLE:
+                self._cycle_thinking_level(
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    session_tree=session_tree,
+                )
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
+            from_hotkey = stripped in {
+                HOTKEY_MODEL_CYCLE_NEXT,
+                HOTKEY_MODEL_CYCLE_PREV,
+            }
+            if from_hotkey:
+                stripped = (
+                    "/scoped-models next"
+                    if stripped == HOTKEY_MODEL_CYCLE_NEXT
+                    else "/scoped-models prev"
+                )
+                user_input = stripped
+            # Local shell shortcut: a submitted line whose first non-space
+            # character is ``!`` runs a bash command from the editor with no
+            # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
+            # command/output into the conversation context and native session
+            # tree so the next turn and resume see it; ``!!cmd`` runs identically
+            # but is excluded from context (a live-only diagnostic). Escape
+            # cancels a running command. Intercepted before the user-message
+            # panel so it renders as a shell block, not a chat bubble.
+            if stripped.startswith("!"):
+                shell_context_text = self._run_local_shell_shortcut(
+                    stripped,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    cwd=cwd,
+                )
+                if shell_context_text is not None:
+                    shell_message = UserMessage(content=shell_context_text)
+                    messages.append(shell_message)
+                    session_tree.append_message(shell_message)
+                if legacy_footer_enabled():
+                    self._print_footer(
+                        error_stream,
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        usage_accumulator=usage_accumulator,
+                    )
+                continue
             # Pi paints the submitted user message back on a muted
             # `userMessageBg` panel — distinct from the green tool
             # panel — so the prompt reads as a chat bubble. Overwrite
             # the readline echo line with the styled panel row when
             # the renderer can drive ANSI cursor controls.
-            if stripped:
+            if stripped and not from_hotkey:
                 renderer.render_user_message(user_input)
             if not stripped:
                 if legacy_footer_enabled():
@@ -1155,6 +1269,9 @@ class NativeToolReplSession:
                         prompt_history_store,
                         apply_model_selection=apply_model_selection,
                         apply_auth_change=apply_auth_change,
+                        settings=settings,
+                        session_tree=session_tree,
+                        error_stream=error_stream,
                     )
                 else:
                     for overlay_line in self._settings_overlay_lines(settings):
@@ -1446,7 +1563,18 @@ class NativeToolReplSession:
                 )
                 patterns = settings.get_enabled_models()
                 scoped = filter_scoped_references(available_refs, patterns)
-                if not argument:
+                if (
+                    not argument
+                    and terminal_ui is not None
+                    and isinstance(state, NativeReplProviderState)
+                    and available_refs
+                ):
+                    # Interactive multi-select overlay defining the Ctrl+P cycle
+                    # scope (saved back as the enabledModels patterns).
+                    self._open_scoped_models_overlay(
+                        terminal_ui, state=state, settings=settings
+                    )
+                elif not argument:
                     pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
                     cycle_text = ", ".join(scoped) if scoped else "(none available)"
                     for line in (
@@ -1668,7 +1796,7 @@ class NativeToolReplSession:
                 image_attachments = resolve_image_attachments(
                     user_input,
                     workspace_root=cwd,
-                    reference_roots=self.reference_roots,
+                    reference_roots=image_reference_roots,
                 )
                 if image_attachments.reference_count:
                     image_attachment_count += image_attachments.reference_count
@@ -2027,25 +2155,39 @@ class NativeToolReplSession:
             daemon=True,
         )
         worker.start()
-        # Escape returns True; the TUI's active-turn Ctrl-C sets the abort flag
-        # and raises KeyboardInterrupt. Both must cancel the live provider
-        # request at its boundary (not merely hide late output), reap the
-        # worker, render the aborted state, and return control to the prompt.
+        # The mid-turn watcher returns one of settled/aborted/steered. Escape /
+        # Ctrl-C abort: cancel the live provider request at its boundary (not
+        # merely hide late output), reap the worker, render the aborted state,
+        # and restore any queued messages to the editor. A steering submit also
+        # cancels the request, but promotes the queued messages for sequential
+        # delivery (no aborted banner). Both return None so the inner loop ends
+        # this turn and the outer loop drains/reads next.
         try:
-            aborted = terminal_ui.wait_for_active_turn_interrupt(
-                done_event, abort_event
+            outcome = terminal_ui.wait_for_active_turn_interrupt(
+                done_event, abort_event, accept_queue=True
             )
         except KeyboardInterrupt:
             self._cancel_active_turn(cancel_token, worker)
             renderer.abort_provider_turn()
+            terminal_ui.restore_pending_to_editor()
             return None
-        if aborted:
+        if outcome == TURN_ABORTED:
             self._cancel_active_turn(cancel_token, worker)
             renderer.abort_provider_turn()
+            terminal_ui.restore_pending_to_editor()
+            return None
+        if outcome == TURN_STEERED:
+            self._cancel_active_turn(cancel_token, worker)
+            renderer.steer_provider_turn()
+            terminal_ui.promote_pending_to_drain()
             return None
         worker.join()
         if error_holder:
             raise error_holder[0]
+        # Follow-ups (and any steering) queued during a turn that settled on its
+        # own are delivered in order after it.
+        if terminal_ui.has_pending_messages():
+            terminal_ui.promote_pending_to_drain()
         return result_holder[0]
 
     # Bound on how long the main thread waits for a cancelled provider worker to
@@ -2054,6 +2196,251 @@ class NativeToolReplSession:
     # returns ``None``—the worker can no longer mutate provider/tool/context
     # state regardless.
     _CANCEL_JOIN_TIMEOUT_SECONDS: ClassVar[float] = 2.0
+
+    # Bound on a ``!``/``!!`` editor shell command so it cannot hang the session
+    # indefinitely (Escape cancels earlier in a live TTY; a non-TTY script has no
+    # cancel key, so the deadline is the only bound there). Generous so ordinary
+    # builds/tests finish well within it.
+    _LOCAL_SHELL_TIMEOUT_SECONDS: ClassVar[int] = 600
+
+    def _run_local_shell_shortcut(
+        self,
+        command_line: str,
+        *,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        cwd: Path,
+    ) -> str | None:
+        """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
+
+        ``!!`` excludes the command from provider context (returns ``None``);
+        ``!`` returns the command/output text to record into the conversation
+        and native session tree. Output streams live into a shaded shell block,
+        and Escape cancels a running command (terminating its process group)
+        without tearing down the session. Runs no provider turn.
+        """
+
+        exclude_from_context = command_line.startswith("!!")
+        command = (
+            command_line[2:] if exclude_from_context else command_line[1:]
+        ).strip()
+        if not command:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: ! needs a command, e.g. !ls (use !! to skip recording).",
+            )
+            return None
+
+        if terminal_ui is not None:
+            terminal_ui.add_tool_call(f"$ {command}")
+            sink: Callable[[str], None] = terminal_ui.append_tool_output
+        else:
+            print(f"$ {command}", file=error_stream)
+
+            def sink(chunk: str) -> None:
+                print(chunk, end="", file=error_stream, flush=True)
+
+        result = self._execute_local_shell(
+            command, sink=sink, terminal_ui=terminal_ui, cwd=cwd
+        )
+
+        output_text = result.output or "(no output)"
+        if terminal_ui is not None:
+            rendered = output_text.splitlines() or [""]
+            if result.cancelled:
+                rendered = [*rendered, "(cancelled by escape)"]
+            elif result.timed_out:
+                rendered = [*rendered, "(timed out)"]
+            terminal_ui.add_tool_result(
+                lines=rendered,
+                is_error=result.timed_out or not result.started,
+            )
+        else:
+            # Captured-stream path: the body already streamed through the sink,
+            # so print only a trailing newline plus a terminal-state note —
+            # never re-print the output (that duplicated every command's output).
+            if not result.output:
+                print("(no output)", file=error_stream)
+            if result.cancelled:
+                print("(cancelled)", file=error_stream)
+            elif result.timed_out:
+                print("(timed out)", file=error_stream)
+            else:
+                print(file=error_stream)
+
+        if exclude_from_context or not result.started:
+            return None
+        suffix = "\n\n(command cancelled before completion)" if result.cancelled else ""
+        return (
+            "I ran a shell command in the workspace (not a tool call):\n\n"
+            f"$ {command}\n\n{output_text}{suffix}"
+        )
+
+    # Pi's reasoning-level cycle order (THINKING_LEVELS in agent-session.ts).
+    # Pipy's catalog adds an "xhigh" tier that is not part of the Shift+Tab
+    # cycle; the cycle clamps to these five, matching Pi.
+    _THINKING_CYCLE_LEVELS: ClassVar[tuple[str, ...]] = (
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+    )
+
+    def _toggle_view_fold(
+        self,
+        hotkey: str,
+        *,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        settings: "SettingsManager",
+    ) -> None:
+        """Toggle a renderer view fold (Pi Ctrl+O tool output / Ctrl+T thinking).
+
+        Ctrl+O flips tool-output expansion (a pure live-render view flag); Ctrl+T
+        flips thinking-block visibility and persists it to the non-secret
+        settings store. Both run no provider turn and only mutate renderer view
+        state (plus, for thinking, the settings file). A status is shown.
+        """
+
+        if hotkey == HOTKEY_TOGGLE_TOOLS:
+            new_value = not (terminal_ui.tools_expanded if terminal_ui else False)
+            if terminal_ui is not None:
+                terminal_ui.tools_expanded = new_value
+            label = "expanded" if new_value else "collapsed"
+            self._emit_diagnostic(
+                terminal_ui, error_stream, f"pipy: tool output: {label}"
+            )
+            return
+        # HOTKEY_TOGGLE_THINKING
+        current = (
+            terminal_ui.thinking_hidden
+            if terminal_ui is not None
+            else settings.get_hide_thinking_block()
+        )
+        new_hidden = not current
+        if terminal_ui is not None:
+            terminal_ui.thinking_hidden = new_hidden
+        try:
+            settings.set_value("hideThinkingBlock", new_hidden)
+        except RuntimeError:
+            # A read-only/locked settings file must not break the live toggle.
+            pass
+        label = "hidden" if new_hidden else "visible"
+        self._emit_diagnostic(
+            terminal_ui, error_stream, f"pipy: thinking blocks: {label}"
+        )
+
+    def _cycle_thinking_level(
+        self,
+        *,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        session_tree: NativeSessionTree,
+    ) -> None:
+        """Cycle the reasoning level (Pi's Shift+Tab ``cycleThinkingLevel``).
+
+        Cycles off→minimal→low→medium→high (wrapping), clamped to whether the
+        active model advertises reasoning support, sets the runtime level on the
+        provider state (so the footer effort label reflects it), appends a
+        ``thinking_level_change`` native-tree entry, and shows a status. Runs no
+        provider turn; the new level applies to the next turn.
+        """
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: thinking-level cycling is unavailable for this REPL state.",
+            )
+            return
+        current = state.current_selection()
+        supports_thinking = any(
+            option.selection.provider_name == current.provider_name
+            and option.selection.model_id == current.model_id
+            and bool(option.reasoning)
+            for option in state.model_options()
+        )
+        if not supports_thinking:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: current model does not support thinking.",
+            )
+            return
+        levels = self._THINKING_CYCLE_LEVELS
+        current_level = state.thinking_level if state.thinking_level in levels else "off"
+        next_level = levels[(levels.index(current_level) + 1) % len(levels)]
+        state.thinking_level = next_level
+        session_tree.append_thinking_level_change(next_level)
+        self._emit_diagnostic(
+            terminal_ui, error_stream, f"pipy: thinking level: {next_level}"
+        )
+
+    def _execute_local_shell(
+        self,
+        command: str,
+        *,
+        sink: Callable[[str], None],
+        terminal_ui: ToolLoopTerminalUi | None,
+        cwd: Path,
+    ) -> LocalShellResult:
+        """Execute ``command`` locally, watching stdin for Escape cancellation.
+
+        With no live TUI (captured streams), runs synchronously. With a live
+        TUI, runs the command on a worker thread while the same active-turn
+        interrupt watcher used for provider turns reads stdin; Escape/Ctrl-C set
+        the cancel event so the runner kills the child process group, then the
+        worker is best-effort joined.
+        """
+
+        if terminal_ui is None:
+            return run_local_command(
+                command,
+                workspace_root=cwd,
+                output_sink=sink,
+                timeout=self._LOCAL_SHELL_TIMEOUT_SECONDS,
+            )
+
+        cancel_event = threading.Event()
+        done_event = threading.Event()
+        holder: list[LocalShellResult] = []
+
+        def _worker() -> None:
+            try:
+                holder.append(
+                    run_local_command(
+                        command,
+                        workspace_root=cwd,
+                        output_sink=sink,
+                        cancel_event=cancel_event,
+                        timeout=self._LOCAL_SHELL_TIMEOUT_SECONDS,
+                    )
+                )
+            finally:
+                done_event.set()
+
+        worker = threading.Thread(
+            target=_worker, name="pipy-local-shell", daemon=True
+        )
+        worker.start()
+        try:
+            terminal_ui.wait_for_active_turn_interrupt(done_event, cancel_event)
+        except KeyboardInterrupt:
+            cancel_event.set()
+        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+        if holder:
+            return holder[0]
+        return LocalShellResult(
+            output="",
+            exit_code=None,
+            truncated=False,
+            timed_out=False,
+            cancelled=True,
+            started=True,
+        )
 
     def _cancel_active_turn(
         self, cancel_token: CancelToken, worker: threading.Thread
@@ -2076,6 +2463,20 @@ class NativeToolReplSession:
 
         cancel_token.cancel()
         worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+
+    def _effort_label(self, provider_name: str, model_id: str) -> str:
+        """Reasoning-effort label, preferring the live runtime thinking level.
+
+        When the user has cycled the thinking level with Shift+Tab (or selected
+        a ``model:level`` reference), the provider state carries the runtime
+        level and the footer reflects it; otherwise it falls back to the
+        model's default effort label.
+        """
+
+        level = getattr(self.provider_state, "thinking_level", None)
+        if isinstance(level, str) and level:
+            return level
+        return _effort_label_for(provider_name, model_id)
 
     def _footer_text(
         self,
@@ -2119,7 +2520,7 @@ class NativeToolReplSession:
             context_budget_suffix="auto",
             provider_name=provider_name,
             model_id=model_id,
-            effort_label=_effort_label_for(provider_name, model_id),
+            effort_label=self._effort_label(provider_name, model_id),
             tokens_in=(
                 usage_accumulator.input_tokens if usage_accumulator else 0
             ),
@@ -2212,6 +2613,9 @@ class NativeToolReplSession:
         *,
         apply_model_selection: Callable[[str], tuple[bool, str]],
         apply_auth_change: Callable[[str, str], str],
+        settings: "SettingsManager",
+        session_tree: NativeSessionTree,
+        error_stream: TextIO,
     ) -> None:
         """Open the live ``/settings`` dialog and act on the user's choices.
 
@@ -2235,6 +2639,7 @@ class NativeToolReplSession:
                 state,
                 prompt_history_store,
                 in_memory_depth=len(terminal_ui.input_history),
+                terminal_ui=terminal_ui,
             )
 
         def _local_action(action: str) -> list[SettingsRow]:
@@ -2246,6 +2651,26 @@ class NativeToolReplSession:
                 # *fresh* session not recall cleared prompts, and record() never
                 # re-persists the existing recall buffer — only new prompts).
                 prompt_history_store.clear()
+            elif action == "toggle_tools":
+                self._toggle_view_fold(
+                    HOTKEY_TOGGLE_TOOLS,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    settings=settings,
+                )
+            elif action == "toggle_thinking":
+                self._toggle_view_fold(
+                    HOTKEY_TOGGLE_THINKING,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    settings=settings,
+                )
+            elif action == "cycle_thinking":
+                self._cycle_thinking_level(
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    session_tree=session_tree,
+                )
             return _rows()
 
         while True:
@@ -2279,6 +2704,55 @@ class NativeToolReplSession:
                 message = apply_auth_change(action, "")
                 terminal_ui.add_notice(message)
                 continue
+            if action == "scoped_models" and isinstance(
+                state, NativeReplProviderState
+            ):
+                self._open_scoped_models_overlay(
+                    terminal_ui, state=state, settings=settings
+                )
+                continue
+
+    def _open_scoped_models_overlay(
+        self,
+        terminal_ui: ToolLoopTerminalUi,
+        *,
+        state: NativeReplProviderState,
+        settings: "SettingsManager",
+    ) -> None:
+        """Open the multi-select scope overlay and persist the chosen scope.
+
+        Builds a checklist of available models, pre-checks those matching the
+        current ``enabledModels`` patterns, and on save writes the chosen
+        ``provider/model`` references back as the patterns the Ctrl+P cycle uses.
+        Runs no provider turn.
+        """
+
+        available_refs = [
+            option.selection.reference
+            for option in state.model_options()
+            if option.available
+        ]
+        if not available_refs:
+            terminal_ui.add_notice("pipy: no available models to scope.")
+            return
+        scoped = filter_scoped_references(available_refs, settings.get_enabled_models())
+        rows = [ScopedModelRow(reference=ref, available=True) for ref in available_refs]
+        pre_checked = [
+            index for index, ref in enumerate(available_refs) if ref in scoped
+        ]
+        chosen = terminal_ui.run_scoped_models_selector(rows, checked=pre_checked)
+        if chosen is None:
+            return
+        try:
+            settings.set_enabled_models(sorted(chosen))
+            message = (
+                "pipy: scoped models set: " + ", ".join(sorted(chosen))
+                if chosen
+                else "pipy: scoped models cleared (cycle uses the full catalog)."
+            )
+        except RuntimeError as exc:
+            message = f"pipy: could not update scoped models: {exc}"
+        terminal_ui.add_notice(message)
 
     def _settings_dialog_rows(
         self,
@@ -2286,6 +2760,7 @@ class NativeToolReplSession:
         prompt_history_store: PromptHistoryStore,
         *,
         in_memory_depth: int,
+        terminal_ui: ToolLoopTerminalUi | None = None,
     ) -> list[SettingsRow]:
         """Build the interactive ``/settings`` dialog rows.
 
@@ -2355,6 +2830,49 @@ class NativeToolReplSession:
                 kind="status",
             )
         )
+        # Display / folding view flags and the thinking-level cycle (Ctrl+O /
+        # Ctrl+T / Shift+Tab also drive these). Only meaningful with a live TUI.
+        if terminal_ui is not None:
+            rows.append(SettingsRow(label="Display", kind="header"))
+            rows.append(
+                SettingsRow(
+                    label=(
+                        "tool output: "
+                        f"{'expanded' if terminal_ui.tools_expanded else 'collapsed'}"
+                        " — toggle (ctrl+o)"
+                    ),
+                    kind="action",
+                    action="toggle_tools",
+                )
+            )
+            rows.append(
+                SettingsRow(
+                    label=(
+                        "thinking blocks: "
+                        f"{'hidden' if terminal_ui.thinking_hidden else 'visible'}"
+                        " — toggle (ctrl+t)"
+                    ),
+                    kind="action",
+                    action="toggle_thinking",
+                )
+            )
+            level = getattr(state, "thinking_level", None) or "off"
+            rows.append(
+                SettingsRow(
+                    label=f"thinking level: {level} — cycle (shift+tab)",
+                    kind="action",
+                    action="cycle_thinking",
+                )
+            )
+        if isinstance(state, NativeReplProviderState):
+            rows.append(SettingsRow(label="Model cycle", kind="header"))
+            rows.append(
+                SettingsRow(
+                    label="scoped models (Ctrl+P cycle set)…",
+                    kind="action",
+                    action="scoped_models",
+                )
+            )
         rows.append(SettingsRow(label="Providers (read-only)", kind="header"))
         for option in state.model_options():
             availability = (
@@ -3147,6 +3665,12 @@ class _ToolLoopRenderer:
             print("Operation aborted", file=self._error_stream)
         self._stream_active = False
 
+    def steer_provider_turn(self) -> None:
+        # Captured-stream callers do not accept mid-turn input, so steering does
+        # not occur here; provided for interface parity with the TUI renderer.
+        self._clear_working()
+        self._stream_active = False
+
     def _handle_stream_chunk(self, chunk: str) -> None:
         if not chunk:
             return
@@ -3686,6 +4210,11 @@ class _TuiToolLoopRenderer:
         self._stop_working(clear=True)
         self._ui.show_operation_aborted()
 
+    def steer_provider_turn(self) -> None:
+        # A steering message interrupts the turn but is not an error, so stop the
+        # spinner without the red "Operation aborted" banner.
+        self._stop_working(clear=True)
+
     def render_user_message(self, text: str) -> None:
         self._ui.submit_user_message(text)
 
@@ -3707,15 +4236,20 @@ class _TuiToolLoopRenderer:
         if self._last_tool_name == "read" and not is_error:
             return
         lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
-        preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-        earlier = len(lines) - len(preview_lines)
-        if earlier > 0:
-            rendered = [
-                f"... ({earlier} earlier lines, ctrl+o to expand)",
-                *lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :],
-            ]
+        # Ctrl+O tool-output expansion: when expanded, commit the full retained
+        # (already tool-bounded) output instead of the 5-line collapsed preview.
+        if self._ui.tools_expanded:
+            rendered = lines
         else:
-            rendered = preview_lines
+            preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+            earlier = len(lines) - len(preview_lines)
+            if earlier > 0:
+                rendered = [
+                    f"... ({earlier} earlier lines, ctrl+o to expand)",
+                    *lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :],
+                ]
+            else:
+                rendered = preview_lines
         self._ui.add_tool_result(
             lines=rendered,
             is_error=is_error,

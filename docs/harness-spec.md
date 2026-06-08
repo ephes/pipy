@@ -690,6 +690,31 @@ automation contracts and tests remain stable. The TUI shell is a presentation
 boundary only; provider calls, bounded tool-loop behavior, transcript
 sidecars, and metadata-first archive policy stay behind the existing native
 session/tool/provider ports.
+
+The Pi-style interactive editor surfaces from
+[tui-workflow.md](tui-workflow.md) have shipped on this shell, all stdlib-only
+and inline (no alternate screen): the `@` file picker
+(`pipy_harness.native.editor_completion`, exact/prefix/substring ranking
+mirroring Pi's `scoreEntry`, not fuzzy) and general Tab path completion; `!`/`!!`
+local shell shortcuts (`run_local_command`, reusing the model-visible `bash`
+streaming substrate with cooperative Escape cancellation) recording into the
+native session tree for `!` and live-only for `!!`; `Shift+Tab` thinking-level
+cycling (clamped to model reasoning support, recorded as a
+`thinking_level_change` native-tree entry) and `Ctrl+P`/`Shift+Ctrl+P` model
+cycling through the scoped/available set; `Ctrl+O` tool-output expansion and
+`Ctrl+T` thinking-block fold as renderer view flags (the latter persisted to
+`hideThinkingBlock`); queued steering/follow-up during active turns
+(`Alt+Enter`/`Alt+Up`, a pending region, steering-then-follow-up drain order,
+steering interruption via the per-turn `CancelToken`); `Ctrl+V` clipboard image
+paste (owner-only temp file under an image reference root) and terminal
+drag-drop file references; the `/scoped-models` multi-select overlay and
+`/hotkeys` overlay plus new actionable `/settings` rows; and the
+mouse-selection invariant (the renderer never enables xterm mouse-tracking
+modes). The deterministic gate
+`scripts/parity_checks/tui_workflow_conformance.py --json` drives the real
+product PTY path and proves every one of these behaviors (plus non-TTY
+fallbacks and that no prompt body, command output, image bytes, or provider
+payload reaches the metadata archive).
 TUI verification uses `pipy_harness.native.terminal_screen` as a small
 stdlib ANSI screen-cell model, comparable in purpose to Pi's
 `packages/tui/test/virtual-terminal.ts`: it can replay rendered terminal

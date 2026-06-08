@@ -32,6 +32,115 @@ class ClipboardResult:
     detail: str
 
 
+@dataclass(frozen=True, slots=True)
+class ImageClipboardResult:
+    """Outcome of an OS clipboard-image read (Pi Ctrl+V parity)."""
+
+    found: bool
+    data: bytes
+    media_type: str
+    detail: str
+
+
+# Magic-byte signatures for the image types pipy attachments accept. Used so a
+# text clipboard (or a non-image payload) reads as "no image" rather than a
+# corrupt attachment.
+_IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+
+
+def _detect_image_media_type(data: bytes) -> str | None:
+    for signature, media_type in _IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return media_type
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _image_clipboard_commands(platform: str) -> tuple[tuple[str, list[str]], ...]:
+    if platform.startswith("darwin"):
+        return (("pngpaste", ["-"]),)
+    if platform.startswith("win"):
+        return ()
+    return (
+        ("wl-paste", ["--type", "image/png"]),
+        ("xclip", ["-selection", "clipboard", "-t", "image/png", "-o"]),
+    )
+
+
+def _default_run_capture(argv: list[str]) -> bytes | None:
+    try:
+        completed = subprocess.run(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
+
+
+def read_clipboard_image(
+    *,
+    platform: str | None = None,
+    which: Callable[[str], str | None] | None = None,
+    run_capture: Callable[[list[str]], bytes | None] | None = None,
+) -> ImageClipboardResult:
+    """Read an image from the OS clipboard, returning bytes + media type.
+
+    Tries ``pngpaste`` on macOS and ``wl-paste``/``xclip`` (``image/png``) on
+    Linux, validating the result by magic bytes so a text clipboard reads as
+    "no image". Errors are treated as "no image" (matching Pi, which silently
+    ignores clipboard-read failures). Performs no network/provider/tool action.
+    """
+
+    platform = platform if platform is not None else sys.platform
+    which = which if which is not None else shutil.which
+    run_capture = run_capture if run_capture is not None else _default_run_capture
+
+    commands = _image_clipboard_commands(platform)
+    if not commands:
+        return ImageClipboardResult(
+            found=False,
+            data=b"",
+            media_type="",
+            detail="no clipboard image tool available on this platform",
+        )
+    saw_tool = False
+    for name, args in commands:
+        resolved = which(name)
+        if not resolved:
+            continue
+        saw_tool = True
+        data = run_capture([resolved, *args])
+        if not data:
+            continue
+        media_type = _detect_image_media_type(data)
+        if media_type is None:
+            continue
+        return ImageClipboardResult(
+            found=True,
+            data=data,
+            media_type=media_type,
+            detail=f"read {len(data)} bytes ({media_type}) via {name}",
+        )
+    detail = (
+        "no image on the clipboard"
+        if saw_tool
+        else "no clipboard image tool available (install pngpaste / wl-paste / xclip)"
+    )
+    return ImageClipboardResult(found=False, data=b"", media_type="", detail=detail)
+
+
 def _default_run(argv: list[str], data: bytes) -> bool:
     try:
         completed = subprocess.run(
@@ -137,4 +246,9 @@ def _copy_via_osc52(
     )
 
 
-__all__ = ["ClipboardResult", "copy_to_clipboard"]
+__all__ = [
+    "ClipboardResult",
+    "ImageClipboardResult",
+    "copy_to_clipboard",
+    "read_clipboard_image",
+]

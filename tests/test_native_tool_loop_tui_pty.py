@@ -16,6 +16,7 @@ input (here `/copy`) must be sent only after the turn's answer is on screen.
 from __future__ import annotations
 
 import os
+import stat
 import pty
 import threading
 import time
@@ -1799,4 +1800,848 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
     assert "Operation aborted" in captured
     assert "SECOND_TURN_ANSWER_DONE" in captured
     # Inline model only: the abort path never enters the alternate screen.
+    assert "\x1b[?1049h" not in captured
+
+
+class _PromptCapturingProvider:
+    """Tool-capable fake provider recording each turn's user prompt text."""
+
+    def __init__(self, final_text: str) -> None:
+        self._final_text = final_text
+        self.supports_tool_calls = True
+        self.model_id = "fake-model"
+        self.user_prompts: list[str] = []
+        self.attachment_counts: list[int] = []
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink, cancel_token
+        self.calls += 1
+        text = request.user_prompt or ""
+        for message in getattr(request, "messages", ()) or ():
+            text += "\n" + str(getattr(message, "content", ""))
+        self.user_prompts.append(text)
+        self.attachment_counts.append(len(getattr(request, "attachments", ()) or ()))
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=self._final_text,
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_at_file_picker_ranks_and_accepts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    (tmp_path / "src" / "tui").mkdir(parents=True)
+    (tmp_path / "src" / "tui" / "config.py").write_text("nested\n")
+    (tmp_path / "src" / "config.py").write_text("top\n")
+    (tmp_path / "README.md").write_text("readme\n")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _PromptCapturingProvider("PICKER_TURN_DONE")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Type a genuine prompt naming a file with an @ token (no submit yet).
+        os.write(in_master, b"see @config")
+        # The picker popup opens and ranks workspace paths; the top-ranked
+        # tie-break is the shallower src/config.py.
+        assert _wait_for_predicate(
+            lambda: "@src/config.py" in b"".join(err_chunks).decode("utf-8", "replace")
+        ), f"{label}: @ picker did not rank workspace paths"
+        # No provider turn ran while the picker was open.
+        assert provider.calls == 0, f"{label}: picker ran a provider turn"
+        # Accept the highlighted candidate with Tab, then submit.
+        os.write(in_master, b"\t")
+        assert _wait_for_predicate(
+            lambda: provider.calls == 0
+            and "@src/config.py" in b"".join(err_chunks).decode("utf-8", "replace")
+        )
+        os.write(in_master, b"\n")
+        assert _wait_for(err_chunks, "PICKER_TURN_DONE"), f"{label}: turn never completed"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    # Inline only; never the alternate screen.
+    assert "\x1b[?1049h" not in captured
+    # The accepted @path made it into the submitted prompt and was resolved.
+    assert provider.calls == 1
+    assert any("@src/config.py" in prompt for prompt in provider.user_prompts), (
+        f"{label}: accepted @path did not reach the submitted prompt"
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_bash_shortcuts_run_record_and_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _PromptCapturingProvider("RECALL_DONE")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    def _text() -> str:
+        return b"".join(err_chunks).decode("utf-8", "replace")
+
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Bash-mode affordance appears while the buffer starts with '!'.
+        os.write(in_master, b"!ec")
+        assert _wait_for_predicate(lambda: "! bash" in _text()), (
+            f"{label}: bash-mode border did not appear"
+        )
+        # !cmd runs a shell command with no provider turn and records context.
+        os.write(in_master, b"ho ctx-bang\n")
+        assert _wait_for(err_chunks, "ctx-bang"), f"{label}: !cmd output not shown"
+        assert provider.calls == 0, f"{label}: !cmd ran a provider turn"
+        # Let the command settle so the active-turn watcher (shared with
+        # provider turns) stops reading stdin before the next prompt is sent.
+        time.sleep(0.4)
+        # The next provider turn sees the recorded command/output in context.
+        os.write(in_master, b"recall now\n")
+        assert _wait_for_predicate(lambda: provider.calls == 1)
+        assert any("ctx-bang" in prompt for prompt in provider.user_prompts), (
+            f"{label}: !cmd was not recorded into provider context"
+        )
+        # !!cmd runs but is excluded from provider context.
+        os.write(in_master, b"!!echo secret-bang\n")
+        assert _wait_for(err_chunks, "secret-bang"), f"{label}: !!cmd output not shown"
+        time.sleep(0.4)
+        os.write(in_master, b"recall again\n")
+        assert _wait_for_predicate(lambda: provider.calls == 2)
+        assert not any("secret-bang" in prompt for prompt in provider.user_prompts), (
+            f"{label}: !!cmd leaked into provider context"
+        )
+        # Escape cancels a long-running ! command without ending the session.
+        os.write(in_master, b"!sleep 30\n")
+        assert _wait_for(err_chunks, "$ sleep 30"), f"{label}: long command did not start"
+        time.sleep(0.5)
+        os.write(in_master, b"\x1b")
+        assert _wait_for(err_chunks, "cancelled by escape"), (
+            f"{label}: escape did not cancel the running command"
+        )
+        # Session is still usable.
+        os.write(in_master, b"still here\n")
+        assert _wait_for_predicate(lambda: provider.calls == 3)
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    captured = _text()
+    assert "\x1b[?1049h" not in captured  # inline only, never alt-screen
+
+
+def _reasoning_catalog_state(tmp_path: Path, provider: ProviderPort, model_id: str):
+    from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENAI_API_KEY": "sk"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    return NativeReplProviderState(
+        selection=NativeModelSelection("openai", model_id),
+        provider_factory=lambda sel: provider,
+        catalog_state=catalog,
+        persist_defaults=False,
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_thinking_and_model_cycle_hotkeys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _PromptCapturingProvider("TURN_DONE")
+    provider.model_id = "gpt-5.5"
+    state = _reasoning_catalog_state(tmp_path, cast(ProviderPort, provider), "gpt-5.5")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider),
+        tool_registry={},
+        provider_state=state,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    def _text() -> str:
+        return b"".join(err_chunks).decode("utf-8", "replace")
+
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Shift+Tab cycles the thinking level off -> minimal (no provider turn).
+        os.write(in_master, b"\x1b[Z")
+        assert _wait_for(err_chunks, "thinking level: minimal"), (
+            f"{label}: shift+tab did not cycle the thinking level"
+        )
+        assert provider.calls == 0, f"{label}: thinking cycle ran a provider turn"
+        # Shift+Tab again -> low; the footer effort label tracks the runtime level.
+        os.write(in_master, b"\x1b[Z")
+        assert _wait_for(err_chunks, "thinking level: low")
+        # Ctrl+P cycles the model through the available set (no provider turn).
+        os.write(in_master, b"\x10")
+        assert _wait_for(err_chunks, "selected model"), (
+            f"{label}: ctrl+p did not cycle the model"
+        )
+        assert provider.calls == 0, f"{label}: model cycle ran a provider turn"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    captured = _text()
+    assert "\x1b[?1049h" not in captured  # inline only
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_folding_toggles_thinking_and_tool_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _PromptCapturingProvider("TURN_DONE")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"\x14")  # ctrl+t toggles thinking visibility
+        assert _wait_for(err_chunks, "thinking blocks: hidden"), (
+            f"{label}: ctrl+t did not toggle thinking visibility"
+        )
+        assert ui.thinking_hidden is True
+        os.write(in_master, b"\x14")  # toggle back
+        assert _wait_for(err_chunks, "thinking blocks: visible")
+        os.write(in_master, b"\x0f")  # ctrl+o expands tool output
+        assert _wait_for(err_chunks, "tool output: expanded"), (
+            f"{label}: ctrl+o did not toggle tool-output expansion"
+        )
+        assert ui.tools_expanded is True
+        assert provider.calls == 0, f"{label}: a fold toggle ran a provider turn"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    assert "\x1b[?1049h" not in captured
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_never_enables_mouse_tracking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    """The renderer must never enable xterm mouse tracking, so the terminal /
+    multiplexer keeps ownership of click-drag text selection over committed
+    scrollback and the live region. Asserted across startup, idle, an open
+    overlay, an active turn, and after abort."""
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _PromptCapturingProvider("MOUSE_TURN_DONE")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"/settings\n")  # open an overlay
+        assert _wait_for(err_chunks, "Settings"), f"{label}: settings overlay never opened"
+        os.write(in_master, b"\x1b")  # close overlay
+        time.sleep(0.2)
+        os.write(in_master, b"ask something\n")  # active turn
+        assert _wait_for(err_chunks, "MOUSE_TURN_DONE"), f"{label}: turn never completed"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    for mode in ("?1000h", "?1002h", "?1003h", "?1006h", "?1015h"):
+        assert mode not in captured, f"{label}: emitted mouse-tracking enable {mode}"
+    assert "\x1b[?1049h" not in captured  # and never the alternate screen
+
+
+class _SteeringProvider:
+    """Tool-capable provider that blocks the first turn so mid-turn input can be
+    queued, then completes subsequent (drained) turns immediately."""
+
+    def __init__(self) -> None:
+        self.supports_tool_calls = True
+        self.model_id = "fake-model"
+        self.calls = 0
+        self.user_prompts: list[str] = []
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.cancellation import ProviderCancelledError
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink
+        self.calls += 1
+        self.user_prompts.append(request.user_prompt or "")
+        if self.calls == 1 and cancel_token is not None:
+            # Keep the first turn active until a steering Enter aborts it.
+            if cancel_token.event.wait(timeout=8.0):
+                raise ProviderCancelledError("steered")
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=f"DRAINED_TURN_{self.calls}",
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_steering_and_follow_up_queue_and_drain_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = _SteeringProvider()
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    def _text() -> str:
+        return b"".join(err_chunks).decode("utf-8", "replace")
+
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Start a turn; the provider blocks so we can type mid-turn.
+        os.write(in_master, b"original question\n")
+        assert _wait_for_predicate(lambda: provider.calls == 1), (
+            f"{label}: first turn never started"
+        )
+        # Alt+Enter queues a follow-up (no interrupt); it renders in pending.
+        os.write(in_master, b"followup msg\x1b\r")
+        assert _wait_for(err_chunks, "Follow-up: followup msg"), (
+            f"{label}: follow-up did not render in the pending region"
+        )
+        assert provider.calls == 1, f"{label}: follow-up ran a provider turn"
+        # Enter queues a steering message and interrupts the turn.
+        os.write(in_master, b"steer msg\n")
+        # Drain order: steering first, then follow-up.
+        assert _wait_for_predicate(lambda: provider.calls >= 3, timeout=10.0), (
+            f"{label}: queued messages did not drain"
+        )
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    # The first turn was the original; then steering drained before follow-up.
+    assert provider.user_prompts[0] == "original question"
+    steer_index = next(
+        i for i, p in enumerate(provider.user_prompts) if p == "steer msg"
+    )
+    follow_index = next(
+        i for i, p in enumerate(provider.user_prompts) if p == "followup msg"
+    )
+    assert steer_index < follow_index, (
+        f"{label}: steering must drain before follow-up: {provider.user_prompts}"
+    )
+    captured = _text()
+    assert "\x1b[?1049h" not in captured
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_clipboard_image_paste_attaches_on_submit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    from pipy_harness.native.clipboard import ImageClipboardResult
+
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
+    provider = _PromptCapturingProvider("IMAGE_TURN_DONE")
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider),
+        tool_registry={},
+        clipboard_image_read=lambda: ImageClipboardResult(
+            found=True, data=png, media_type="image/png", detail="ok"
+        ),
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"look at this \x16")  # ctrl+v pastes the clipboard image
+        # The pasted reference is in the editor; the long temp path scrolls the
+        # @image: prefix out of the narrow input cell, so the visible tail shows
+        # the clipboard filename. Assert both editor state and the visible frame.
+        assert _wait_for_predicate(lambda: "@image:" in ui.input_text), (
+            f"{label}: ctrl+v did not insert an @image: reference"
+        )
+        assert _wait_for_predicate(
+            lambda: "pipy-clipboard" in b"".join(err_chunks).decode("utf-8", "replace")
+        ), f"{label}: clipboard reference not visible in the editor"
+        assert provider.calls == 0, f"{label}: clipboard paste ran a provider turn"
+        os.write(in_master, b"\n")  # submit; the attachment resolves
+        assert _wait_for(err_chunks, "IMAGE_TURN_DONE"), f"{label}: turn never completed"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    assert provider.calls == 1
+    assert provider.attachment_counts[-1] == 1, (
+        f"{label}: pasted image was not attached on submit"
+    )
+    # The owner-only clipboard temp dir holds the image; bytes never archived.
+    assert ui.clipboard_temp_dir is not None
+    written = list(ui.clipboard_temp_dir.glob("pipy-clipboard-*.png"))
+    assert written and stat.S_IMODE(written[0].stat().st_mode) == 0o600
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    assert "\x1b[?1049h" not in captured
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_scoped_models_overlay_saves_cycle_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", str(columns))
+    monkeypatch.setenv("LINES", str(rows))
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    from pipy_harness.native.settings import SettingsManager
+
+    provider = _PromptCapturingProvider("TURN_DONE")
+    provider.model_id = "gpt-5.5"
+    state = _reasoning_catalog_state(tmp_path, cast(ProviderPort, provider), "gpt-5.5")
+    settings = SettingsManager.for_workspace(tmp_path)
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider),
+        tool_registry={},
+        provider_state=state,
+        settings_manager=settings,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    def _run() -> None:
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    def _text() -> str:
+        return b"".join(err_chunks).decode("utf-8", "replace")
+
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"/scoped-models\n")
+        assert _wait_for(err_chunks, "Scoped models"), (
+            f"{label}: scoped-models overlay did not open"
+        )
+        # Toggle the highlighted (first available) row into the scope and save.
+        os.write(in_master, b" ")  # space toggles
+        time.sleep(0.2)
+        os.write(in_master, b"\n")  # enter saves
+        assert _wait_for(err_chunks, "scoped models set"), (
+            f"{label}: saving the scope produced no confirmation"
+        )
+        assert provider.calls == 0, f"{label}: overlay ran a provider turn"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    # The chosen scope persisted as enabledModels patterns.
+    fresh = SettingsManager.for_workspace(tmp_path)
+    assert fresh.get_enabled_models(), f"{label}: scope was not persisted"
+    captured = _text()
     assert "\x1b[?1049h" not in captured

@@ -64,6 +64,9 @@ class _ExitOnlyUi:
         del prompt_label, footer
         return ""
 
+    def take_next_drain(self) -> str | None:
+        return None
+
     def close(self) -> None:
         self.closed = True
 
@@ -1632,12 +1635,14 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     # The active-turn Escape watcher needs a real fd; this in-process test
     # drives StringIO, so wait for the worker and report "not aborted". Real
     # cancellation is covered by the PTY tests.
+    from pipy_harness.native.tui import TURN_SETTLED
+
     monkeypatch.setattr(
         ToolLoopTerminalUi,
         "wait_for_active_turn_interrupt",
         lambda self, done_event, abort_event, **kwargs: (
             done_event.wait(5),
-            False,
+            TURN_SETTLED,
         )[1],
     )
     session = NativeToolReplSession(
@@ -2212,12 +2217,14 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     interrupt_calls = {"n": 0}
 
     def _fake_interrupt(self, done_event, abort_event, **kwargs):
+        from pipy_harness.native.tui import TURN_ABORTED, TURN_SETTLED
+
         interrupt_calls["n"] += 1
         if interrupt_calls["n"] == 1:
             abort_event.set()
-            return True
+            return TURN_ABORTED
         done_event.wait(5)
-        return False
+        return TURN_SETTLED
 
     monkeypatch.setattr(
         ToolLoopTerminalUi, "wait_for_active_turn_interrupt", _fake_interrupt

@@ -1,6 +1,14 @@
 # Pi-Style Interactive TUI Workflow Depth
 
-Status: target specification researched from the local Pi reference on 2026-06-02.
+Status: **shipped.** Researched from the local Pi reference on 2026-06-02 and
+implemented through pipy-owned Python boundaries. All milestones below have
+landed (the `@` picker + Tab path completion, `!`/`!!` shell shortcuts, model +
+thinking-level hotkeys, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up,
+true cancellation, clipboard/drag image paste, the `/scoped-models` + `/hotkeys`
+overlays and new `/settings` rows, and the mouse-selection invariant) and are
+proven by `scripts/parity_checks/tui_workflow_conformance.py --json` plus the
+real-PTY product-path tests in `tests/test_native_tool_loop_tui_pty.py`. This
+document remains the behavioral source of truth for the track.
 
 This document defines the pipy target for reaching real feature parity with
 Pi's interactive TUI/editor workflow depth. It is based on the local reference

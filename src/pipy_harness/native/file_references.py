@@ -40,7 +40,12 @@ _MAX_REFERENCE_PATH_LENGTH: int = 1024
 # starts the string or follows whitespace or an opening punctuation character.
 # That anchoring keeps ordinary text like ``foo@bar`` (e.g. email addresses)
 # from being treated as references.
-_FILE_REFERENCE_PATTERN = re.compile(r"""(?:^|(?<=[\s(\[{"']))@(\S+)""")
+# A reference is ``@path`` (unquoted, non-whitespace) or ``@"path with spaces"``
+# (quoted, so paths containing spaces — from the picker, Tab completion, or a
+# dropped file — resolve as a single token instead of breaking at the space).
+_FILE_REFERENCE_PATTERN = re.compile(
+    r"""(?:^|(?<=[\s(\[{"']))@(?:"([^"]+)"|(\S+))"""
+)
 _TRAILING_PUNCTUATION = ").,;:!?]}\"'"
 
 _LOADED_REASON = "loaded"
@@ -163,7 +168,10 @@ def parse_file_references(text: str) -> tuple[str, ...]:
     seen: set[str] = set()
     ordered: list[str] = []
     for match in _FILE_REFERENCE_PATTERN.finditer(text):
-        token = match.group(1).rstrip(_TRAILING_PUNCTUATION)
+        quoted, unquoted = match.group(1), match.group(2)
+        # A quoted token delimits the path exactly (spaces allowed); only an
+        # unquoted token trims trailing prose punctuation.
+        token = quoted if quoted is not None else unquoted.rstrip(_TRAILING_PUNCTUATION)
         if not token or token in seen:
             continue
         seen.add(token)

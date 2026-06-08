@@ -49,11 +49,12 @@ SUPPORTED_IMAGE_MEDIA_TYPES: frozenset[str] = frozenset(
     {"image/png", "image/jpeg", "image/gif", "image/webp"}
 )
 
-# ``@image:`` (or ``@img:``) followed by a non-whitespace path, anchored to the
-# start or to whitespace / opening punctuation so ordinary prose like
-# ``me@image:host`` is never treated as a reference.
+# ``@image:`` (or ``@img:``) followed by a non-whitespace path, or a quoted
+# ``@image:"path with spaces"`` so clipboard/dropped paths containing spaces
+# resolve as a single token. Anchored to the start or to whitespace / opening
+# punctuation so ordinary prose like ``me@image:host`` is never a reference.
 _IMAGE_REFERENCE_PATTERN = re.compile(
-    r"""(?:^|(?<=[\s(\[{"']))@(?:image|img):(\S+)"""
+    r"""(?:^|(?<=[\s(\[{"']))@(?:image|img):(?:"([^"]+)"|(\S+))"""
 )
 _TRAILING_PUNCTUATION = ").,;:!?]}\"'"
 
@@ -191,7 +192,10 @@ def parse_image_references(text: str) -> tuple[str, ...]:
     seen: set[str] = set()
     ordered: list[str] = []
     for match in _IMAGE_REFERENCE_PATTERN.finditer(text):
-        token = match.group(1).rstrip(_TRAILING_PUNCTUATION)
+        quoted, unquoted = match.group(1), match.group(2)
+        # A quoted token delimits the path exactly (spaces allowed); only an
+        # unquoted token trims trailing prose punctuation.
+        token = quoted if quoted is not None else unquoted.rstrip(_TRAILING_PUNCTUATION)
         if not token or token in seen:
             continue
         seen.add(token)

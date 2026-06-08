@@ -394,6 +394,35 @@ local diagnostics. Only safe metadata (reference/loaded/failed counts and, per
 loaded image, media type, byte count, and sha256) reaches the session archive
 — never the raw image bytes.
 
+### Interactive editor (product TUI)
+
+In a real TTY the tool-loop product TUI offers Pi-style interactive editing
+(all stdlib-only, inline, no alternate screen):
+
+- `@` file picker — type `@query` to open a ranked picker over workspace files
+  (exact/prefix/substring scoring, not fuzzy); Up/Down move, Tab/Enter accept
+  the chosen `@path`, Esc closes. `Tab` also completes a path-like prefix
+  (`./src/`, `~/pr`) and is a no-op in prose.
+- `!cmd` / `!!cmd` — run a shell command from the editor without a provider
+  turn; `!` records the command/output into the conversation, `!!` runs it
+  live-only. Escape cancels a running command.
+- `Shift+Tab` cycles the thinking level; `Ctrl+P` / `Shift+Ctrl+P` cycle the
+  model through the scoped/available set; `Ctrl+O` expands tool output;
+  `Ctrl+T` folds thinking blocks (persisted).
+- During an active turn, Enter queues a **steering** message (interrupts and
+  redirects), `Alt+Enter` queues a **follow-up** (runs after), and `Alt+Up`
+  restores queued messages to the editor; queued messages render in a pending
+  region and drain steering-first.
+- `Ctrl+V` pastes an image from the OS clipboard (written to an owner-only temp
+  file and attached on submit); dropping a file onto the terminal inserts an
+  `@image:`/`@path` reference.
+- `/scoped-models` opens a multi-select overlay defining the Ctrl+P cycle set;
+  `/hotkeys` lists every binding. Terminal-native mouse text selection keeps
+  working (the renderer never enables xterm mouse tracking).
+
+These surfaces are specified in `docs/tui-workflow.md` and gated by
+`scripts/parity_checks/tui_workflow_conformance.py --json`.
+
 ### What pipy-native records — and doesn't
 
 By default the harness stores only safe lifecycle metadata: agent, adapter,

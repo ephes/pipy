@@ -4,6 +4,44 @@ All notable changes to pipy are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); `/changelog` renders these
 entries oldest-first, and a version bump shows the new entries at startup.
 
+## [Unreleased]
+
+### Added
+
+- Pi-style interactive TUI/editor workflow depth for the product tool-loop
+  terminal (`pipy repl --agent pipy-native --repl-mode tool-loop`), all through
+  pipy-owned stdlib boundaries with no new runtime dependency and the inline
+  (no-alternate-screen) contract preserved:
+  - `@` file picker with Pi exact/prefix/substring ranking (not fuzzy) over a
+    bounded, `.git`/ignored-aware workspace walk, and general Tab path
+    completion (prefix-match, dirs-first, `~/` expansion, space-quoting) that is
+    a no-op in prose.
+  - Local `!`/`!!` shell shortcuts reusing the real bash execution boundary,
+    with a bash-mode input affordance, context (`!`) vs no-context (`!!`)
+    recording, and Escape cancellation of a running command.
+  - `Shift+Tab` thinking-level cycling (off→minimal→low→medium→high, clamped to
+    model reasoning support, recorded as a `thinking_level_change` native-tree
+    entry) and `Ctrl+P`/`Shift+Ctrl+P` model cycling over the scoped/available
+    set.
+  - `Ctrl+O` tool-output expansion and `Ctrl+T` thinking-block fold as renderer
+    view flags (the thinking fold persisted to `hideThinkingBlock`).
+  - Queued steering / follow-up during active turns (`Alt+Enter` follow-up,
+    `Alt+Up` restore-to-editor), a pending-messages region, steering-then-
+    follow-up drain order, and steering interruption via the existing cancel
+    token.
+  - Clipboard image paste (`Ctrl+V`, owner-only temp file under an image
+    reference root) and terminal drag-drop file references; image bytes never
+    reach the metadata archive.
+  - A `/scoped-models` multi-select overlay defining the Ctrl+P cycle set, new
+    `/settings` actionable rows (tool-output/thinking folds, thinking-level
+    cycle, scoped models), and startup hints + `/hotkeys` advertising every
+    binding.
+  - The terminal-native mouse-selection invariant: the renderer never enables
+    xterm mouse tracking, so click-drag selection over scrollback keeps working.
+  - New gate `scripts/parity_checks/tui_workflow_conformance.py --json` drives
+    the real product PTY path and proves all of the above (plus non-TTY
+    fallbacks and archive privacy) deterministically.
+
 ## [0.1.0] - 2026-06-03
 
 ### Added

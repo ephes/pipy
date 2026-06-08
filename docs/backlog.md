@@ -174,8 +174,14 @@ not a promise to skip review when a smaller, safer slice appears.
    via `PIPY_PROMPT_HISTORY_PATH`; never the metadata-first session archive) and
    a fresh session seeds Up/Down recall from them; "clear persisted history"
    wipes it. Covered by store unit tests and a cross-session real-PTY recall
-   test. Pi still leads on broader selectors/overlays and richer keyboard
-   behavior (e.g. mouse selection) — these remain the open items for this track.
+   test. **The remaining editor-workflow gaps have since shipped** through the
+   [tui-workflow.md](tui-workflow.md) track (gated by
+   `scripts/parity_checks/tui_workflow_conformance.py`): the `@` file picker
+   (exact/prefix/substring ranking) and Tab path completion, `!`/`!!` shell
+   shortcuts, `Shift+Tab` thinking-level and `Ctrl+P`/`Shift+Ctrl+P` model
+   cycling, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up, `Ctrl+V`
+   clipboard / drag image references, the `/scoped-models` + `/hotkeys` overlays
+   and new `/settings` rows, and the mouse-selection invariant.
 4. Extension and resource runtime. Pi has first-class extensions, command/theme
    registration, prompt templates, skills, and UI hooks. Runtime resource
    loading has now landed for the three bounded kinds — skills, prompt
@@ -291,7 +297,14 @@ aid for the highest-impact remaining product gaps.
    and mouse selection. True provider-request cancellation (Escape/Ctrl-C abort
    the in-flight HTTP request, not just late chunks) now ships (see item 8).
    Scoped model cycling via `/scoped-models` + Ctrl+P now ships through the
-   settings track.
+   settings track. **This track has now shipped** — the remaining editor
+   surfaces (`@` file picker with exact/prefix/substring ranking, general Tab
+   path completion, `!`/`!!` shell shortcuts, `Shift+Tab` thinking-level
+   cycling, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up,
+   clipboard/drag image references, the `/scoped-models` + `/hotkeys` overlays
+   and new `/settings` rows, and the mouse-selection invariant) all landed
+   through the [tui-workflow.md](tui-workflow.md) track, gated by
+   `scripts/parity_checks/tui_workflow_conformance.py`.
 4. Provider and model catalog follow-ons. The catalog/helper layers,
    OpenAI-compatible Chat Completions product path, non-completions construction
    for the implemented catalog-constructed adapter families, `pipy run`
@@ -1404,31 +1417,58 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Provider / model catalog closeout: docs, review, and merge readiness (selected)
+### Terminal/editor workflow depth: Pi-parity TUI interaction (shipped)
 
-The provider/model catalog construction closeout has shipped on the current
-feature branch: non-completions construction for the implemented
-catalog-constructed adapter families, `pipy run` one-shot catalog construction,
-and startup
-`--native-provider`/`--native-model` resolution through the shared Pi-style
-resolver all pass deterministic conformance coverage. The remaining selected
-work for this branch is closeout, not new provider construction:
+The Pi-parity TUI/editor workflow track specified in
+[tui-workflow.md](tui-workflow.md) has shipped on `main`. The product TUI now
+covers the daily-driver basics (inline scrollback, slash menu, `/settings`,
+`/model`, prompt history, bracketed paste, undo/redo, resize handling, `/copy`,
+typed `@path`/`@image:` references, italic reasoning), true provider-request
+cancellation (milestone 6, see Pi Gap Queue item 8), and the remaining
+interaction-comfort surfaces below — all through pipy-owned, stdlib-only
+boundaries that preserve the inline (no alternate-screen) contract:
 
-- keep `docs/provider-catalog.md`, `docs/pi-parity.md`,
-  `docs/parity-plan.md`, and this backlog aligned with the shipped/follow-up
-  state;
-- run the provider catalog gate, the focused provider/repl/catalog tests, and
-  `just check`;
-- complete an independent review pass and fix any findings before merging.
+- `@` file picker with Pi exact/prefix/substring ranking (not fuzzy) and
+  bounded stdlib path walk;
+- general Tab path completion in the editor (prefix-match, dirs-first), no-op
+  in prose;
+- local `!`/`!!` shell shortcuts reusing the real bash execution boundary,
+  with bash-mode affordance, context vs no-context recording, queue-while-
+  streaming, refuse-while-running, and Escape-cancel;
+- `shift+tab` thinking-level cycling and `ctrl+p`/`shift+ctrl+p` model
+  cycling over the scoped/available set;
+- `ctrl+o` tool-output expansion and `ctrl+t` thinking-block fold as renderer
+  view flags;
+- queued steering/follow-up during active turns (`alt+enter`, `alt+up`), a
+  pending-messages region, and drain-on-settle ordering;
+- clipboard/drag image reference handling (`ctrl+v`, owner-only temp files);
+- richer overlays (`/scoped-models`, `/hotkeys`) and new actionable `/settings`
+  rows; and
+- the mouse-selection invariant (no xterm mouse-tracking enable sequences).
 
-Verification target for this closeout:
+Verification target for this slice:
 
 ```sh
-uv run python scripts/parity_checks/provider_catalog_conformance.py --json
-uv run pytest tests/test_native_*provider*.py tests/test_native_repl_state.py \
-  tests/test_native_catalog_state.py tests/test_native_models_json.py
+uv run python scripts/parity_checks/tui_workflow_conformance.py --json
+uv run pytest tests/test_native_tool_loop_tui_pty.py
+uv run pytest tests/test_native_repl_pty_chrome.py
 just check
 ```
+
+### Provider / model catalog closeout: docs, review, and merge readiness (shipped)
+
+The provider/model catalog construction closeout has shipped and merged to
+`main`: non-completions construction for the implemented catalog-constructed
+adapter families, `pipy run` one-shot catalog construction, and startup
+`--native-provider`/`--native-model` resolution through the shared Pi-style
+resolver all pass deterministic conformance coverage
+(`scripts/parity_checks/provider_catalog_conformance.py --json`, covering
+Verification-Plan items 1-24). The narrower remaining provider-catalog
+follow-ons (live Anthropic/Copilot login UX, the deliberate
+`openai-codex-responses` legacy-factory exception, Vertex API-key auth,
+Anthropic adaptive-thinking shape, Azure URL/api-version parity, and
+extension-registered providers once the extension platform exists) are
+tracked under Current Largest Gaps item 4, not as the selected Next Slice.
 
 ### Settings / config / keybindings (landed 2026-06-03)
 

@@ -39,9 +39,11 @@ import selectors
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 
 from pipy_harness.native.tools.base import (
@@ -153,7 +155,7 @@ class BashTool:
         except OSError:
             return self._result(request, "bash: failed to start command", is_error=True)
 
-        output, truncated, timed_out = _stream_output(
+        output, truncated, timed_out, _cancelled = _stream_output(
             proc,
             sink=context.output_sink,
             timeout=timeout,
@@ -193,7 +195,8 @@ def _stream_output(
     sink: Callable[[str], None] | None,
     timeout: int | None,
     max_output_bytes: int,
-) -> tuple[str, bool, bool]:
+    cancel_event: "threading.Event | None" = None,
+) -> tuple[str, bool, bool, bool]:
     """Drain ``proc`` stdout on the calling thread, emitting chunks as they come.
 
     A single ``selectors`` poll loop reads whatever the process has flushed and,
@@ -208,7 +211,10 @@ def _stream_output(
     hang ``invoke()`` — once the deadline passes the whole process group is
     killed. No reader thread, so there is no join race on the timeout path.
 
-    Returns ``(output, truncated, timed_out)``.
+    When ``cancel_event`` is supplied and becomes set (the user pressed Escape
+    while a ``!`` shortcut runs), the whole process group is killed and the
+    partial output returned with ``cancelled=True``. Returns
+    ``(output, truncated, timed_out, cancelled)``.
     """
 
     assert proc.stdout is not None
@@ -223,6 +229,7 @@ def _stream_output(
     last_emit = time.monotonic()
     deadline = None if timeout is None else time.monotonic() + timeout
     timed_out = False
+    cancelled = False
     eof = False
 
     def emit(force: bool) -> None:
@@ -256,6 +263,9 @@ def _stream_output(
             pass
 
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            break
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -282,7 +292,7 @@ def _stream_output(
         except subprocess.TimeoutExpired:
             timed_out = True
 
-    if timed_out:
+    if timed_out or cancelled:
         _kill_process_group(proc)
         drain_nonblocking()
 
@@ -298,7 +308,90 @@ def _stream_output(
     except OSError:
         pass
     proc.wait()
-    return bytes(raw_tail).decode("utf-8", "replace"), truncated, timed_out
+    return bytes(raw_tail).decode("utf-8", "replace"), truncated, timed_out, cancelled
+
+
+@dataclass(frozen=True, slots=True)
+class LocalShellResult:
+    """Outcome of a local ``!``/``!!`` editor shell shortcut run."""
+
+    output: str
+    exit_code: int | None
+    truncated: bool
+    timed_out: bool
+    cancelled: bool
+    started: bool
+
+
+def run_local_command(
+    command: str,
+    *,
+    workspace_root: Path,
+    output_sink: Callable[[str], None] | None = None,
+    timeout: int | None = None,
+    max_output_bytes: int = 16 * 1024,
+    cancel_event: "threading.Event | None" = None,
+    shell_path: str | None = None,
+) -> LocalShellResult:
+    """Run one bash command for an editor ``!``/``!!`` shortcut (Pi parity).
+
+    Reuses the same real-shell streaming substrate as the model-visible
+    ``bash`` tool — combined bounded stdout/stderr, optional timeout, live
+    streaming through ``output_sink`` — and adds cooperative cancellation: when
+    ``cancel_event`` is set (Escape during the run) the whole process group is
+    killed and the partial output returned with ``cancelled=True``. This runs
+    no provider turn; it is a local diagnostic the caller renders and
+    (for ``!``) records into the conversation context itself.
+    """
+
+    shell = (
+        shell_path
+        if shell_path is not None and os.path.exists(shell_path)
+        else shutil.which("bash") or ("/bin/sh" if os.path.exists("/bin/sh") else None)
+    )
+    if shell is None:
+        return LocalShellResult(
+            output="bash: no shell available to run the command",
+            exit_code=None,
+            truncated=False,
+            timed_out=False,
+            cancelled=False,
+            started=False,
+        )
+    try:
+        proc = subprocess.Popen(  # noqa: S603 - intentional real shell, Pi parity
+            [shell, "-c", command],
+            cwd=workspace_root.resolve(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=dict(os.environ),
+        )
+    except OSError:
+        return LocalShellResult(
+            output="bash: failed to start command",
+            exit_code=None,
+            truncated=False,
+            timed_out=False,
+            cancelled=False,
+            started=False,
+        )
+    output, truncated, timed_out, cancelled = _stream_output(
+        proc,
+        sink=output_sink,
+        timeout=timeout,
+        max_output_bytes=max_output_bytes,
+        cancel_event=cancel_event,
+    )
+    return LocalShellResult(
+        output=output,
+        exit_code=proc.returncode,
+        truncated=truncated,
+        timed_out=timed_out,
+        cancelled=cancelled,
+        started=True,
+    )
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
@@ -329,4 +422,4 @@ def _shape(
     return "\n".join(sections)
 
 
-__all__ = ["BashTool"]
+__all__ = ["BashTool", "LocalShellResult", "run_local_command"]
