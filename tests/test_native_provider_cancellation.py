@@ -15,7 +15,7 @@ import threading
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -482,3 +482,38 @@ def test_already_cancelled_token_short_circuits_provider() -> None:
 
     # The provider must bail out before ever reaching the HTTP boundary.
     assert client.entered.is_set() is False
+
+
+def test_cancellable_https_handler_https_open_has_no_missing_attribute() -> None:
+    """Regression: `_CancelHTTPSHandler.https_open` must not reference an
+    attribute the stdlib `HTTPSHandler` does not set on the running Python.
+
+    Python 3.14 removed `HTTPSHandler._check_hostname` (folding it into the SSL
+    context), so the previous unconditional `self._check_hostname` access raised
+    `AttributeError: '_CancelHTTPSHandler' object has no attribute
+    '_check_hostname'` on every real HTTPS provider turn. This drives
+    `https_open` (with `do_open` stubbed) to prove the attribute access is safe
+    and the SSL context is forwarded.
+    """
+
+    from pipy_harness.native._provider_helpers import _build_cancellable_opener
+
+    token = CancelToken()
+    opener = _build_cancellable_opener(token)
+    handlers = cast(Any, opener).handlers
+    https_handler = next(
+        h for h in handlers if type(h).__name__ == "_CancelHTTPSHandler"
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_do_open(http_class: Any, req: Any, **kwargs: Any) -> str:
+        captured.update(kwargs)
+        captured["http_class"] = http_class
+        return "opened"
+
+    https_handler.do_open = _fake_do_open  # type: ignore[method-assign]
+    request = urllib.request.Request("https://example.invalid/path")
+    # Must not raise AttributeError; must forward the SSL context.
+    assert https_handler.https_open(request) == "opened"
+    assert "context" in captured

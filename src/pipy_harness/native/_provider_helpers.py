@@ -149,12 +149,22 @@ def _build_cancellable_opener(
 
     class _CancelHTTPSHandler(urllib.request.HTTPSHandler):
         def https_open(self, req: urllib.request.Request) -> Any:
+            # Mirror the stdlib's https_open connection kwargs across Python
+            # versions: 3.14 folds ``check_hostname`` into ``context`` and keeps
+            # only ``self._context`` (no ``self._check_hostname``), while older
+            # versions also expose ``self._check_hostname``. Pass each only when
+            # present so this works on both without an AttributeError.
+            kwargs: dict[str, Any] = {}
+            context = getattr(self, "_context", None)
+            if context is not None:
+                kwargs["context"] = context
+            check_hostname = getattr(self, "_check_hostname", None)
+            if check_hostname is not None:
+                kwargs["check_hostname"] = check_hostname
             return self.do_open(
                 _registering_connection(http.client.HTTPSConnection, cancel_token),  # type: ignore[arg-type]
                 req,
-                # urllib sets these in HTTPSHandler.__init__; typeshed omits them.
-                context=self._context,  # type: ignore[attr-defined]
-                check_hostname=self._check_hostname,  # type: ignore[attr-defined]
+                **kwargs,
             )
 
     return urllib.request.build_opener(_CancelHTTPSHandler(), _CancelHTTPHandler())
