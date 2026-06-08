@@ -27,7 +27,6 @@ from pipy_harness.models import (
 )
 from pipy_harness.native import (
     DEFAULT_NATIVE_MODELS,
-    SUPPORTED_NATIVE_PROVIDERS,
     NativeDefaultsStore,
     NativeModelSelection,
     NativeReplProviderState,
@@ -47,7 +46,6 @@ from pipy_harness.native import (
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.provider_registry import (
-    NATIVE_PROVIDER_REGISTRY,
     native_provider_spec,
 )
 from pipy_harness.native.auth_store import AuthStore
@@ -122,9 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--goal", help="Optional short goal for the run record.")
     run_parser.add_argument(
         "--native-provider",
-        choices=tuple(NATIVE_PROVIDER_REGISTRY),
         help=(
-            "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
+            "Native provider for --agent pipy-native (built-in or a custom "
+            "models.json provider). Defaults to the deterministic fake provider."
         ),
     )
     run_parser.add_argument(
@@ -188,9 +186,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repl_parser.add_argument(
         "--native-provider",
-        choices=tuple(NATIVE_PROVIDER_REGISTRY),
         help=(
-            "Native provider for --agent pipy-native. Defaults to the deterministic fake provider."
+            "Native provider for --agent pipy-native (built-in or a custom "
+            "models.json provider). Defaults to the deterministic fake provider."
         ),
     )
     repl_parser.add_argument(
@@ -494,10 +492,26 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if args.command == "run":
             _validate_native_output(args.agent, args.native_output)
+            # Resolve the native selection once (catalog-aware) so stream
+            # validation and adapter construction agree on the EFFECTIVE provider
+            # (a bare --native-model can resolve to a real provider, not fake).
+            run_selection = (
+                _resolve_run_selection(
+                    args.native_provider,
+                    args.native_model,
+                    api_key=getattr(args, "api_key", None),
+                )
+                if args.agent == "pipy-native"
+                else None
+            )
             _validate_stream(
                 args.agent,
                 args.stream,
-                native_provider=args.native_provider,
+                native_provider=(
+                    run_selection.provider_name
+                    if run_selection is not None
+                    else args.native_provider
+                ),
             )
             command = _native_command(args.native_command, agent=args.agent)
             if args.agent == "pipy-native" and not args.goal:
@@ -512,6 +526,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.native_provider,
                 args.native_model,
                 stream_sink=stream_sink,
+                thinking=getattr(args, "thinking", None),
+                api_key=getattr(args, "api_key", None),
+                selection=run_selection,
             )
             request = RunRequest(
                 agent=args.agent,
@@ -773,28 +790,23 @@ def _adapter_for(
     native_model: str | None,
     *,
     stream_sink: StreamChunkSink | None = None,
+    thinking: str | None = None,
+    api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
+    selection: "NativeModelSelection | None" = None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
-        if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
-            raise ValueError(f"unsupported native provider: {native_provider}")
-        if native_provider is not None and native_provider != "fake":
-            spec = native_provider_spec(native_provider)
-            if spec is not None and spec.requires_model_for_run and not native_model:
-                raise ValueError(
-                    f"--native-model is required for --native-provider {native_provider}"
-                )
-            model_id = native_model or DEFAULT_NATIVE_MODELS[native_provider]
-            return PipyNativeAdapter(
-                provider=_native_provider_for_selection(
-                    NativeModelSelection(
-                        provider_name=native_provider, model_id=model_id
-                    )
-                ),
-                instruction_loader=default_workspace_instruction_loader,
-                stream_sink=stream_sink,
+        if selection is None:
+            selection = _resolve_run_selection(
+                native_provider, native_model, api_key=api_key
             )
         return PipyNativeAdapter(
-            provider=FakeNativeProvider(model_id=native_model or "fake-native-bootstrap"),
+            provider=_run_provider_for_selection(
+                selection,
+                thinking=thinking,
+                api_key=api_key,
+                settings_manager=settings_manager,
+            ),
             instruction_loader=default_workspace_instruction_loader,
             stream_sink=stream_sink,
         )
@@ -803,6 +815,71 @@ def _adapter_for(
     if stream_sink is not None:
         raise ValueError("--stream requires --agent pipy-native")
     return SubprocessAdapter()
+
+
+def _resolve_run_selection(
+    native_provider: str | None,
+    native_model: str | None,
+    *,
+    api_key: str | None = None,
+) -> NativeModelSelection:
+    """Resolve the one-shot ``pipy run`` selection (catalog-aware).
+
+    Both-None keeps the deterministic ``fake`` bootstrap; ``--native-provider
+    fake`` passes through; otherwise the selection is catalog-resolved (a custom
+    ``models.json`` provider resolves its default, a bare ``--native-model``
+    resolves its provider). The run-only "a built-in real provider needs an
+    explicit model" rule is enforced against the RESOLVED canonical provider, so
+    case variants and inferred providers are validated too.
+    """
+
+    if native_provider is None and native_model is None:
+        return NativeModelSelection("fake", "fake-native-bootstrap")
+    if native_provider == "fake":
+        return NativeModelSelection("fake", native_model or "fake-native-bootstrap")
+    selection = default_selection_for(
+        native_provider=native_provider,
+        native_model=native_model,
+        rows=_build_catalog_state(runtime_api_key=api_key).get_all(),
+    )
+    if native_model is None:
+        spec = native_provider_spec(selection.provider_name)
+        if spec is not None and spec.requires_model_for_run:
+            raise ValueError(
+                "--native-model is required for --native-provider "
+                f"{selection.provider_name}"
+            )
+    return selection
+
+
+def _run_provider_for_selection(
+    selection: NativeModelSelection,
+    *,
+    thinking: str | None = None,
+    api_key: str | None = None,
+    settings_manager: SettingsManager | None = None,
+) -> ProviderPort:
+    """Construct the one-shot ``pipy run`` provider via catalog construction.
+
+    Mirrors the REPL's catalog-first construction
+    (:class:`NativeReplProviderState`): catalog-wired families are built from the
+    selected ``NativeModelSpec`` plus resolved auth/headers/thinking, so a custom
+    ``models.json`` provider, ``--api-key``, base URLs, headers and ``--thinking``
+    all reach the one-shot turn the same way they reach a REPL turn. ``fake`` and
+    ``openai-codex`` fall back to the legacy factory (codex keeps its
+    settings-derived ``RetryPolicy``).
+    """
+
+    provider_state = NativeReplProviderState(
+        selection=selection,
+        provider_factory=_provider_factory_for(settings_manager),
+        auth_manager_factory=OpenAICodexAuthManager,
+        openai_codex_auth_path=default_openai_codex_auth_path(),
+        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        thinking_level=_validated_thinking_level(thinking),
+        persist_defaults=False,
+    )
+    return provider_state.current_provider()
 
 
 _CONFIG_RESOURCE_KEYS = {
@@ -992,13 +1069,13 @@ def _repl_adapter_for(
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
 ) -> PipyNativeReplAdapter:
-    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
-        raise ValueError(f"unsupported native provider: {native_provider}")
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
+    catalog_state = _build_catalog_state(runtime_api_key=api_key)
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
         defaults_store=defaults_store if native_provider is None and native_model is None else None,
+        rows=catalog_state.get_all(),
     )
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
@@ -1007,7 +1084,7 @@ def _repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        catalog_state=catalog_state,
         thinking_level=_validated_thinking_level(thinking),
     )
     if using_stored_default and not provider_state.provider_available(selection.provider_name):
@@ -1114,15 +1191,29 @@ def _resolve_repl_mode(
 
     if requested != "auto":
         return requested
-    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
+    catalog_state = _build_catalog_state()
+    try:
+        selection = default_selection_for(
+            native_provider=native_provider,
+            native_model=native_model,
+            defaults_store=None,
+            rows=catalog_state.get_all(),
+        )
+    except ValueError:
+        # Unknown provider/model — the adapter build will surface the error;
+        # default the probe to no-tool.
         return "no-tool"
-    selection = default_selection_for(
-        native_provider=native_provider,
-        native_model=native_model,
-        defaults_store=None,
+    # Probe through catalog construction (the same boundary the REPL uses) so a
+    # custom models.json provider is recognized as tool-capable, not just the
+    # built-in registry.
+    provider_state = NativeReplProviderState(
+        selection=selection,
+        provider_factory=_native_provider_for_selection,
+        catalog_state=catalog_state,
+        persist_defaults=False,
     )
     try:
-        provider = _native_provider_for_selection(selection)
+        provider = provider_state.current_provider()
     except Exception:
         return "no-tool"
     if getattr(provider, "supports_tool_calls", False):
@@ -1148,15 +1239,15 @@ def _tool_repl_adapter_for(
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
 ) -> PipyNativeToolReplAdapter:
-    if native_provider not in (None, *SUPPORTED_NATIVE_PROVIDERS):
-        raise ValueError(f"unsupported native provider: {native_provider}")
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
+    catalog_state = _build_catalog_state(runtime_api_key=api_key)
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
         defaults_store=defaults_store
         if native_provider is None and native_model is None
         else None,
+        rows=catalog_state.get_all(),
     )
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
@@ -1165,7 +1256,7 @@ def _tool_repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        catalog_state=catalog_state,
         thinking_level=_validated_thinking_level(thinking),
     )
     if using_stored_default and not provider_state.provider_available(

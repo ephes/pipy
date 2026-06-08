@@ -48,6 +48,7 @@ class _StubToolProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: object = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
         self.requests.append(request)

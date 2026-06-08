@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 
 from pipy_harness.native._provider_helpers import JsonHTTPClient
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.openai_completions_provider import (
     OpenAIChatCompletionsProvider,
@@ -50,6 +51,7 @@ class Ds4ChatCompletionsProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         provider = OpenAIChatCompletionsProvider(
             model_id=self.model_id,
@@ -62,7 +64,10 @@ class Ds4ChatCompletionsProvider:
             auth_required=False,
         )
         return provider.complete(
-            request, stream_sink=stream_sink, reasoning_sink=reasoning_sink
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
         )
 
 

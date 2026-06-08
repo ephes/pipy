@@ -43,6 +43,7 @@ class _ScriptedSseHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> SseResponse:
         self.requests.append({"url": url, "body": dict(body)})
         if not self.responses:

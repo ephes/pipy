@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
@@ -42,6 +43,7 @@ class UrllibJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> JsonResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
@@ -51,9 +53,11 @@ class UrllibJsonHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
         except urllib.error.HTTPError as exc:
             raise GoogleHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
@@ -83,16 +87,24 @@ class GoogleGenerativeAIProvider:
     model_id: str
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY"),
+        repr=False,
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "google"
+    # Catalog-resolved request config. ``extra_headers`` are merged
+    # models.json/model headers. Google authenticates via the URL ``?key=``
+    # query param (no auth header), so the key rides ``endpoint_template``.
+    # Thinking (generationConfig.thinkingConfig) is per-model (level enum vs
+    # budget) and not yet catalog-encoded; it is intentionally not injected here.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def name(self) -> str:
-        return "google"
+        return self.provider_name
 
     def complete(
         self,
@@ -100,8 +112,11 @@ class GoogleGenerativeAIProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id or not self.model_id.strip():
             return failed_provider_result(
@@ -109,7 +124,7 @@ class GoogleGenerativeAIProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="GoogleConfigurationError",
-                error_message="--native-model is required for native provider google.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
         api_key = self.api_key.strip() if self.api_key is not None else ""
         if not api_key:
@@ -119,7 +134,8 @@ class GoogleGenerativeAIProvider:
                 started_at=started_at,
                 error_type="GoogleAuthError",
                 error_message=(
-                    "Google API key is required in the environment for native provider google."
+                    "Google API key is required in the environment for native "
+                    f"provider {self.name}."
                 ),
             )
 
@@ -141,6 +157,9 @@ class GoogleGenerativeAIProvider:
                 }
             ]
         headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers.
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
 
         try:
             response = self.http_client.post_json(
@@ -148,6 +167,7 @@ class GoogleGenerativeAIProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if response.status_code < 200 or response.status_code >= 300:
                 raise GoogleHTTPStatusError(

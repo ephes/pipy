@@ -168,6 +168,7 @@ def test_tool_loop_repl_loads_at_file_context_into_provider_messages(
             *,
             stream_sink: object = None,
             reasoning_sink: object = None,
+            cancel_token: object = None,
         ) -> ProviderResult:
             self.captured.append(request)
             now = datetime.now(UTC)
@@ -251,6 +252,7 @@ def test_tool_loop_repl_image_attachment_counter_reaches_adapter_metadata(
             *,
             stream_sink: object = None,
             reasoning_sink: object = None,
+            cancel_token: object = None,
         ) -> ProviderResult:
             self.captured.append(request)
             now = datetime.now(UTC)

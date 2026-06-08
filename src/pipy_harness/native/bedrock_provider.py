@@ -22,8 +22,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object
+from pipy_harness.native.anthropic_provider import (
+    ANTHROPIC_DEFAULT_THINKING_BUDGET,
+    ANTHROPIC_THINKING_BUDGETS,
+)
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
@@ -38,6 +43,20 @@ BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31"
 BEDROCK_DEFAULT_MAX_TOKENS = 4096
 BEDROCK_SIGV4_SERVICE = "bedrock"
 BEDROCK_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
+# Headers SigV4 owns; a custom header must never collide with these when merged
+# into the signed request (Pi filters the same set before signing).
+_BEDROCK_RESERVED_HEADERS = frozenset({"authorization", "host"})
+# Claude model families that take adaptive thinking (``output_config.effort``)
+# on Bedrock rather than the ``budget_tokens`` path (Pi: supportsAdaptiveThinking).
+_BEDROCK_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6")
+# Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
+# (Pi: mapThinkingLevelToEffort).
+_BEDROCK_ADAPTIVE_EFFORT = {"minimal": "low"}
+
+
+def _supports_adaptive_thinking(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return any(marker in lowered for marker in _BEDROCK_ADAPTIVE_MODEL_MARKERS)
 BEDROCK_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
@@ -57,6 +76,7 @@ class UrllibJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> JsonResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
@@ -66,9 +86,11 @@ class UrllibJsonHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
         except urllib.error.HTTPError as exc:
             raise BedrockHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
@@ -100,20 +122,36 @@ class AmazonBedrockProvider:
         or os.environ.get("AWS_DEFAULT_REGION")
         or "us-east-1"
     )
-    access_key: str | None = field(default_factory=lambda: os.environ.get("AWS_ACCESS_KEY_ID"))
-    secret_key: str | None = field(default_factory=lambda: os.environ.get("AWS_SECRET_ACCESS_KEY"))
-    session_token: str | None = field(default_factory=lambda: os.environ.get("AWS_SESSION_TOKEN"))
+    # ``repr=False`` on credential-bearing fields so a stray repr never leaks
+    # the AWS signing keys.
+    access_key: str | None = field(
+        default_factory=lambda: os.environ.get("AWS_ACCESS_KEY_ID"), repr=False
+    )
+    secret_key: str | None = field(
+        default_factory=lambda: os.environ.get("AWS_SECRET_ACCESS_KEY"), repr=False
+    )
+    session_token: str | None = field(
+        default_factory=lambda: os.environ.get("AWS_SESSION_TOKEN"), repr=False
+    )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = BEDROCK_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
     anthropic_version: str = BEDROCK_ANTHROPIC_VERSION
     max_tokens: int = BEDROCK_DEFAULT_MAX_TOKENS
+    provider_name: str = "amazon-bedrock"
+    # Catalog-resolved request config. AWS SigV4 credentials stay env-resolved
+    # (they are not api keys); catalog construction injects only ``extra_headers``
+    # (merged into the signed request) and ``reasoning_effort`` (Bedrock Claude
+    # speaks the Anthropic body, so thinking is the ``thinking.budget_tokens``
+    # shape, mapped via the shared anthropic budgets).
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
     _clock: Any = None
 
     @property
     def name(self) -> str:
-        return "amazon-bedrock"
+        return self.provider_name
 
     def complete(
         self,
@@ -121,8 +159,11 @@ class AmazonBedrockProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id:
             return failed_provider_result(
@@ -130,7 +171,7 @@ class AmazonBedrockProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="BedrockConfigurationError",
-                error_message="--native-model is required for native provider amazon-bedrock.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
         if not self.region:
             return failed_provider_result(
@@ -138,7 +179,7 @@ class AmazonBedrockProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="BedrockConfigurationError",
-                error_message="AWS region is required for native provider amazon-bedrock.",
+                error_message=f"AWS region is required for native provider {self.name}.",
             )
         if not self.access_key or not self.secret_key:
             return failed_provider_result(
@@ -147,7 +188,8 @@ class AmazonBedrockProvider:
                 started_at=started_at,
                 error_type="BedrockAuthError",
                 error_message=(
-                    "AWS signing keys must be set in the environment for native provider amazon-bedrock."
+                    "AWS signing keys must be set in the environment for native "
+                    f"provider {self.name}."
                 ),
             )
 
@@ -166,12 +208,42 @@ class AmazonBedrockProvider:
                 serialize_tool_for_anthropic(tool)
                 for tool in request.available_tools
             ]
+        # Bedrock Claude speaks the Anthropic body (InvokeModel carries the raw
+        # Anthropic request), so thinking is placed at the body top level. Pi
+        # uses adaptive thinking (``type: adaptive`` + ``output_config.effort``)
+        # for the adaptive-capable Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6)
+        # and the ``budget_tokens`` path otherwise; we mirror that split.
+        if self.reasoning_effort is not None:
+            if _supports_adaptive_thinking(self.model_id):
+                body["thinking"] = {"type": "adaptive"}
+                body["output_config"] = {
+                    "effort": _BEDROCK_ADAPTIVE_EFFORT.get(
+                        self.reasoning_effort, self.reasoning_effort
+                    )
+                }
+            else:
+                body["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
+                        self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
+                    ),
+                }
 
         encoded_body = json.dumps(body).encode("utf-8")
         base_headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        # Merge models.json/model headers into the signed request (so they are
+        # covered by the SigV4 signature). Reserved headers that SigV4 owns
+        # (``authorization``, ``host``, ``x-amz-*``) are dropped so a custom
+        # header can never collide with the signing headers (Pi filters the same
+        # set before signing).
+        for header_name, header_value in self.extra_headers.items():
+            lowered = header_name.lower()
+            if lowered in _BEDROCK_RESERVED_HEADERS or lowered.startswith("x-amz-"):
+                continue
+            base_headers[header_name] = header_value
         try:
             signed_headers = _sigv4_sign(
                 method="POST",
@@ -203,6 +275,7 @@ class AmazonBedrockProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if response.status_code < 200 or response.status_code >= 300:
                 raise BedrockHTTPStatusError(

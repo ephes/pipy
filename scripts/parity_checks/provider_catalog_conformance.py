@@ -5,30 +5,23 @@ temp ``models.json``, a fake auth store, fake OAuth HTTP transports, no network)
 and fails unless the catalog behaves to spec: the built-in catalog, the matcher,
 ``models.json`` parsing/merge/validation, routing, thinking mapping, auth
 resolution/status, the OAuth provider shape, availability, the ds4 reframe,
-refresh/dynamic registration, secret non-leakage, AND — for the
-``openai-completions`` API family — turn-time product construction (item 18):
-a models.json custom provider runs a real fake-HTTP turn using the catalog
-baseUrl/model/auth/headers/routing/thinking, driven through the actual
-``NativeReplProviderState.current_provider``/``provider_for`` boundary.
-
-Scope note (see ``docs/provider-catalog.md`` "Remaining wiring"): turn-time
-product construction is gated here for the ``openai-completions`` family; the
-non-completions families plus startup-CLI/``pipy run`` one-shot resolution are
-documented follow-ups not yet covered by this gate.
+refresh/dynamic registration, secret non-leakage, product construction for the
+``openai-completions`` API family, catalog-constructed non-completions families,
+``pipy run`` one-shot construction, and startup provider/model resolution. The
+product-path checks are driven through the actual
+``NativeReplProviderState.current_provider``/``provider_for`` boundary and use
+capturing fake HTTP clients; no real network or AI call is made.
 
 Run:
 
     uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
-Verifies the docs/provider-catalog.md "Verification Plan" items 1-19, including
-item 18 (product provider-construction paths) at the construction/request layer
-with a capturing fake HTTP client: a models.json custom provider runs a real
-turn whose request uses the catalog baseUrl/model/auth/headers, ``--api-key``
-reaches the header, routing reaches the body (OpenRouter ``provider`` / Vercel
-``providerOptions.gateway``), thinking reaches the body (OpenAI ``reasoning_effort``
-/ OpenRouter ``reasoning.effort``), the legacy hardcoded URL is bypassed, and no
-secret leaks into the turn result. The interactive direct-``/model`` resolver and
-product-TUI surfaces are exercised by the focused pytest suites.
+Verifies the docs/provider-catalog.md "Verification Plan" items 1-24: catalog
+foundation items 1-17, Chat-Completions product construction item 18, archive
+secret checks item 19, non-completions product construction items 20-22,
+``pipy run`` one-shot construction item 23, and startup provider/model
+resolution item 24. The interactive direct-``/model`` resolver and product-TUI
+surfaces are exercised by the focused pytest suites.
 
  1. built-in catalog: multiple rows per implemented provider + real metadata;
  2. exact provider/id matching, ambiguity rejection, bare-id matching;
@@ -47,11 +40,15 @@ product-TUI surfaces are exercised by the focused pytest suites.
 15. availability gate reflects auth store + models.json keys, not just env;
 16. ds4 resolves as a models.json custom provider; env shim is equivalent;
 17. catalog refresh() picks up a models.json edit + simulated login/logout;
-18. product provider-construction: a custom models.json provider runs a real
-    fake-HTTP turn using catalog baseUrl/model/auth/headers; --api-key reaches
-    the header; routing + thinking reach the body; legacy URL bypassed; no
-    secret in the turn result;
-19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface.
+18. Chat-Completions product construction: custom models.json provider turn,
+    catalog baseUrl/model/auth/headers, runtime --api-key, routing/thinking,
+    legacy URL bypass, and no secret in the turn result;
+19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface;
+20. Tier 1 non-completions construction (anthropic/openai-responses/mistral);
+21. Tier 2 non-completions construction (google/azure/cloudflare);
+22. Tier 3 non-completions construction (bedrock/vertex) plus codex exception;
+23. pipy run one-shot construction uses the catalog-backed boundary;
+24. startup --native-provider/--native-model resolution uses the shared matcher.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 """
@@ -602,7 +599,7 @@ class _CapturingHTTP:
     def __init__(self):
         self.requests = []
 
-    def post_json(self, url, *, headers, body, timeout_seconds):
+    def post_json(self, url, *, headers, body, timeout_seconds, cancel_token=None):
         self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
         return JsonResponse(
             status_code=200,
@@ -807,6 +804,491 @@ def _check_product_construction(checks, tmp: Path):
     checks.append(Check("18_product_boundary_uses_catalog", product_ok, "current_provider/provider_for constructs from the catalog (not legacy); repr hides secrets"))
 
 
+def _check_tier1_construction(checks, tmp: Path):
+    # Item 20: catalog construction for the Tier 1 api-key families
+    # (anthropic-messages, openai-responses, mistral). Each custom models.json
+    # provider runs a real (fake-HTTP) turn whose request uses the catalog
+    # baseUrl-derived endpoint, model id, the family's native auth header, merged
+    # headers, and the mapped thinking in that family's native body key.
+
+    # 20a: anthropic-messages -> x-api-key + thinking.budget_tokens, /v1/messages.
+    a_path = tmp / "tier1_anthropic.json"
+    a_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-claude": {
+                        "baseUrl": "https://acme.example",
+                        "apiKey": "amk",
+                        "api": "anthropic-messages",
+                        "headers": {"X-Acme": "1"},
+                        "models": [
+                            {"id": "claude-x", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    a_state = _state(tmp, a_path, {})
+    a_spec = a_state.find("acme-claude", "claude-x")
+    a_sent, _ = _construct_and_capture(a_state, a_spec, runtime_api_key=None, thinking_level="high")
+    anthropic_ok = (
+        a_sent["url"] == "https://acme.example/v1/messages"
+        and a_sent["body"]["model"] == "claude-x"
+        and a_sent["headers"]["x-api-key"] == "amk"
+        and "Authorization" not in a_sent["headers"]
+        and a_sent["headers"].get("X-Acme") == "1"
+        and a_sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+    )
+    checks.append(Check("20_anthropic_messages_construction", anthropic_ok, "anthropic-messages: catalog baseUrl/x-api-key/headers/thinking budget"))
+
+    # 20b: openai-responses -> Authorization Bearer + reasoning.effort, /responses.
+    r_path = tmp / "tier1_responses.json"
+    r_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-oai": {
+                        "baseUrl": "https://oai.example/v1",
+                        "apiKey": "ork",
+                        "api": "openai-responses",
+                        "models": [
+                            {"id": "o-pro", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    r_state = _state(tmp, r_path, {})
+    r_spec = r_state.find("acme-oai", "o-pro")
+    r_sent, _ = _construct_and_capture(r_state, r_spec, runtime_api_key=None, thinking_level="high")
+    responses_ok = (
+        r_sent["url"] == "https://oai.example/v1/responses"
+        and r_sent["body"]["model"] == "o-pro"
+        and r_sent["headers"]["Authorization"] == "Bearer ork"
+        and r_sent["body"]["reasoning"] == {"effort": "high"}
+    )
+    checks.append(Check("20_openai_responses_construction", responses_ok, "openai-responses: catalog baseUrl/Bearer/reasoning.effort"))
+
+    # 20c: mistral -> Authorization Bearer, /chat/completions.
+    m_path = tmp / "tier1_mistral.json"
+    m_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-mistral": {
+                        "baseUrl": "https://mistral.example/v1",
+                        "apiKey": "mmk",
+                        "api": "mistral",
+                        "models": [{"id": "mix-1"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    m_state = _state(tmp, m_path, {})
+    m_spec = m_state.find("acme-mistral", "mix-1")
+    m_sent, _ = _construct_and_capture(m_state, m_spec, runtime_api_key=None, thinking_level=None)
+    mistral_ok = (
+        m_sent["url"] == "https://mistral.example/v1/chat/completions"
+        and m_sent["body"]["model"] == "mix-1"
+        and m_sent["headers"]["Authorization"] == "Bearer mmk"
+    )
+    checks.append(Check("20_mistral_construction", mistral_ok, "mistral: catalog baseUrl/Bearer/chat-completions"))
+
+    # 20d: the product boundary (current_provider) constructs a built-in
+    # anthropic catalog model — not the legacy factory.
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    builtin_state = _state(tmp, tmp / "tier1_builtin_missing.json", {"ANTHROPIC_API_KEY": "envk"})
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
+        provider_factory=_no_legacy,
+        catalog_state=builtin_state,
+        thinking_level="xhigh",
+        persist_defaults=False,
+    )
+    provider = repl_state.current_provider()
+    boundary_ok = (
+        isinstance(provider, AnthropicProvider)
+        and provider.endpoint == "https://api.anthropic.com/v1/messages"
+        and provider.api_key == "envk"
+        and provider.reasoning_effort == "xhigh"
+        and "envk" not in repr(provider)
+    )
+    checks.append(Check("20_tier1_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in anthropic catalog model (not legacy)"))
+
+    # 20e: auth fail-closed for a Tier 1 family (authHeader set, no resolvable
+    # key) -> build_provider returns a fail-closed provider, not None (which
+    # would silently fall back to the legacy factory).
+    fc_spec = build_builtin_catalog().find("anthropic", "claude-opus-4-7")
+    fc_resolved = resolve_construction(
+        fc_spec,
+        store=AuthStore(path=tmp / "tier1_fc_auth.json"),
+        env={},
+        runtime_api_key=None,
+        models_json_auth=ProviderAuthRequestConfig(auth_header=True),
+        thinking_level=None,
+    )
+    fc_provider = build_provider(fc_resolved, http_client=None)
+    fc_result = (
+        fc_provider.complete(_provider_request(Path("."), "anthropic", "claude-opus-4-7"))
+        if fc_provider
+        else None
+    )
+    failclosed_ok = (
+        fc_resolved.ok is False
+        and fc_provider is not None
+        and fc_result is not None
+        and fc_result.error_type == "CatalogAuthError"
+    )
+    checks.append(Check("20_tier1_fail_closed", failclosed_ok, "Tier 1 authHeader with no key fails closed (not legacy fallback)"))
+
+
+def _check_tier2_construction(checks, tmp: Path):
+    # Item 21: catalog construction for the Tier 2 composed-endpoint families.
+    # google-generative-ai (model-in-path + ?key=), azure-openai-responses
+    # (deployment + api-version, api-key header), cloudflare-workers-ai (account
+    # id substituted into the base_url via {ENV} + OpenAI-compatible body).
+
+    # 21a: google-generative-ai built-in row, key from env -> URL ?key=, no auth
+    # header (Google authenticates via the query param).
+    g_state = _state(tmp, tmp / "tier2_google_missing.json", {"GEMINI_API_KEY": "gk"})
+    g_spec = g_state.find("google", "gemini-2.5-pro")
+    g_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level=None)
+    google_ok = (
+        g_sent["url"]
+        == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=gk"
+        and "Authorization" not in g_sent["headers"]
+        and bool(g_sent["body"].get("contents"))
+    )
+    checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key="))
+
+    # 21b: azure-openai-responses custom provider -> deployment + api-version URL,
+    # api-key header, reasoning.effort thinking.
+    az_path = tmp / "tier2_azure.json"
+    az_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-azure": {
+                        "baseUrl": "https://acme.openai.azure.com",
+                        "apiKey": "azk",
+                        "api": "azure-openai-responses",
+                        "models": [
+                            {"id": "gpt-x", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    az_state = _state(tmp, az_path, {})
+    az_spec = az_state.find("acme-azure", "gpt-x")
+    az_sent, _ = _construct_and_capture(az_state, az_spec, runtime_api_key=None, thinking_level="high")
+    azure_ok = (
+        az_sent["url"].startswith(
+            "https://acme.openai.azure.com/openai/deployments/gpt-x/responses?api-version="
+        )
+        and az_sent["headers"]["api-key"] == "azk"
+        and "Authorization" not in az_sent["headers"]
+        and az_sent["body"]["reasoning"] == {"effort": "high"}
+    )
+    checks.append(Check("21_azure_construction", azure_ok, "azure-openai-responses: deployment/api-version URL + api-key header + reasoning.effort"))
+
+    # 21c: cloudflare-workers-ai built-in row -> account id substituted into the
+    # base_url, /chat/completions appended, Bearer token.
+    cf_state = _state(
+        tmp,
+        tmp / "tier2_cf_missing.json",
+        {"CLOUDFLARE_ACCOUNT_ID": "acct-9", "CLOUDFLARE_API_KEY": "cfk"},
+    )
+    cf_spec = cf_state.find("cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+    cf_sent, _ = _construct_and_capture(cf_state, cf_spec, runtime_api_key=None, thinking_level=None)
+    cloudflare_ok = (
+        cf_sent["url"]
+        == "https://api.cloudflare.com/client/v4/accounts/acct-9/ai/v1/chat/completions"
+        and cf_sent["headers"]["Authorization"] == "Bearer cfk"
+        and cf_sent["body"]["model"] == "@cf/meta/llama-3.3-70b-instruct"
+    )
+    checks.append(Check("21_cloudflare_construction", cloudflare_ok, "cloudflare-workers-ai: {ENV} account substitution + /chat/completions + Bearer"))
+
+    # 21d: cloudflare with a missing CLOUDFLARE_ACCOUNT_ID fails closed (the
+    # base_url {ENV} placeholder cannot resolve), not a legacy fallback.
+    cf_fc_state = _state(tmp, tmp / "tier2_cf_fc.json", {"CLOUDFLARE_API_KEY": "cfk"})
+    cf_fc_spec = cf_fc_state.find("cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+    cf_fc_resolved = resolve_construction(
+        cf_fc_spec,
+        store=cf_fc_state.auth_store,
+        env=cf_fc_state._env(),
+        runtime_api_key=None,
+        models_json_auth=cf_fc_state._models_json_auth("cloudflare"),
+        thinking_level=None,
+    )
+    cf_fc_provider = build_provider(cf_fc_resolved, http_client=None)
+    cf_failclosed_ok = (
+        cf_fc_resolved.ok is False
+        and cf_fc_provider is not None
+        and cf_fc_provider.complete(
+            _provider_request(Path("."), "cloudflare", "@cf/meta/llama-3.3-70b-instruct")
+        ).error_type == "CatalogAuthError"
+    )
+    checks.append(Check("21_cloudflare_missing_account_fails_closed", cf_failclosed_ok, "cloudflare missing CLOUDFLARE_ACCOUNT_ID fails closed"))
+
+    # 21e: product boundary constructs a built-in azure catalog model (not legacy).
+    from pipy_harness.native.azure_openai_provider import AzureOpenAIResponsesProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    az_boundary_state = _state(
+        tmp, tmp / "tier2_azure_boundary.json", {"AZURE_OPENAI_API_KEY": "azk2"}
+    )
+    az_repl = NativeReplProviderState(
+        selection=NativeModelSelection("azure-openai", "gpt-5.4"),
+        provider_factory=_no_legacy,
+        catalog_state=az_boundary_state,
+        thinking_level="high",
+        persist_defaults=False,
+    )
+    az_provider = az_repl.current_provider()
+    azure_boundary_ok = (
+        isinstance(az_provider, AzureOpenAIResponsesProvider)
+        and az_provider.endpoint_url == "https://azure-openai.example"
+        and az_provider.api_key == "azk2"
+        and az_provider.reasoning_effort == "high"
+        and "azk2" not in repr(az_provider)
+    )
+    checks.append(Check("21_tier2_boundary_uses_catalog", azure_boundary_ok, "current_provider constructs a built-in azure catalog model (not legacy)"))
+
+
+def _check_tier3_construction(checks, tmp: Path):
+    # Item 22: catalog construction for the Tier 3 IAM/OAuth families. Auth
+    # (AWS SigV4 / GCP ADC / Codex OAuth) and the region/project endpoint stay
+    # env-resolved by the adapter; catalog construction injects model_id +
+    # provider_name + headers + thinking (bedrock Anthropic budget, codex
+    # reasoning.effort; vertex thinking deferred). The resolved api_key is NOT
+    # forwarded as a credential.
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    # 22a: bedrock built-in row -> AmazonBedrockProvider with thinking threaded.
+    bd_state = _state(tmp, tmp / "tier3_bd_missing.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bd_spec = bd_state.find("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1")
+    bd_resolved = resolve_construction(
+        bd_spec,
+        store=bd_state.auth_store,
+        env=bd_state._env(),
+        runtime_api_key=None,
+        models_json_auth=bd_state._models_json_auth("amazon-bedrock"),
+        thinking_level="high",
+    )
+    bd_provider = build_provider(bd_resolved, http_client=None)
+    bedrock_ok = (
+        isinstance(bd_provider, AmazonBedrockProvider)
+        and bd_provider.model_id == "us.anthropic.claude-opus-4-6-v1"
+        and bd_provider.reasoning_effort == "high"
+    )
+    checks.append(Check("22_bedrock_construction", bedrock_ok, "amazon-bedrock: catalog construction threads model id + thinking effort"))
+
+    # 22b: bedrock thinking reaches the signed request body. opus-4-6 is an
+    # adaptive Claude model, so it uses adaptive thinking + output_config.effort
+    # (Pi's supportsAdaptiveThinking), not the budget path.
+    bd_http = _CapturingHTTP()
+    bd_signed = AmazonBedrockProvider(
+        model_id="us.anthropic.claude-opus-4-6-v1",
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        http_client=bd_http,
+        reasoning_effort="high",
+        _clock=lambda: datetime(2015, 8, 30, 12, 36, 0, tzinfo=UTC),
+    )
+    bd_signed.complete(_provider_request(Path("."), "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"))
+    bd_sent = bd_http.requests[-1]
+    bedrock_body_ok = (
+        bd_sent["url"]
+        == "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-4-6-v1/invoke"
+        and bd_sent["body"]["thinking"] == {"type": "adaptive"}
+        and bd_sent["body"]["output_config"] == {"effort": "high"}
+        and bd_sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+    )
+    checks.append(Check("22_bedrock_thinking_body", bedrock_body_ok, "amazon-bedrock: adaptive thinking (output_config.effort) reaches the SigV4-signed body"))
+
+    # 22c: vertex built-in row -> GoogleVertexProvider (auth/project env-resolved).
+    vx_state = _state(tmp, tmp / "tier3_vx_missing.json", {"GOOGLE_CLOUD_API_KEY": "vk"})
+    vx_spec = vx_state.find("google-vertex", "gemini-2.5-pro")
+    vx_resolved = resolve_construction(
+        vx_spec,
+        store=vx_state.auth_store,
+        env=vx_state._env(),
+        runtime_api_key=None,
+        models_json_auth=vx_state._models_json_auth("google-vertex"),
+        thinking_level=None,
+    )
+    vx_provider = build_provider(vx_resolved, http_client=None)
+    vertex_ok = (
+        isinstance(vx_provider, GoogleVertexProvider)
+        and vx_provider.model_id == "gemini-2.5-pro"
+        and vx_provider.provider_name == "google-vertex"
+    )
+    checks.append(Check("22_vertex_construction", vertex_ok, "google-vertex: catalog construction (auth/project env-resolved)"))
+
+    # 22d: codex is deliberately NOT catalog-constructed (the legacy factory
+    # injects a settings-derived RetryPolicy that catalog construction would
+    # drop); build_provider returns None so it falls back to the legacy factory.
+    cx_state = _state(tmp, tmp / "tier3_cx_missing.json", {})
+    cx_spec = cx_state.find("openai-codex", "gpt-5.5")
+    cx_resolved = resolve_construction(
+        cx_spec,
+        store=cx_state.auth_store,
+        env=cx_state._env(),
+        runtime_api_key=None,
+        models_json_auth=cx_state._models_json_auth("openai-codex"),
+        thinking_level="high",
+    )
+    codex_ok = build_provider(cx_resolved, http_client=None) is None
+    checks.append(Check("22_codex_stays_on_legacy", codex_ok, "openai-codex-responses stays on the legacy factory (settings-derived RetryPolicy)"))
+
+    # 22e: product boundary constructs a built-in bedrock catalog model (not legacy).
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    bnd_state = _state(tmp, tmp / "tier3_boundary.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bnd_repl = NativeReplProviderState(
+        selection=NativeModelSelection("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
+        provider_factory=_no_legacy,
+        catalog_state=bnd_state,
+        thinking_level="high",
+        persist_defaults=False,
+    )
+    bnd_provider = bnd_repl.current_provider()
+    boundary_ok = (
+        isinstance(bnd_provider, AmazonBedrockProvider)
+        and bnd_provider.reasoning_effort == "high"
+    )
+    checks.append(Check("22_tier3_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in bedrock catalog model (not legacy)"))
+
+
+def _check_run_path_construction(checks, tmp: Path):
+    # Item 23: the one-shot ``pipy run`` boundary constructs its provider via
+    # catalog construction (the same boundary as the REPL), not the legacy
+    # factory. A runtime --api-key + --thinking must reach the constructed
+    # adapter; the legacy factory would ignore both.
+    from pipy_harness.cli import _run_provider_for_selection
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.repl_state import NativeModelSelection
+
+    provider = _run_provider_for_selection(
+        NativeModelSelection("anthropic", "claude-opus-4-7"),
+        thinking="xhigh",
+        api_key="RUNTIME-RUN-KEY",
+    )
+    run_ok = (
+        isinstance(provider, AnthropicProvider)
+        and provider.api_key == "RUNTIME-RUN-KEY"
+        and provider.reasoning_effort == "xhigh"
+        and "RUNTIME-RUN-KEY" not in repr(provider)
+    )
+    checks.append(Check("23_run_path_uses_catalog", run_ok, "pipy run one-shot construction uses catalog construction (honors --api-key/--thinking)"))
+
+
+def _check_startup_cli_resolution(checks, tmp: Path):
+    # Item 24: startup --native-provider/--native-model resolution accepts custom
+    # models.json providers and bare model refs (Pi's resolveCliModel), and
+    # rejects unknown providers — matching mid-session /model. Previously a bare
+    # --native-model became fake/<ref> and a custom provider name was rejected by
+    # the argparse choices.
+    from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        default_selection_for,
+        resolve_cli_selection,
+    )
+
+    rows = build_builtin_catalog().get_all()
+    custom_rows = list(rows) + [
+        NativeModelSpec(
+            provider_name="acme",
+            model_id="rocket-1",
+            display_name="Acme Rocket 1",
+            api="openai-completions",
+            base_url="https://acme.example/v1",
+            cost=NativeModelCost(),
+        )
+    ]
+
+    # 24a: a bare --native-model infers its provider (not fake/<ref>).
+    sel_bare, err_bare = resolve_cli_selection(None, "claude-opus-4-7", rows)
+    bare_ok = err_bare is None and sel_bare == NativeModelSelection(
+        "anthropic", "claude-opus-4-7"
+    )
+    checks.append(Check("24_startup_bare_model", bare_ok, "bare --native-model resolves its provider (not fake/<ref>)"))
+
+    # 24b: a custom models.json provider name is accepted at startup.
+    sel_custom, err_custom = resolve_cli_selection("acme", "rocket-1", custom_rows)
+    custom_ok = err_custom is None and sel_custom == NativeModelSelection(
+        "acme", "rocket-1"
+    )
+    checks.append(Check("24_startup_custom_provider", custom_ok, "custom models.json provider name accepted at startup"))
+
+    # 24c: provider-only resolves the provider's default catalog model.
+    sel_prov, err_prov = resolve_cli_selection("anthropic", None, rows)
+    provider_only_ok = (
+        err_prov is None
+        and sel_prov is not None
+        and sel_prov.provider_name == "anthropic"
+        and any(
+            r.provider_name == "anthropic" and r.model_id == sel_prov.model_id
+            for r in rows
+        )
+    )
+    checks.append(Check("24_startup_provider_default", provider_only_ok, "provider-only --native-provider resolves the catalog default model"))
+
+    # 24d: an unknown provider errors clearly (no argparse choices guard).
+    sel_unknown, err_unknown = resolve_cli_selection("nope", None, rows)
+    unknown_ok = (
+        sel_unknown is None
+        and err_unknown is not None
+        and 'Unknown provider "nope"' in err_unknown
+    )
+    checks.append(Check("24_startup_unknown_provider", unknown_ok, "unknown --native-provider errors clearly"))
+
+    # 24e: default_selection_for(rows=...) raises ValueError on an unknown provider.
+    raised = False
+    try:
+        default_selection_for(native_provider="nope", native_model=None, rows=rows)
+    except ValueError:
+        raised = True
+    checks.append(Check("24_startup_default_selection_raises", raised, "default_selection_for(rows) raises on an unknown provider"))
+
+
 def _check_no_secret_leak(checks, tmp: Path):
     # Configure secrets on every auth channel, then confirm that the actual
     # archive-/display-facing surfaces the catalog produces carry no secret
@@ -909,6 +1391,11 @@ def run_checks() -> list[Check]:
         _check_ds4(checks, tmp)
         _check_refresh(checks, tmp)
         _check_product_construction(checks, tmp)
+        _check_tier1_construction(checks, tmp)
+        _check_tier2_construction(checks, tmp)
+        _check_tier3_construction(checks, tmp)
+        _check_run_path_construction(checks, tmp)
+        _check_startup_cli_resolution(checks, tmp)
         _check_no_secret_leak(checks, tmp)
     return checks
 

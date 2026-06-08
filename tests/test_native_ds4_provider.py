@@ -42,6 +42,7 @@ class FakeJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> JsonResponse:
         self.requests.append(
             {
@@ -262,7 +263,11 @@ def test_cli_ds4_product_path_against_hermetic_openai_compatible_server(
     assert captured
     assert captured[0]["path"] == "/v1/chat/completions"
     assert captured[0]["headers"]["content-type"] == "application/json"
-    assert "authorization" not in captured[0]["headers"]
+    # `pipy run` now constructs ds4 through catalog construction (matching the
+    # REPL), so the synthesized models.json placeholder apiKey ("local") is sent
+    # as a Bearer token the same way Pi's OpenAI client would (the hermetic
+    # server ignores it). The legacy ds4 adapter omitted the header.
+    assert captured[0]["headers"]["authorization"] == "Bearer local"
     assert captured[0]["body"]["model"] == DS4_DEFAULT_MODEL
     assert captured[0]["body"]["stream"] is False
 

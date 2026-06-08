@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
 
@@ -49,6 +50,7 @@ class ProviderPort(Protocol):
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         """Complete one native turn.
 
@@ -64,4 +66,12 @@ class ProviderPort(Protocol):
         expose reasoning summaries ignore the keyword. The reasoning
         text never reaches the metadata archive; only the renderer sees
         it.
+
+        ``cancel_token`` is supplied by the native tool loop during an
+        active-turn Escape / Ctrl-C abort. Adapters check it before issuing
+        the request and thread it into their HTTP boundary so the in-flight
+        connection is closed and :class:`ProviderCancelledError` is raised
+        instead of the request running to completion. Adapters that ignore
+        the keyword keep their existing behavior but cannot be cancelled
+        mid-flight.
         """

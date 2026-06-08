@@ -31,3 +31,25 @@ entries oldest-first, and a version bump shows the new entries at startup.
     `skills`/`prompts`/`themes`/`extensions`) and `enableSkillCommands`.
   - `/reload` re-reads settings, keybindings, resources, and theme.
   - `/changelog` and the `--version` surface.
+- Provider/model catalog closeout for the native runtime:
+  - Catalog-backed provider construction now covers the OpenAI-compatible Chat
+    Completions family, implemented catalog-constructed non-completions
+    families, `pipy run` one-shot construction, and startup
+    `--native-provider`/`--native-model` resolution through the shared resolver.
+  - The provider catalog conformance gate covers Verification-Plan items 1-24
+    with deterministic fake HTTP/product-path checks and no network access.
+- True active-turn provider-request cancellation for the native tool loop:
+  Escape and Ctrl-C each thread a per-turn `CancelToken`
+  (`pipy_harness.native.cancellation`) into `ProviderPort.complete(...)` that
+  shuts the live `urllib`/SSE connection down — during the header wait or the
+  body/stream read — so the worker's blocking read raises
+  `ProviderCancelledError` instead of finishing the request; the worker is then
+  best-effort joined and the loop renders Pi-style red `Operation aborted`
+  without appending an assistant/tool observation. The socket-shutdown read
+  path tolerates the `http.client` `_close_conn` shutdown race (a concurrent
+  `fp = None` surfacing as `AttributeError`) by mapping it to cancellation only
+  when the token is cancelled, so an aborted body read cannot leak a spurious
+  provider error.
+- Python SDK/headless embedding documentation for `pipy_harness.sdk`, including
+  the current one-shot in-process surface, fake-provider default, current limits,
+  and relationship to planned JSON/RPC automation.

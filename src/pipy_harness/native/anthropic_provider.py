@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
@@ -24,6 +25,17 @@ from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
+# Default per-effort thinking token budgets (Pi's amazon-bedrock.ts default
+# budgets, the universally-valid ``budget_tokens`` path). Claude's budget path
+# has no xhigh, so Pi clamps xhigh down to high (simple-options.ts); we match.
+ANTHROPIC_THINKING_BUDGETS: dict[str, int] = {
+    "minimal": 1024,
+    "low": 2048,
+    "medium": 8192,
+    "high": 16384,
+    "xhigh": 16384,
+}
+ANTHROPIC_DEFAULT_THINKING_BUDGET = 16384
 ANTHROPIC_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
@@ -43,6 +55,7 @@ class UrllibJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> JsonResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
@@ -52,9 +65,11 @@ class UrllibJsonHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
         except urllib.error.HTTPError as exc:
             raise AnthropicHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
@@ -82,17 +97,28 @@ class AnthropicProvider:
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY"))
+    # ``repr=False`` on credential-bearing fields so a stray repr/log never
+    # leaks the api key or auth headers.
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY"), repr=False
+    )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = ANTHROPIC_MESSAGES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
     anthropic_version: str = "2023-06-01"
     max_tokens: int = ANTHROPIC_DEFAULT_MAX_TOKENS
+    provider_name: str = "anthropic"
+    # Catalog-resolved request config (parity with the completions adapter).
+    # ``extra_headers`` are merged models.json/model headers (an explicit
+    # Authorization wins over the native ``x-api-key``); ``reasoning_effort`` is
+    # the mapped thinking value, placed in Anthropic's native ``thinking`` key.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
 
     @property
     def name(self) -> str:
-        return "anthropic"
+        return self.provider_name
 
     def complete(
         self,
@@ -100,8 +126,11 @@ class AnthropicProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id:
             return failed_provider_result(
@@ -109,15 +138,21 @@ class AnthropicProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="AnthropicConfigurationError",
-                error_message="--native-model is required for native provider anthropic.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
-        if not self.api_key:
+        has_explicit_authorization = any(
+            header_name.lower() == "authorization" for header_name in self.extra_headers
+        )
+        if not self.api_key and not has_explicit_authorization:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="AnthropicAuthError",
-                error_message="Anthropic API key is required in the environment for native provider anthropic.",
+                error_message=(
+                    "Anthropic API key is required in the environment for native "
+                    f"provider {self.name}."
+                ),
             )
 
         body: dict[str, Any] = {
@@ -131,11 +166,28 @@ class AnthropicProvider:
                 serialize_tool_for_anthropic(tool)
                 for tool in request.available_tools
             ]
+        # Anthropic-native thinking: the mapped effort maps to a token budget
+        # (Pi's universally-valid ``type: enabled``/``budget_tokens`` path with
+        # Pi's default per-level budgets). The adaptive ``output_config`` path is
+        # model-gated and tracked as a follow-on.
+        if self.reasoning_effort is not None:
+            body["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
+                    self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
+                ),
+            }
         headers = {
-            "x-api-key": self.api_key,
             "anthropic-version": self.anthropic_version,
             "Content-Type": "application/json",
         }
+        # Merged models.json/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Apply the native ``x-api-key`` only when no explicit Authorization
+        # header is present, so an explicit models.json auth header wins.
+        if self.api_key and not has_explicit_authorization:
+            headers["x-api-key"] = self.api_key
 
         try:
             response = self.http_client.post_json(
@@ -143,6 +195,7 @@ class AnthropicProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if response.status_code < 200 or response.status_code >= 300:
                 raise AnthropicHTTPStatusError(

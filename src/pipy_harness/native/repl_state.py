@@ -507,6 +507,62 @@ def _provider_available_in_env(
     )
 
 
+def resolve_cli_selection(
+    native_provider: str | None,
+    native_model: str | None,
+    rows: list,
+) -> tuple[NativeModelSelection | None, str | None]:
+    """Resolve startup ``--native-provider``/``--native-model`` against the catalog.
+
+    Mirrors mid-session ``/model`` resolution (Pi's ``resolveCliModel``): a bare
+    ``--native-model`` infers its provider, a ``provider/id`` ref or fuzzy match
+    resolves, and a custom ``models.json`` provider name is accepted. With only
+    ``--native-provider``, the provider's default catalog model is selected.
+
+    Returns ``(selection, None)`` on success, ``(None, error)`` on an unknown
+    provider/model, or ``(None, None)`` when neither flag is set (the caller
+    falls back to stored/auto/fake defaults).
+    """
+
+    from pipy_harness.native.catalog import default_model_per_provider
+    from pipy_harness.native.model_resolver import resolve_cli_model
+
+    if native_model is not None:
+        result = resolve_cli_model(
+            cli_provider=native_provider, cli_model=native_model, rows=rows
+        )
+        if result.error is not None:
+            return None, result.error
+        if result.model is None:
+            return None, (
+                f'Unknown model "{native_model}". '
+                "Use --list-models to see available providers/models."
+            )
+        return (
+            NativeModelSelection(result.model.provider_name, result.model.model_id),
+            None,
+        )
+
+    if native_provider is not None:
+        provider_map = {r.provider_name.lower(): r.provider_name for r in rows}
+        canonical = provider_map.get(native_provider.lower())
+        if canonical is None:
+            return None, (
+                f'Unknown provider "{native_provider}". '
+                "Use --list-models to see available providers/models."
+            )
+        provider_rows = [r for r in rows if r.provider_name == canonical]
+        default_id = default_model_per_provider.get(canonical)
+        model_id = (
+            default_id
+            if default_id and any(r.model_id == default_id for r in provider_rows)
+            else provider_rows[0].model_id
+        )
+        return NativeModelSelection(canonical, model_id), None
+
+    return None, None
+
+
 def default_selection_for(
     *,
     native_provider: str | None,
@@ -514,7 +570,17 @@ def default_selection_for(
     defaults_store: NativeDefaultsStore | None = None,
     env: Mapping[str, str] | None = None,
     openai_codex_auth_path: Path | None = None,
+    rows: list | None = None,
 ) -> NativeModelSelection:
+    # Catalog-aware startup resolution (accepts custom models.json providers and
+    # bare model refs). ``rows`` is the merged catalog; when omitted, the legacy
+    # registry-validated path below is used (direct/test callers).
+    if rows is not None and (native_provider is not None or native_model is not None):
+        selection, error = resolve_cli_selection(native_provider, native_model, rows)
+        if error is not None:
+            raise ValueError(error)
+        if selection is not None:
+            return selection
     if native_provider is not None:
         if native_provider not in SUPPORTED_NATIVE_PROVIDERS:
             raise ValueError(f"unsupported native provider: {native_provider}")

@@ -12,6 +12,32 @@ product runtime backends.
 For the design rationale, runtime diagrams, archive layout, and parity
 status, start at [`docs/index.md`](docs/index.md).
 
+## Headless Python Embedding
+
+Pipy is intended to be usable without its CLI/TUI from Python programs that need
+agentic workflow support. The in-process surface is `pipy_harness.sdk`; it lets
+callers build a native run request, inject providers or stream sinks, execute one
+`pipy-native` turn, and receive a `RunResult` as a Python object:
+
+```python
+from pathlib import Path
+
+from pipy_harness.sdk import make_native_run_request, run_native
+
+request = make_native_run_request(
+    goal="Summarize the current repository state",
+    cwd=Path.cwd(),
+)
+result = run_native(request)
+```
+
+By default this example uses the deterministic fake provider, so it is safe for
+smoke tests and does not contact a model provider. The stable SDK is
+intentionally narrow today. Richer multi-turn/session-control embedding is a
+design goal; Pi-style JSON/RPC automation is specified separately for
+out-of-process callers. See [`docs/sdk.md`](docs/sdk.md) and
+[`docs/automation-rpc.md`](docs/automation-rpc.md).
+
 ## Development Setup
 
 Install the Python tooling with `uv`:

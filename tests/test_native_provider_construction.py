@@ -36,6 +36,7 @@ class CapturingHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> JsonResponse:
         self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
         return JsonResponse(
@@ -340,22 +341,517 @@ def test_auth_failure_returns_fail_closed_provider(tmp_path):
 
 
 def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
+    # The deterministic ``fake`` bootstrap is not catalog-constructed; it falls
+    # back to the legacy factory (build returns None to signal "not
+    # catalog-constructed here").
     spec = NativeModelSpec(
-        provider_name="anthropic",
-        model_id="claude-opus-4-7",
-        display_name="Opus",
-        api="anthropic-messages",
-        base_url="https://api.anthropic.com",
+        provider_name="fake",
+        model_id="fake-native-bootstrap",
+        display_name="Fake",
+        api="fake",
+        base_url=None,
         cost=NativeModelCost(),
     )
     resolved = resolve_construction(
         spec,
         store=AuthStore(path=tmp_path / "auth.json"),
-        env={"ANTHROPIC_API_KEY": "k"},
+        env={},
         runtime_api_key=None,
         models_json_auth=None,
         thinking_level=None,
     )
-    # Non-completions families fall back to the legacy factory (build returns
-    # None to signal "not catalog-constructed here").
     assert build_provider(resolved, http_client=None) is None
+
+
+# ---- Slice C: Tier 1 non-completions families (catalog construction) --------
+#
+# anthropic-messages, openai-responses, and mistral are pure api_key + endpoint
+# adapters. Catalog construction derives the endpoint by appending each family's
+# path suffix to the catalog base_url, routes the resolved key into the family's
+# native auth header, merges models.json/model headers, and places the mapped
+# thinking effort in each family's native body key.
+
+
+def _anthropic_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="anthropic",
+        model_id="claude-opus-4-7",
+        display_name="Opus",
+        api="anthropic-messages",
+        base_url="https://api.anthropic.com",
+        reasoning=True,
+        thinking_level_map={"high": "high", "xhigh": "xhigh"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _responses_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="openai",
+        model_id="gpt-5.5",
+        display_name="GPT-5.5",
+        api="openai-responses",
+        base_url="https://api.openai.com/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _mistral_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="mistral",
+        model_id="mistral-large-latest",
+        display_name="Mistral Large",
+        api="mistral",
+        base_url="https://api.mistral.ai/v1",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _resolve(spec, tmp_path, env, *, thinking_level=None, models_json_auth=None):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env=env,
+        runtime_api_key=None,
+        models_json_auth=models_json_auth,
+        thinking_level=thinking_level,
+    )
+
+
+def test_anthropic_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="high"
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.anthropic.com/v1/messages"
+    assert sent["body"]["model"] == "claude-opus-4-7"
+    # native auth header is x-api-key (not Authorization)
+    assert sent["headers"]["x-api-key"] == "ak"
+    assert "Authorization" not in sent["headers"]
+    # thinking placed in anthropic's native key as a budget
+    assert sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+
+
+def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
+    spec = _anthropic_spec(
+        provider_name="acme", base_url="https://acme.example", headers={"X-Acme": "1"}
+    )
+    resolved = _resolve(
+        spec,
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(api_key="mk"),
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://acme.example/v1/messages"
+    assert sent["headers"]["x-api-key"] == "mk"
+    assert sent["headers"]["X-Acme"] == "1"
+    assert provider.name == "acme"
+
+
+def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
+    # Claude's budget path has no xhigh; Pi clamps it to high (16384). The
+    # opus-4-7-style row maps only xhigh, so thinking_level="xhigh" is honored.
+    spec = _anthropic_spec(thinking_level_map={"xhigh": "xhigh"})
+    resolved = _resolve(
+        spec, tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="xhigh"
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+    }
+
+
+def test_anthropic_omits_thinking_when_unset(tmp_path):
+    resolved = _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"})
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert "thinking" not in http.requests[-1]["body"]
+
+
+def test_anthropic_explicit_authorization_header_wins(tmp_path):
+    spec = _anthropic_spec(provider_name="acme", base_url="https://acme.example")
+    resolved = _resolve(
+        spec,
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(
+            api_key="mk", headers={"Authorization": "Custom tok"}
+        ),
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    sent = http.requests[-1]
+    # explicit Authorization preserved; x-api-key not added on top
+    assert sent["headers"]["Authorization"] == "Custom tok"
+    assert "x-api-key" not in sent["headers"]
+
+
+def test_anthropic_repr_hides_secret(tmp_path):
+    resolved = _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "SECRET-AK"})
+    provider = build_provider(resolved, http_client=CapturingHTTPClient())
+    assert "SECRET-AK" not in repr(provider)
+
+
+def test_openai_responses_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _responses_spec(), tmp_path, {"OPENAI_API_KEY": "ok"}, thinking_level="high"
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.openai.com/v1/responses"
+    assert sent["body"]["model"] == "gpt-5.5"
+    assert sent["headers"]["Authorization"] == "Bearer ok"
+    # responses thinking is the nested reasoning.effort object
+    assert sent["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_openai_responses_omits_reasoning_when_unset(tmp_path):
+    resolved = _resolve(_responses_spec(), tmp_path, {"OPENAI_API_KEY": "ok"})
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    assert "reasoning" not in http.requests[-1]["body"]
+
+
+def test_mistral_catalog_construction(tmp_path):
+    resolved = _resolve(_mistral_spec(), tmp_path, {"MISTRAL_API_KEY": "mk"})
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == "https://api.mistral.ai/v1/chat/completions"
+    assert sent["body"]["model"] == "mistral-large-latest"
+    assert sent["headers"]["Authorization"] == "Bearer mk"
+
+
+def test_tier1_auth_failure_fails_closed(tmp_path):
+    # authHeader set with no resolvable key -> fail-closed provider, not None.
+    resolved = _resolve(
+        _anthropic_spec(provider_name="acme"),
+        tmp_path,
+        {},
+        models_json_auth=ProviderAuthRequestConfig(auth_header=True),
+    )
+    assert resolved.ok is False
+    provider = build_provider(resolved, http_client=None)
+    assert provider is not None
+    result = provider.complete(_request(tmp_path))
+    assert result.error_type == "CatalogAuthError"
+
+
+# ---- Slice D: Tier 2 composed/template-endpoint families --------------------
+#
+# google-generative-ai (model-in-path + ?key=), azure-openai-responses
+# (deployment + api-version), cloudflare-workers-ai (account embedded in the
+# base_url via {ENV} substitution + two-part auth).
+
+
+def _google_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="google",
+        model_id="gemini-2.5-pro",
+        display_name="Gemini 2.5 Pro",
+        api="google-generative-ai",
+        base_url="https://generativelanguage.googleapis.com",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _azure_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="azure-openai",
+        model_id="gpt-5.4",
+        display_name="Azure GPT-5.4",
+        api="azure-openai-responses",
+        base_url="https://azure-openai.example",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def _cloudflare_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="cloudflare",
+        model_id="@cf/meta/llama-3.3-70b-instruct",
+        display_name="CF Llama",
+        api="cloudflare-workers-ai",
+        base_url="https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def test_google_catalog_construction(tmp_path):
+    resolved = _resolve(_google_spec(), tmp_path, {"GEMINI_API_KEY": "gk"})
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        "gemini-2.5-pro:generateContent?key=gk"
+    )
+    assert sent["body"]["contents"]
+
+
+def test_google_repr_hides_secret(tmp_path):
+    resolved = _resolve(_google_spec(), tmp_path, {"GEMINI_API_KEY": "SECRET-GK"})
+    provider = build_provider(resolved, http_client=CapturingHTTPClient())
+    assert "SECRET-GK" not in repr(provider)
+
+
+def test_azure_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _azure_spec(),
+        tmp_path,
+        {"AZURE_OPENAI_API_KEY": "azk", "AZURE_OPENAI_API_VERSION": "2024-12-01-preview"},
+        thinking_level="high",
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://azure-openai.example/openai/deployments/gpt-5.4/responses"
+        "?api-version=2024-12-01-preview"
+    )
+    # Azure uses the api-key header, not Authorization: Bearer
+    assert sent["headers"]["api-key"] == "azk"
+    assert "Authorization" not in sent["headers"]
+    # Azure shares the Responses thinking shape
+    assert sent["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_cloudflare_catalog_construction(tmp_path):
+    resolved = _resolve(
+        _cloudflare_spec(),
+        tmp_path,
+        {"CLOUDFLARE_ACCOUNT_ID": "acct-123", "CLOUDFLARE_API_KEY": "cfk"},
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    # account id substituted into the base_url, then /chat/completions appended
+    assert sent["url"] == (
+        "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/v1/chat/completions"
+    )
+    assert sent["body"]["model"] == "@cf/meta/llama-3.3-70b-instruct"
+    assert sent["headers"]["Authorization"] == "Bearer cfk"
+
+
+def test_cloudflare_missing_account_env_fails_closed(tmp_path):
+    # base_url references {CLOUDFLARE_ACCOUNT_ID} but env doesn't set it ->
+    # fail-closed (Pi's resolveCloudflareBaseUrl throws on a missing var).
+    resolved = _resolve(_cloudflare_spec(), tmp_path, {"CLOUDFLARE_API_KEY": "cfk"})
+    assert resolved.ok is False
+    provider = build_provider(resolved, http_client=None)
+    assert provider is not None
+    result = provider.complete(_request(tmp_path))
+    assert result.status.name != "SUCCEEDED"
+
+
+# ---- Slice E: Tier 3 IAM/OAuth families -------------------------------------
+#
+# amazon-bedrock (SigV4), google-vertex (ADC OAuth token), openai-codex-responses
+# (Codex OAuth). Auth + region/project endpoint stay env-resolved by the adapter;
+# catalog construction injects model_id + provider_name + headers + thinking
+# (bedrock Anthropic budget, codex reasoning.effort; vertex thinking deferred).
+
+
+def _bedrock_spec(**over: Any) -> NativeModelSpec:
+    base = dict(
+        provider_name="amazon-bedrock",
+        model_id="us.anthropic.claude-opus-4-6-v1",
+        display_name="Bedrock Opus",
+        api="amazon-bedrock",
+        base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)  # type: ignore[arg-type]
+
+
+def test_bedrock_catalog_construction_type_and_thinking_wired(tmp_path):
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+    resolved = _resolve(
+        _bedrock_spec(),
+        tmp_path,
+        {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+        thinking_level="high",
+    )
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, AmazonBedrockProvider)
+    assert provider.model_id == "us.anthropic.claude-opus-4-6-v1"
+    assert provider.provider_name == "amazon-bedrock"
+    # thinking effort is threaded; auth stays env-resolved (not from catalog)
+    assert provider.reasoning_effort == "high"
+
+
+def _bedrock_adapter(model_id, **over):
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+    defaults = dict(
+        model_id=model_id,
+        region="us-east-1",
+        access_key="AKIDEXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        _clock=lambda: datetime(2015, 8, 30, 12, 36, 0, tzinfo=UTC),
+    )
+    defaults.update(over)
+    return AmazonBedrockProvider(**defaults)
+
+
+def test_bedrock_adaptive_thinking_reaches_signed_body(tmp_path):
+    # opus-4-6 is an adaptive Claude model -> adaptive thinking + output_config.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "us.anthropic.claude-opus-4-6-v1", http_client=http, reasoning_effort="high"
+    )
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["url"] == (
+        "https://bedrock-runtime.us-east-1.amazonaws.com/model/"
+        "us.anthropic.claude-opus-4-6-v1/invoke"
+    )
+    assert sent["body"]["thinking"] == {"type": "adaptive"}
+    assert sent["body"]["output_config"] == {"effort": "high"}
+    # the SigV4 Authorization header is present and signed
+    assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+
+
+def test_bedrock_budget_thinking_for_non_adaptive_model(tmp_path):
+    # A non-adaptive Claude model uses the budget_tokens path.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        http_client=http,
+        reasoning_effort="high",
+    )
+    provider.complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+    }
+    assert "output_config" not in http.requests[-1]["body"]
+
+
+def test_bedrock_drops_reserved_headers_before_signing(tmp_path):
+    # authorization/host/x-amz-* custom headers must not collide with SigV4.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        http_client=http,
+        extra_headers={
+            "X-Custom": "ok",
+            "Authorization": "Bearer nope",
+            "x-amz-target": "nope",
+            "Host": "evil",
+        },
+    )
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["headers"].get("X-Custom") == "ok"
+    # the custom Authorization did not override the SigV4 signature
+    assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+    assert "x-amz-target" not in sent["headers"]
+
+
+def test_vertex_catalog_construction(tmp_path):
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+    spec = NativeModelSpec(
+        provider_name="google-vertex",
+        model_id="gemini-2.5-pro",
+        display_name="Vertex Gemini",
+        api="google-vertex",
+        base_url="https://aiplatform.googleapis.com",
+        cost=NativeModelCost(),
+    )
+    resolved = _resolve(spec, tmp_path, {"GOOGLE_CLOUD_API_KEY": "vk"})
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, GoogleVertexProvider)
+    assert provider.model_id == "gemini-2.5-pro"
+    assert provider.provider_name == "google-vertex"
+
+
+def test_codex_stays_on_legacy_factory(tmp_path):
+    # openai-codex-responses is deliberately NOT catalog-constructed (the legacy
+    # factory injects a settings-derived RetryPolicy that catalog construction
+    # would drop); build_provider returns None so the caller falls back.
+    spec = NativeModelSpec(
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        display_name="Codex GPT-5.5",
+        api="openai-codex-responses",
+        base_url="https://chatgpt.com/backend-api/codex",
+        cost=NativeModelCost(),
+    )
+    resolved = _resolve(spec, tmp_path, {})
+    assert build_provider(resolved, http_client=None) is None
+
+
+def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
+    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection(
+            "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
+        ),
+        provider_factory=_no_legacy,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+    provider = repl_state.current_provider()
+    assert isinstance(provider, AmazonBedrockProvider)
+    assert provider.model_id == "us.anthropic.claude-opus-4-6-v1"

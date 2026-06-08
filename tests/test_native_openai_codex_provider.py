@@ -39,6 +39,7 @@ class FakeSseHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> SseResponse:
         self.requests.append(
             {
@@ -65,6 +66,7 @@ class FakeOAuthHTTPClient:
         *,
         fields: Mapping[str, str],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> OAuthTokenResponse:
         self.requests.append(
             {

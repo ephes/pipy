@@ -33,8 +33,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
@@ -65,6 +66,7 @@ class UrllibJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> JsonResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
@@ -74,9 +76,11 @@ class UrllibJsonHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
         except urllib.error.HTTPError as exc:
             raise GoogleVertexHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
@@ -106,6 +110,12 @@ class GoogleVertexProvider:
     track's "no new runtime dependencies" invariant; native service-account
     JWT signing is a future extension. The access token is never logged or
     archived; only sanitized metadata leaves the provider boundary.
+
+    This adapter is ADC/OAuth-bearer-token only. Pi also supports a Vertex API
+    key (``GOOGLE_CLOUD_API_KEY``); pipy's catalog construction therefore does
+    not forward the resolved key as a credential (an API key is not an OAuth
+    bearer token), leaving auth env-resolved. A native Vertex API-key auth path
+    is a separate adapter follow-on.
     """
 
     model_id: str
@@ -118,16 +128,23 @@ class GoogleVertexProvider:
         or "us-central1"
     )
     access_token: str | None = field(
-        default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN")
+        default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN"), repr=False
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = GOOGLE_VERTEX_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "google-vertex"
+    # Catalog-resolved request config. The OAuth2 access token and
+    # project/location stay env-resolved (ADC-style, not an api key); catalog
+    # construction injects only ``extra_headers``. Thinking (thinkingConfig) is
+    # per-model (level enum vs budget) like google-generative-ai and not yet
+    # catalog-encoded, so it is intentionally not injected here.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def name(self) -> str:
-        return "google-vertex"
+        return self.provider_name
 
     def complete(
         self,
@@ -135,8 +152,11 @@ class GoogleVertexProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id or not self.model_id.strip():
             return failed_provider_result(
@@ -212,6 +232,9 @@ class GoogleVertexProvider:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {access_token}",
         }
+        # Merged models.json/model headers.
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
 
         try:
             response = self.http_client.post_json(
@@ -219,6 +242,7 @@ class GoogleVertexProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if response.status_code < 200 or response.status_code >= 300:
                 raise GoogleVertexHTTPStatusError(

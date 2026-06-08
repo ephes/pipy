@@ -8,14 +8,29 @@ name with only ``model_id``.
 
 The catalog only resolves *which* provider/model/auth/routing/thinking to
 construct; the concrete adapter still decides how to call its upstream API. This
-module fully wires the ``openai-completions`` API family (custom ``models.json``
-providers, ds4, OpenRouter are all Chat-Completions-shaped); other families
-return ``None`` from :func:`build_provider` so the caller falls back to the
-legacy factory. No secret value is placed on any archived field.
+module wires the ``openai-completions`` family (custom ``models.json`` providers,
+ds4, OpenRouter are all Chat-Completions-shaped), the Tier 1 api-key families
+``anthropic-messages``, ``openai-responses`` and ``mistral``, and the Tier 2
+composed-endpoint families ``google-generative-ai`` (model-in-path + ``?key=``),
+``azure-openai-responses`` (deployment + api-version, ``api-key`` header) and
+``cloudflare-workers-ai`` (account id substituted into the base URL via ``{ENV}``
+placeholders, OpenAI-compatible body), and the Tier 3 IAM families
+``amazon-bedrock`` (SigV4) and ``google-vertex`` (ADC token) — whose credentials
+and region/project-derived endpoint stay self-resolved by the adapter from the
+environment (the resolved api key is not forwarded for these). Each adapter
+places the mapped thinking effort in its own native body key
+(completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
+``reasoning.effort``; anthropic/bedrock: ``thinking.budget_tokens``; google and
+vertex thinking are per-model and not yet injected). ``openai-codex-responses``
+and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
+the legacy factory's settings-derived ``RetryPolicy`` injection): they return
+``None`` from :func:`build_provider` so the caller falls back to the legacy
+factory. No secret value is placed on any archived field.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -32,15 +47,20 @@ from pipy_harness.native.thinking import map_thinking_level
 
 @dataclass(frozen=True, slots=True)
 class ResolvedConstruction:
-    """The catalog-resolved inputs needed to construct a provider for a turn."""
+    """The catalog-resolved inputs needed to construct a provider for a turn.
+
+    ``api_key`` and ``headers`` carry resolved secret material, so they are
+    ``repr=False`` — a stray repr/log of this object never leaks the key or an
+    auth header (parity with the repr-hidden adapter fields).
+    """
 
     provider_name: str
     model_id: str
     api: str
     base_url: str | None
     ok: bool
-    api_key: str | None = None
-    headers: Mapping[str, str] = field(default_factory=dict)
+    api_key: str | None = field(default=None, repr=False)
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     body_extra: Mapping[str, object] = field(default_factory=dict)
     reasoning_effort: str | None = None
     error: str | None = None
@@ -57,6 +77,20 @@ def resolve_construction(
 ) -> ResolvedConstruction:
     """Resolve auth + headers + routing + thinking for a catalog model."""
 
+    # ``base_url`` may carry ``{ENV_VAR}`` placeholders (Cloudflare embeds the
+    # account id this way). Substitute them from the environment, failing closed
+    # if a referenced var is unset (Pi's ``resolveCloudflareBaseUrl`` throws).
+    base_url, base_url_error = _resolve_base_url_placeholders(spec.base_url, env)
+    if base_url_error is not None:
+        return ResolvedConstruction(
+            provider_name=spec.provider_name,
+            model_id=spec.model_id,
+            api=spec.api,
+            base_url=spec.base_url,
+            ok=False,
+            error=base_url_error,
+        )
+
     auth = resolve_request_auth(
         spec.provider_name,
         store=store,
@@ -71,7 +105,7 @@ def resolve_construction(
             provider_name=spec.provider_name,
             model_id=spec.model_id,
             api=spec.api,
-            base_url=spec.base_url,
+            base_url=base_url,
             ok=False,
             error=auth.error,
         )
@@ -99,13 +133,45 @@ def resolve_construction(
         provider_name=spec.provider_name,
         model_id=spec.model_id,
         api=spec.api,
-        base_url=spec.base_url,
+        base_url=base_url,
         ok=True,
         api_key=auth.api_key,
         headers=headers,
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
     )
+
+
+_ENV_PLACEHOLDER = re.compile(r"\{([A-Z_][A-Z0-9_]*)\}")
+
+
+def _resolve_base_url_placeholders(
+    base_url: str | None, env: Mapping[str, str]
+) -> tuple[str | None, str | None]:
+    """Substitute ``{ENV_VAR}`` placeholders in ``base_url`` from ``env``.
+
+    Returns ``(resolved_url, None)`` on success, or ``(None, error)`` if a
+    referenced variable is unset (Pi's ``resolveCloudflareBaseUrl`` raises).
+    """
+
+    if not base_url or "{" not in base_url:
+        return base_url, None
+    missing: list[str] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = env.get(name)
+        if not value:
+            missing.append(name)
+            return ""
+        return value
+
+    resolved = _ENV_PLACEHOLDER.sub(_replace, base_url)
+    if missing:
+        return None, (
+            f"{missing[0]} is required for the provider base URL but is not set."
+        )
+    return resolved, None
 
 
 def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
@@ -115,20 +181,65 @@ def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
     return "openrouter.ai" in (spec.base_url or "").lower()
 
 
-# API families that speak the OpenAI Chat Completions envelope and are fully
-# catalog-constructed here. Other pipy adapters keep their existing
-# (legacy-factory) construction for now.
-_COMPLETIONS_FAMILIES = {"openai-completions"}
+# API families that are fully catalog-constructed here, mapped to the path
+# suffix appended to the catalog ``base_url`` to form the request endpoint (Pi
+# delegates this to each provider SDK; pipy's hand-rolled adapters own the
+# suffix). Other pipy adapters keep their existing (legacy-factory) construction
+# for now and return ``None`` from :func:`build_provider`.
+_ENDPOINT_SUFFIX: dict[str, str] = {
+    "openai-completions": "/chat/completions",
+    "anthropic-messages": "/v1/messages",
+    "openai-responses": "/responses",
+    "mistral": "/chat/completions",
+}
+# Tier 2 families compose their endpoint differently (model-in-path query for
+# google, deployment/api-version for azure, account-substituted base for
+# cloudflare), so they are built explicitly rather than via _ENDPOINT_SUFFIX.
+# Tier 3 IAM families: auth (AWS SigV4 / GCP ADC token) and the
+# region/project-derived endpoint stay self-resolved by the adapter from the
+# environment — catalog construction injects only model_id + provider_name +
+# merged headers + mapped thinking where the body shape is known.
+#
+# ``openai-codex-responses`` is deliberately NOT catalog-constructed: the legacy
+# factory builds it with a settings-derived ``RetryPolicy`` (cli.py), which
+# catalog construction would drop, and its OAuth/SSE auth is fully self-contained.
+# It stays on the legacy factory (``build_provider`` returns ``None`` for it).
+_IAM_FAMILIES = frozenset({"amazon-bedrock", "google-vertex"})
+_CATALOG_WIRED_FAMILIES = frozenset(
+    {
+        *_ENDPOINT_SUFFIX,
+        "google-generative-ai",
+        "azure-openai-responses",
+        "cloudflare-workers-ai",
+        *_IAM_FAMILIES,
+    }
+)
 
 
-def _chat_completions_endpoint(base_url: str | None) -> str:
-    from pipy_harness.native.openai_completions_provider import (
-        OPENAI_CHAT_COMPLETIONS_URL,
-    )
+def _default_endpoint(api: str) -> str:
+    if api == "openai-completions":
+        from pipy_harness.native.openai_completions_provider import (
+            OPENAI_CHAT_COMPLETIONS_URL,
+        )
 
-    if not base_url:
         return OPENAI_CHAT_COMPLETIONS_URL
-    return base_url.rstrip("/") + "/chat/completions"
+    if api == "anthropic-messages":
+        from pipy_harness.native.anthropic_provider import ANTHROPIC_MESSAGES_URL
+
+        return ANTHROPIC_MESSAGES_URL
+    if api == "openai-responses":
+        from pipy_harness.native.openai_provider import OPENAI_RESPONSES_URL
+
+        return OPENAI_RESPONSES_URL
+    from pipy_harness.native.mistral_provider import MISTRAL_CHAT_COMPLETIONS_URL
+
+    return MISTRAL_CHAT_COMPLETIONS_URL
+
+
+def _endpoint_for(api: str, base_url: str | None) -> str:
+    if base_url:
+        return base_url.rstrip("/") + _ENDPOINT_SUFFIX[api]
+    return _default_endpoint(api)
 
 
 def build_provider(
@@ -145,7 +256,7 @@ def build_provider(
     using a different construction).
     """
 
-    if resolved.api not in _COMPLETIONS_FAMILIES:
+    if resolved.api not in _CATALOG_WIRED_FAMILIES:
         return None
     if not resolved.ok:
         return _FailedAuthProvider(
@@ -154,21 +265,158 @@ def build_provider(
             error=resolved.error or "auth resolution failed",
         )
 
-    from pipy_harness.native.openai_completions_provider import (
-        OpenAIChatCompletionsProvider,
-        UrllibJsonHTTPClient,
-    )
+    # The remaining families share the same injection surface (api_key +
+    # endpoint + merged headers + mapped thinking effort); each adapter places
+    # the effort in its own native body key. When ``http_client`` is None the
+    # adapter's own urllib client default applies.
+    http_kwargs = {} if http_client is None else {"http_client": http_client}
 
-    client = http_client if http_client is not None else UrllibJsonHTTPClient()
-    return OpenAIChatCompletionsProvider(
+    if resolved.api == "google-generative-ai":
+        from pipy_harness.native.google_provider import (
+            GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE,
+            GoogleGenerativeAIProvider,
+        )
+
+        base = (resolved.base_url or "").rstrip("/")
+        template = (
+            base + "/v1beta/models/{model}:generateContent?key={key}"
+            if base
+            else GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE
+        )
+        return GoogleGenerativeAIProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint_template=template,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "azure-openai-responses":
+        from pipy_harness.native.azure_openai_provider import (
+            AzureOpenAIResponsesProvider,
+        )
+
+        return AzureOpenAIResponsesProvider(
+            model_id=resolved.model_id,
+            endpoint_url=resolved.base_url,
+            api_key=resolved.api_key,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "cloudflare-workers-ai":
+        from pipy_harness.native.cloudflare_provider import (
+            CloudflareWorkersAIProvider,
+        )
+
+        # ``base_url`` already has the account id substituted (resolve_construction).
+        endpoint = (resolved.base_url or "").rstrip("/") + "/chat/completions"
+        return CloudflareWorkersAIProvider(
+            model_id=resolved.model_id,
+            api_token=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api in _IAM_FAMILIES:
+        return _build_iam_provider(resolved, http_kwargs)
+
+    endpoint = _endpoint_for(resolved.api, resolved.base_url)
+
+    if resolved.api == "openai-completions":
+        from pipy_harness.native.openai_completions_provider import (
+            OpenAIChatCompletionsProvider,
+            UrllibJsonHTTPClient,
+        )
+
+        client = http_client if http_client is not None else UrllibJsonHTTPClient()
+        return OpenAIChatCompletionsProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            http_client=client,  # type: ignore[arg-type]
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            extra_body=dict(resolved.body_extra),
+            reasoning_effort=resolved.reasoning_effort,
+        )
+
+    if resolved.api == "anthropic-messages":
+        from pipy_harness.native.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    if resolved.api == "openai-responses":
+        from pipy_harness.native.openai_provider import OpenAIResponsesProvider
+
+        return OpenAIResponsesProvider(
+            model_id=resolved.model_id,
+            api_key=resolved.api_key,
+            endpoint=endpoint,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    from pipy_harness.native.mistral_provider import MistralProvider
+
+    return MistralProvider(
         model_id=resolved.model_id,
         api_key=resolved.api_key,
-        http_client=client,  # type: ignore[arg-type]
-        endpoint=_chat_completions_endpoint(resolved.base_url),
+        endpoint=endpoint,
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
-        extra_body=dict(resolved.body_extra),
         reasoning_effort=resolved.reasoning_effort,
+        **http_kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _build_iam_provider(
+    resolved: ResolvedConstruction,
+    http_kwargs: Mapping[str, object],
+) -> ProviderPort:
+    """Construct a Tier 3 IAM/OAuth adapter from a resolved catalog model.
+
+    AWS SigV4 / GCP ADC / Codex OAuth credentials and the region/project-derived
+    endpoint stay self-resolved by the adapter (they are not api keys), so
+    ``resolved.api_key`` is intentionally not forwarded as a credential. Only the
+    model id, provider name, merged headers, and the mapped thinking effort (for
+    families whose body shape is known) are injected.
+    """
+
+    if resolved.api == "amazon-bedrock":
+        from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+
+        return AmazonBedrockProvider(
+            model_id=resolved.model_id,
+            provider_name=resolved.provider_name,
+            extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            **http_kwargs,  # type: ignore[arg-type]
+        )
+
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+    return GoogleVertexProvider(
+        model_id=resolved.model_id,
+        provider_name=resolved.provider_name,
+        extra_headers=dict(resolved.headers),
+        **http_kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -190,13 +438,15 @@ class _FailedAuthProvider:
     def name(self) -> str:
         return self.provider_name
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from pipy_harness.native._provider_helpers import (
             failed_provider_result,
             utc_now,
         )
 
-        del stream_sink, reasoning_sink
+        del stream_sink, reasoning_sink, cancel_token
         return failed_provider_result(
             request,
             provider_name=self.provider_name,

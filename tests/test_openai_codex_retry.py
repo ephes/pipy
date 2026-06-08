@@ -67,6 +67,7 @@ class _RetryHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> SseResponse:
         del url, headers, body, timeout_seconds
         self.calls.append({"index": len(self.calls)})

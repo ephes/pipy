@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, extract_responses_tool_calls
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, extract_responses_tool_calls, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.messages import (
@@ -40,6 +41,7 @@ class UrllibJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> JsonResponse:
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
@@ -49,9 +51,11 @@ class UrllibJsonHTTPClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                payload = response.read()
-                status_code = response.getcode()
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
         except urllib.error.HTTPError as exc:
             raise OpenAIHTTPStatusError.from_http_error(exc) from exc
         except urllib.error.URLError as exc:
@@ -74,15 +78,24 @@ class OpenAIResponsesProvider:
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY"))
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
+    )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    provider_name: str = "openai"
+    # Catalog-resolved request config (parity with the completions adapter).
+    # ``extra_headers`` are merged models.json/model headers (an explicit
+    # Authorization wins over ``Bearer api_key``); ``reasoning_effort`` is the
+    # mapped thinking value, placed in the Responses ``reasoning.effort`` key.
+    extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
 
     @property
     def name(self) -> str:
-        return "openai"
+        return self.provider_name
 
     def complete(
         self,
@@ -90,8 +103,11 @@ class OpenAIResponsesProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id:
             return failed_provider_result(
@@ -99,15 +115,21 @@ class OpenAIResponsesProvider:
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="OpenAIConfigurationError",
-                error_message="--native-model is required for native provider openai.",
+                error_message=f"--native-model is required for native provider {self.name}.",
             )
-        if not self.api_key:
+        has_explicit_authorization = any(
+            header_name.lower() == "authorization" for header_name in self.extra_headers
+        )
+        if not self.api_key and not has_explicit_authorization:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="OpenAIAuthError",
-                error_message="OpenAI API key is required in the environment for native provider openai.",
+                error_message=(
+                    "OpenAI API key is required in the environment for native "
+                    f"provider {self.name}."
+                ),
             )
 
         body: dict[str, Any] = {
@@ -121,10 +143,16 @@ class OpenAIResponsesProvider:
                 serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        # Responses-native thinking: the mapped effort goes in ``reasoning.effort``.
+        if self.reasoning_effort is not None:
+            body["reasoning"] = {"effort": self.reasoning_effort}
+        headers = {"Content-Type": "application/json"}
+        # Merged models.json/model headers (may include an explicit Authorization).
+        for header_name, header_value in self.extra_headers.items():
+            headers[header_name] = header_value
+        # Apply ``Bearer api_key`` only when no explicit Authorization is present.
+        if self.api_key and not has_explicit_authorization:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             response = self.http_client.post_json(
@@ -132,6 +160,7 @@ class OpenAIResponsesProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if response.status_code < 200 or response.status_code >= 300:
                 raise OpenAIHTTPStatusError(

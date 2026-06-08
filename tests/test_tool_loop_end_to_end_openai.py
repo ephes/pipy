@@ -38,6 +38,7 @@ class _ScriptedJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> JsonResponse:
         self.requests.append({"url": url, "body": dict(body)})
         if not self.responses:

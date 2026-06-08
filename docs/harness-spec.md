@@ -17,19 +17,25 @@ For forward planning and parity tracks see [backlog.md](backlog.md).
 
 Build pipy's own coding-agent harness deliberately, starting with a small
 local-first runner that can launch a coding agent, observe a conservative run
-lifecycle, and write a durable pipy session record.
+lifecycle, and write a durable pipy session record. The harness is intended to
+serve both terminal users and headless Python programs that need in-process
+agentic workflow support.
 
 The first harness slice is not another session-capture feature by itself. It is
 the foundation for pipy's own agent surface:
 
 - a `pipy` CLI for running coding-agent tasks
+- an embeddable Python SDK for driving `pipy-native` without the CLI/TUI
 - a harness core that owns run lifecycle and status
 - adapter boundaries for current external agents
 - a native pipy agent runtime behind the same interface
 - integration with `pipy-session` for durable, privacy-conscious records
 
 The existing `pipy-session` package remains the recorder and archive layer. The
-harness should call it instead of creating a parallel transcript format.
+harness should call it instead of creating a parallel transcript format. The
+current in-process embedding surface is documented in [sdk.md](sdk.md); the
+planned out-of-process JSON/RPC automation surfaces are specified in
+[automation-rpc.md](automation-rpc.md).
 
 ## Non-Goals
 

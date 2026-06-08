@@ -6,14 +6,101 @@ from pathlib import Path
 from typing import cast
 
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.catalog import (
+    NativeModelCost,
+    NativeModelSpec,
+    build_builtin_catalog,
+)
 from pipy_harness.native.repl_state import (
     AUTO_DEFAULT_PROVIDER_PRIORITY,
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     auto_default_selection,
+    default_selection_for,
+    resolve_cli_selection,
     settings_overlay_lines,
 )
+
+
+def _builtin_rows():
+    return build_builtin_catalog().get_all()
+
+
+def _custom_rows():
+    # built-in rows plus a custom models.json-style provider
+    rows = list(_builtin_rows())
+    rows.append(
+        NativeModelSpec(
+            provider_name="acme",
+            model_id="rocket-1",
+            display_name="Acme Rocket 1",
+            api="openai-completions",
+            base_url="https://acme.example/v1",
+            cost=NativeModelCost(),
+        )
+    )
+    return rows
+
+
+def test_resolve_cli_selection_bare_model_infers_provider():
+    # a bare --native-model resolves its provider (not fake/<ref>)
+    selection, error = resolve_cli_selection(None, "claude-opus-4-7", _builtin_rows())
+    assert error is None
+    assert selection == NativeModelSelection("anthropic", "claude-opus-4-7")
+
+
+def test_resolve_cli_selection_provider_slash_model():
+    selection, error = resolve_cli_selection(
+        None, "anthropic/claude-sonnet-4-5", _builtin_rows()
+    )
+    assert error is None
+    assert selection == NativeModelSelection("anthropic", "claude-sonnet-4-5")
+
+
+def test_resolve_cli_selection_custom_models_json_provider():
+    selection, error = resolve_cli_selection("acme", "rocket-1", _custom_rows())
+    assert error is None
+    assert selection == NativeModelSelection("acme", "rocket-1")
+
+
+def test_resolve_cli_selection_provider_only_uses_default_model():
+    selection, error = resolve_cli_selection("anthropic", None, _builtin_rows())
+    assert error is None
+    assert selection is not None
+    assert selection.provider_name == "anthropic"
+    # the default model is a real anthropic catalog row
+    assert any(
+        r.provider_name == "anthropic" and r.model_id == selection.model_id
+        for r in _builtin_rows()
+    )
+
+
+def test_resolve_cli_selection_unknown_provider_errors():
+    selection, error = resolve_cli_selection("nope", None, _builtin_rows())
+    assert selection is None
+    assert error is not None
+    assert 'Unknown provider "nope"' in error
+
+
+def test_resolve_cli_selection_neither_flag_returns_none():
+    assert resolve_cli_selection(None, None, _builtin_rows()) == (None, None)
+
+
+def test_default_selection_for_rows_accepts_custom_provider():
+    selection = default_selection_for(
+        native_provider="acme", native_model="rocket-1", rows=_custom_rows()
+    )
+    assert selection == NativeModelSelection("acme", "rocket-1")
+
+
+def test_default_selection_for_rows_unknown_provider_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match='Unknown provider "nope"'):
+        default_selection_for(
+            native_provider="nope", native_model=None, rows=_builtin_rows()
+        )
 
 
 class _StubProvider:
@@ -186,7 +273,33 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
     assert provider.provider_name == "ds4"
 
 
-def test_current_provider_falls_back_to_legacy_for_non_completions(tmp_path):
+def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    sentinel = object()
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda sel: sentinel,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+    # the deterministic fake bootstrap is not catalog-constructed -> legacy factory.
+    assert repl_state.current_provider() is sentinel
+
+
+def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
+    from pipy_harness.native.anthropic_provider import AnthropicProvider
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (
@@ -200,15 +313,26 @@ def test_current_provider_falls_back_to_legacy_for_non_completions(tmp_path):
         env={"ANTHROPIC_API_KEY": "k"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-    sentinel = object()
+
+    def _no_legacy(_sel):
+        raise AssertionError("legacy factory must not be used for a catalog model")
+
+    # claude-opus-4-7's catalog row maps only xhigh (thinking_level_map keys
+    # override the default reasoning levels).
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
-        provider_factory=lambda sel: sentinel,
+        provider_factory=_no_legacy,
         catalog_state=state,
+        thinking_level="xhigh",
         persist_defaults=False,
     )
-    # anthropic is not the openai-completions family -> legacy factory used.
-    assert repl_state.current_provider() is sentinel
+    provider = repl_state.current_provider()
+    assert isinstance(provider, AnthropicProvider)
+    assert provider.endpoint == "https://api.anthropic.com/v1/messages"
+    assert provider.api_key == "k"
+    assert provider.reasoning_effort == "xhigh"
+    # api_key is repr-hidden so a stray log of the adapter never leaks it
+    assert "api_key" not in repr(provider)
 
 
 def _catalog_repl_state(tmp_path, env, *, models_json=None):

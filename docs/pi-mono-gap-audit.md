@@ -77,14 +77,15 @@ docs polish.
 
 ## Ranked biggest gaps
 
-### 1. Provider/model catalog closeout
+### 1. Provider/model catalog closeout — shipped on current branch
 
-**Why it is first:** this is the highest-leverage incomplete runtime slice. The
-catalog, matcher, `models.json`, auth helpers, OAuth registry, `--list-models`,
-full-catalog `model_options()`, direct `/model <ref>` resolver, and
-Chat-Completions-family product construction already exist and the conformance
-gate passes through item 19. The remaining gaps are the product paths that still
-fall back to legacy provider construction or startup parsing.
+**Why it was first:** this was the highest-leverage incomplete runtime slice.
+The catalog, matcher, `models.json`, auth helpers, OAuth registry,
+`--list-models`, full-catalog `model_options()`, direct `/model <ref>` resolver,
+Chat-Completions-family product construction, implemented catalog-constructed
+non-completions families, `pipy run` one-shot construction, and startup
+provider/model resolution now exist on the current feature branch. The
+conformance gate passes through item 24.
 
 Pi reference:
 
@@ -98,37 +99,33 @@ Pi reference:
 Pipy current state:
 
 - `scripts/parity_checks/provider_catalog_conformance.py --json` passes items
-  1-19, including product-path item 18 with fake HTTP captures.
+  1-24, including product-path fake HTTP captures for Chat Completions,
+  non-completions families, one-shot construction, startup resolution, and
+  archive secret checks.
 - REPL product turns for the OpenAI-compatible Chat Completions family use
   catalog construction: custom `models.json` providers, ds4, OpenRouter, and
   OpenAI-style calls receive catalog base URL, model id, auth, headers, routing,
   and thinking config.
-- Direct `/model <ref>` is routed through the shared resolver.
-- Non-completions API families still fall back to the legacy factory; `pipy run`
-  one-shot still uses `_adapter_for`; startup CLI parsing still blocks custom
-  providers and does not resolve bare model/provider refs through the catalog.
+- The implemented catalog-constructed non-completions families now receive the
+  selected `NativeModelSpec` and resolved request config through the same
+  boundary: `anthropic-messages`, `openai-responses`,
+  `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
+  `azure-openai-responses`, `cloudflare-workers-ai`, and `mistral`.
+- `openai-codex-responses` deliberately stays on the legacy factory because it
+  needs the settings-derived `RetryPolicy`; conformance covers that exception.
+- `pipy run` one-shot construction uses the catalog-backed provider-state
+  boundary, and startup `--native-provider`/`--native-model` resolve through the
+  shared resolver, including custom `models.json` providers and bare refs.
 - `docs/provider-catalog.md` is the detailed owning spec.
 
 Implement next in pipy:
 
-1. Extend catalog-backed construction to the non-completions API families already
-   implemented by pipy: `anthropic-messages`, `openai-responses`,
-   `openai-codex-responses`, `google-generative-ai`, `google-vertex`,
-   `amazon-bedrock`, `azure-openai-responses`, `cloudflare-workers-ai`, and
-   `mistral`.
-2. For those families, apply selected `NativeModelSpec` plus resolved request
-   config to real calls: model id, base URL, merged headers, `authHeader`,
-   runtime `--api-key`, stored/env/OAuth auth, routing/compat where supported,
-   and mapped thinking level where the provider exposes one.
-3. Extend the provider-catalog conformance gate with fake HTTP captures for the
-   newly wired families and request-shape-specific unit tests.
-4. Move `pipy run` one-shot construction from `_adapter_for` to the shared
-   catalog-backed boundary.
-5. Route startup `--native-provider`/`--native-model` through
-   `resolve_cli_model`, including custom `models.json` providers, and remove
-   argparse choices that reject custom provider names.
-6. Keep the legacy `--native-provider ds4` compatibility shim only as a bridge;
-   the canonical ds4 path is the `models.json` custom-provider example.
+1. Finish branch closeout: keep backlog/parity docs aligned with the shipped
+   state, run the provider catalog gate and `just check`, and complete an
+   independent review pass before merging.
+2. Treat live Anthropic/Copilot login UX, Vertex API-key auth, Anthropic
+   adaptive thinking, Azure URL/api-version parity, and extension-registered
+   providers as follow-on slices rather than part of this construction closeout.
 
 Complete when:
 
@@ -137,9 +134,9 @@ uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 just check
 ```
 
-The conformance script already includes product-path check 18 for the
-Chat-Completions family. The next gate expansion should add explicit
-non-completions, one-shot, and startup-resolution checks.
+The conformance script now includes explicit non-completions, one-shot, and
+startup-resolution checks. Further provider work should add new focused checks
+for the follow-on adapter behavior it changes.
 
 ### 2. Interactive TUI/editor workflow depth and true cancellation
 
@@ -376,8 +373,9 @@ Owning spec: `docs/user-documentation.md`.
 
 ## Recommended implementation order
 
-1. Provider/model catalog closeout: non-completions construction, then one-shot
-   construction, then startup CLI model/provider resolution.
+1. Provider/model catalog branch closeout: docs, verification, independent
+   review, and merge readiness. Construction work is shipped on the current
+   branch.
 2. TUI workflow depth, with true provider-request cancellation promoted early.
 3. Automation `--mode json`, then `--mode rpc`.
 4. Session CLI/picker polish, especially `--name`, `--session-id`,

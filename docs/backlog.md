@@ -208,9 +208,30 @@ not a promise to skip review when a smaller, safer slice appears.
    fail-closed) into the next provider request in both REPL modes through the
    shared bounded reader. Still missing are pasted image/binary attachments,
    richer context pickers, and broader repo/resource maps.
-8. Active-turn cancellation fidelity. Escape now matches Pi visibly by showing
-   red `Operation aborted` and suppressing late chunks, but the provider HTTP
-   request is not cancelled and a daemon worker may finish in the background.
+8. Active-turn cancellation fidelity — **resolved**. Escape **and** Ctrl-C during
+   an active turn now truly cancel the in-flight provider request: a per-turn
+   `CancelToken` (`pipy_harness.native.cancellation`) is threaded through
+   `ProviderPort.complete(...)` into the `urllib`/SSE HTTP boundary. The
+   underlying connection registers on the token at `connect()` time, so on abort
+   `_complete_provider_turn` shuts the socket down — interrupting both the
+   header wait (non-streaming JSON blocks inside `urlopen()` until generation
+   finishes) and any body/stream read — so the worker's blocking read raises
+   `ProviderCancelledError`. It then best-effort joins the daemon worker and
+   renders red `Operation aborted`, returning to a usable prompt. Cancellation
+   is cooperative: the aborted turn returns without appending an assistant/tool
+   observation and late chunks are suppressed, so even a provider that ignored
+   the token cannot mutate session/context state. The socket-shutdown read path
+   tolerates CPython's `http.client._close_conn` shutdown race — a concurrent
+   `self.fp = None` can surface as `AttributeError: 'NoneType' object has no
+   attribute 'close'` rather than `OSError` — by mapping that (plus
+   `OSError`/`ValueError`/`HTTPException`) to `ProviderCancelledError` only when
+   the token is cancelled, so an aborted body read never leaks a spurious
+   provider error while a genuine non-cancel error still propagates. Proven by
+   boundary unit tests (real-socket proofs for the header wait, a
+   `Content-Length` body read, and a `Connection: close` body read; an SSE
+   EOF-on-cancel guard; deterministic `AttributeError`-mapping proofs in both the
+   cancelled and not-cancelled directions) and a real-PTY test that drives the
+   actual Escape/Ctrl-C key sequences mid-turn.
 9. RPC, multi-agent orchestration, indexing, and local-provider maturity. The
    local ds4 provider now has real large-model one-shot and tool-call smoke
    coverage; remaining product maturity work is broader local-provider
@@ -267,21 +288,22 @@ aid for the highest-impact remaining product gaps.
    completion in the product editor, clipboard/drag image paste, `!`/`!!` shell
    shortcuts, thinking-level hotkeys, output/thinking folding, queued
    steering/follow-up messages during active turns, richer overlays/selectors,
-   mouse selection, and true provider-request cancellation. Scoped model
-   cycling via `/scoped-models` + Ctrl+P now ships through the settings track.
-4. Provider and model catalog completion. The catalog/helper layers and the
-   OpenAI-compatible Chat Completions product path are wired and gated end to
-   end: custom `models.json` providers, ds4, OpenRouter, OpenAI-style headers,
-   routing, auth, and thinking reach real REPL provider calls through
-   `native/provider_construction.py`. Remaining catalog closeout: extend the same
-   construction/request-config boundary to the non-completions API families
-   (`anthropic-messages`, `openai-responses`, `openai-codex-responses`,
-   `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
-   `azure-openai-responses`, `cloudflare-workers-ai`, `mistral`), move
-   `pipy run` one-shot construction off the legacy factory, and resolve startup
-   `--native-provider`/`--native-model` through the shared Pi-style resolver so
-   custom providers work at launch. Live Anthropic/Copilot login UX and
-   extension-registered providers remain follow-ons.
+   and mouse selection. True provider-request cancellation (Escape/Ctrl-C abort
+   the in-flight HTTP request, not just late chunks) now ships (see item 8).
+   Scoped model cycling via `/scoped-models` + Ctrl+P now ships through the
+   settings track.
+4. Provider and model catalog follow-ons. The catalog/helper layers,
+   OpenAI-compatible Chat Completions product path, non-completions construction
+   for the implemented catalog-constructed adapter families, `pipy run`
+   one-shot construction, and startup `--native-provider`/`--native-model`
+   resolution are wired and gated end to end through
+   `native/provider_construction.py` and the shared Pi-style resolver. The
+   provider catalog conformance gate now covers Verification-Plan items 1-24.
+   Remaining provider-catalog follow-ons are narrower adapter/product gaps:
+   live Anthropic/Copilot login UX, the deliberate `openai-codex-responses`
+   legacy-factory exception for settings-derived retry policy, Vertex API-key
+   auth, Anthropic adaptive-thinking shape, Azure URL/api-version parity, and
+   extension-registered providers once the extension platform exists.
 5. RPC and automation modes. Pi exposes interactive, print, JSON event stream,
    RPC over stdin/stdout, and SDK embedding. Pipy has `run`, `repl`, a
    metadata-only `--native-output json`, subprocess capture, and an in-process
@@ -1382,50 +1404,24 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Provider / model catalog closeout: non-completions construction (selected)
+### Provider / model catalog closeout: docs, review, and merge readiness (selected)
 
-The full Pi-style native session tree workflow has shipped. The provider/model
-catalog foundation, direct `/model <ref>` resolver, and catalog-backed product
-construction for the OpenAI-compatible Chat Completions family have also shipped:
-`scripts/parity_checks/provider_catalog_conformance.py --json` now passes
-Verification-Plan items 1-19, including item 18 product construction with fake
-HTTP captures. The next selected slice is therefore the first catalog closeout
-slice: carry the same construction/request-config boundary to the remaining
-non-completions provider API families.
+The provider/model catalog construction closeout has shipped on the current
+feature branch: non-completions construction for the implemented
+catalog-constructed adapter families, `pipy run` one-shot catalog construction,
+and startup
+`--native-provider`/`--native-model` resolution through the shared Pi-style
+resolver all pass deterministic conformance coverage. The remaining selected
+work for this branch is closeout, not new provider construction:
 
-Selected goal for the next reviewable slice:
+- keep `docs/provider-catalog.md`, `docs/pi-parity.md`,
+  `docs/parity-plan.md`, and this backlog aligned with the shipped/follow-up
+  state;
+- run the provider catalog gate, the focused provider/repl/catalog tests, and
+  `just check`;
+- complete an independent review pass and fix any findings before merging.
 
-- extend `native/provider_construction.py` so `build_provider` no longer falls
-  back for the catalog API families that pipy already implements:
-  `anthropic-messages`, `openai-responses`, `openai-codex-responses`,
-  `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
-  `azure-openai-responses`, `cloudflare-workers-ai`, and `mistral`;
-- preserve the existing adapter boundaries while passing the selected
-  `NativeModelSpec` and resolved request config into each adapter constructor or
-  request path: model id, base URL, merged headers, `authHeader`, runtime
-  `--api-key`, stored/env/OAuth auth, routing/compat blocks where the API family
-  supports them, and mapped thinking level where the provider exposes one;
-- fail closed on missing required auth/config instead of silently falling back
-  to legacy hardcoded defaults;
-- add deterministic fake-HTTP conformance coverage proving at least one model in
-  each newly wired API family uses catalog auth/base URL/headers/model id, plus
-  focused unit tests for request-shape differences that cannot share assertions;
-- keep direct `/model <ref>` and the OpenAI-compatible family green while adding
-  the new coverage;
-- update `docs/provider-catalog.md`, `docs/pi-parity.md`,
-  `docs/parity-plan.md`, and this backlog with the shipped/follow-up state.
-
-Follow-up slices in the same big topic, after the selected slice:
-
-- move `pipy run` one-shot provider construction from `_adapter_for` to the
-  catalog-backed provider-state/construction boundary;
-- route startup `--native-provider`/`--native-model` through
-  `resolve_cli_model`, including custom `models.json` providers and bare
-  provider/model references; remove argparse `choices` that block custom
-  providers at launch;
-- only then revisit the legacy `--native-provider ds4` compatibility shim.
-
-Verification target for this slice:
+Verification target for this closeout:
 
 ```sh
 uv run python scripts/parity_checks/provider_catalog_conformance.py --json
@@ -1762,8 +1758,9 @@ Invariants that must hold for any near-term slice:
   completion in the product editor, clipboard/drag image paste, `!`/`!!` shell
   shortcuts, thinking-level hotkeys, output/thinking folding, queued
   steering/follow-up messages during active turns, richer overlays and
-  selectors, mouse selection, provider-request cancellation, and theme/extension
-  UI hooks. Scoped model cycling via `/scoped-models` + Ctrl+P now ships through
+  selectors, mouse selection, and theme/extension UI hooks. True
+  provider-request cancellation (Escape/Ctrl-C abort the in-flight HTTP request)
+  now ships. Scoped model cycling via `/scoped-models` + Ctrl+P now ships through
   the settings track.
 - General extension/package platform: Python-only Pi-shaped extension API,
   extension-registered tools/commands/providers/keybindings/UI, third-party

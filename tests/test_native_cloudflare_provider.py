@@ -43,6 +43,7 @@ class FakeJsonHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: object = None,
     ) -> JsonResponse:
         self.requests.append(
             {

@@ -68,12 +68,16 @@ Pipy current state (the boundaries this track extends):
 - `src/pipy_harness/native/repl_input.py` — the stdlib raw-mode key reader and
   key tokens (`esc`, `tab`, `shift-enter`, `ctrl-c`, `ctrl-d`, `ctrl-u`,
   `ctrl-z`, `ctrl-y`, `paste`).
-- `src/pipy_harness/native/tool_loop_session.py` — `_run_provider` /
-  `wait_for_active_turn_interrupt` wiring (today the abort only gates the stream
-  sink via a `threading.Event`; the daemon provider thread keeps running and the
-  `urllib` request is not cancelled).
-- `src/pipy_harness/native/provider.py` — `ProviderPort.complete(...)`, the
-  boundary that must gain a cancellation token.
+- `src/pipy_harness/native/tool_loop_session.py` — `_complete_provider_turn` /
+  `wait_for_active_turn_interrupt` wiring. True provider-request cancellation
+  has **shipped** here: the turn builds a `CancelToken`, and Escape/Ctrl-C close
+  the in-flight `urllib` response and reap the daemon worker (see *True
+  Provider-Request Cancellation — SHIPPED* below).
+- `src/pipy_harness/native/cancellation.py` — `CancelToken` /
+  `ProviderCancelledError`, the pipy-owned cancellation primitive threaded into
+  `ProviderPort.complete(...)` and the HTTP-client boundaries.
+- `src/pipy_harness/native/provider.py` — `ProviderPort.complete(...)`, which
+  now carries the optional `cancel_token`.
 - `src/pipy_harness/native/file_references.py`,
   `src/pipy_harness/native/image_attachment.py`,
   `src/pipy_harness/native/clipboard.py` — the existing `@path` / `@image:`
@@ -433,7 +437,7 @@ emitted. Pipy does not implement its own in-app selection region or copy gesture
 beyond the existing `/copy`; mouse selection is delegated to the terminal by
 design.
 
-## True Provider-Request Cancellation
+## True Provider-Request Cancellation — SHIPPED
 
 **Pi behavior**: `Escape` (`app.interrupt`) during an active turn calls
 `agent.abort()`, which calls `activeRun.abortController.abort()`. That
@@ -444,45 +448,72 @@ connection is torn down, no further tokens are billed/streamed, and the run
 settles with `stopReason: "aborted"`. Listeners also receive the signal so they
 can stop their own work.
 
-**Pipy current state** (the gap): `wait_for_active_turn_interrupt` sets a
-`threading.Event` on Escape and the run returns early, but the provider work runs
-on a daemon thread (`_run_provider`) that is never joined on abort, and the
-`urllib` request inside `provider.complete(...)` keeps running to completion in
-the background. The `_cancellable_sink` only **suppresses** late chunks; it does
-not cancel the request. Escape today shows `Operation aborted` while the real
-request finishes invisibly.
+**Pipy behavior (shipped)**: Escape **and** Ctrl-C during an active turn now
+cancel the live provider request at its boundary — they no longer merely hide
+late output. The implementation is stdlib-only and lives entirely in pipy-owned
+boundaries:
 
-**Pipy target** (extends `provider.py` `ProviderPort.complete` + every adapter +
-`tool_loop_session.py`): add a cooperative cancellation token to the provider
-boundary so Escape cancels the live HTTP request, not just the display.
+1. `pipy_harness/native/cancellation.py` defines `CancelToken` (a thread-safe
+   `threading.Event` plus a registry of in-flight closeables) and
+   `ProviderCancelledError`. `ProviderPort.complete(...)` and the
+   `JsonHTTPClient.post_json` / `SseHTTPClient.post_sse` boundaries take an
+   optional keyword-only `cancel_token`.
+2. The shared `open_url_cancellable` / `urlopen_read_cancellable` helpers (in
+   `_provider_helpers.py`) open the request through a custom `urllib` opener
+   whose connection **registers itself on the token at `connect()` time** — so
+   the registered closeable exists before any response object does. This is
+   load-bearing: a non-streaming JSON API does not send response headers until
+   the model finishes generating, so the worker blocks *inside*
+   `urlopen()`/`getresponse()` the whole time; registering only the post-`urlopen`
+   response would miss that window entirely. When the token is cancelled the
+   closer calls `socket.shutdown(SHUT_RDWR)` (not just `close()`, which a live
+   `makefile()` reader would defer), which force-unblocks the worker's blocked
+   `recv` during the header wait *or* a later body/stream read, raising
+   `ProviderCancelledError` — pipy's stdlib equivalent of aborting `fetch`. The
+   custom opener subclasses the default HTTP/HTTPS handlers, so proxy, redirect,
+   and HTTP-error handling stay intact. Every catalog JSON adapter, the Codex
+   SSE adapter, and the `fake` provider observe the token; adapters also
+   `raise_if_cancelled()` before issuing the request, so a pre-flight cancel is
+   honored too.
+3. `tool_loop_session._complete_provider_turn` builds one `CancelToken` per
+   turn, uses its event for the existing late-chunk suppression, and passes it
+   into `provider.complete(...)`. On an Escape return **or** an active-turn
+   Ctrl-C (`KeyboardInterrupt` from `wait_for_active_turn_interrupt`) it calls
+   `cancel_token.cancel()` (shutting the connection down), best-effort joins the
+   daemon worker (bounded by `_CANCEL_JOIN_TIMEOUT_SECONDS`), renders the red
+   `Operation aborted` state, and returns `None`. Cancellation is cooperative:
+   every shipped adapter observes the token, so the worker unwinds and the join
+   reclaims it promptly. Even a provider that *ignored* the token could not
+   corrupt the session — the turn returns `None` (so no assistant/tool/context
+   mutation is appended) and late stream/reasoning chunks are suppressed, so an
+   abandoned daemon worker can only finish its own request and have its output
+   discarded.
+4. Active-turn Ctrl-C is now equivalent to Escape: it aborts the turn and
+   returns to a usable prompt instead of tearing the session down. (Ctrl-C at
+   the idle input prompt still clears/exits as before.)
 
-1. Extend `ProviderPort.complete(...)` with a keyword-only
-   `cancel_event: threading.Event | None = None` (or an equivalent small
-   pipy-owned cancel-token object). The token is set when the user interrupts.
-2. The shared streaming HTTP helpers (the `urllib`-based clients in
-   `openai_codex_provider.py`, `openai_provider.py`, `openrouter_provider.py`,
-   and the other adapters) check the token before issuing the request, and while
-   iterating the SSE/event stream they close the underlying `http.client`
-   response/connection promptly when the token is set, raising a pipy-owned
-   `ProviderCancelled` exception. Closing the `urllib` response object tears down
-   the socket, which is pipy's stdlib-only equivalent of aborting `fetch`. No new
-   dependency is added.
-3. `tool_loop_session._run_provider` passes the same `threading.Event` used by
-   `wait_for_active_turn_interrupt` as the `cancel_event`. On Escape the watcher
-   sets the event (as today) **and** the provider helper observes it and unwinds.
-   The worker thread then settles promptly with `ProviderCancelled`, the loop
-   reports `Operation aborted`, and the turn does not continue with tool calls.
-4. Providers that do not stream still observe the token before the request and
-   between retry attempts, so a pre-flight or retry-sleep cancel is honored even
-   when mid-flight teardown is coarse.
-5. The settled state is `aborted`, the in-memory context and native-session tree
-   are left consistent (a partial assistant message is either discarded or
-   recorded as an aborted entry, matching pipy's existing aborted-turn handling),
-   and the editor returns to the prompt.
+**Session-tree / context on abort**: the user's prompt for the aborted turn is
+recorded normally (the user did type it), but the loop breaks before any
+`AssistantMessage`/tool observation is appended, so an aborted turn never
+records a misleading successful assistant or tool result, and the next
+provider request carries the user prompt with no fabricated assistant reply in
+between. No secret/auth payload enters the metadata archive — the abort path
+adds no metadata and `ProviderCancelledError` carries no provider payload.
 
-This is the load-bearing correctness fix of the track: after this slice, Escape
-during a live turn closes the socket so no further provider tokens stream or are
-billed, rather than only hiding chunks that keep arriving.
+**Coverage**: focused unit tests around the boundary
+(`tests/test_native_cancellation.py`,
+`tests/test_native_provider_cancellation.py` — including a real local socket
+that proves `cancel()` interrupts a blocked `read()`, and a fake-HTTP proof
+that an adapter forwards the token), `_complete_provider_turn` Escape/Ctrl-C
+tests and a session-honesty test in `tests/test_native_tool_loop_*`, and a
+real-PTY product test
+(`test_pty_active_turn_interrupt_cancels_and_returns_to_prompt`) that drives the
+actual Escape and Ctrl-C key sequences during a live turn and asserts the
+aborted state plus a usable follow-up prompt.
+
+This was the load-bearing correctness fix of the track: Escape/Ctrl-C during a
+live turn closes the socket so no further provider tokens stream or are billed,
+rather than only hiding chunks that keep arriving.
 
 ## Invariants
 
