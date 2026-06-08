@@ -64,3 +64,16 @@ def test_empty_clipboard_returns_not_found() -> None:
         run_capture=lambda argv: b"",
     )
     assert not result.found
+
+
+def test_oversized_clipboard_image_is_rejected() -> None:
+    # A clipboard image larger than the attachment cap must not be returned
+    # (so it is never written to disk), bounding memory/disk via Ctrl+V.
+    big = b"\x89PNG\r\n\x1a\n" + b"\x00" * (6 * 1024 * 1024)
+    result = read_clipboard_image(
+        platform="darwin",
+        which=lambda name: f"/usr/local/bin/{name}" if name == "pngpaste" else None,
+        run_capture=lambda argv: big,
+    )
+    assert not result.found
+    assert "too large" in result.detail.lower()

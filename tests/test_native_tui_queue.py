@@ -98,3 +98,15 @@ def test_restore_prepends_to_existing_editor_text(tmp_path: Path) -> None:
     ui.enqueue_steering("queued")
     ui.restore_pending_to_editor()
     assert ui.input_text == "queued\n\ntyped so far"
+
+
+def test_pending_region_is_capped(tmp_path: Path) -> None:
+    # A large queue must not grow the pinned chrome unbounded; the pending
+    # region caps message rows and summarizes the rest.
+    ui = _ui(tmp_path)
+    for n in range(20):
+        ui.enqueue_follow_up(f"msg {n:02d}")
+    lines = ui._pending_region_lines(width=88)
+    message_rows = [line.text for line in lines if "Follow-up:" in line.text]
+    assert len(message_rows) <= ui._PENDING_REGION_MAX_ROWS
+    assert any("more queued" in line.text for line in lines)

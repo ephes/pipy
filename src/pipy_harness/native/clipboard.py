@@ -73,20 +73,53 @@ def _image_clipboard_commands(platform: str) -> tuple[tuple[str, list[str]], ...
     )
 
 
+# Upper bound on a clipboard image read, matching the bounded attachment policy
+# (image_attachment.MAX_IMAGE_ATTACHMENT_BYTES). The default capture reads at
+# most this many bytes (+1 to detect overflow) and kills the tool, so a huge
+# clipboard image cannot exhaust memory before the size check rejects it.
+_MAX_CLIPBOARD_IMAGE_BYTES = 5 * 1024 * 1024
+
+
 def _default_run_capture(argv: list[str]) -> bytes | None:
+    # Bounded, incremental read: never buffer more than the cap (+1) in memory,
+    # killing the tool once it is exceeded so a pathologically large clipboard
+    # image cannot exhaust memory before read_clipboard_image rejects it.
     try:
-        completed = subprocess.run(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=5.0,
-            check=False,
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if completed.returncode != 0:
+    assert proc.stdout is not None
+    chunks: list[bytes] = []
+    total = 0
+    limit = _MAX_CLIPBOARD_IMAGE_BYTES + 1
+    try:
+        while total < limit:
+            chunk = proc.stdout.read(min(65536, limit - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+    except OSError:
+        proc.kill()
         return None
-    return completed.stdout
+    finally:
+        if total >= limit:
+            proc.kill()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    # An oversized read returns the (capped) bytes so the size check rejects it;
+    # a non-zero exit with no overflow means the tool failed (no image).
+    if total < limit and proc.returncode not in (0, None):
+        return None
+    return b"".join(chunks)
 
 
 def read_clipboard_image(
@@ -124,6 +157,19 @@ def read_clipboard_image(
         data = run_capture([resolved, *args])
         if not data:
             continue
+        # Bounded: reject an oversized clipboard image before it is written to
+        # disk, matching the attachment size policy. The default capture already
+        # caps memory; this is the policy decision (and covers injected readers).
+        if len(data) > _MAX_CLIPBOARD_IMAGE_BYTES:
+            return ImageClipboardResult(
+                found=False,
+                data=b"",
+                media_type="",
+                detail=(
+                    "clipboard image is too large "
+                    f"(> {_MAX_CLIPBOARD_IMAGE_BYTES // (1024 * 1024)} MB)"
+                ),
+            )
         media_type = _detect_image_media_type(data)
         if media_type is None:
             continue

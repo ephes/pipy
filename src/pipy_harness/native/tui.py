@@ -1701,18 +1701,37 @@ class ToolLoopTerminalUi:
         lines.extend(footer)
         return lines
 
+    # Max queued-message rows shown in the pending region. Bounded so a large
+    # queue cannot grow the pinned chrome and push the input/footer out of the
+    # live region; overflow is summarized in a single "+N more" row.
+    _PENDING_REGION_MAX_ROWS = 6
+
     def _pending_region_lines(self, width: int) -> list[_FrameLine]:
-        """Render the queued steering/follow-up messages (Pi pending area)."""
+        """Render the queued steering/follow-up messages (Pi pending area).
+
+        Capped at :data:`_PENDING_REGION_MAX_ROWS` message rows so an unbounded
+        queue cannot exceed the live region and push the input/footer out; the
+        remainder is collapsed into a ``… +N more queued`` row.
+        """
 
         if not self.has_pending_messages():
             return []
+        labeled = [("Steering", t) for t in self._pending_steering]
+        labeled += [("Follow-up", t) for t in self._pending_follow_up]
+        cap = self._PENDING_REGION_MAX_ROWS
+        visible = labeled[:cap]
         lines: list[_FrameLine] = []
-        for text in self._pending_steering:
+        for kind, text in visible:
             label = text.replace("\n", " ")
-            lines.append(_FrameLine(self._clip(f"  Steering: {label}", width), "notice"))
-        for text in self._pending_follow_up:
-            label = text.replace("\n", " ")
-            lines.append(_FrameLine(self._clip(f"  Follow-up: {label}", width), "notice"))
+            lines.append(_FrameLine(self._clip(f"  {kind}: {label}", width), "notice"))
+        hidden = len(labeled) - len(visible)
+        if hidden > 0:
+            lines.append(
+                _FrameLine(
+                    self._clip(f"  … +{hidden} more queued", width),
+                    "slash_menu_scroll",
+                )
+            )
         lines.append(
             _FrameLine(
                 self._clip("  (alt+up to restore queued messages to the editor)", width),
