@@ -9,9 +9,12 @@ answer is a purely local operation.
 from __future__ import annotations
 
 import base64
+import os
+import select
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TextIO
@@ -79,24 +82,52 @@ def _image_clipboard_commands(platform: str) -> tuple[tuple[str, list[str]], ...
 # clipboard image cannot exhaust memory before the size check rejects it.
 _MAX_CLIPBOARD_IMAGE_BYTES = 5 * 1024 * 1024
 
+# Wall-clock bound on the whole clipboard read. A misbehaving helper (e.g.
+# ``xclip`` waiting on a selection that never arrives, or one that never closes
+# stdout) must not freeze the editor when Ctrl+V is pressed: once this elapses
+# the helper is killed and the read reports "no image".
+_CLIPBOARD_READ_TIMEOUT_SECONDS = 5.0
 
-def _default_run_capture(argv: list[str]) -> bytes | None:
-    # Bounded, incremental read: never buffer more than the cap (+1) in memory,
-    # killing the tool once it is exceeded so a pathologically large clipboard
-    # image cannot exhaust memory before read_clipboard_image rejects it.
+
+def _default_run_capture(
+    argv: list[str], *, timeout: float = _CLIPBOARD_READ_TIMEOUT_SECONDS
+) -> bytes | None:
+    # Bounded, incremental, deadline-guarded read (POSIX): never buffer more
+    # than the cap (+1) in memory, never block longer than ``timeout`` waiting
+    # on a stalled helper, and never let the helper consume the session's
+    # terminal stdin. ``stdin`` is /dev/null; ``select`` enforces the deadline
+    # on the read so a hung helper cannot freeze the editor; the cap kills a
+    # pathologically large image before read_clipboard_image rejects it.
     try:
         proc = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError):
         return None
     assert proc.stdout is not None
+    fd = proc.stdout.fileno()
     chunks: list[bytes] = []
     total = 0
     limit = _MAX_CLIPBOARD_IMAGE_BYTES + 1
+    deadline = time.monotonic() + timeout
+    timed_out = False
     try:
         while total < limit:
-            chunk = proc.stdout.read(min(65536, limit - total))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                timed_out = True
+                break
+            # ``select`` reported the pipe readable, so this single os.read
+            # returns promptly with the available bytes (or b"" at EOF) instead
+            # of blocking for a full buffer the way BufferedReader.read would.
+            chunk = os.read(fd, min(65536, limit - total))
             if not chunk:
                 break
             chunks.append(chunk)
@@ -105,7 +136,7 @@ def _default_run_capture(argv: list[str]) -> bytes | None:
         proc.kill()
         return None
     finally:
-        if total >= limit:
+        if total >= limit or timed_out:
             proc.kill()
         try:
             proc.stdout.close()
@@ -115,8 +146,12 @@ def _default_run_capture(argv: list[str]) -> bytes | None:
             proc.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
             proc.kill()
-    # An oversized read returns the (capped) bytes so the size check rejects it;
-    # a non-zero exit with no overflow means the tool failed (no image).
+    # A stalled helper that hit the deadline reports "no image" rather than a
+    # truncated payload. An oversized read returns the (capped) bytes so the
+    # size check rejects it; a non-zero exit with no overflow means the tool
+    # failed (no image).
+    if timed_out:
+        return None
     if total < limit and proc.returncode not in (0, None):
         return None
     return b"".join(chunks)
