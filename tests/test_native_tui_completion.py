@@ -124,3 +124,23 @@ class TestPathCompletion:
         assert ui._attempt_path_completion()
         assert ui.input_text == "./scripts/"
         assert not ui.autocomplete_open
+
+    def test_bare_workspace_prefix_completes(self, tmp_path: Path) -> None:
+        # A bare (non-path-like) workspace prefix completes via forced Tab, not
+        # just paths starting with ./ or ~/.
+        ui = _ui(_workspace(tmp_path))
+        _type(ui, "scr")
+        assert ui._attempt_path_completion()
+        assert ui.input_text == "scripts/"
+
+    def test_bare_prose_word_with_no_match_is_a_no_op(self, tmp_path: Path) -> None:
+        ui = _ui(_workspace(tmp_path))
+        _type(ui, "zzznomatch")
+        assert ui._attempt_path_completion() is False
+        assert ui.input_text == "zzznomatch"
+        assert not ui.autocomplete_open
+
+    def test_empty_buffer_tab_is_a_no_op(self, tmp_path: Path) -> None:
+        ui = _ui(_workspace(tmp_path))
+        assert ui._attempt_path_completion() is False
+        assert not ui.autocomplete_open

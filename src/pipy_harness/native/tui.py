@@ -2421,12 +2421,14 @@ class ToolLoopTerminalUi:
         self.input_cursor = cursor + len(text)
         self._refresh_slash_menu_state()
 
-    @staticmethod
-    def _as_drag_reference(text: str) -> str | None:
+    def _as_drag_reference(self, text: str) -> str | None:
         """Return an ``@image:``/``@path`` reference for a dropped file path.
 
         Returns ``None`` for ordinary pasted text (multi-line, or not an
-        existing single file path), which is then inserted literally.
+        existing single file path), which is then inserted literally. Relative
+        drops are resolved against the session workspace (``self.cwd``), not the
+        process cwd, so a file dropped from the workspace resolves even when the
+        two differ.
         """
 
         candidate = text.strip()
@@ -2437,7 +2439,10 @@ class ToolLoopTerminalUi:
         if not candidate or "\x00" in candidate:
             return None
         try:
-            if not Path(candidate).expanduser().is_file():
+            resolved = Path(candidate).expanduser()
+            if not resolved.is_absolute():
+                resolved = self.cwd / resolved
+            if not resolved.is_file():
                 return None
         except OSError:
             return None
@@ -2795,17 +2800,24 @@ class ToolLoopTerminalUi:
     def _attempt_path_completion(self) -> bool:
         """Forced Tab path completion against the prefix before the cursor.
 
-        Returns ``True`` when a path-like prefix produced candidates (and the
-        editor was updated/opened), ``False`` for a no-op (e.g. Tab in prose).
-        Completes the longest unambiguous prefix and opens the popup when more
-        than one candidate remains.
+        Returns ``True`` when the prefix produced candidates (and the editor was
+        updated/opened), ``False`` for a no-op. Uses the forced-Tab prefix so
+        bare workspace prefixes (``README``, ``scr``) complete, not just
+        path-like ones; Tab stays a no-op in prose because the empty-token case
+        (e.g. after a trailing space) is skipped and a non-path word that
+        matches no workspace entry yields no candidates. Completes the longest
+        unambiguous prefix and opens the popup when more than one remains.
         """
 
         before_cursor = self.input_text[: self._effective_input_cursor()]
-        extracted = extract_path_prefix(before_cursor, force=False)
+        extracted = extract_path_prefix(before_cursor, force=True)
         if extracted is None:
             return False
         start, prefix = extracted
+        # An empty token (empty buffer or trailing space) is a no-op rather than
+        # a whole-working-directory dump.
+        if prefix == "":
+            return False
         items = path_candidates(self.cwd, prefix)
         if not items:
             return False

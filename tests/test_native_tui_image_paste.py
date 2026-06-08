@@ -59,13 +59,13 @@ class TestDragReference:
     def test_dropped_image_path_becomes_image_reference(self, tmp_path: Path) -> None:
         image = tmp_path / "shot.png"
         image.write_bytes(_PNG)
-        ref = ToolLoopTerminalUi._as_drag_reference(str(image))
+        ref = _ui(tmp_path)._as_drag_reference(str(image))
         assert ref == f"@image:{image} "
 
     def test_dropped_other_file_becomes_path_reference(self, tmp_path: Path) -> None:
         doc = tmp_path / "notes.txt"
         doc.write_text("hi\n")
-        ref = ToolLoopTerminalUi._as_drag_reference(str(doc))
+        ref = _ui(tmp_path)._as_drag_reference(str(doc))
         assert ref == f"@{doc} "
 
     def test_quoted_dropped_path_with_space_is_requoted(self, tmp_path: Path) -> None:
@@ -74,11 +74,19 @@ class TestDragReference:
         # at the space).
         image = tmp_path / "a b.png"
         image.write_bytes(_PNG)
-        ref = ToolLoopTerminalUi._as_drag_reference(f'"{image}"')
+        ref = _ui(tmp_path)._as_drag_reference(f'"{image}"')
         assert ref == f'@image:"{image}" '
 
     def test_plain_text_paste_is_not_a_reference(self, tmp_path: Path) -> None:
-        assert ToolLoopTerminalUi._as_drag_reference("just some prose") is None
+        assert _ui(tmp_path)._as_drag_reference("just some prose") is None
 
     def test_multiline_paste_is_not_a_reference(self, tmp_path: Path) -> None:
-        assert ToolLoopTerminalUi._as_drag_reference("line1\nline2") is None
+        assert _ui(tmp_path)._as_drag_reference("line1\nline2") is None
+
+    def test_relative_drop_resolves_against_workspace_cwd(self, tmp_path: Path) -> None:
+        # A relative dropped path is resolved against the session workspace
+        # (ui.cwd), not the process cwd.
+        (tmp_path / "dropped.png").write_bytes(_PNG)
+        ui = _ui(tmp_path)
+        ref = ui._as_drag_reference("dropped.png")
+        assert ref == "@image:dropped.png "
