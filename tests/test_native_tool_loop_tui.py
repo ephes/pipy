@@ -67,6 +67,9 @@ class _ExitOnlyUi:
     def take_next_drain(self) -> str | None:
         return None
 
+    def take_pending_command(self) -> str | None:
+        return None
+
     def close(self) -> None:
         self.closed = True
 

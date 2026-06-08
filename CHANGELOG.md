@@ -44,12 +44,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
-- Queued steering/follow-up messages that begin with `/` or `!` now reach the
-  model verbatim when the queue drains. Previously a queued line starting with
-  a slash-command or `!`-shell prefix was re-interpreted as a local command on
-  delivery and silently dropped from the conversation; drained messages are
-  provider-visible prompt text and bypass local-command dispatch (they still
-  resolve any `@file`/`@image` references).
+- A `/…` slash command or `!…` bash shortcut submitted with Enter mid-turn now
+  runs locally (matching Pi's editor `onSubmit`): it interrupts the turn and
+  dispatches through the normal local-command path instead of being steered to
+  the model. Only ordinary prose becomes a steering message, so the queue lanes
+  hold prompt text exclusively.
+- Queued steering/follow-up messages that begin with `/` or `!` (e.g. an
+  `Alt+Enter` follow-up) now reach the model verbatim when the queue drains.
+  Previously a queued line starting with a slash-command or `!`-shell prefix was
+  re-interpreted as a local command on delivery and silently dropped from the
+  conversation; drained messages are provider-visible prompt text and bypass
+  local-command dispatch (they still resolve any `@file`/`@image` references).
 - Moving the caret (`←`/`→`/`Home`/`End`) now dismisses the `@`/path completion
   popup. Previously the popup stayed anchored to the caret offset where it
   opened, so accepting after a move spliced the candidate at a stale offset and

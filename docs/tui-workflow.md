@@ -388,14 +388,20 @@ and `Follow-up: ...` lines plus a "restore" hint, repainted on every enqueue and
 on turn settle. After the current turn settles, drain steering messages first
 (redirecting the next turn) then follow-up messages, preserving order. The
 existing Escape-abort path drains the queue back into the editor before
-cancelling, matching Pi. Local slash commands recognized by the dispatcher run
-immediately rather than queueing. Queued bodies are ordinary prompts and flow
-through the same native-session persistence on delivery; nothing extra reaches
-the archive. Because a queued message is provider-visible prompt text, on
-delivery it bypasses local-command dispatch: a drained line that happens to
-begin with `/` or `!` is sent to the model verbatim (still resolving any
-`@file`/`@image` references) rather than being re-interpreted as a slash command
-or `!`-shell shortcut and dropped. Because steering requires interrupting a live turn at a safe point,
+cancelling, matching Pi. Local commands recognized by the dispatcher run
+immediately rather than queueing: pressing Enter on a `/…` slash command or a
+`!…` bash shortcut mid-turn (like Pi's editor `onSubmit`) interrupts the turn
+and dispatches the command locally on the next loop iteration — it is never
+steered or sent to the model. Only ordinary prose becomes a steering message,
+so the queue lanes hold prompt text exclusively. Follow-ups (`Alt+Enter`) are
+queued as-is without the slash check, matching Pi. Queued bodies are ordinary
+prompts and flow through the same native-session persistence on delivery;
+nothing extra reaches the archive. Because a queued message is provider-visible
+prompt text, on delivery it bypasses local-command dispatch: a drained line that
+happens to begin with `/` or `!` (e.g. an `Alt+Enter` follow-up) is sent to the
+model verbatim (still resolving any `@file`/`@image` references) rather than
+being re-interpreted as a slash command or `!`-shell shortcut and dropped.
+Because steering requires interrupting a live turn at a safe point,
 this milestone composes with true cancellation below: a steering message that
 must interrupt the model uses the same cancel token to stop the in-flight
 request, then re-issues the turn with the steering text appended.

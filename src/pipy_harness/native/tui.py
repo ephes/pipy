@@ -115,6 +115,7 @@ HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
 TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
 TURN_STEERED = "steered"  # a steering message interrupted the turn
+TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +262,11 @@ class ToolLoopTerminalUi:
     _pending_steering: list[str] = field(default_factory=list)
     _pending_follow_up: list[str] = field(default_factory=list)
     _pending_drain: list[str] = field(default_factory=list)
+    # A recognized local command (``/...`` or ``!...``) submitted with Enter
+    # mid-turn is NOT queued for the provider: like Pi's editor, it interrupts
+    # the turn and runs locally. It is held here for the session loop to pick up
+    # and dispatch through the normal local-command path on the next iteration.
+    _pending_command: str | None = None
     # Clipboard / drag image paste (Pi Ctrl+V). ``clipboard_image_read`` reads an
     # image from the OS clipboard; ``clipboard_temp_dir`` is an owner-only dir
     # (also registered as an image reference root by the session) where pasted
@@ -542,13 +548,22 @@ class ToolLoopTerminalUi:
                 if key == "enter":
                     text = self.input_text
                     self._reset_mid_turn_input()
-                    if text.strip():
-                        self.enqueue_steering(text)
+                    if not text.strip():
+                        self.paint()
+                        continue
+                    # A recognized local command (`/…` or `!…`) is never queued
+                    # for the provider: like Pi's editor, Enter runs it
+                    # immediately rather than steering. It interrupts the turn
+                    # and is handed to the session loop to dispatch locally.
+                    if self._submitted_text_is_local_command(text):
+                        self._pending_command = text
                         abort_event.set()
                         self.paint()
-                        return TURN_STEERED
+                        return TURN_LOCAL_COMMAND
+                    self.enqueue_steering(text)
+                    abort_event.set()
                     self.paint()
-                    continue
+                    return TURN_STEERED
                 if key == "alt-enter":
                     text = self.input_text
                     self._reset_mid_turn_input()
@@ -2820,6 +2835,33 @@ class ToolLoopTerminalUi:
         if not self._pending_drain:
             return None
         return self._pending_drain.pop(0)
+
+    @staticmethod
+    def _submitted_text_is_local_command(text: str) -> bool:
+        """True when a mid-turn submission is a local command, not a prompt.
+
+        Matches the session loop's local-command boundary: any line whose first
+        non-space character is ``/`` (a slash command — known ones dispatch,
+        unknown ones are reported, neither reaches the provider) or ``!`` (a
+        bash shortcut). Such a line submitted with Enter mid-turn runs locally
+        instead of being queued/steered to the model. Ordinary prose (which is
+        what steering/follow-up actually carries) does not match.
+        """
+
+        stripped = text.strip()
+        return stripped.startswith("/") or stripped.startswith("!")
+
+    def take_pending_command(self) -> str | None:
+        """Pop a local command submitted mid-turn (Enter), or None.
+
+        The session loop reads this before the drain/read_line and dispatches it
+        through the normal local-command path, so it is never sent to the
+        provider (unlike a drained steering/follow-up message).
+        """
+
+        command = self._pending_command
+        self._pending_command = None
+        return command
 
     def _is_bash_mode(self) -> bool:
         """True when the editor buffer is a ``!``/``!!`` local-shell shortcut.

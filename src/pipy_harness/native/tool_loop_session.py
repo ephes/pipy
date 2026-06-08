@@ -137,6 +137,7 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
     TURN_ABORTED,
+    TURN_LOCAL_COMMAND,
     TURN_STEERED,
     ModelSelectorOption,
     ScopedModelRow,
@@ -1043,14 +1044,29 @@ class NativeToolReplSession:
                         f"  > {pending_prefill}"
                     )
                 pending_prefill = None
+            # A local command (`/…`/`!…`) submitted with Enter mid-turn runs
+            # locally (Pi): it is dispatched here through the NORMAL path (it is
+            # not a drained message, so ``command_text`` keeps its value below
+            # and local-command dispatch applies) before any queued prompts.
+            pending_command = (
+                terminal_ui.take_pending_command()
+                if terminal_ui is not None
+                else None
+            )
             # Deliver any queued steering/follow-up messages (Pi) before reading
             # fresh input: a steering interrupt or a turn that settled with
             # follow-ups promotes them to a sequential drain, delivered in order
             # (all steering, then all follow-up) as the next prompts.
             drained = (
-                terminal_ui.take_next_drain() if terminal_ui is not None else None
+                None
+                if pending_command is not None
+                else (
+                    terminal_ui.take_next_drain() if terminal_ui is not None else None
+                )
             )
-            if drained is not None:
+            if pending_command is not None:
+                line = f"{pending_command}\n"
+            elif drained is not None:
                 line = f"{drained}\n"
             else:
                 try:
@@ -2193,6 +2209,16 @@ class NativeToolReplSession:
             terminal_ui.restore_pending_to_editor()
             return None
         if outcome == TURN_STEERED:
+            self._cancel_active_turn(cancel_token, worker)
+            renderer.steer_provider_turn()
+            terminal_ui.promote_pending_to_drain()
+            return None
+        if outcome == TURN_LOCAL_COMMAND:
+            # A local command (`/…`/`!…`) submitted mid-turn interrupts the turn
+            # and runs locally. Cancel like a steer (no error banner); the
+            # command is held on the UI and dispatched by the next loop
+            # iteration through the normal local-command path (never the
+            # provider). Any earlier-queued steering/follow-up still promotes.
             self._cancel_active_turn(cancel_token, worker)
             renderer.steer_provider_turn()
             terminal_ui.promote_pending_to_drain()

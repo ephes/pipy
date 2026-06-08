@@ -2730,3 +2730,78 @@ def test_pty_drained_followup_with_command_prefix_reaches_model(
     assert "\x1b[?1049h" not in captured
     # The drained follow-up was delivered to the provider verbatim.
     assert prompts == ["begin the turn", queued]
+
+
+class _CancelAwareRecordingProvider:
+    """Records each turn's prompt; turn 1 blocks until cancelled at the boundary.
+
+    Lets a mid-turn local command interrupt the first turn and unwind promptly
+    (it observes the cancel token), so the test can assert the command ran
+    locally without the provider ever seeing it as a prompt.
+    """
+
+    name = "fake"
+    model_id = "fake-native-bootstrap"
+    supports_tool_calls = True
+
+    def __init__(self, prompts: list[str], active_event: threading.Event) -> None:
+        self._prompts = prompts
+        self._active = active_event
+        self._turn = 0
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.cancellation import ProviderCancelledError
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink
+        self._turn += 1
+        self._prompts.append(request.user_prompt)
+        if self._turn == 1:
+            self._active.set()
+            if cancel_token is not None and cancel_token.event.wait(timeout=6.0):
+                raise ProviderCancelledError("native provider turn cancelled")
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=f"TURN_{self._turn}_DONE",
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A `/` command submitted with Enter mid-turn runs locally (Pi), not queued.
+
+    Like Pi's editor, pressing Enter on a recognized local command (`/help`)
+    while a turn is in flight runs it immediately rather than steering it to the
+    model: the turn is interrupted, the help notice renders, and the command is
+    never delivered to the provider as a prompt. (Prose still steers; this is
+    why the steering/follow-up queue safely drains to the provider.)
+    """
+
+    prompts: list[str] = []
+    active = threading.Event()
+    provider = _CancelAwareRecordingProvider(prompts, active)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, b"begin the turn\n")
+        assert _wait_for_predicate(active.is_set), "turn never went active"
+        # Type a slash command mid-turn and submit it with a plain Enter.
+        os.write(in_master, b"/help")
+        os.write(in_master, b"\n")
+        assert _wait_for(chunks, "tool-loop mode supports"), (
+            "/help did not run locally mid-turn"
+        )
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    # /help ran locally and was never sent to the provider as a prompt.
+    assert prompts == ["begin the turn"]
