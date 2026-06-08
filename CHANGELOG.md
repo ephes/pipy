@@ -59,6 +59,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
   popup. Previously the popup stayed anchored to the caret offset where it
   opened, so accepting after a move spliced the candidate at a stale offset and
   duplicated/corrupted the active token; it reopens on the next edit.
+- Aborting (Escape/Ctrl-C) or restoring (`Alt+Up`) while a queued turn is
+  draining now brings the remaining queued prompts back to the editor. Once a
+  turn settled (or steering promoted), the queue moved into an internal drain
+  that the restore path ignored, so the not-yet-delivered prompts stayed hidden
+  and kept auto-submitting to the model after the cancellation; they are now
+  restored along with the steering/follow-up lanes.
+- `Ctrl+V` clipboard-image reads are bounded and isolated: the helper's stdin is
+  `/dev/null` and the read enforces a wall-clock deadline, so a misbehaving
+  clipboard tool (one that hangs or never closes its output) can no longer
+  freeze the editor or consume terminal keystrokes.
+- Tab path completion no longer offers ignored/generated entries (e.g.
+  `node_modules/`) or symlinks escaping the workspace for workspace-relative
+  directories, matching the `@` picker and the read policy; explicit
+  absolute/`~/` navigation the user points Tab at is still listed as-is.
 
 ## [0.1.0] - 2026-06-03
 
