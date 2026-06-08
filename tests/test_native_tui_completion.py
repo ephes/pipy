@@ -144,3 +144,29 @@ class TestPathCompletion:
         ui = _ui(_workspace(tmp_path))
         assert ui._attempt_path_completion() is False
         assert not ui.autocomplete_open
+
+
+class TestKeyDecoding:
+    def _decode(self, tmp_path: Path, after_esc: bytes) -> str:
+        import os
+
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, after_esc)
+        os.close(write_fd)
+        ui = _ui(tmp_path)
+        try:
+            return ui._read_escape_sequence(read_fd)
+        finally:
+            os.close(read_fd)
+
+    def test_shift_ctrl_p_kitty_form(self, tmp_path: Path) -> None:
+        assert self._decode(tmp_path, b"[112;6u") == "shift-ctrl-p"
+
+    def test_shift_ctrl_p_modify_other_keys_form(self, tmp_path: Path) -> None:
+        assert self._decode(tmp_path, b"[27;6;112~") == "shift-ctrl-p"
+
+    def test_shift_tab(self, tmp_path: Path) -> None:
+        assert self._decode(tmp_path, b"[Z") == "shift-tab"
+
+    def test_alt_up(self, tmp_path: Path) -> None:
+        assert self._decode(tmp_path, b"[1;3A") == "alt-up"

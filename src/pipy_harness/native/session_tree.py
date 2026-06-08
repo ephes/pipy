@@ -784,6 +784,14 @@ class NativeSessionTree:
     def append_thinking_level_change(
         self, thinking_level: str
     ) -> ThinkingLevelChangeEntry:
+        """Record a ``thinking_level_change`` entry on the active branch.
+
+        Called by the product TUI's Shift+Tab thinking-level cycle and the
+        ``/settings`` "cycle thinking level" action (see
+        ``NativeToolReplSession._cycle_thinking_level``), so the chosen reasoning
+        level is durable across resume; runs no provider turn.
+        """
+
         entry = ThinkingLevelChangeEntry(
             id=self._next_id(),
             parent_id=self.leaf_id,

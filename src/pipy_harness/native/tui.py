@@ -2271,13 +2271,15 @@ class ToolLoopTerminalUi:
         # queued messages; ``alt+enter`` queues a follow-up.
         if sequence in {"1;3A", "1;9A"}:
             return "alt-up"
-        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P, when the
-        # terminal speaks the kitty keyboard protocol, arrives as CSI u with a
-        # ctrl+shift modifier (6); legacy terminals cannot distinguish it from
-        # Ctrl+P and fall through to forward cycling (documented decode limit).
+        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P arrives as
+        # CSI u with a ctrl+shift modifier (6) under the kitty keyboard protocol
+        # (``112;6u``) or as a modifyOtherKeys CSI ``~`` sequence under xterm
+        # (``27;6;112~``). Legacy terminals with neither protocol cannot
+        # distinguish it from Ctrl+P and fall through to forward cycling; reverse
+        # cycling stays available via ``/scoped-models prev`` (documented limit).
         if sequence == "Z":
             return "shift-tab"
-        if sequence == "112;6u":
+        if sequence in {"112;6u", "27;6;112~"}:
             return "shift-ctrl-p"
         return {
             "A": "up",
