@@ -2697,6 +2697,13 @@ class ToolLoopTerminalUi:
             self.input_cursor = 0
         elif key == "end":
             self.input_cursor = len(self.input_text)
+        # The @/path completion popup is anchored to the caret offset where it
+        # opened (``autocomplete_token_start``). A caret move would leave that
+        # anchor stale, so a subsequent Enter/Tab accept could splice the
+        # candidate at the old offset against the new caret and duplicate or
+        # corrupt the active token. Dismiss it on any move; it reopens on the
+        # next edit (which re-derives the anchor from the current caret).
+        self._close_autocomplete()
 
     def _effective_input_cursor(self) -> int:
         if self.input_cursor is None:
@@ -2859,6 +2866,15 @@ class ToolLoopTerminalUi:
         item = self.autocomplete_items[self.autocomplete_selection]
         cursor = self._effective_input_cursor()
         start = self.autocomplete_token_start
+        # Defensive: the replacement span is ``[start, cursor)``. If the anchor
+        # is stale relative to the caret (start past the caret, or negative),
+        # splicing would duplicate/corrupt the buffer — close instead. Caret
+        # moves already dismiss the popup, so this only fires on an unexpected
+        # stale state.
+        if not 0 <= start <= cursor <= len(self.input_text):
+            self._close_autocomplete()
+            self.paint()
+            return
         self._snapshot_for_undo()
         self._reset_history_nav()
         self.input_text = self.input_text[:start] + item.value + self.input_text[cursor:]

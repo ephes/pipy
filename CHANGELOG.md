@@ -42,6 +42,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
     the real product PTY path and proves all of the above (plus non-TTY
     fallbacks and archive privacy) deterministically.
 
+### Fixed
+
+- Queued steering/follow-up messages that begin with `/` or `!` now reach the
+  model verbatim when the queue drains. Previously a queued line starting with
+  a slash-command or `!`-shell prefix was re-interpreted as a local command on
+  delivery and silently dropped from the conversation; drained messages are
+  provider-visible prompt text and bypass local-command dispatch (they still
+  resolve any `@file`/`@image` references).
+- Moving the caret (`←`/`→`/`Home`/`End`) now dismisses the `@`/path completion
+  popup. Previously the popup stayed anchored to the caret offset where it
+  opened, so accepting after a move spliced the candidate at a stale offset and
+  duplicated/corrupted the active token; it reopens on the next edit.
+
 ## [0.1.0] - 2026-06-03
 
 ### Added

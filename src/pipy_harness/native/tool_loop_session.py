@@ -1066,11 +1066,21 @@ class NativeToolReplSession:
                 break
             user_input = line.rstrip("\n")
             stripped = user_input.strip()
+            # Queued steering/follow-up messages (Pi) are provider-visible prompt
+            # text, never local commands: a follow-up enqueued mid-turn that
+            # happens to begin with `/` (slash command) or `!` (bash shortcut)
+            # must reach the model verbatim, not be intercepted and silently
+            # dropped from the conversation. ``command_text`` is the dispatch key
+            # for every local command/hotkey below; it is blank for a drained
+            # line so none match and it falls through to the provider-message
+            # path (which still resolves any @file/@image references). Typed
+            # input keeps ``command_text == stripped`` and is unaffected.
+            command_text = "" if drained is not None else stripped
             # In-editor hotkeys arrive as private sentinel "commands" from the
             # TUI so they dispatch without rendering a user-message bubble.
             # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
             # the model (translated to the existing /scoped-models dispatch).
-            if stripped in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
+            if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
                 self._toggle_view_fold(
                     stripped,
                     terminal_ui=terminal_ui,
@@ -1078,7 +1088,7 @@ class NativeToolReplSession:
                     settings=settings,
                 )
                 continue
-            if stripped == HOTKEY_THINKING_CYCLE:
+            if command_text == HOTKEY_THINKING_CYCLE:
                 self._cycle_thinking_level(
                     terminal_ui=terminal_ui,
                     error_stream=error_stream,
@@ -1095,7 +1105,7 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            from_hotkey = stripped in {
+            from_hotkey = command_text in {
                 HOTKEY_MODEL_CYCLE_NEXT,
                 HOTKEY_MODEL_CYCLE_PREV,
             }
@@ -1106,6 +1116,10 @@ class NativeToolReplSession:
                     else "/scoped-models prev"
                 )
                 user_input = stripped
+                # Keep the dispatch key in sync with the translated command so
+                # the /scoped-models handler below matches (a hotkey is never a
+                # drained line, so this only rewrites typed-hotkey input).
+                command_text = stripped
             # Local shell shortcut: a submitted line whose first non-space
             # character is ``!`` runs a bash command from the editor with no
             # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
@@ -1114,7 +1128,7 @@ class NativeToolReplSession:
             # but is excluded from context (a live-only diagnostic). Escape
             # cancels a running command. Intercepted before the user-message
             # panel so it renders as a shell block, not a chat bubble.
-            if stripped.startswith("!"):
+            if command_text.startswith("!"):
                 shell_context_text = self._run_local_shell_shortcut(
                     stripped,
                     terminal_ui=terminal_ui,
@@ -1154,9 +1168,9 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped in {"/exit", "/quit"}:
+            if command_text in {"/exit", "/quit"}:
                 break
-            if stripped == "/help":
+            if command_text == "/help":
                 if terminal_ui is not None:
                     terminal_ui.add_notice(self._help_text())
                 else:
@@ -1171,7 +1185,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/hotkeys":
+            if command_text == "/hotkeys":
                 # Local-only: render the grouped keyboard-shortcut table from
                 # the resolved keybinding manager (reflecting any user
                 # keybindings.json overrides). Runs no provider turn.
@@ -1190,7 +1204,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/reload":
+            if command_text == "/reload":
                 # Local-only: re-read settings (both scopes), keybindings, and
                 # workspace resources, then re-apply derived UI settings. Runs
                 # between turns at the prompt, so no provider turn or compaction
@@ -1244,7 +1258,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/changelog":
+            if command_text == "/changelog":
                 # Local-only: render the full changelog (oldest-first) under a
                 # "What's New" header. Runs no provider turn.
                 changelog_text = render_changelog(read_changelog_entries())
@@ -1262,7 +1276,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/settings":
+            if command_text == "/settings":
                 if terminal_ui is not None:
                     self._drive_settings_dialog(
                         terminal_ui,
@@ -1286,7 +1300,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/copy":
+            if command_text == "/copy":
                 # Local-only command: copies the most recent assistant answer
                 # through a safe OS/terminal clipboard path. It never invokes
                 # the provider, tools, login/logout, or model switching.
@@ -1305,7 +1319,7 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/compact":
+            if command_text == "/compact":
                 # Local-only command: reduce the provider-visible history while
                 # keeping recent turns plus a safe metadata-only summary. No
                 # provider turn, tool call, or auth change.
@@ -1322,13 +1336,13 @@ class NativeToolReplSession:
                         tool_invocation_count=tool_invocation_count,
                     )
                 continue
-            if stripped == "/session":
+            if command_text == "/session":
                 # Local-only: report safe current native-session status. No
                 # provider turn, tool call, or transcript content.
                 diag(format_session_status(session_tree))
                 refresh_legacy_footer()
                 continue
-            if stripped == "/name" or stripped.startswith("/name "):
+            if command_text == "/name" or command_text.startswith("/name "):
                 argument = stripped[len("/name") :].strip()
                 if not argument:
                     diag(
@@ -1340,7 +1354,7 @@ class NativeToolReplSession:
                     diag(f"pipy: session named {argument!r}.")
                 refresh_legacy_footer()
                 continue
-            if stripped == "/new":
+            if command_text == "/new":
                 # Start a fresh native product session in the same store.
                 session_dir = (
                     session_tree.path.parent
@@ -1359,7 +1373,7 @@ class NativeToolReplSession:
                 )
                 refresh_legacy_footer()
                 continue
-            if stripped == "/tree" or stripped.startswith("/tree "):
+            if command_text == "/tree" or command_text.startswith("/tree "):
                 argument = stripped[len("/tree") :].strip()
                 outcome = self._handle_tree_command(
                     argument,
@@ -1377,7 +1391,7 @@ class NativeToolReplSession:
                     pending_prefill = outcome.prefill
                 refresh_legacy_footer()
                 continue
-            if stripped == "/resume" or stripped.startswith("/resume "):
+            if command_text == "/resume" or command_text.startswith("/resume "):
                 argument = stripped[len("/resume") :].strip()
                 resume_tokens = argument.split()
                 resume_sub = resume_tokens[0].lower() if resume_tokens else ""
@@ -1454,7 +1468,7 @@ class NativeToolReplSession:
                         )
                 refresh_legacy_footer()
                 continue
-            if stripped == "/fork" or stripped.startswith("/fork "):
+            if command_text == "/fork" or command_text.startswith("/fork "):
                 argument = stripped[len("/fork") :].strip()
                 if session_tree.path is None:
                     diag("pipy: /fork requires a persistent native session.")
@@ -1484,7 +1498,7 @@ class NativeToolReplSession:
                 )
                 refresh_legacy_footer()
                 continue
-            if stripped == "/clone":
+            if command_text == "/clone":
                 if session_tree.path is None:
                     diag("pipy: /clone requires a persistent native session.")
                     refresh_legacy_footer()
@@ -1502,7 +1516,7 @@ class NativeToolReplSession:
                 )
                 refresh_legacy_footer()
                 continue
-            if stripped == "/model" or stripped.startswith("/model "):
+            if command_text == "/model" or command_text.startswith("/model "):
                 argument = stripped[len("/model") :].strip()
                 state = self.provider_state
                 if not isinstance(state, NativeReplProviderState):
@@ -1548,7 +1562,7 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            if stripped == "/scoped-models" or stripped.startswith("/scoped-models "):
+            if command_text == "/scoped-models" or command_text.startswith("/scoped-models "):
                 # Local-only: view/set/clear the enabledModels patterns that
                 # constrain the model cycle, or cycle (next/prev) over the scoped
                 # set (or full available catalog when empty). Cycling rebinds the
@@ -1625,7 +1639,7 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            if stripped == "/theme" or stripped.startswith("/theme "):
+            if command_text == "/theme" or command_text.startswith("/theme "):
                 # Chrome-only command: swap the active color palette. No
                 # provider turn, no tool call, no archive write. The next TUI
                 # frame (and footer) repaints with the new palette because
@@ -1653,7 +1667,7 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            if stripped == "/login" or stripped.startswith("/login "):
+            if command_text == "/login" or command_text.startswith("/login "):
                 # Auth-only command: no provider turn, no tool call. Runs the
                 # OAuth login through the provider-state boundary, refreshes
                 # model-option availability, and clears conversation context.
@@ -1671,7 +1685,7 @@ class NativeToolReplSession:
                         usage_accumulator=usage_accumulator,
                     )
                 continue
-            if stripped == "/logout" or stripped.startswith("/logout "):
+            if command_text == "/logout" or command_text.startswith("/logout "):
                 # Auth-only command: no provider turn, no tool call. Removes the
                 # stored OAuth credentials, resets the selection to the local
                 # default, refreshes availability, and clears context.
@@ -1692,7 +1706,9 @@ class NativeToolReplSession:
             # Resource dispatch (skills, prompt templates, custom commands)
             # runs through the same local-command boundary as the built-ins,
             # after them so a custom command can never shadow a built-in.
-            resource_dispatch = dispatch_resource_command(stripped, workspace_resources)
+            resource_dispatch = dispatch_resource_command(
+                command_text, workspace_resources
+            )
             resource_provider_text: str | None = None
             if resource_dispatch is not None and resource_dispatch.kind == DISPATCH_LIST:
                 self._emit_diagnostic(
@@ -1734,7 +1750,7 @@ class NativeToolReplSession:
                 self._emit_diagnostic(
                     terminal_ui, error_stream, resource_dispatch.message
                 )
-            if stripped.startswith("/") and resource_provider_text is None:
+            if command_text.startswith("/") and resource_provider_text is None:
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,

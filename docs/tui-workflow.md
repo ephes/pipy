@@ -160,7 +160,10 @@ slash-command completion, ~:322.) `~/` expands to the home directory, paths
 containing spaces are emitted quoted (`@"my dir/file"`), directories keep a
 trailing `/`, and accepting a suggestion replaces the `@`-token with the chosen
 `@path`. The popup is keyboard-navigable (up/down move, Enter/Tab accept, Escape
-closes) and windows to a configured max-visible row count.
+closes) and windows to a configured max-visible row count. Moving the caret
+(`←`/`→`/`Home`/`End`) dismisses the popup — its replacement span is anchored to
+the caret offset where it opened, so it reopens on the next edit rather than
+splicing a candidate at a stale offset.
 
 **Pipy target** (extends `repl_input.py` editor + `tui.py` live region, reusing
 `file_references.py`): add a pipy-owned autocomplete provider that detects an
@@ -388,7 +391,11 @@ existing Escape-abort path drains the queue back into the editor before
 cancelling, matching Pi. Local slash commands recognized by the dispatcher run
 immediately rather than queueing. Queued bodies are ordinary prompts and flow
 through the same native-session persistence on delivery; nothing extra reaches
-the archive. Because steering requires interrupting a live turn at a safe point,
+the archive. Because a queued message is provider-visible prompt text, on
+delivery it bypasses local-command dispatch: a drained line that happens to
+begin with `/` or `!` is sent to the model verbatim (still resolving any
+`@file`/`@image` references) rather than being re-interpreted as a slash command
+or `!`-shell shortcut and dropped. Because steering requires interrupting a live turn at a safe point,
 this milestone composes with true cancellation below: a steering message that
 must interrupt the model uses the same cancel token to stop the in-flight
 request, then re-issues the turn with the steering text appended.

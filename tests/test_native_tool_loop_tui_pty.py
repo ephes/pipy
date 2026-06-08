@@ -2645,3 +2645,88 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
     assert fresh.get_enabled_models(), f"{label}: scope was not persisted"
     captured = _text()
     assert "\x1b[?1049h" not in captured
+
+
+class _GatedRecordingProvider:
+    """Records each turn's submitted prompt; turn 1 blocks until released.
+
+    Blocking the first turn opens a window to queue a follow-up mid-turn; once
+    released the turn settles on its own so the queued message drains as the
+    next prompt. Later turns complete immediately.
+    """
+
+    name = "fake"
+    model_id = "fake-native-bootstrap"
+    supports_tool_calls = True
+
+    def __init__(
+        self,
+        prompts: list[str],
+        active_event: threading.Event,
+        release_event: threading.Event,
+    ) -> None:
+        self._prompts = prompts
+        self._active = active_event
+        self._release = release_event
+        self._turn = 0
+
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+        from datetime import UTC, datetime
+
+        from pipy_harness.native.models import ProviderResult
+
+        del stream_sink, reasoning_sink, cancel_token
+        self._turn += 1
+        self._prompts.append(request.user_prompt)
+        if self._turn == 1:
+            self._active.set()
+            self._release.wait(timeout=6.0)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=request.provider_name,
+            model_id=request.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=f"TURN_{self._turn}_DONE",
+            tool_calls=(),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize("queued", ["/help", "!echo queued-shell"])
+def test_pty_drained_followup_with_command_prefix_reaches_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, queued: str
+):
+    """A queued follow-up beginning with `/` or `!` drains to the model verbatim.
+
+    Queued steering/follow-up messages (Pi) are provider-visible prompt text,
+    not local commands. A follow-up enqueued mid-turn that happens to start with
+    a slash-command (``/help``) or bash-shortcut (``!echo``) prefix must reach
+    the provider as the next turn's prompt — never be intercepted and run as a
+    local command (which would silently drop it from the conversation).
+    """
+
+    prompts: list[str] = []
+    active = threading.Event()
+    release = threading.Event()
+    provider = _GatedRecordingProvider(prompts, active, release)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, b"begin the turn\n")
+        assert _wait_for_predicate(active.is_set), "turn 1 never went active"
+        # Queue a follow-up that begins with a command prefix while the turn is
+        # in flight (Alt+Enter enqueues a follow-up without interrupting).
+        os.write(in_master, queued.encode("utf-8"))
+        os.write(in_master, b"\x1b\r")
+        assert _wait_for(chunks, f"Follow-up: {queued}"), "follow-up was not queued"
+        # Let the turn settle so the queue promotes and drains as the next turn.
+        release.set()
+        assert _wait_for(chunks, "TURN_2_DONE"), (
+            "queued follow-up never reached the model (intercepted as a command)"
+        )
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "\x1b[?1049h" not in captured
+    # The drained follow-up was delivered to the provider verbatim.
+    assert prompts == ["begin the turn", queued]

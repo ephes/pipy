@@ -85,6 +85,50 @@ class TestAtPicker:
             ui._delete_before_cursor()
         assert not ui.autocomplete_open
 
+    def test_cursor_move_dismisses_popup_so_accept_cannot_corrupt(
+        self, tmp_path: Path
+    ) -> None:
+        # The popup is anchored to the caret offset where it opened
+        # (``autocomplete_token_start``). Moving the caret must dismiss it:
+        # otherwise a later Enter/Tab accept would splice the candidate using
+        # the stale start against the new caret and duplicate/corrupt the
+        # active token. The popup reopens on the next edit.
+        ui = _ui(_workspace(tmp_path))
+        _type(ui, "@config")
+        assert ui.autocomplete_open
+        ui._move_input_cursor("left")
+        assert not ui.autocomplete_open
+        # Accept after the move is a no-op (popup closed): the buffer is left
+        # exactly as typed, never spliced at the stale offset.
+        before = ui.input_text
+        ui._accept_autocomplete_selection()
+        assert ui.input_text == before
+
+    def test_home_and_right_also_dismiss_popup(self, tmp_path: Path) -> None:
+        workspace = _workspace(tmp_path)
+        for key in ("home", "right", "end"):
+            ui = _ui(workspace)
+            _type(ui, "@config")
+            assert ui.autocomplete_open
+            ui._move_input_cursor(key)
+            assert not ui.autocomplete_open, f"{key} did not dismiss the popup"
+
+    def test_accept_with_stale_start_past_cursor_is_safe(
+        self, tmp_path: Path
+    ) -> None:
+        # Defensive: if the popup is somehow left open with an anchor beyond the
+        # caret (start > cursor), the replacement span ``[start, cursor)`` is
+        # nonsensical — accept must close instead of splicing and corrupting the
+        # buffer. Caret moves already dismiss the popup, so this is a backstop.
+        ui = _ui(_workspace(tmp_path))
+        _type(ui, "@config")
+        assert ui.autocomplete_open
+        before = ui.input_text
+        ui.autocomplete_token_start = len(before) + 5  # anchor past the caret
+        ui._accept_autocomplete_selection()
+        assert ui.input_text == before
+        assert not ui.autocomplete_open
+
 
 class TestBashModeAffordance:
     def test_bang_buffer_marks_bash_mode(self, tmp_path: Path) -> None:
