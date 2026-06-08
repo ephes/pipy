@@ -115,6 +115,28 @@ class TestAtCandidates:
         items = at_candidates(workspace, "config")
         assert all(item.value.startswith("@") for item in items)
 
+    def test_symlink_escaping_workspace_is_not_offered(self, tmp_path: Path) -> None:
+        import os
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "escape-config.py").write_text("secret\n")
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "config.py").write_text("inside\n")
+        # A symlink inside the workspace pointing at an outside file.
+        try:
+            os.symlink(outside / "escape-config.py", ws / "linked-config.py")
+        except (OSError, NotImplementedError):
+            import pytest
+
+            pytest.skip("symlinks unavailable on this platform")
+        items = at_candidates(ws, "config")
+        labels = {item.label for item in items}
+        # The contained file is offered; the escaping symlink is not.
+        assert "config.py" in labels
+        assert "linked-config.py" not in labels
+
 
 class TestExtractPathPrefix:
     def test_natural_trigger_on_slash(self) -> None:

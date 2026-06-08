@@ -290,6 +290,10 @@ def _walk_workspace(base_dir: Path, workspace_root: Path):
             rel = (current / name).relative_to(workspace_root).as_posix()
             if _is_ignored_or_generated(rel, workspace_root):
                 continue
+            # Symlink containment: a symlinked directory whose target escapes
+            # the workspace is neither descended into nor offered as a candidate.
+            if not _contained_in_workspace(current / name, workspace_root):
+                continue
             kept_dirs.append(name)
             if seen >= _WALK_MAX_ENTRIES:
                 break
@@ -302,10 +306,27 @@ def _walk_workspace(base_dir: Path, workspace_root: Path):
             rel = (current / name).relative_to(workspace_root).as_posix()
             if _is_ignored_or_generated(rel, workspace_root):
                 continue
+            # Symlink containment: a symlinked file resolving outside the
+            # workspace is not offered (it would fail the resolver's policy too).
+            if not _contained_in_workspace(current / name, workspace_root):
+                continue
             yield rel, False
             seen += 1
         if seen >= _WALK_MAX_ENTRIES:
             return
+
+
+def _contained_in_workspace(path: Path, workspace_root: Path) -> bool:
+    """True when ``path`` resolves to a location inside the workspace.
+
+    A symlink whose target escapes the workspace resolves elsewhere and is
+    excluded, matching the ReadTool / file_references symlink-containment policy.
+    """
+
+    try:
+        return _is_relative_to(path.resolve(), workspace_root)
+    except OSError:
+        return False
 
 
 def _build_at_item(relative_label: str, is_dir: bool) -> CompletionItem:
