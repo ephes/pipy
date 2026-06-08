@@ -40,12 +40,25 @@ class TestThinkingFold:
         ui.reasoning_text = "VISIBLE-THOUGHT"
         assert "VISIBLE-THOUGHT" in _frame_text(ui)
 
-    def test_settle_drops_reasoning_when_hidden(self, tmp_path: Path) -> None:
+    def test_settle_defers_reasoning_when_hidden(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
         ui.thinking_hidden = True
-        ui.reasoning_text = "DROP-ME"
+        ui.reasoning_text = "DEFER-ME"
         ui._settle_reasoning()
-        assert all("DROP-ME" not in "".join(block) for _kind, block in ui._history_blocks)
+        # Not committed to scrollback while hidden, but retained (not dropped).
+        assert all("DEFER-ME" not in "".join(block) for _kind, block in ui._history_blocks)
+        assert ui._deferred_reasoning == ["DEFER-ME"]
+
+    def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:
+        ui = _ui(tmp_path)
+        ui.set_thinking_hidden(True)
+        ui.reasoning_text = "WAS-HIDDEN"
+        ui._settle_reasoning()
+        assert "WAS-HIDDEN" not in _frame_text(ui)
+        # Toggling visibility back commits the deferred reasoning into history.
+        ui.set_thinking_hidden(False)
+        assert "WAS-HIDDEN" in _frame_text(ui)
+        assert ui._deferred_reasoning == []
 
 
 class TestToolExpansion:

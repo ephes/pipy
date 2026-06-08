@@ -248,6 +248,10 @@ class ToolLoopTerminalUi:
     # full retro-rebuild, which would rewrite the host terminal's scrollback).
     tools_expanded: bool = False
     thinking_hidden: bool = False
+    # Reasoning blocks that settled while thinking was folded (Ctrl+T). They are
+    # retained rather than dropped so toggling visibility back reveals them
+    # (committed fresh at toggle time, not retro-written into scrollback).
+    _deferred_reasoning: list[str] = field(default_factory=list)
     # Queued steering / follow-up messages (Pi parity). While a provider turn
     # streams, a normal Enter enqueues a steering message (interrupts the turn at
     # the next safe point) and Alt+Enter enqueues a follow-up (runs after the
@@ -1186,13 +1190,34 @@ class ToolLoopTerminalUi:
     def _settle_reasoning(self) -> None:
         if not self.reasoning_text:
             return
-        # When thinking blocks are folded (Ctrl+T), reasoning is dropped rather
-        # than committed to scrollback, so subsequent renders honor the fold.
-        if not self.thinking_hidden:
+        # When thinking blocks are folded (Ctrl+T), the settled reasoning is
+        # deferred (retained, not committed to scrollback) so the fold holds but
+        # the content is not lost — toggling visibility back reveals it.
+        if self.thinking_hidden:
+            self._deferred_reasoning.append(self.reasoning_text)
+        else:
             self._history_blocks.append(
                 ("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
             )
         self.reasoning_text = ""
+
+    def set_thinking_hidden(self, hidden: bool) -> None:
+        """Set the Ctrl+T thinking-fold flag, revealing deferred reasoning.
+
+        Folding hides subsequent/live reasoning and defers settled blocks;
+        unfolding commits any deferred reasoning into history so it becomes
+        visible (committed fresh now rather than retro-written into the host
+        terminal's existing scrollback, preserving the inline contract).
+        """
+
+        self.thinking_hidden = hidden
+        if not hidden and self._deferred_reasoning:
+            for text in self._deferred_reasoning:
+                self._history_blocks.append(
+                    ("reasoning", tuple(text.splitlines() or [""]))
+                )
+            self._deferred_reasoning.clear()
+            self.paint()
 
     def add_notice(self, text: str) -> None:
         self._settle_reasoning()
@@ -1356,11 +1381,16 @@ class ToolLoopTerminalUi:
             width=width,
             max_rows=max(1, height - 7),
         )
+        # The pending steering/follow-up region sits between history and the
+        # input frame, so it must be reserved in the history budget — otherwise
+        # pending lines push the input/footer out of the returned frame when
+        # history fills the viewport.
+        pending_lines = self._pending_region_lines(width)
         has_tool_panel = any(
             kind in {"tool", "tool_read", "tool_result"}
             for kind, _block_lines in self._history_blocks
         )
-        max_history_lines = max(0, height - 5 - len(menu_lines))
+        max_history_lines = max(0, height - 5 - len(menu_lines) - len(pending_lines))
         if has_tool_panel:
             max_history_lines = min(
                 max_history_lines, _TOOL_PANEL_HISTORY_VIEW_LINES
@@ -1385,7 +1415,7 @@ class ToolLoopTerminalUi:
         input_line = self._clip(self._input_view(width)[0] + " ", width)
         top_separator = self._input_frame_separator(width, label=False)
         bottom_separator = self._input_frame_separator(width, label=True)
-        pending_lines = self._pending_region_lines(width)
+        # ``pending_lines`` was computed above (reserved in the history budget).
         if menu_lines:
             frame = [
                 *history_lines,

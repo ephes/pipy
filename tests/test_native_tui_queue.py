@@ -60,6 +60,25 @@ def test_restore_to_editor_joins_with_blank_lines(tmp_path: Path) -> None:
     assert not ui.has_pending_messages()
 
 
+def test_pending_region_keeps_input_footer_in_frame(tmp_path: Path) -> None:
+    # With history filling the viewport AND queued messages pending, the input
+    # row and footer must stay within the returned frame (the pending region is
+    # reserved in the history budget, not added on top of it).
+    ui = _ui(tmp_path)
+    for n in range(60):
+        ui.submit_user_message(f"history line {n:02d}")
+    ui.enqueue_steering("steer one")
+    ui.enqueue_follow_up("follow one")
+    frame = ui.render_lines(width=88, height=24)
+    assert len(frame) == 24
+    joined = "\n".join(frame)
+    assert "Steering: steer one" in joined
+    assert "Follow-up: follow one" in joined
+    # The two footer rows are the last rendered rows (not pushed out of frame).
+    separator_rows = [i for i, line in enumerate(frame) if set(line.strip()) == {"─"}]
+    assert separator_rows and max(separator_rows) <= 23
+
+
 def test_restore_survives_next_read_line_reset(tmp_path: Path) -> None:
     # Escape-abort restores the queue, then the outer loop's next read_line
     # resets input_text unless _pending_initial_text is set — so the restored

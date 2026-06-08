@@ -2324,7 +2324,9 @@ class NativeToolReplSession:
         )
         new_hidden = not current
         if terminal_ui is not None:
-            terminal_ui.thinking_hidden = new_hidden
+            # Route through set_thinking_hidden so unfolding reveals any
+            # reasoning that settled while folded (deferred, not dropped).
+            terminal_ui.set_thinking_hidden(new_hidden)
         try:
             settings.set_value("hideThinkingBlock", new_hidden)
         except RuntimeError:
