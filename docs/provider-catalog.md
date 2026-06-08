@@ -19,9 +19,10 @@ exception and documented adapter follow-ons remain — see below).
 
 The catalog is implemented through pipy-owned Python modules and gated by
 `scripts/parity_checks/provider_catalog_conformance.py`, which now covers all of
-Verification-Plan items 1-19 — including **item 18 (product
-provider-construction paths)** at the construction/request layer with a
-capturing fake HTTP client — all passing, no network. Product turns for the
+Verification-Plan items 1-24 — including product provider-construction paths
+for Chat Completions, non-completions families, `pipy run`, and startup
+resolution — at the construction/request layer with capturing fake HTTP clients,
+all passing with no network. Product turns for the
 `openai-completions` API family (custom models.json providers, ds4, OpenRouter,
 openai-completions) construct from the catalog via `native/provider_construction.py`
 (`resolve_construction` + `build_provider`), invoked through
@@ -119,7 +120,7 @@ Tier 3 catalog construction (shipped 2026-06-03):
   construction would drop, and its OAuth/SSE auth is fully self-contained.
   `build_provider` returns `None` for it so it keeps the legacy factory.
 
-Remaining wiring (not yet shipped):
+Remaining adapter/product follow-ons:
 
 - Vertex API-key auth: pipy's vertex adapter is ADC/OAuth-bearer-token only
   (`GOOGLE_ACCESS_TOKEN`). Pi also supports a Vertex API key
@@ -136,7 +137,10 @@ Remaining wiring (not yet shipped):
   to a `/openai/v1` base with `api-version=v1`). Aligning the adapter's
   URL/api-version to Pi's `/openai/v1` form is a separate azure-adapter
   follow-on; catalog construction reuses the existing adapter contract.
-- (shipped 2026-06-03) `pipy run` (non-REPL one-shot) provider construction now
+
+Recently shipped closeout wiring:
+
+- `pipy run` (non-REPL one-shot) provider construction now
   routes through catalog construction via `_run_provider_for_selection`
   (`NativeReplProviderState.current_provider`), the same boundary as the REPL, so
   `--api-key`, `--thinking`, custom `models.json` providers, base URLs, headers
@@ -145,7 +149,7 @@ Remaining wiring (not yet shipped):
   completions adapter rather than the legacy per-provider adapter — matching the
   REPL. `openai-codex` and `fake` keep the legacy factory. Covered by conformance
   item 23.
-- (shipped 2026-06-03) Startup CLI model resolution. The argparse `choices`
+- Startup CLI model resolution. The argparse `choices`
   constraint is removed from `--native-provider`, and launch-time
   `--native-provider`/`--native-model` resolve through the catalog via
   `resolve_cli_selection`/`default_selection_for(rows=...)`
@@ -158,12 +162,11 @@ Remaining wiring (not yet shipped):
 
 Current closeout sequence (all shipped 2026-06-03):
 
-1. Wire non-completions API-family construction first. This is the selected next
-   reviewable slice because it extends the already-proven construction boundary
-   without also changing command dispatch. The gate should capture one
-   deterministic fake request per newly wired API family and assert the selected
-   model id, base URL, auth/header source, and provider-specific thinking/routing
-   shape where applicable.
+1. Wire non-completions API-family construction first. This extends the
+   already-proven construction boundary while preserving adapter-specific
+   request shapes. The gate captures deterministic fake requests per newly wired
+   API family and asserts the selected model id, base URL, auth/header source,
+   and provider-specific thinking/routing shape where applicable.
 2. Move `pipy run` one-shot provider construction onto the same
    catalog-backed provider-state/construction boundary.
 3. Route startup `--native-provider`/`--native-model` through
@@ -863,9 +866,9 @@ uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 The conformance script drives the catalog and product provider-construction
 paths with deterministic fixtures (a temp config root, a temp `models.json`, a
 fake auth store, fake HTTP transports, no network) and fails unless the covered
-capability set works. The current landed gate covers items 1-19, including the
-Chat-Completions product path in item 18. The selected closeout work extends the
-same gate with items 20-22 below. It must verify:
+capability set works. The current landed gate covers items 1-24, including the
+Chat-Completions product path, non-completions product paths, one-shot
+construction, startup resolution, and archive secret checks. It must verify:
 
 1. the built-in catalog loads with multiple rows per implemented provider and
    real capability metadata (context window, max out, reasoning, image input,
@@ -917,17 +920,26 @@ same gate with items 20-22 below. It must verify:
     `/model <ref>` goes through the shared resolver;
 19. no secret/token/`Authorization`/PKCE-verifier/authorization-URL value
     appears in any archive surface produced during the run.
-20. non-completions API-family product construction uses the selected
-    `NativeModelSpec` and resolved request config for every implemented family
-    (`anthropic-messages`, `openai-responses`, `openai-codex-responses`,
-    `google-generative-ai`, `google-vertex`, `amazon-bedrock`,
-    `azure-openai-responses`, `cloudflare-workers-ai`, `mistral`), with fake HTTP
-    captures proving model id, base URL, auth/header source, routing/compat where
-    supported, and thinking shape where supported;
-21. `pipy run` one-shot product construction uses the same catalog-backed
+20. Tier 1 non-completions product construction uses the selected
+    `NativeModelSpec` and resolved request config for the direct api-key +
+    endpoint adapter families (`anthropic-messages`, `openai-responses`, and
+    `mistral`), with fake HTTP captures proving model id, base URL,
+    auth/header source, routing/compat where supported, and thinking shape where
+    supported;
+21. Tier 2 non-completions product construction uses the selected
+    `NativeModelSpec` and resolved request config for the derived-url api-key +
+    account adapter families (`google-generative-ai`, `azure-openai-responses`,
+    and `cloudflare-workers-ai`), including fail-closed behavior for missing
+    required endpoint/account config;
+22. Tier 3 non-completions product construction uses the selected
+    `NativeModelSpec` and resolved request config for the environment/SDK-shape
+    adapter families (`amazon-bedrock` and `google-vertex`), including Bedrock
+    thinking-body behavior; `openai-codex-responses` is explicitly covered as a
+    deliberate legacy-factory exception for its settings-derived `RetryPolicy`;
+23. `pipy run` one-shot product construction uses the same catalog-backed
     boundary as REPL product turns, including custom providers and runtime auth,
     without changing stdout/stderr output conventions;
-22. startup `--native-provider`/`--native-model` resolve through the shared
+24. startup `--native-provider`/`--native-model` resolve through the shared
     matcher, accepting custom provider names and bare refs while preserving
     documented fallback/error behavior.
 

@@ -7,14 +7,14 @@ in `pi-mono/packages/coding-agent/src/core/sdk.ts`; pipy slopforks
 the useful subset — `RunRequest` in, `RunResult` out — through
 pipy-owned Python boundaries.
 
-The SDK is intentionally narrow:
+The SDK is intentionally narrow today:
 
 - `run_native(request)` runs one `pipy-native` turn through
   `PipyNativeAdapter` with the deterministic fake provider, returns
   a `RunResult`, and finalizes the session record like the CLI
   would. It is meant for tests, smoke checks, and library
-  integrations; production callers should compose
-  `HarnessRunner` + a real adapter directly.
+  integrations; production callers may inject a real `ProviderPort`
+  or compose `HarnessRunner` + a configured native adapter directly.
 - `make_native_run_request(...)` is a small factory that fills
   pipy-native defaults so callers don't have to reach into
   `RunRequest` internals.
@@ -22,10 +22,11 @@ The SDK is intentionally narrow:
   (`RunRequest`, `RunResult`, `HarnessStatus`, `CapturePolicy`,
   `HarnessRunner`, `ProviderPort`, `StreamChunkSink`).
 
-The SDK does not introduce a new runtime dependency, does not
-spawn HTTP servers, and does not perform any I/O at import time.
-Network/RPC transports remain explicitly out of scope for the
-current parity push (see `docs/parity-criterion.md`).
+The SDK is the in-process headless Python surface. It does not
+introduce a new runtime dependency, does not spawn HTTP servers, and
+does not perform any I/O at import time. Out-of-process JSON/RPC
+automation is specified separately in `docs/automation-rpc.md`; see
+`docs/sdk.md` for the embedding overview and current limits.
 """
 
 from __future__ import annotations

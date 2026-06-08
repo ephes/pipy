@@ -5,30 +5,23 @@ temp ``models.json``, a fake auth store, fake OAuth HTTP transports, no network)
 and fails unless the catalog behaves to spec: the built-in catalog, the matcher,
 ``models.json`` parsing/merge/validation, routing, thinking mapping, auth
 resolution/status, the OAuth provider shape, availability, the ds4 reframe,
-refresh/dynamic registration, secret non-leakage, AND — for the
-``openai-completions`` API family — turn-time product construction (item 18):
-a models.json custom provider runs a real fake-HTTP turn using the catalog
-baseUrl/model/auth/headers/routing/thinking, driven through the actual
-``NativeReplProviderState.current_provider``/``provider_for`` boundary.
-
-Scope note (see ``docs/provider-catalog.md`` "Remaining wiring"): turn-time
-product construction is gated here for the ``openai-completions`` family; the
-non-completions families plus startup-CLI/``pipy run`` one-shot resolution are
-documented follow-ups not yet covered by this gate.
+refresh/dynamic registration, secret non-leakage, product construction for the
+``openai-completions`` API family, catalog-constructed non-completions families,
+``pipy run`` one-shot construction, and startup provider/model resolution. The
+product-path checks are driven through the actual
+``NativeReplProviderState.current_provider``/``provider_for`` boundary and use
+capturing fake HTTP clients; no real network or AI call is made.
 
 Run:
 
     uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
-Verifies the docs/provider-catalog.md "Verification Plan" items 1-19, including
-item 18 (product provider-construction paths) at the construction/request layer
-with a capturing fake HTTP client: a models.json custom provider runs a real
-turn whose request uses the catalog baseUrl/model/auth/headers, ``--api-key``
-reaches the header, routing reaches the body (OpenRouter ``provider`` / Vercel
-``providerOptions.gateway``), thinking reaches the body (OpenAI ``reasoning_effort``
-/ OpenRouter ``reasoning.effort``), the legacy hardcoded URL is bypassed, and no
-secret leaks into the turn result. The interactive direct-``/model`` resolver and
-product-TUI surfaces are exercised by the focused pytest suites.
+Verifies the docs/provider-catalog.md "Verification Plan" items 1-24: catalog
+foundation items 1-17, Chat-Completions product construction item 18, archive
+secret checks item 19, non-completions product construction items 20-22,
+``pipy run`` one-shot construction item 23, and startup provider/model
+resolution item 24. The interactive direct-``/model`` resolver and product-TUI
+surfaces are exercised by the focused pytest suites.
 
  1. built-in catalog: multiple rows per implemented provider + real metadata;
  2. exact provider/id matching, ambiguity rejection, bare-id matching;
@@ -47,11 +40,15 @@ product-TUI surfaces are exercised by the focused pytest suites.
 15. availability gate reflects auth store + models.json keys, not just env;
 16. ds4 resolves as a models.json custom provider; env shim is equivalent;
 17. catalog refresh() picks up a models.json edit + simulated login/logout;
-18. product provider-construction: a custom models.json provider runs a real
-    fake-HTTP turn using catalog baseUrl/model/auth/headers; --api-key reaches
-    the header; routing + thinking reach the body; legacy URL bypassed; no
-    secret in the turn result;
-19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface.
+18. Chat-Completions product construction: custom models.json provider turn,
+    catalog baseUrl/model/auth/headers, runtime --api-key, routing/thinking,
+    legacy URL bypass, and no secret in the turn result;
+19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface;
+20. Tier 1 non-completions construction (anthropic/openai-responses/mistral);
+21. Tier 2 non-completions construction (google/azure/cloudflare);
+22. Tier 3 non-completions construction (bedrock/vertex) plus codex exception;
+23. pipy run one-shot construction uses the catalog-backed boundary;
+24. startup --native-provider/--native-model resolution uses the shared matcher.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 """
