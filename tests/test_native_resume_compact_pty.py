@@ -66,7 +66,7 @@ class _SeqProvider:
     def name(self) -> str:
         return "fake"
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):  # noqa: ANN001
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):  # noqa: ANN001
         self.n += 1
         now = datetime.now(UTC)
         return ProviderResult(

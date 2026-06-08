@@ -57,6 +57,7 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
@@ -1991,7 +1992,8 @@ class NativeToolReplSession:
                 reasoning_sink=renderer.reasoning_sink,
             )
 
-        abort_event = threading.Event()
+        cancel_token = CancelToken()
+        abort_event = cancel_token.event
         done_event = threading.Event()
         result_holder: list[ProviderResult] = []
         error_holder: list[BaseException] = []
@@ -2011,6 +2013,7 @@ class NativeToolReplSession:
                         provider_request,
                         stream_sink=_cancellable_sink(renderer.stream_sink),
                         reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
+                        cancel_token=cancel_token,
                     )
                 )
             except BaseException as exc:  # pragma: no cover - re-raised on main thread
@@ -2024,14 +2027,55 @@ class NativeToolReplSession:
             daemon=True,
         )
         worker.start()
-        aborted = terminal_ui.wait_for_active_turn_interrupt(done_event, abort_event)
+        # Escape returns True; the TUI's active-turn Ctrl-C sets the abort flag
+        # and raises KeyboardInterrupt. Both must cancel the live provider
+        # request at its boundary (not merely hide late output), reap the
+        # worker, render the aborted state, and return control to the prompt.
+        try:
+            aborted = terminal_ui.wait_for_active_turn_interrupt(
+                done_event, abort_event
+            )
+        except KeyboardInterrupt:
+            self._cancel_active_turn(cancel_token, worker)
+            renderer.abort_provider_turn()
+            return None
         if aborted:
+            self._cancel_active_turn(cancel_token, worker)
             renderer.abort_provider_turn()
             return None
         worker.join()
         if error_holder:
             raise error_holder[0]
         return result_holder[0]
+
+    # Bound on how long the main thread waits for a cancelled provider worker to
+    # unwind after its connection is closed. The worker is a daemon thread, so
+    # if the join times out the process can still exit and—because the turn
+    # returns ``None``—the worker can no longer mutate provider/tool/context
+    # state regardless.
+    _CANCEL_JOIN_TIMEOUT_SECONDS: ClassVar[float] = 2.0
+
+    def _cancel_active_turn(
+        self, cancel_token: CancelToken, worker: threading.Thread
+    ) -> None:
+        """Cancel the in-flight provider request and best-effort join its worker.
+
+        ``cancel`` sets the abort flag and shuts down the worker's registered
+        HTTP connection so a blocking read raises ``ProviderCancelledError``
+        instead of running to completion. Every shipped adapter observes the
+        token, so the bounded join below normally reclaims the worker promptly.
+
+        Cancellation is cooperative: a provider that ignores ``cancel_token``
+        could leave the join to time out with the daemon worker still running.
+        That worker still cannot corrupt the session — the turn returns ``None``
+        (so no assistant/tool message or context mutation is appended) and late
+        stream/reasoning chunks are suppressed by the cancellable sink — it can
+        only finish its own request in the background and have its output
+        discarded.
+        """
+
+        cancel_token.cancel()
+        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
 
     def _footer_text(
         self,

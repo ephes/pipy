@@ -438,13 +438,15 @@ class _FailedAuthProvider:
     def name(self) -> str:
         return self.provider_name
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from pipy_harness.native._provider_helpers import (
             failed_provider_result,
             utc_now,
         )
 
-        del stream_sink, reasoning_sink
+        del stream_sink, reasoning_sink, cancel_token
         return failed_provider_result(
             request,
             provider_name=self.provider_name,

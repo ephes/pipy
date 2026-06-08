@@ -14,7 +14,7 @@ import io
 import json
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +22,7 @@ from typing import Any, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplResult,
@@ -170,72 +171,87 @@ def test_session_rejects_non_int_tool_budget():
         NativeToolReplSession(provider=provider, tool_budget=True)
 
 
-def test_provider_turn_escape_abort_returns_to_prompt_without_late_streams(
-    tmp_path: Path,
-):
-    started = threading.Event()
-    release = threading.Event()
-    finished = threading.Event()
+@dataclass(slots=True)
+class _CancelObservingProvider:
+    """Provider whose turn blocks until cancelled at the provider boundary.
 
-    @dataclass(frozen=True, slots=True)
-    class BlockingProvider:
-        supports_tool_calls: bool = True
-        name: str = "blocking"
-        model_id: str = "blocking-model"
+    Models a slow/streaming turn: it waits on the cancel token, and only when
+    the tool loop cancels does it observe the cancellation and abort. This
+    proves cancellation reaches the provider rather than the loop merely
+    hiding late output while the provider runs to completion.
+    """
 
-        def complete(
-            self,
-            request: ProviderRequest,
-            *,
-            stream_sink: StreamChunkSink | None = None,
-            reasoning_sink: StreamChunkSink | None = None,
-        ) -> ProviderResult:
-            del request, reasoning_sink
-            started.set()
-            release.wait(timeout=1)
-            if stream_sink is not None:
-                stream_sink("late text that should be ignored")
+    supports_tool_calls: bool = True
+    name: str = "blocking"
+    model_id: str = "blocking-model"
+    started: threading.Event = field(default_factory=threading.Event)
+    finished: threading.Event = field(default_factory=threading.Event)
+    observed: list[str] = field(default_factory=list)
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del request, reasoning_sink
+        self.started.set()
+        try:
+            if cancel_token is not None and cancel_token.event.wait(timeout=2):
+                self.observed.append("cancelled")
+                # A late chunk after cancellation must be suppressed by the
+                # loop's cancellable sink; the provider then aborts instead of
+                # returning a misleading successful result.
+                if stream_sink is not None:
+                    stream_sink("late text that should be ignored")
+                raise ProviderCancelledError("native provider turn cancelled")
             now = datetime.now(UTC)
-            result = ProviderResult(
+            return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
                 provider_name=self.name,
                 model_id=self.model_id,
                 started_at=now,
                 ended_at=now,
-                final_text="late final text",
+                final_text="final text",
                 usage={},
             )
-            finished.set()
-            return result
+        finally:
+            self.finished.set()
+
+
+class _RecordingAbortRenderer:
+    def __init__(self) -> None:
+        self.chunks: list[str] = []
+        self.aborted = False
+
+    @property
+    def stream_sink(self) -> StreamChunkSink:
+        return self.chunks.append
+
+    @property
+    def reasoning_sink(self) -> StreamChunkSink:
+        return lambda _chunk: None
+
+    def abort_provider_turn(self) -> None:
+        self.aborted = True
+
+
+def test_provider_turn_escape_abort_cancels_provider_at_boundary(
+    tmp_path: Path,
+):
+    provider = _CancelObservingProvider()
 
     class InterruptingUi:
         def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
-            assert started.wait(timeout=1)
+            assert provider.started.wait(timeout=2)
             assert not done_event.is_set()
             abort_event.set()
-            release.set()
             return True
 
-    class RecordingRenderer:
-        def __init__(self) -> None:
-            self.chunks: list[str] = []
-            self.aborted = False
-
-        @property
-        def stream_sink(self) -> StreamChunkSink:
-            return self.chunks.append
-
-        @property
-        def reasoning_sink(self) -> StreamChunkSink:
-            return lambda _chunk: None
-
-        def abort_provider_turn(self) -> None:
-            self.aborted = True
-
-    session = NativeToolReplSession(
-        provider=BlockingProvider(), workspace_root=tmp_path
-    )
-    renderer = RecordingRenderer()
+    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
+    renderer = _RecordingAbortRenderer()
 
     result = session._complete_provider_turn(
         ProviderRequest(
@@ -251,9 +267,130 @@ def test_provider_turn_escape_abort_returns_to_prompt_without_late_streams(
 
     assert result is None
     assert renderer.aborted is True
-    release.set()
-    assert started.wait(timeout=1)
-    assert finished.wait(timeout=1)
+    # The provider OBSERVED cancellation (true cancellation, not a UI-only flag).
+    assert provider.observed == ["cancelled"]
+    # The worker was reaped, and its late chunk was suppressed.
+    assert provider.finished.wait(timeout=2)
+    assert renderer.chunks == []
+
+
+def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
+    provider = _CancelObservingProvider()
+
+    class CtrlCUi:
+        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+            assert provider.started.wait(timeout=2)
+            assert not done_event.is_set()
+            # Mirror the TUI's active-turn Ctrl-C: set the abort flag and raise.
+            abort_event.set()
+            raise KeyboardInterrupt
+
+    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
+    renderer = _RecordingAbortRenderer()
+
+    # Ctrl-C during an active turn must NOT propagate out of the turn; it aborts
+    # and returns control to the prompt, exactly like Escape.
+    result = session._complete_provider_turn(
+        ProviderRequest(
+            system_prompt="",
+            user_prompt="hello",
+            provider_name="blocking",
+            model_id="blocking-model",
+            cwd=tmp_path,
+        ),
+        renderer=cast(Any, renderer),
+        terminal_ui=cast(Any, CtrlCUi()),
+    )
+
+    assert result is None
+    assert renderer.aborted is True
+    assert provider.observed == ["cancelled"]
+    assert provider.finished.wait(timeout=2)
+    assert renderer.chunks == []
+
+
+def test_non_cooperative_provider_abort_is_still_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A provider that ignores the cancel token still aborts safely.
+
+    Cancellation is cooperative, so the bounded join can return with the worker
+    still alive. The turn must still return ``None`` and render the aborted
+    state (no late chunks, no result), so the session cannot be corrupted even
+    though the abandoned worker keeps running in the background.
+    """
+
+    release = threading.Event()
+
+    @dataclass(slots=True)
+    class _IgnoresCancelProvider:
+        supports_tool_calls: bool = True
+        name: str = "stubborn"
+        model_id: str = "stubborn-model"
+        started: threading.Event = field(default_factory=threading.Event)
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+            cancel_token: CancelToken | None = None,
+        ) -> ProviderResult:
+            del request, reasoning_sink, cancel_token
+            self.started.set()
+            # Block on an unrelated event — never observes cancellation.
+            release.wait(timeout=5)
+            if stream_sink is not None:
+                stream_sink("late text that must be suppressed")
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="late final text",
+                usage={},
+            )
+
+    provider = _IgnoresCancelProvider()
+
+    class InterruptingUi:
+        def wait_for_active_turn_interrupt(self, done_event, abort_event) -> bool:
+            assert provider.started.wait(timeout=2)
+            abort_event.set()
+            return True
+
+    # Keep the bounded join short so the test does not wait the full 2s.
+    monkeypatch.setattr(
+        NativeToolReplSession, "_CANCEL_JOIN_TIMEOUT_SECONDS", 0.2
+    )
+    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
+    renderer = _RecordingAbortRenderer()
+
+    try:
+        result = session._complete_provider_turn(
+            ProviderRequest(
+                system_prompt="",
+                user_prompt="hello",
+                provider_name="stubborn",
+                model_id="stubborn-model",
+                cwd=tmp_path,
+            ),
+            renderer=cast(Any, renderer),
+            terminal_ui=cast(Any, InterruptingUi()),
+        )
+
+        # The turn aborted and returned None even though the worker is alive.
+        assert result is None
+        assert renderer.aborted is True
+        # No late chunk has been rendered (the cancellable sink drops them).
+        assert renderer.chunks == []
+    finally:
+        # Let the abandoned worker finish; its late chunk is still suppressed.
+        release.set()
+
     assert renderer.chunks == []
 
 

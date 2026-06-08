@@ -19,6 +19,7 @@ import os
 import pty
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TextIO, cast
@@ -76,6 +77,17 @@ def _wait_for(collected: list[bytes], needle: str, *, timeout: float = 8.0) -> b
     encoded = needle.encode("utf-8")
     while time.monotonic() < deadline:
         if encoded in b"".join(collected):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def _wait_for_predicate(
+    predicate: Callable[[], bool], *, timeout: float = 8.0
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
             return True
         time.sleep(0.02)
     return False
@@ -225,7 +237,7 @@ class _RecordingProvider:
     def name(self) -> str:
         return self._provider_name
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -452,7 +464,7 @@ class _PromptRecordingProvider:
         self._prompts = prompts
         self._turn = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -1497,7 +1509,7 @@ class _TreeMarkProvider:
         self.requests: list[tuple[str, ...]] = []
         self._n = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None):
+    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -1680,3 +1692,111 @@ def test_pty_tree_selector_escape_label_and_filter(
     assert any(
         isinstance(e, LabelEntry) and e.label for e in reopened.get_entries()
     ), "Shift-L did not persist a label"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("key", "label"),
+    [(b"\x1b", "escape"), (b"\x03", "ctrl-c")],
+)
+def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    key: bytes,
+    label: str,
+):
+    """Escape and Ctrl-C during an active provider turn truly cancel it.
+
+    Drives the real product TUI over a PTY: while a slow provider turn is
+    in-flight (blocked at the provider boundary on the cancel token), the key
+    sequence must cancel the request, render the red ``Operation aborted``
+    state, and leave the next prompt usable for a follow-up turn that the
+    provider answers normally. The provider observing cancellation (rather than
+    the loop merely hiding late output) is asserted directly on the fake.
+    """
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    # The first turn blocks until cancelled at the provider boundary; the
+    # second turn (the follow-up prompt) completes normally and proves the
+    # prompt is usable again after the abort.
+    provider = FakeNativeProvider(
+        supports_tool_calls=True,
+        programmable_tool_calls=((),),
+        cancellable_turns=1,
+        final_text="SECOND_TURN_ANSWER_DONE",
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result_holder: list[object] = []
+
+    def _run() -> None:
+        result_holder.append(
+            session.run(
+                workspace_root=tmp_path,
+                input_stream=cast(TextIO, stdin),
+                output_stream=cast(TextIO, terminal),
+                error_stream=cast(TextIO, terminal),
+            )
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"start a slow turn\n")
+        # The spinner only paints once the provider turn is actually in-flight.
+        assert _wait_for(err_chunks, "Working"), f"{label}: turn never went active"
+        # Send the interrupt key while the turn is blocked at the boundary.
+        os.write(in_master, key)
+        assert _wait_for(err_chunks, "Operation aborted"), (
+            f"{label}: aborted state never rendered"
+        )
+        # The provider observed cancellation at its boundary, not a UI-only flag.
+        assert _wait_for_predicate(
+            lambda: provider.cancel_observed
+        ), f"{label}: provider never observed cancellation"
+        # The prompt is usable again: a follow-up turn completes normally.
+        os.write(in_master, b"now answer me\n")
+        assert _wait_for(err_chunks, "SECOND_TURN_ANSWER_DONE"), (
+            f"{label}: follow-up prompt was not usable"
+        )
+        os.write(in_master, b"\x04")  # ctrl-d ends the loop on an empty prompt
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), f"{label}: session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    assert "Operation aborted" in captured
+    assert "SECOND_TURN_ANSWER_DONE" in captured
+    # Inline model only: the abort path never enters the alternate screen.
+    assert "\x1b[?1049h" not in captured

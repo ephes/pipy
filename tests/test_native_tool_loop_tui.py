@@ -860,6 +860,7 @@ class _CountingProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: object = None,
     ) -> ProviderResult:  # pragma: no cover
         self.completions += 1
         raise AssertionError("read-only /settings must not create a provider turn")
@@ -903,6 +904,7 @@ class _RecordingProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: object = None,
     ) -> ProviderResult:
         del stream_sink, reasoning_sink
         self._seen.append((request.provider_name, request.model_id))
@@ -1540,6 +1542,7 @@ class _AnswerProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: object = None,
     ) -> ProviderResult:
         del reasoning_sink
         self.completions += 1
@@ -2142,3 +2145,107 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     assert _codex_option(provider_state).available is False
     notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
     assert any("removed" in " ".join(lines).lower() for lines in notices)
+
+
+def test_aborted_turn_appends_no_assistant_observation_to_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """An aborted turn must not leave a misleading assistant/tool observation.
+
+    The first turn is cancelled mid-flight; the second turn records the
+    provider-visible message history it receives. That history must contain the
+    two user messages but no AssistantMessage from the aborted turn, so the
+    session never reflects a successful response that did not happen.
+    """
+
+    from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+
+    seen_message_types: list[list[str]] = []
+
+    class _AbortThenAnswerProvider:
+        name = "fake"
+        model_id = "fake-native-bootstrap"
+        supports_tool_calls = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+            cancel_token: CancelToken | None = None,
+        ) -> ProviderResult:
+            del stream_sink, reasoning_sink
+            self.calls += 1
+            if self.calls == 1:
+                # Block until the tool loop cancels this turn at the boundary.
+                assert cancel_token is not None
+                assert cancel_token.event.wait(timeout=5)
+                raise ProviderCancelledError("native provider turn cancelled")
+            seen_message_types.append(
+                [type(message).__name__ for message in request.messages]
+            )
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="answer after abort",
+                tool_calls=(),
+            )
+
+    provider = _AbortThenAnswerProvider()
+    provider_state = _read_only_provider_state(tmp_path, cast(ProviderPort, provider))
+    ui = _ui(tmp_path)
+    scripted = iter(["first prompt\n", "second prompt\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    # Abort only the first active turn; later turns run to completion.
+    interrupt_calls = {"n": 0}
+
+    def _fake_interrupt(self, done_event, abort_event, **kwargs):
+        interrupt_calls["n"] += 1
+        if interrupt_calls["n"] == 1:
+            abort_event.set()
+            return True
+        done_event.wait(5)
+        return False
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "wait_for_active_turn_interrupt", _fake_interrupt
+    )
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.calls == 2
+    # The second turn saw both user messages but NO assistant message from the
+    # aborted first turn — the abort recorded no successful observation.
+    assert seen_message_types == [["UserMessage", "UserMessage"]]
+    assert "AssistantMessage" not in seen_message_types[0]
+    # The aborted state was rendered to the user.
+    errors = [lines for kind, lines in ui._history_blocks if kind == "error"]
+    assert any("Operation aborted" in " ".join(lines) for lines in errors)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.client
 import json
 import os
 import secrets
@@ -21,7 +22,8 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object, open_url_cancellable
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
@@ -97,8 +99,15 @@ class SseHTTPClient(Protocol):
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> SseResponse:
-        """POST JSON and return the SSE response body."""
+        """POST JSON and return the SSE response body.
+
+        When ``cancel_token`` is supplied the in-flight streaming response is
+        registered on it, so an active-turn Escape / Ctrl-C closes the
+        connection and surfaces :class:`ProviderCancelledError` instead of
+        draining the stream to completion.
+        """
 
 
 class OAuthHTTPClient(Protocol):
@@ -146,7 +155,10 @@ class UrllibSseHTTPClient:
         headers: Mapping[str, str],
         body: Mapping[str, Any],
         timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
     ) -> SseResponse:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             url,
@@ -155,8 +167,14 @@ class UrllibSseHTTPClient:
             method="POST",
         )
         try:
-            response = urllib.request.urlopen(  # noqa: S310 - URL is fixed at provider construction
-                request, timeout=timeout_seconds
+            # open_url_cancellable registers the underlying connection on the
+            # token, so an active-turn cancel closes the socket during the
+            # header wait or while the stream is read; the streaming loop below
+            # converts the resulting read failure into ProviderCancelledError.
+            response = open_url_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
             )
         except urllib.error.HTTPError as exc:
             raise OpenAICodexHTTPStatusError.from_http_error(exc) from exc
@@ -174,12 +192,21 @@ class UrllibSseHTTPClient:
         def _events() -> Iterator[Mapping[str, Any]]:
             try:
                 for event in _iter_sse_stream(response, collected_body):
+                    if cancel_token is not None:
+                        cancel_token.raise_if_cancelled()
                     yield event
+            except (OSError, ValueError, http.client.HTTPException) as exc:
+                if cancel_token is not None and cancel_token.cancelled:
+                    raise ProviderCancelledError(
+                        "native provider turn cancelled"
+                    ) from exc
+                raise
             finally:
-                try:
-                    response.close()
-                except Exception:  # noqa: BLE001 - best-effort cleanup
-                    pass
+                # The connection (registered by open_url_cancellable) is closed
+                # here; the per-turn token is discarded after the turn, so the
+                # closed connection it still references is a harmless no-op for
+                # any later cancel().
+                _safe_close(response)
 
         return SseResponse(
             status_code=status_code,
@@ -480,7 +507,10 @@ class OpenAICodexResponsesProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = utc_now()
         if not self.model_id or not self.model_id.strip():
             return failed_provider_result(
@@ -547,6 +577,7 @@ class OpenAICodexResponsesProvider:
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
             )
             if resp.status_code < 200 or resp.status_code >= 300:
                 raise OpenAICodexHTTPStatusError(
@@ -562,6 +593,7 @@ class OpenAICodexResponsesProvider:
                 stream_sink=stream_sink,
                 reasoning_sink=reasoning_sink,
                 event_stream=response.event_stream,
+                cancel_token=cancel_token,
             )
         except OpenAICodexProviderError as exc:
             return failed_provider_result(
@@ -852,6 +884,7 @@ def _parse_sse_response(
     stream_sink: StreamChunkSink | None = None,
     reasoning_sink: StreamChunkSink | None = None,
     event_stream: Iterator[Mapping[str, Any]] | None = None,
+    cancel_token: CancelToken | None = None,
 ) -> ParsedOpenAICodexResponse:
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
@@ -863,6 +896,8 @@ def _parse_sse_response(
         event_stream if event_stream is not None else iter(_iter_sse_events(body))
     )
     for event in events:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         event_type = event.get("type")
         if event_type == "response.reasoning_summary_text.delta":
             delta = event.get("delta")
@@ -984,6 +1019,12 @@ def _parse_sse_response(
             continue
         if event_type in {"response.completed", "response.done", "response.incomplete"}:
             terminal_response = _event_response(event)
+
+    # A cancel that shuts the socket down makes the stream end at EOF (a clean
+    # iterator stop, not an exception), so re-check after the loop: a cancelled
+    # turn must raise rather than return a partial "successful" result.
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
 
     if terminal_response is None:
         raise OpenAICodexResponseParseError(

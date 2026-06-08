@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import (
     NativeToolRequest,
     NativeToolResult,
@@ -47,11 +48,27 @@ class FakeNativeProvider:
     programmable_tool_calls: tuple[tuple[ProviderToolCall, ...], ...] = ()
     programmable_text_chunks: tuple[str, ...] = ()
     programmable_reasoning_chunks: tuple[str, ...] = ()
+    # The first ``cancellable_turns`` provider calls block on the active-turn
+    # cancel token instead of returning immediately, so tests and PTY runs can
+    # exercise a genuinely in-flight turn that observes Escape / Ctrl-C
+    # cancellation at the provider boundary (rather than only filtering output
+    # after the fact). Later calls complete normally, so a follow-up prompt
+    # after an aborted turn still produces an answer.
+    cancellable_turns: int = 0
+    block_timeout_seconds: float = 30.0
     _call_counter: list[int] = field(default_factory=lambda: [0])
+    _entered_counter: list[int] = field(default_factory=lambda: [0])
+    _cancel_observed: list[bool] = field(default_factory=lambda: [False])
 
     @property
     def name(self) -> str:
         return "fake"
+
+    @property
+    def cancel_observed(self) -> bool:
+        """Whether a ``complete`` call observed cancellation at the boundary."""
+
+        return self._cancel_observed[0]
 
     def complete(
         self,
@@ -59,8 +76,14 @@ class FakeNativeProvider:
         *,
         stream_sink: StreamChunkSink | None = None,
         reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         started_at = datetime.now(UTC)
+        self._entered_counter[0] += 1
+        if self._entered_counter[0] <= self.cancellable_turns:
+            self._await_cancellation(cancel_token)
         if (
             reasoning_sink is not None
             and self.programmable_reasoning_chunks
@@ -111,6 +134,23 @@ class FakeNativeProvider:
             metadata=metadata or None,
             tool_calls=tool_calls,
         )
+
+    def _await_cancellation(self, cancel_token: CancelToken | None) -> None:
+        """Block until the active-turn cancel token fires, then abort.
+
+        Models a slow provider turn that is interrupted at the boundary: when
+        the tool loop cancels the turn the fake observes it and raises
+        :class:`ProviderCancelledError` instead of producing output, proving
+        cancellation reaches the provider rather than merely hiding late text.
+        Without a token (e.g. captured-stream mode) there is nothing to wait
+        on, so the call falls through to a normal completion.
+        """
+
+        if cancel_token is None:
+            return
+        if cancel_token.event.wait(timeout=self.block_timeout_seconds):
+            self._cancel_observed[0] = True
+            raise ProviderCancelledError("fake provider turn cancelled")
 
 
 @dataclass(frozen=True, slots=True)

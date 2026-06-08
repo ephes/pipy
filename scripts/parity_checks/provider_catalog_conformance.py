@@ -602,7 +602,7 @@ class _CapturingHTTP:
     def __init__(self):
         self.requests = []
 
-    def post_json(self, url, *, headers, body, timeout_seconds):
+    def post_json(self, url, *, headers, body, timeout_seconds, cancel_token=None):
         self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
         return JsonResponse(
             status_code=200,
