@@ -165,6 +165,13 @@ class TestKeyDecoding:
     def test_shift_ctrl_p_modify_other_keys_form(self, tmp_path: Path) -> None:
         assert self._decode(tmp_path, b"[27;6;112~") == "shift-ctrl-p"
 
+    def test_shift_ctrl_p_uppercase_kitty_form(self, tmp_path: Path) -> None:
+        # Shifted uppercase P codepoint (80) under the kitty protocol.
+        assert self._decode(tmp_path, b"[80;6u") == "shift-ctrl-p"
+
+    def test_shift_ctrl_p_uppercase_modify_other_keys_form(self, tmp_path: Path) -> None:
+        assert self._decode(tmp_path, b"[27;6;80~") == "shift-ctrl-p"
+
     def test_shift_tab(self, tmp_path: Path) -> None:
         assert self._decode(tmp_path, b"[Z") == "shift-tab"
 

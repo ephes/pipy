@@ -2273,13 +2273,15 @@ class ToolLoopTerminalUi:
             return "alt-up"
         # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P arrives as
         # CSI u with a ctrl+shift modifier (6) under the kitty keyboard protocol
-        # (``112;6u``) or as a modifyOtherKeys CSI ``~`` sequence under xterm
-        # (``27;6;112~``). Legacy terminals with neither protocol cannot
-        # distinguish it from Ctrl+P and fall through to forward cycling; reverse
-        # cycling stays available via ``/scoped-models prev`` (documented limit).
+        # or as a modifyOtherKeys CSI ``~`` sequence under xterm. Terminals
+        # differ on whether the codepoint is the base lowercase ``p`` (112) or
+        # the shifted uppercase ``P`` (80), so accept all four forms. Legacy
+        # terminals with neither protocol cannot distinguish it from Ctrl+P and
+        # fall through to forward cycling; reverse cycling stays available via
+        # ``/scoped-models prev`` (documented limit).
         if sequence == "Z":
             return "shift-tab"
-        if sequence in {"112;6u", "27;6;112~"}:
+        if sequence in {"112;6u", "27;6;112~", "80;6u", "27;6;80~"}:
             return "shift-ctrl-p"
         return {
             "A": "up",
@@ -2724,7 +2726,14 @@ class ToolLoopTerminalUi:
 
     def restore_pending_to_editor(self) -> None:
         """Restore queued messages into the editor joined by blank lines (Alt+Up
-        / Escape-abort), then clear the lanes."""
+        / Escape-abort), then clear the lanes.
+
+        Routed through ``_pending_initial_text`` as well as ``input_text``: an
+        Escape-abort returns control to the outer loop, whose next ``read_line``
+        resets ``input_text`` unless ``_pending_initial_text`` is set — so
+        without this the restored messages would be wiped before the user saw
+        them.
+        """
 
         queued = [*self._pending_steering, *self._pending_follow_up]
         self._pending_steering.clear()
@@ -2732,9 +2741,16 @@ class ToolLoopTerminalUi:
         if not queued:
             return
         joined = "\n\n".join(queued)
-        existing = self.input_text
-        self.input_text = f"{joined}\n\n{existing}" if existing else joined
-        self.input_cursor = len(self.input_text)
+        existing = (
+            self._pending_initial_text
+            if self._pending_initial_text is not None
+            else self.input_text
+        )
+        combined = f"{joined}\n\n{existing}" if existing else joined
+        # Reflect immediately and survive the next read_line reset.
+        self._pending_initial_text = combined
+        self.input_text = combined
+        self.input_cursor = len(combined)
         self._refresh_slash_menu_state()
 
     def take_next_drain(self) -> str | None:

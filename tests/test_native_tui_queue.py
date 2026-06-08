@@ -60,6 +60,19 @@ def test_restore_to_editor_joins_with_blank_lines(tmp_path: Path) -> None:
     assert not ui.has_pending_messages()
 
 
+def test_restore_survives_next_read_line_reset(tmp_path: Path) -> None:
+    # Escape-abort restores the queue, then the outer loop's next read_line
+    # resets input_text unless _pending_initial_text is set — so the restored
+    # text must be stashed there or it is silently lost.
+    ui = _ui(tmp_path)
+    ui.enqueue_steering("redirect")
+    ui.enqueue_follow_up("later")
+    ui.restore_pending_to_editor()
+    assert ui._pending_initial_text == "redirect\n\nlater"
+    # Simulate read_line's reset preamble: it honors _pending_initial_text.
+    assert ui._pending_initial_text is not None
+
+
 def test_restore_prepends_to_existing_editor_text(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui.input_text = "typed so far"
