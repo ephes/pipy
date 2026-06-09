@@ -77,7 +77,7 @@ Pi's built-in slash commands (source:
 | `/logout` | Remove provider authentication | ✅ (openai-codex) | [provider-catalog.md](provider-catalog.md) |
 | `/new` | Start a new session | 🟡 pipy has `/clear` (different shape) | [session-tree.md](session-tree.md) |
 | `/compact` | Manually compact session context | ✅ (durable replay pending) | [session-tree.md](session-tree.md) |
-| `/resume` | Resume a different session | 🟡 metadata-only today | [session-tree.md](session-tree.md) |
+| `/resume` | Resume a different session | ✅ interactive picker overlay (search/scope/sort/named/rename/delete) + non-TTY subcommands | [session-tree.md](session-tree.md) |
 | `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
 
@@ -103,21 +103,25 @@ Reference note: this matrix is validated against `pi --help` on the installed
 `--exclude-tools/-xt`) exist in the 0.78.0 binary but not yet in that source
 checkout's `packages/coding-agent/src/cli/args.ts`; they are real Pi flags and
 stay parity targets. Everything else is present in both. Source for the rest:
-`packages/coding-agent/src/cli/args.ts`.
+`packages/coding-agent/src/cli/args.ts`. **Update (2026-06-09):** the full
+session-startup flag set below now ships (`--session-id`/`--session-dir`/
+`--name`/`-n` included), with the Pi mutual-exclusion errors and the
+cross-project `--session` fork prompt; the old metadata-only `--resume RECORD`/
+`--branch LABEL` repl flags are retired.
 
 | Pi flag / mode | Pipy status | Target spec |
 | --- | --- | --- |
 | `--mode text\|json\|rpc` | ✅ `pipy repl --mode json` (full Pi-shaped event stream) and `--mode rpc` (long-lived stdin/stdout JSONL protocol) ship; `--mode text` is the interactive/one-shot default | [automation-rpc.md](automation-rpc.md) |
 | `--print, -p` (one-shot) | ✅ `pipy repl --print`/`-p "<prompt>"` prints the final assistant text; `pipy run` remains the metadata-recording one-shot path | [automation-rpc.md](automation-rpc.md) |
 | `@files...` and positional `[messages...]` | 🟡 pipy has `@path`/`@image:` refs and a positional one-shot prompt for `--mode json`/`--print`; multiple positional messages still pending | [automation-rpc.md](automation-rpc.md), [tui-workflow.md](tui-workflow.md) |
-| `--continue, -c` | ❌ missing | [session-tree.md](session-tree.md) |
-| `--resume, -r` (picker) | 🟡 metadata-only | [session-tree.md](session-tree.md) |
-| `--session <path\|id>` | ❌ missing | [session-tree.md](session-tree.md) |
-| `--session-id <id>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
-| `--fork <path\|id>` | ❌ (pipy `--branch` is metadata-only, different) | [session-tree.md](session-tree.md) |
-| `--session-dir <dir>` | ❌ missing | [session-tree.md](session-tree.md) |
-| `--no-session` | ❌ missing | [session-tree.md](session-tree.md) |
-| `--name, -n <name>` (0.78.0; not in source checkout) | ❌ missing | [session-tree.md](session-tree.md) |
+| `--continue, -c` | ✅ continues the most recent native session | [session-tree.md](session-tree.md) |
+| `--resume, -r` (picker) | ✅ `-r`/`--resume-session` opens the interactive startup picker on a TTY; continues most-recent on a non-TTY | [session-tree.md](session-tree.md) |
+| `--session <path\|id>` | ✅ opens a native file/partial id; cross-project match prompts to fork | [session-tree.md](session-tree.md) |
+| `--session-id <id>` (0.78.0; not in source checkout) | ✅ open-exact-or-create | [session-tree.md](session-tree.md) |
+| `--fork <path\|id>` | ✅ forks a native file/partial id (the old metadata-only `--branch` is retired) | [session-tree.md](session-tree.md) |
+| `--session-dir <dir>` | ✅ native store root override (never reuses `$PIPY_SESSION_DIR`) | [session-tree.md](session-tree.md) |
+| `--no-session` | ✅ ephemeral — no native tree + no `pipy-session` record | [session-tree.md](session-tree.md) |
+| `--name, -n <name>` (0.78.0; not in source checkout) | ✅ names the native session at startup | [session-tree.md](session-tree.md) |
 | `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | ✅ pipy-native provider/model equivalents route through the shared catalog resolver; `--api-key` reaches catalog-backed REPL, one-shot, and implemented non-completions product calls | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
@@ -136,14 +140,18 @@ stay parity targets. Everything else is present in both. Source for the rest:
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | ❌ missing | [extension-api.md](extension-api.md) |
 
 **Pipy-only flags (not in Pi → remove or realign — see §3):**
-`--repl-mode no-tool`, `--native-output json` (metadata-only), `--branch`,
+`--repl-mode no-tool`, `--native-output json` (metadata-only),
 `--archive-transcript`, `--input-runtime`, `--read-root(s)`, `--tool-budget`.
+(The pipy-only metadata `--resume RECORD` / `--branch LABEL` repl flags were
+retired on 2026-06-09 in favor of the native session tree.)
 
-> **Update:** with the session-tree workflow shipped, the startup session flags
-> `-c`/`--continue`, `-r`/`--resume`, `--session`, `--fork`, and `--no-session`
-> are now delivered against the native session tree (conformance gate passing);
-> the `❌`/`🟡` markers above predate that landing. pipy's `--branch` should be
-> retired in favor of Pi's `--fork`/`/fork` (§3).
+> **Update:** the full startup session flag set now ships against the native
+> session tree — `-c`/`--continue`, `-r`/`--resume-session` (interactive
+> picker), `--session`, `--session-id`, `--session-dir`, `-n`/`--name`,
+> `--fork`, and `--no-session`, with the Pi mutual-exclusion errors and the
+> cross-project `--session` fork prompt (conformance gate + Pi comparison
+> passing). pipy's old metadata-only `--resume RECORD` / `--branch LABEL` repl
+> flags are retired in favor of the native tree and Pi's `--fork`/`/fork` (§3).
 
 ## 3. Accidental pipy-specific surfaces (remove or realign)
 
@@ -182,7 +190,7 @@ the product state, not the spec state.
 | Topic | Spec | Product status | Conformance gate |
 | --- | --- | --- | --- |
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
-| Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume`, durable compaction, startup session flags) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` pass the conformance gate (full-transcript store, branch/fork/clone, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` (passing) |
+| Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume` interactive picker, durable compaction, full startup session flag set incl. `--session-id`/`--session-dir`/`--name`, mutual exclusion, cross-project fork prompt) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` + `tui.run_session_picker` pass the conformance gate and the Pi comparison (full-transcript store, branch/fork/clone, interactive picker rows/actions, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` + `scripts/parity_checks/session_tree_pi_comparison.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 draft spec, bounded Markdown-resource subset only | golden conformance extension (in spec) |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction closeout shipped for implemented catalog-constructed provider families, one-shot, and startup resolution; remaining work is live Anthropic/Copilot login UX, the deliberate `openai-codex-responses` legacy-factory exception, narrow adapter parity follow-ons, and extension-registered providers | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-24, including product construction for Chat Completions, non-completions families, one-shot, and startup resolution) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |

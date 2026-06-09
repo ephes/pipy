@@ -11,28 +11,48 @@ Implementation map:
 
 - Native tree core: `src/pipy_harness/native/session_tree.py`
   (`NativeSessionTree`, entry value objects, JSONL parse/write, `get_branch`,
-  `get_tree`, `build_context`, `fork_from`, `continue_recent`).
+  `get_tree`, `build_context`, `fork_from`, `continue_recent`,
+  `native_sessions_root`/`list_session_dirs` for the cross-project store).
 - Command helpers: `src/pipy_harness/native/session_tree_commands.py`
-  (selection semantics, filters, rendering, `resolve_startup_session`).
+  (selection semantics, filters, rendering, `resolve_startup_session`,
+  `resolve_session_ref` (local-first then global cross-project lookup),
+  `list_all_native_sessions`, and the pure picker helpers
+  `build_session_picker_rows`/`format_session_picker_label`/`sanitize_label_text`).
 - Runtime wiring + `/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`,
   `/clone`, durable `/compact`, branch summaries:
   `src/pipy_harness/native/tool_loop_session.py`.
-- Live-TTY `/tree` selector: `ToolLoopTerminalUi.run_tree_selector` in
+- Live-TTY `/tree` selector and the interactive session picker overlay
+  (`ToolLoopTerminalUi.run_tree_selector`, `run_session_picker`, and the
+  standalone `run_startup_session_picker`) in
   `src/pipy_harness/native/tui.py`.
-- CLI startup flags (`-c`/`-r`/`--session`/`--fork`/`--no-session`):
-  `src/pipy_harness/cli.py` (`_resolve_native_startup_session`), with
-  `--no-session` selecting `NullSessionRecorder` to suppress the metadata
-  archive record too.
+- CLI startup flags (`-c`/`-r`/`--session`/`--session-id`/`--session-dir`/
+  `-n`/`--name`/`--fork`/`--no-session`): `src/pipy_harness/cli.py`
+  (`_resolve_native_startup_session`, `_validate_native_session_flags`,
+  `_run_startup_resume_picker`), with `--no-session` selecting
+  `NullSessionRecorder` to suppress the metadata archive record too.
 
-Deferred follow-ons (the rest of this spec is the behavioral *target*, and
-parts of the `/resume` surface below are not yet shipped):
+Shipped follow-ons (previously deferred, now complete):
 
-- The interactive `/resume` **picker overlay** (search, path toggle, sort
-  toggle, named-only filter, in-overlay rename/delete) and the `-r` interactive
-  **startup picker** are deferred. The shipped `/resume` surface is
-  captured-stream listing plus the `named`, `rename <ref> <name>`, and
-  `delete <ref> --yes` subcommands; `-r` currently continues the most recent
-  native session. The live interactive selector overlay ships for `/tree` only.
+- The interactive `/resume` **picker overlay** (type-to-search, `Tab`
+  current-project/all-projects scope, `Ctrl+P` path column, `Ctrl+S` sort,
+  `Ctrl+N` named-only, `Ctrl+R` rename, `Ctrl+X` delete with confirmation,
+  `Esc`/`Ctrl+C`/`Ctrl+D` cancel) and the `-r` interactive **startup picker**
+  ship through `ToolLoopTerminalUi.run_session_picker` /
+  `run_startup_session_picker`. On a non-TTY (captured) stream `/resume` keeps
+  the deterministic listing plus the `named`, `rename <ref> <name>`, and
+  `delete <ref> --yes` subcommands, and `-r` continues the most recent native
+  session. The startup and in-session pickers share the same engine.
+- Pi-equivalent startup-session flags ship: `--session-id <id>`
+  (open-exact-or-create), `--session-dir <dir>` (native store root override),
+  `-n`/`--name <name>` (name the session at startup), the Pi mutual-exclusion
+  errors (`--fork`/`--session-id` vs `--session`/`--continue`/`--resume-session`/
+  `--no-session`), and the cross-project `--session <partial-id>` fork prompt.
+  The old metadata-only `--resume RECORD` / `--branch LABEL` repl flags are
+  retired (the native tree is the product session source; `pipy-session
+  resume-info` stays the separate archive utility).
+
+Deferred follow-ons:
+
 - `/export` (HTML) and `/share` (gist) remain deferred as noted below.
 
 Original research basis (still accurate as the behavioral target):
@@ -96,25 +116,41 @@ The matching command family is:
 - `/share`: Pi's private gist/share command; deferred follow-on polish unless
   promoted later.
 
-Startup/session CLI parity should map Pi's surfaces semantically:
+Startup/session CLI parity maps Pi's surfaces semantically (all shipped):
 
 - `pi -c`: continue the most recent native session for the workspace.
-- `pi -r`: open the native session picker at startup.
+- `pi -r`: open the native session picker at startup on a real TTY; on a
+  non-TTY (captured) stream it deterministically continues the most recent
+  native session.
 - `pi --no-session`: ephemeral mode; do not create or write a native session
   tree, and suppress the `pipy-session` metadata-archive lifecycle record too
   so the run is fully ephemeral like Pi.
 - `pi --session <path|id>`: open a specific native session file or partial id.
+- `pi --session-id <id>`: open the native session with this exact id for the
+  current workspace, or create a fresh one carrying it. The id becomes part of
+  the session filename, so it is validated as a safe filename component
+  (`[A-Za-z0-9_-]`, 1-128 chars); path separators, `..`, and control bytes are
+  rejected so a hand-picked id cannot escape the session store.
+- `pi --session-dir <dir>`: use `<dir>` as the native session store root
+  instead of the default state directory (per-project encoded-cwd subdirs live
+  under it). `$PIPY_SESSION_DIR` is the separate metadata-archive root and is
+  deliberately not honored here; only `--session-dir`/`$PI_SESSION_DIR` override
+  the native store.
+- `pi -n`/`--name <name>`: name the native session for the run (applied after
+  it is created/opened/forked).
 - `pi --fork <path|id>`: fork a native session file or partial id into a new
   session.
 
 Startup flag constraints to match Pi:
 
 - `--fork` is mutually exclusive with `--session`, `-c`/`--continue`,
-  `-r`/`--resume`, and `--no-session`; combining them is a hard error
+  `-r`/`--resume-session`, and `--no-session`; combining them is a hard error
   (`packages/coding-agent/src/main.ts:189-201`).
+- `--session-id` is mutually exclusive with the same set; combining them is a
+  hard error (`packages/coding-agent/src/main.ts:216-238`).
 - `--session <partial-id>` that resolves to a session in a *different* project
-  does not open it directly. Pi reports the other project and prompts the user
-  to fork the session into the current directory, aborting if declined
+  does not open it directly. pipy reports the other project and prompts the user
+  to fork the session into the current directory, aborting cleanly if declined
   (`packages/coding-agent/src/main.ts:231-247`).
 
 Pipy command names may differ where the existing CLI requires it, but the
@@ -264,34 +300,37 @@ same context.
 
 ## `/resume` Picker Behavior
 
-`/resume` opens an interactive session picker over native product session files
-for the current project. It runs no provider turn and no model-visible tool call
-while the picker is open. Captured-stream fallback should recognize the command
-locally and print either a concise list/diagnostic or a clear TTY-required
-message; it must not fall through as a provider prompt.
+Status: **shipped.** `/resume` opens an interactive session picker overlay
+(`ToolLoopTerminalUi.run_session_picker`) over native product session files. It
+runs no provider turn and no model-visible tool call while the picker is open,
+renders inline (no alternate screen), repaints coherently on resize, and
+sanitizes user-controlled names/paths so they cannot inject terminal escape
+sequences. On a non-TTY (captured) stream `/resume` recognizes the command
+locally and prints the deterministic listing plus the `named`/`rename`/`delete
+--yes` subcommands; it never falls through as a provider prompt. The `-r`
+startup picker shares the same engine through `run_startup_session_picker`.
 
-Pi controls to preserve semantically:
+Pi controls, as shipped (pipy keybindings noted where they differ from Pi):
 
-- typing searches sessions;
-- Up/Down move selection;
-- Enter opens the selected native session;
-- Escape/Ctrl-C cancels;
-- Tab toggles current-project / all-sessions scope
+- typing searches sessions (name, id, and workspace path);
+- Up/Down move selection; Enter opens the selected native session;
+- Esc/Ctrl-C/Ctrl-D cancel (pipy keeps Ctrl-D as cancel, matching its other
+  selectors, so delete is bound to Ctrl-X — see below);
+- Tab toggles current-project / all-projects scope
   (`packages/coding-agent/src/modes/interactive/components/session-selector.ts:170,792`);
-- Ctrl+P toggles path display;
-- Ctrl+S toggles sort mode;
+- Ctrl+P toggles the file-path column;
+- Ctrl+S cycles the sort mode (recent / name);
 - Ctrl+N filters to named sessions;
-- Ctrl+R renames the selected session;
-- Ctrl+D deletes the selected session after confirmation;
-- Ctrl+Backspace is a delete alias (keybinding
-  `app.session.deleteNoninvasive`), for terminals that distinguish it from
-  Backspace
-  (`packages/coding-agent/src/modes/interactive/components/session-selector.ts:578`).
+- Ctrl+R renames the selected session (in-overlay edit; persisted through the
+  native store, never the metadata archive);
+- Ctrl+X deletes the selected session after an in-overlay `[y/N]` confirmation
+  (Pi uses Ctrl+D, which pipy reserves for cancel). The currently active
+  session cannot be deleted.
 
-Deletion should match Pi's safety posture: use the `trash` CLI when available,
-and otherwise require explicit confirmation before removing the native session
-file. Deleting native product session files must not delete `pipy-session`
-metadata archive records.
+Deletion matches Pi's safety posture: use the `trash` CLI when available, and
+otherwise remove the native session file after explicit confirmation. Deleting
+native product session files never deletes `pipy-session` metadata archive
+records.
 
 ## `/tree` Behavior
 
@@ -417,18 +456,21 @@ the conformance gate below passes.
    startup/resume.
 3. Product-session source switch: replace metadata-only product resume with
    Pi-like native-session open/continue/resume, including startup equivalents
-   for `-c`, `-r`, `--no-session`, `--session <path|id>`, and
-   `--fork <path|id>`. `pipy-session resume-info` stays an archive utility, not
-   the product context source.
+   for `-c`, `-r`, `--no-session`, `--session <path|id>`, `--session-id <id>`,
+   `--session-dir <dir>`, `-n`/`--name <name>`, and `--fork <path|id>`, with the
+   Pi mutual-exclusion errors and the cross-project `--session` fork prompt. The
+   old metadata-only `--resume RECORD` / `--branch LABEL` repl flags are retired;
+   `pipy-session resume-info` stays an archive utility, not the product context
+   source.
 4. `/session`, `/name`, `/new`, and native `/resume`: show safe current
    native-session status, persist session names, start a new session, and
-   browse/switch/open previous native product sessions for the workspace.
-   Shipped `/resume` surface: captured-stream listing plus `named`,
-   `rename <ref> <name>`, and `delete <ref> --yes` (delete-with-confirmation)
-   subcommands. The richer interactive picker overlay (search, path toggle,
-   sort toggle, in-overlay rename/delete) and the `-r` interactive startup
-   picker are deferred target behavior, not shipped (see the Deferred
-   follow-ons note near the top).
+   browse/switch/open previous native product sessions. The interactive picker
+   overlay (type-to-search, Tab scope, Ctrl+P path, Ctrl+S sort, Ctrl+N
+   named-only, Ctrl+R rename, Ctrl+X delete-with-confirmation,
+   Esc/Ctrl-C/Ctrl-D cancel) ships for both the in-session `/resume` and the
+   `-r` startup picker (shared engine). On a non-TTY stream `/resume` keeps the
+   deterministic listing plus the `named`, `rename <ref> <name>`, and
+   `delete <ref> --yes` subcommands, and `-r` continues the most recent session.
 5. `/tree` selector UI: product-TUI overlay, filters/search/labels/folding,
    selection semantics, captured-stream local diagnostic, and real-PTY tests.
 6. Branch summary: abandoned-branch collection, provider summarizer,
@@ -464,13 +506,17 @@ verify that:
 6. `/name` persists a session name;
 7. `/new` starts a fresh native product session;
 8. `/resume` can switch/open a previous native product session, list named-only
-   sessions, rename a session, and delete one with confirmation (the shipped
-   captured-stream subcommands the conformance gate exercises); the richer
-   interactive picker overlay with search/path/sort toggles is deferred target
-   behavior;
-9. startup equivalents for Pi's `-c`, `-r`, `--no-session`, `--session`, and
-   `--fork` behave semantically correctly, including `--no-session` suppressing
-   both native session tree writes and `pipy-session` metadata records;
+   sessions, rename a session, and delete one with confirmation (the
+   captured-stream subcommands), and the interactive picker builds the expected
+   rows and performs rename/delete through the product session files
+   (`resume_picker_product_rows_and_actions`);
+9. startup equivalents for Pi's `-c`, `-r`, `--no-session`, `--session`,
+   `--session-id`, `--session-dir`, `--name`, and `--fork` behave semantically
+   correctly — including `--no-session` suppressing both native session tree
+   writes and `pipy-session` metadata records, the `--fork`/`--session-id`
+   mutual-exclusion errors, the retired `--resume`/`--branch` repl flags, the
+   cross-project `--session` fork prompt, and the `-r` non-TTY continue-recent
+   fallback (the `cli_*` checks);
 10. `/fork` creates a new native session from an earlier user message;
 11. `/clone` duplicates the current active branch into a new native session;
 12. `/compact` appends a durable compaction entry and context rebuild honors it;
@@ -531,10 +577,13 @@ Focused tests should cover:
 - label set/clear and labeled-only filter;
 - filter changes choose the nearest visible ancestor of the current leaf;
 - product-TUI `/tree` real-PTY flows (movement, user-message rehydration,
-  non-user selection, Escape cancel, label toggle, filter cycle); the
-  interactive `/resume` real-PTY picker is deferred with that overlay;
-- `/new` and startup session flags create/open/fork/suppress native sessions as
-  expected;
+  non-user selection, Escape cancel, label toggle, filter cycle);
+- interactive `/resume` picker flows: the state machine (search, scope/sort/
+  named toggles, rename, delete, current-session protection, cancel) and a
+  real-PTY navigate/resize/select/cancel pass over the live overlay;
+- `/new` and startup session flags (`--session-id`, `--session-dir`, `--name`,
+  mutual exclusion, cross-project fork prompt, `-r` non-TTY fallback)
+  create/open/fork/suppress native sessions as expected;
 - metadata archive privacy: no prompts, assistant text, tool payloads, file
   contents, command output, branch summaries, or native transcript bodies reach
   `pipy-session` archive records by default.
@@ -543,17 +592,21 @@ Before treating implementation as complete, run:
 
 ```sh
 uv run python scripts/parity_checks/session_tree_conformance.py --json
-uv run pytest tests/test_native_session_tree*.py
+uv run python scripts/parity_checks/session_tree_pi_comparison.py --json
+uv run pytest tests/test_native_session_tree*.py tests/test_native_session_resolution.py
+uv run pytest tests/test_native_session_picker*.py tests/test_native_startup_session_cli.py
 uv run pytest tests/test_native_tool_loop_session_tree*.py
 uv run pytest tests/test_native_tool_loop_tui_pty.py -k tree
 just check
 ```
 
-Optionally add a Pi comparison smoke such as
-`scripts/tmux_session_tree_compare.sh <out-dir>` to compare user-visible
-workflow semantics (`/tree` opens, branches are visible, prior user selection
-rehydrates the editor, and continuation creates a sibling branch). Exact Pi JSON
-file-format matching is not the hard gate; deterministic pipy conformance is.
+`session_tree_pi_comparison.py` drives the SAME canonical tree workflow
+(root → MAIN → branch → ALT → name → fork) against Pi's real `SessionManager`
+(via the Pi checkout's own `tsx`) and pipy's native tree, normalizes volatile
+ids/timestamps/paths, and asserts the two agree on session name, sibling branch
+chains, active ALT/MAIN leaf chains, fork-parent + active-branch carry, and
+durable reopen reconstruction. The pipy leg is a hard gate (it asserts the
+on-disk product files); the Pi leg skips with a reason when Pi cannot be driven.
 
 Update `docs/session-storage.md`, `docs/harness-spec.md`, `docs/pi-parity.md`,
 `README.md`, and this spec to match shipped behavior, and get an independent

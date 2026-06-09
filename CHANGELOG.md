@@ -6,8 +6,42 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Changed
+
+- The pipy-only metadata-only `--resume RECORD` / `--branch LABEL` repl flags
+  are retired: the native session tree is the product session source. The
+  separate `pipy-session resume-info` archive utility is unchanged.
+
 ### Added
 
+- Pi-style session startup flags and an interactive session picker for the
+  native product session tree ([docs/session-tree.md](docs/session-tree.md)):
+  - new startup flags `--session-id <id>` (open the native session with this
+    exact id, or create one carrying it), `--session-dir <dir>` (native session
+    store root override — the separate `$PIPY_SESSION_DIR` metadata-archive root
+    is never reused for it), and `-n`/`--name <name>` (name the session at
+    startup), alongside the existing `-c`/`-r`/`--session`/`--fork`/
+    `--no-session`.
+  - Pi mutual-exclusion errors: `--fork` and `--session-id` each conflict with
+    `--session`/`--continue`/`--resume-session`/`--no-session`.
+  - cross-project `--session <partial-id>`: a partial id that matches only a
+    session in a different project prompts to fork it into the current
+    workspace, aborting cleanly if declined.
+  - `/resume` opens an interactive picker overlay on a TTY — type to search,
+    `Tab` toggles current-project/all-projects scope, `Ctrl+P` the path column,
+    `Ctrl+S` the sort, `Ctrl+N` named-only, `Ctrl+R` renames, `Ctrl+X` deletes
+    after a `[y/N]` confirmation (the active session is protected), Enter opens,
+    `Esc`/`Ctrl+C`/`Ctrl+D` cancel. It renders inline (no alternate screen),
+    repaints on resize, runs no provider turn, and sanitizes user-controlled
+    names/paths against terminal escape injection. `-r` opens the same picker at
+    startup on a TTY; a non-TTY stream keeps the deterministic listing plus the
+    `named`/`rename`/`delete --yes` subcommands and continues the most recent
+    session.
+  - a Pi comparison gate (`scripts/parity_checks/session_tree_pi_comparison.py
+    --json`) runs the canonical tree workflow against Pi's real `SessionManager`
+    and asserts matching name, branch/leaf chains, fork semantics, and durable
+    reconstruction; the extended `session_tree_conformance.py` proves the new
+    flags and picker rows/actions through the product paths.
 - Pi-style headless automation surfaces for the product tool loop, through
   pipy-owned stdlib boundaries with no new runtime dependency
   ([docs/automation-rpc.md](docs/automation-rpc.md)):

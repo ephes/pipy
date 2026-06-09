@@ -292,9 +292,11 @@ For the anti-gaming bar:
   attempts, hermetic test that injects two failures then a success.
 - **session resume (E1)**: a metadata-only reader resolves finalized archive
   records into safe continuation context, exposes it through
-  `pipy-session resume-info <session-id>`, and seeds a fresh live session from
-  it via `pipy repl --resume <stem>` (no-tool and tool-loop), recording only
-  safe lineage metadata while leaving the parent record immutable, with tests.
+  `pipy-session resume-info <session-id>`, and (at lock time) seeded a fresh
+  live session via `pipy repl --resume <stem>`. _Superseded 2026-06-09:_ the
+  `--resume`/`--branch` repl flags are retired; product resume is now the native
+  session tree (`-c`/`-r`/`--session`/`--session-id`/`--fork`, `/resume`
+  picker). `pipy-session resume-info` remains the metadata-only archive reader.
 - **session compaction (E2)**: a live in-session compaction pass (`/compact`
   plus an automatic threshold) reduces the provider-visible context back into
   bounded form while keeping recent turns plus a safe summary; the tool-loop

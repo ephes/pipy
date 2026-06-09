@@ -316,10 +316,20 @@ activation, command/tool registration, hooks, UI degradation, provider
 registration, package install/list/config/update, and archive secret hygiene.
 The package-manager details are now added to `docs/extension-api.md`.
 
-### 6. Session CLI and picker polish
+### 6. Session CLI and picker polish — ✅ shipped (2026-06-09)
 
-**Why it remains despite the session-tree milestone:** the durable product
-session tree shipped, but a few Pi CLI/session-picker surfaces remain incomplete.
+**Status:** complete. All six implementation items below shipped:
+`--session-id`/`--session-dir`/`-n`/`--name`, the interactive `-r` startup
+picker and `/resume` picker overlay (search/scope/sort/named-only/rename/
+delete), Pi mutual-exclusion errors, the cross-project `--session` fork prompt,
+and the retirement of the old metadata-only `--resume RECORD`/`--branch LABEL`
+flow. Proven through product paths by the extended
+`scripts/parity_checks/session_tree_conformance.py --json` and the new
+`scripts/parity_checks/session_tree_pi_comparison.py --json` Pi comparison. The
+original gap analysis is retained below for historical record.
+
+**Why it remained despite the session-tree milestone:** the durable product
+session tree shipped, but a few Pi CLI/session-picker surfaces were incomplete.
 
 Pi reference:
 

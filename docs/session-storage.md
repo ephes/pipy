@@ -112,9 +112,17 @@ If a finalized record needs correction, create a new sibling file or append a co
 
 ### Resume, branch, and compaction metadata
 
-Live resume (`pipy repl --resume <stem>`), branch/fork (`--branch <label>`),
-and in-session compaction (`/compact` plus an automatic threshold) preserve the
-metadata-first contract:
+> **Note (2026-06-09):** the pipy-only metadata-only `pipy repl --resume <stem>`
+> / `--branch <label>` repl flags are **retired**. Product resume/branch/fork is
+> now the native session tree (`-c`/`-r`/`--session`/`--session-id`/`--fork`,
+> `/resume`/`/tree`/`/fork`/`/clone`; see [session-tree.md](session-tree.md)).
+> The `pipy-session resume-info <stem>` archive utility and the lineage metadata
+> described below still apply to archive records produced by other flows (e.g.
+> forks recorded as new finalized records); they are no longer reachable through
+> retired repl flags.
+
+Resumed/forked **child** archive records and in-session compaction (`/compact`
+plus an automatic threshold) preserve the metadata-first contract:
 
 - A resumed or forked **child** session is always a brand-new finalized record.
   The parent record is read read-only and never mutated; no raw transcript

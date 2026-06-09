@@ -200,12 +200,16 @@ not a promise to skip review when a smaller, safer slice appears.
    store, a raw private append-only JSONL tree like Pi's
    `~/.pi/agent/sessions/...` files. Product sessions persist raw
    user/assistant/tool history, rebuild provider context from the active
-   branch, and expose `/session`, `/name`, `/new`, `/tree`, `/resume`,
-   `/fork`, `/clone`, durable `/compact`, Pi-style startup session entry, and
-   branch summaries through pipy-owned boundaries. The existing metadata-first
-   `pipy-session` archive stays a separate learning/catalog surface and is not
-   the product session source. Design, behavior, and the passing conformance
-   gate are in [session-tree.md](session-tree.md).
+   branch, and expose `/session`, `/name`, `/new`, `/tree`, `/resume`
+   (interactive picker overlay + non-TTY subcommands), `/fork`, `/clone`,
+   durable `/compact`, the full Pi-style startup session flag set
+   (`-c`/`-r`/`--session`/`--session-id`/`--session-dir`/`--name`/`--fork`/
+   `--no-session`, mutual exclusion, cross-project fork prompt; the old
+   `--resume`/`--branch` metadata flags retired), and branch summaries through
+   pipy-owned boundaries. The existing metadata-first `pipy-session` archive
+   stays a separate learning/catalog surface and is not the product session
+   source. Design, behavior, and the passing conformance + Pi-comparison gates
+   are in [session-tree.md](session-tree.md).
 6. Tool breadth and project policy. The bounded multi-step loop is real and the
    model-visible `bash` tool is now a real shell matching Pi (arbitrary
    commands, combined bounded output, optional timeout, streamed live). The
@@ -273,23 +277,28 @@ aid for the highest-impact remaining product gaps.
    execution model, and security/update story remain the largest platform gap.
    The Python-only, Pi-shaped semantic-compatibility target API is sketched in
    [extension-api.md](extension-api.md).
-2. Full session-tree workflow — **shipped (2026-06-02)**. Pipy now has a
-   private native product session tree store
+2. Full session-tree workflow — **shipped (2026-06-02; session CLI + pickers
+   2026-06-09)**. Pipy now has a private native product session tree store
    (`pipy_harness.native.session_tree`) that is the product session source of
    truth, replacing the metadata-only product-resume path. Full-history tree
    navigation (`/tree` with selection semantics, filters, labels, live-TTY
    selector), in-place branch switching with sibling branches, `/session`,
    `/name`, `/new`, native `/resume`, `/fork`, `/clone`, durable `/compact`
-   replay, branch summaries, and the startup flags `-c`/`-r`/`--no-session`
-   (suppresses native + `pipy-session` records)/`--session`/`--fork` all ship
-   through the product runtime. `pipy-session` remains a separate
+   replay, branch summaries, and the full Pi startup-session flag set
+   (`-c`/`-r`/`--no-session`/`--session`/`--session-id`/`--session-dir`/
+   `-n`/`--name`/`--fork`, with the Pi mutual-exclusion errors and the
+   cross-project `--session` fork prompt) all ship through the product runtime.
+   The interactive `/resume` picker overlay (type-to-search, Tab scope, Ctrl+P
+   path, Ctrl+S sort, Ctrl+N named-only, Ctrl+R rename, Ctrl+X delete with
+   confirmation, Esc/Ctrl-C/Ctrl-D cancel) and the `-r` startup picker ship too
+   (shared engine; non-TTY keeps the deterministic listing +
+   `named`/`rename`/`delete --yes`). The old metadata-only `--resume RECORD` /
+   `--branch LABEL` repl flags are retired; `pipy-session` remains a separate
    metadata/catalog utility. The deterministic conformance gate
-   `scripts/parity_checks/session_tree_conformance.py --json` proves the full
-   workflow. Remaining Pi follow-ons (explicitly deferred): the interactive
-   `/resume` picker overlay (search/path/sort toggles, in-overlay
-   rename/delete) and the `-r` interactive startup picker — the shipped
-   `/resume` surface is captured-stream listing plus `named`/`rename`/`delete
-   --yes`; `/export` HTML export; and `/share`/gist upload. Spec and gate:
+   `scripts/parity_checks/session_tree_conformance.py --json` and the
+   `scripts/parity_checks/session_tree_pi_comparison.py --json` Pi comparison
+   prove the workflow. Remaining Pi follow-ons (explicitly deferred): `/export`
+   HTML export and `/share`/gist upload. Spec and gate:
    [session-tree.md](session-tree.md).
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
@@ -1922,7 +1931,14 @@ real product behavior, and upgrades E1 (session resume) from a metadata-only
 reader to a live runtime resume. Metadata-first archive defaults stay
 mandatory throughout.
 
-What shipped:
+> **Superseded (2026-06-09):** the metadata-only `--resume RECORD` /
+> `--branch LABEL` repl flags described below were **retired** in favor of the
+> native product session tree ([session-tree.md](session-tree.md)), which is now
+> the product session source for resume/branch/fork. This section is retained as
+> historical record; `pipy-session resume-info` remains the separate archive
+> utility.
+
+What shipped (historical; `--resume`/`--branch` repl flags now retired):
 
 - **Live resume.** `pipy repl --agent pipy-native --resume <stem>` seeds a
   fresh no-tool or tool-loop session from the existing metadata-only

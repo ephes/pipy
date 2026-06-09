@@ -240,24 +240,40 @@ Provider/model catalog (`docs/provider-catalog.md`):
 Native product session-tree controls (Pi-style, `pipy repl`):
 
 - `-c`/`--continue`: continue the most recent native session for the workspace.
-- `-r`/`--resume-session`: open the native session at startup. The shipped
-  behavior continues the most recent native session; a full interactive
-  startup picker overlay is a deferred follow-on (use `/resume` in-session to
-  list, open, rename, or delete sessions).
-- `--session <path|id>`: open a specific native session file or partial id.
-- `--fork <path|id>`: fork a native session into a new one.
+- `-r`/`--resume-session`: open the native session picker at startup on a real
+  TTY (same overlay as in-session `/resume`); on a non-TTY stream it continues
+  the most recent native session.
+- `--session <path|id>`: open a specific native session file or partial id. A
+  partial id that matches only a session in a *different* project prompts to
+  fork it into the current workspace (aborts cleanly if declined).
+- `--session-id <id>`: open the native session with this exact id for the
+  workspace, or create a fresh one carrying it.
+- `--session-dir <dir>`: use `<dir>` as the native session store root (the
+  separate `$PIPY_SESSION_DIR` metadata-archive root is never reused for it).
+- `-n`/`--name <name>`: name the native session for the run.
+- `--fork <path|id>`: fork a native session into a new one. `--fork` and
+  `--session-id` are each mutually exclusive with `--session`/`--continue`/
+  `--resume-session`/`--no-session` (combining them is an error).
 - `--no-session`: ephemeral mode — no native session tree and no `pipy-session`
   metadata record for the run.
+
+(The old metadata-only `--resume RECORD` / `--branch LABEL` repl flags are
+retired in favour of the native session tree; `pipy-session resume-info` remains
+the separate archive utility.)
 
 In a `pipy repl` session the slash commands `/session`, `/name <name>`, `/new`,
 `/tree`, `/resume`, `/fork`, and `/clone` operate on the native session tree.
 `/tree` opens an interactive in-frame selector in a TTY (movement, label with
 `L`, filter with `Ctrl-O`, select with Enter, cancel with Escape) and accepts
 scriptable `select`/`label`/`filter` subcommands in captured-stream mode.
-`/resume` lists/opens prior native sessions and supports `named`,
-`rename <ref> <name>`, and `delete <ref> --yes` (delete needs explicit
-confirmation, prefers the `trash` CLI, and never touches `pipy-session`
-records).
+`/resume` opens an interactive session picker overlay on a TTY — type to search,
+`Tab` toggles current-project/all-projects scope, `Ctrl+P` the path column,
+`Ctrl+S` the sort, `Ctrl+N` named-only, `Ctrl+R` renames, `Ctrl+X` deletes after
+a `[y/N]` confirmation (the active session is protected), Enter opens, and
+`Esc`/`Ctrl+C`/`Ctrl+D` cancel. On a non-TTY stream `/resume` lists/opens prior
+native sessions and supports `named`, `rename <ref> <name>`, and `delete <ref>
+--yes` (delete needs explicit confirmation, prefers the `trash` CLI, and never
+touches `pipy-session` records).
 
 ### Providers
 
