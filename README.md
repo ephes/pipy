@@ -135,6 +135,35 @@ the caller, finalizes the pipy record, and returns the child exit code. Pipy
 does not own the subprocess prompt stack, model calls, tool behavior,
 approval model, or transcript format.
 
+### Headless automation (Pi `--mode json` / `--mode rpc` / `--print`)
+
+The product tool loop exposes Pi-compatible headless automation surfaces on
+`pipy repl`. These are **full-content** transports (assistant text, tool
+arguments/results, and bash output are emitted like Pi; only auth
+secrets/tokens are never emitted), independent of the metadata-first
+`pipy-session` archive. See [`docs/automation-rpc.md`](docs/automation-rpc.md).
+
+```sh
+# Full Pi-shaped session event stream as LF-only JSONL on stdout (one object
+# per line): a native session header, then agent/turn/message/tool events.
+uv run pipy repl --mode json "Summarize README.md"
+
+# One-shot: print only the final assistant text (Pi -p). Failures -> stderr.
+uv run pipy repl --print "What is 2 + 2?"
+
+# Long-lived stdin/stdout JSONL RPC protocol (Pi command vocabulary): send one
+# JSON command per line on stdin; responses (correlated by `id`) and async
+# session events are emitted on stdout.
+uv run pipy repl --mode rpc
+```
+
+Mode selection follows Pi's `resolveAppMode` precedence (`--mode rpc` >
+`--mode json` > `--print` > interactive); pipy keeps piped (non-TTY) stdin as
+interactive REPL input, so one-shot/RPC modes are selected explicitly via
+`--mode json|rpc` or `--print`/`-p` (a positional prompt without one of those is
+rejected rather than silently switching modes). The conformance gate is
+`uv run python scripts/parity_checks/automation_rpc_conformance.py --json`.
+
 ### Flags
 
 Required:
@@ -163,8 +192,12 @@ Optional:
 - `--native-model <id>`: model label for the native provider. Most real
   providers require it in one-shot `pipy run`; `ds4` defaults to
   `deepseek-v4-flash`.
-- `--native-output json`: for `--agent pipy-native` only; emits a single
-  metadata-only JSON status object instead of provider final text.
+- `--native-output json`: **deprecated** for `--agent pipy-native`; emits a
+  single metadata-only JSON status object (record paths, counters) instead of
+  provider final text. It is not a Pi-style event stream and has no Pi
+  equivalent — use `pipy repl --mode json "<prompt>"` for the full Pi-shaped
+  session event stream (see "Headless automation" below and
+  [`docs/automation-rpc.md`](docs/automation-rpc.md)).
 - `--list-models [search]`: print the table of available provider/models
   (provider, model, context, max-out, thinking, images), optionally fuzzy-
   filtered over `provider id`, then exit without running a provider turn. Reads

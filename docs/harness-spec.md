@@ -2021,8 +2021,12 @@ For the current task-slice backlog and next-step ordering, see
 - Permission policy and sandbox profiles. A real process/filesystem
   sandbox is the prerequisite for production registration of any
   `bash`-style shell tool.
-- Network/wire-protocol RPC daemon. The in-process Python SDK at
-  `pipy_harness.sdk` is in place; a long-running server, socket transport, or
-  external RPC contract remains deferred.
+- Network/wire-protocol RPC **daemon**. The in-process Python SDK at
+  `pipy_harness.sdk` is in place, and the Pi-style **stdin/stdout** JSONL
+  automation protocol has shipped — `pipy repl --mode json`/`--mode rpc`/
+  `--print` ([automation-rpc.md](automation-rpc.md)), gated by
+  `scripts/parity_checks/automation_rpc_conformance.py --json`. Only a
+  long-running **network** server / socket transport remains deferred; Pi's
+  `--mode rpc` is itself a stdin/stdout protocol, not a network daemon.
 - Multi-agent task delegation.
 - Long-running dev server.

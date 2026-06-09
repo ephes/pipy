@@ -1,9 +1,20 @@
 # Pi-Style Automation Modes: JSON Event Stream and RPC Protocol
 
-Status: target specification researched from the local Pi reference on
-2026-06-02. Not implemented yet. This document defines the pipy target for
-Pi-compatible headless automation surfaces. It is a pipy-owned Python design,
-not a TypeScript port.
+Status: **shipped** (current). The Pi-compatible headless automation surfaces
+described here — `--mode json`, `--print`/`-p`, and `--mode rpc` — are
+implemented and gated by
+`scripts/parity_checks/automation_rpc_conformance.py --json` plus the focused
+tests in `tests/test_native_automation_*.py`. This document is both the design
+reference and the behavior contract; it is a pipy-owned Python design that reuses
+the real native tool loop and session tree, not a TypeScript port. The original
+specification was researched from the local Pi reference on 2026-06-02.
+
+Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
+`events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
+`--mode json`/`--print` one-shot drivers, `rpc.py` the long-lived RPC server);
+the event surface is emitted from the real `NativeToolReplSession.run` loop via
+the optional `automation_observer`; the CLI wiring is `pipy repl --mode
+json|rpc` / `--print` in `src/pipy_harness/cli.py`.
 
 ## Sources
 
@@ -398,6 +409,30 @@ While a `prompt` run is in flight:
 - `prompt` itself may carry `streamingBehavior: "steer" | "followUp"` so a
   prompt sent during an active run is treated as a steer or follow-up.
 
+**pipy implementation note (documented boundary).** The list above is Pi's
+in-turn-injection target. pipy's current `--mode rpc` does not inject a message
+into the model context of the *already-running* turn; instead `steer` and
+`follow_up` are **queued during the active run and delivered as the next run(s)
+after it settles**, exactly **one message per turn boundary, steering first**
+(follow-up only once steering is empty); the delivered run's `agent_end` is the
+next boundary that drains the following message. `steeringMode`/`followUpMode`
+are accepted and reported in `get_state`, but pipy's after-turn delivery is
+uniformly one-per-boundary (a documented simplification of Pi's in-turn `all`
+vs `one-at-a-time` application). Every enqueue/drain is observable via
+`queue_update`, the queues remain the single source for `pendingMessageCount`
+(nothing is bulk-pushed behind the queue's back), and they are always consumed
+and cleared — never reporting stale pending messages.
+`abort` cancels the active run and **discards queued steering for that run** (it
+targeted the aborted turn); queued follow-ups, which are meant to run after,
+remain and drain next. This is a deliberate pipy-owned simplification of Pi's
+mid-turn injection: queued input still reaches the model promptly (on the next
+turn) and the queue stays truthful, without re-entering a live provider turn. A
+`prompt` sent while a run is active is likewise routed to the observable queue by
+its `streamingBehavior` (`steer` -> steering queue, otherwise the follow-up
+queue) rather than being silently deferred, so it appears in `queue_update`/
+`pendingMessageCount`. True in-turn injection of a message into the
+already-running provider turn remains a follow-on.
+
 ### Session switching, fork, clone
 
 `switch_session`, `fork`, `clone`, and `new_session` change the active session
@@ -408,16 +443,30 @@ extension-UI context. Each may be cancelled by an extension hook
 surfaced as `{ cancelled: true }` with no rebind. These commands read/write the
 native session tree (`docs/session-tree.md`).
 
-### Bash and model cycling
+### Bash, model, and thinking controls
 
-- `bash` runs a command through pipy's real bash tool/sandbox and returns a
-  full `BashResult` including bounded output. `abort_bash` cancels a running
-  command. This is the same bash executor the tool loop uses; full output is
-  in-scope for this surface.
-- `cycle_model` / `set_model` / `get_available_models` cycle and select among
-  configured providers/models; pipy returns its own provider/model identity
-  objects. On a single-provider build, `cycle_model` may return `null` data and
-  `set_model` returns an error for an unknown provider/model.
+- `bash` runs a command on a worker thread through pipy's real bash
+  tool/sandbox and returns a full `BashResult` including bounded, secret-scrubbed
+  output. The sandbox is not externally cancellable, so `abort_bash` returns a
+  well-formed error while a bash is in flight (and a no-op success when idle)
+  rather than falsely claiming a cancel. This is the same bash executor the tool
+  loop uses; full output is in-scope for this surface.
+- **Model / thinking controls — current build (documented boundary).** The RPC
+  model/thinking commands are accepted and their effect is observable in
+  `get_state`, but in the current `--mode rpc` build they do **not** mutate the
+  live provider or propagate into the next provider request:
+  - `get_available_models` returns the configured provider/model; `set_model`
+    succeeds for the currently selected provider/model and returns a well-formed
+    error for any other (the automation build runs a single configured
+    provider); `cycle_model` returns `null` data (nothing to cycle to). No live
+    provider switch happens.
+  - `set_thinking_level`/`cycle_thinking_level` validate and **record** the
+    requested level, surface it in `get_state.thinkingLevel`, and emit a
+    `thinking_level_changed` event, but the recorded level is not yet threaded
+    into the running session's provider requests.
+  Live provider switching and threading the thinking level into the active
+  provider request over RPC are explicit follow-ons; the accepted-and-reported
+  behavior keeps the command vocabulary complete and the responses well-formed.
 
 ### Compaction
 
@@ -717,19 +766,38 @@ Suggested test files: `tests/test_native_automation_jsonl.py`,
 `tests/test_native_automation_rpc_dispatch.py`,
 `tests/test_native_automation_rpc_prompt.py`.
 
-### Optional Pi comparison smoke
+### Pi comparison harness
 
-A non-gating smoke (e.g. `scripts/tmux_automation_rpc_compare.sh <out-dir>` or a
-plain harness script) may drive the installed `pi --mode rpc` and `pipy --mode
-rpc` with the same command script and diff the **structural** event/response
-shape (types present, ordering, correlation, full-content presence). Exact
-byte-for-byte JSON matching with Pi is **not** the hard gate; deterministic
-pipy conformance via `automation_rpc_conformance.py --json` is.
+`scripts/parity_checks/automation_pi_comparison.py --json` is the deterministic
+Pi-vs-pipy comparison. It runs the **same** headless workflow in the local Pi
+reference and in pipy with deterministic offline providers on both sides, then
+normalizes volatile fields (ids, timestamps, cwd temp paths, token counts) and
+the streaming-delta granularity and asserts the two agree on:
+
+- the normalized session-event order and type discriminators (role-tagged
+  agent/turn/message lifecycle), treating the assistant streaming-delta run as
+  one group — pipy emits the `text_delta` subset its provider produces while Pi
+  also frames `text_start`/`text_end`, a documented, allowed divergence;
+- the assistant's final text and the concatenation of its streamed deltas;
+- `agent_end` semantics (`willRetry` and the run's message roles);
+- durable session-tree reconstruction on the pipy side (the native session tree
+  rebuilds the same user+assistant conversation the event stream describes).
+
+The Pi side is driven through Pi's real `AgentSession` with the faux `streamFn`
+via `scripts/parity_checks/pi_faux_event_driver.mts` (run with the local Pi
+checkout's own `tsx`, so it is offline and deterministic); set `PI_MONO_DIR` to
+the checkout (default `/Users/jochen/src/pi-mono`). When the Pi checkout/deps/
+node are unavailable, the harness reports the Pi leg as **skipped with the
+reason** rather than silently passing. Exact byte-for-byte JSON matching with Pi
+is **not** the gate; structural/semantic equivalence is, and the deterministic
+pipy conformance via `automation_rpc_conformance.py --json` is the hard gate.
 
 Before treating the track as complete, run:
 
 ```sh
 uv run python scripts/parity_checks/automation_rpc_conformance.py --json
+PI_MONO_DIR=/Users/jochen/src/pi-mono \
+  uv run python scripts/parity_checks/automation_pi_comparison.py --json
 uv run pytest tests/test_native_automation_*.py
 just check
 just parity-score

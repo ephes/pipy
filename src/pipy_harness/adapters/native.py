@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import CapturePolicy
+from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
@@ -285,6 +287,8 @@ class PipyNativeToolReplAdapter:
         settings_manager: "SettingsManager | None" = None,
         system_prompt_source: str | None = None,
         append_system_prompt_sources: list[str] | None = None,
+        automation_observer: "AutomationEventSink | None" = None,
+        abort_event: "threading.Event | None" = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -295,6 +299,11 @@ class PipyNativeToolReplAdapter:
         self.settings_manager = settings_manager
         self.system_prompt_source = system_prompt_source
         self.append_system_prompt_sources = append_system_prompt_sources
+        # Optional Pi-shaped session-event sink for the headless automation
+        # transports. Forwarded to the tool-loop session; ``None`` keeps the
+        # interactive path unchanged.
+        self.automation_observer = automation_observer
+        self.abort_event = abort_event
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -412,6 +421,8 @@ class PipyNativeToolReplAdapter:
             resume_branch_label=self.resume_branch_label,
             native_session=self.native_session,
             settings_manager=self.settings_manager,
+            automation_observer=self.automation_observer,
+            abort_event=self.abort_event,
         )
         try:
             run_output = session.run(

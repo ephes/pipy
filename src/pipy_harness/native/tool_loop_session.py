@@ -63,7 +63,12 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
-from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.automation.events import (
+    AutomationEmitter,
+    AutomationEventSink,
+)
+from pipy_harness.native.automation.serialize import parse_tool_arguments
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
@@ -520,6 +525,17 @@ class NativeToolReplSession:
     # file; the CLI/adapter injects a persistent tree under the native-session
     # store. ``pipy-session`` remains a separate metadata-only archive.
     native_session: "NativeSessionTree | None" = None
+    # Optional Pi-shaped session-event sink for the headless automation
+    # transports (``--mode json``/``--mode rpc``). When ``None`` (the CLI/TUI
+    # default) every emit is a no-op and behavior is unchanged; the events are
+    # derived from this real loop, never a parallel session model.
+    automation_observer: "AutomationEventSink | None" = None
+    # Optional external abort signal for the headless automation RPC mode. When
+    # set, a non-TUI provider turn runs on a worker thread with a cancel token
+    # wired to this event, so an RPC ``abort`` cancels the in-flight turn at the
+    # provider boundary. ``None`` (CLI/TUI/one-shot) keeps the simple blocking
+    # provider call.
+    abort_event: "threading.Event | None" = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -618,14 +634,36 @@ class NativeToolReplSession:
             renderer = _ToolLoopRenderer(
                 output_stream=output_stream, error_stream=error_stream
             )
+        # Pi-shaped session-event emitter for the headless automation transports.
+        # A no-op when no observer is attached (CLI/TUI), so the interactive path
+        # is unchanged; otherwise it serializes this real loop's lifecycle onto
+        # Pi's AgentSessionEvent vocabulary.
+        emitter = AutomationEmitter(self.automation_observer)
         # Stream long-running tool output (e.g. pytest dots) into the live UI as
         # it is produced, matching Pi. Rebuilt here so the sink can target the
-        # renderer that was just selected.
+        # renderer that was just selected. For automation it also emits Pi's
+        # ``tool_execution_update`` (bounded progress) for the currently
+        # executing tool call; ``_active_tool_call`` carries that call.
+        active_tool_call: list["ProviderToolCall | None"] = [None]
+
+        def _tool_output_sink(chunk: str) -> None:
+            renderer.tool_output_sink(chunk)
+            if not emitter.enabled:
+                return
+            call = active_tool_call[0]
+            if call is not None:
+                emitter.tool_execution_update(
+                    tool_call_id=call.provider_correlation_id,
+                    tool_name=call.tool_name,
+                    args=parse_tool_arguments(call.arguments_json),
+                    partial_result=chunk,
+                )
+
         context = ToolContext(
             workspace_root=cwd,
             stderr_sink=_stderr_sink,
             reference_roots=self.reference_roots,
-            output_sink=renderer.tool_output_sink,
+            output_sink=_tool_output_sink,
         )
         if self.transcript_sink is not None:
             self.transcript_sink.append(
@@ -1838,6 +1876,11 @@ class NativeToolReplSession:
                         self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                     turn_attachments = image_attachments.attachments()
             turn_user_message = UserMessage(content=provider_user_input)
+            # Automation: this accepted prompt begins one agent run. Snapshot the
+            # message index so agent_end can report the messages this run added
+            # (the user message and everything the loop appends below).
+            agent_run_start_index = len(messages)
+            emitter.agent_start()
             messages.append(turn_user_message)
             session_tree.append_message(turn_user_message)
             user_turn_count += 1
@@ -1886,14 +1929,29 @@ class NativeToolReplSession:
                     # and re-sending would mis-attach the image to those.
                     attachments=turn_attachments if inner_iterations == 1 else (),
                 )
+                emitter.turn_start()
+                if inner_iterations == 1:
+                    # Pi emits the user message_start/message_end pair after
+                    # turn_start and before the assistant message begins.
+                    emitter.non_streamed_message(turn_user_message)
+                emitter.assistant_message_start()
                 renderer.begin_provider_turn()
                 renderer.show_working()
                 provider_result = self._complete_provider_turn(
                     provider_request,
                     renderer=renderer,
                     terminal_ui=terminal_ui,
+                    emitter=emitter,
                 )
                 if provider_result is None:
+                    # Aborted/steered turn (RPC abort, or TUI Escape/steer).
+                    # Close the assistant message and the turn so the automation
+                    # lifecycle stays balanced (message_start has a matching
+                    # message_end, turn_start a matching turn_end) before the
+                    # agent_end emitted after the inner loop.
+                    aborted_assistant_message = AssistantMessage(content="")
+                    emitter.assistant_message_end(aborted_assistant_message)
+                    emitter.turn_end(aborted_assistant_message, [])
                     break
                 usage_accumulator.absorb(provider_result.usage)
                 renderer.end_provider_turn(
@@ -1931,12 +1989,20 @@ class NativeToolReplSession:
                             tool_invocation_count=tool_invocation_count,
                             usage_accumulator=usage_accumulator,
                         )
+                    # Balance the assistant message_start emitted above and close
+                    # the turn so the automation stream stays well-formed even on
+                    # a failed provider turn.
+                    failed_assistant_message = AssistantMessage(content="")
+                    emitter.assistant_message_end(failed_assistant_message)
+                    emitter.turn_end(failed_assistant_message, [])
                     break
                 tool_calls = tuple(provider_result.tool_calls)
                 turn_assistant_message = AssistantMessage(
                     content=provider_result.final_text or "",
                     tool_calls=tool_calls,
                 )
+                emitter.assistant_message_end(turn_assistant_message)
+                turn_tool_results: list[ToolResultMessage] = []
                 messages.append(turn_assistant_message)
                 session_tree.append_message(turn_assistant_message)
                 if self.transcript_sink is not None:
@@ -1968,6 +2034,7 @@ class NativeToolReplSession:
                             tool_invocation_count=tool_invocation_count,
                             usage_accumulator=usage_accumulator,
                         )
+                    emitter.turn_end(turn_assistant_message, turn_tool_results)
                     break
 
                 fatal = False
@@ -1989,17 +2056,37 @@ class NativeToolReplSession:
                                 f"(limit {self.tool_budget})"
                             ),
                         )
+                        emitter.tool_execution_start(call)
+                        emitter.tool_execution_end(
+                            tool_call_id=call.provider_correlation_id,
+                            tool_name=call.tool_name,
+                            result=budget_observation.output_text,
+                            is_error=True,
+                        )
+                        turn_tool_results.append(budget_observation)
                         messages.append(budget_observation)
                         session_tree.append_message(budget_observation)
                         continue
 
                     renderer.render_tool_call(call)
+                    emitter.tool_execution_start(call)
+                    active_tool_call[0] = call
                     tool_started_at = datetime.now(UTC)
-                    observation = self._invoke(call=call, context=context)
+                    try:
+                        observation = self._invoke(call=call, context=context)
+                    finally:
+                        active_tool_call[0] = None
                     tool_ended_at = datetime.now(UTC)
                     tool_duration = (
                         tool_ended_at - tool_started_at
                     ).total_seconds()
+                    emitter.tool_execution_end(
+                        tool_call_id=call.provider_correlation_id,
+                        tool_name=call.tool_name,
+                        result=observation.output_text,
+                        is_error=observation.is_error,
+                    )
+                    turn_tool_results.append(observation)
                     renderer.render_tool_result(
                         output_text=observation.output_text,
                         is_error=observation.is_error,
@@ -2040,7 +2127,11 @@ class NativeToolReplSession:
                             },
                         )
 
+                emitter.turn_end(turn_assistant_message, turn_tool_results)
                 if fatal:
+                    emitter.agent_end(
+                        messages[agent_run_start_index:], will_retry=False
+                    )
                     ended_at = datetime.now(UTC)
                     try:
                         repl_input.close()
@@ -2070,6 +2161,13 @@ class NativeToolReplSession:
                             "tool calls"
                         ),
                     )
+
+            # The inner loop settled this accepted prompt's agent run (no tool
+            # calls left, the budget cap, or a provider failure). Close it on the
+            # automation stream before the outer loop reads the next prompt.
+            emitter.agent_end(
+                messages[agent_run_start_index:], will_retry=False
+            )
 
         try:
             repl_input.close()
@@ -2138,17 +2236,124 @@ class NativeToolReplSession:
             autocomplete_max_visible=autocomplete_max_visible,
         )
 
+    @staticmethod
+    def _tee_stream_sink(
+        base: StreamChunkSink, emitter: "AutomationEmitter | None"
+    ) -> StreamChunkSink:
+        """Tee provider text deltas into the automation emitter.
+
+        Each streamed chunk becomes a Pi ``message_update`` with a
+        ``text_delta`` ``assistantMessageEvent``. A no-op passthrough when the
+        emitter is absent/disabled, so the interactive path is unchanged.
+        """
+
+        if emitter is None or not emitter.enabled:
+            return base
+
+        def _wrapped(chunk: str) -> None:
+            base(chunk)
+            emitter.assistant_text_delta(chunk)
+
+        return _wrapped
+
+    def _complete_headless_cancellable_turn(
+        self,
+        provider_request: ProviderRequest,
+        *,
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        emitter: "AutomationEmitter | None",
+    ) -> ProviderResult | None:
+        """Run a non-TUI provider turn that honors an external abort event.
+
+        Used by ``--mode rpc`` so an ``abort`` command cancels the live request
+        at the provider boundary. Returns ``None`` when aborted before the
+        provider settled, ending the current turn (the loop then drains/reads).
+        """
+
+        assert self.abort_event is not None
+        cancel_token = CancelToken()
+        abort_event = self.abort_event
+        done_event = threading.Event()
+        # Per-turn cancelled latch. Unlike the shared ``abort_event`` (which the
+        # RPC server clears on ``agent_end`` so the next prompt can run), this
+        # local flag stays set for the lifetime of this turn's worker. If a
+        # provider thread lingers past the cancel join, a late chunk it produces
+        # after ``agent_end`` is still suppressed here — no output leaks past the
+        # turn's end into the JSON/RPC event stream.
+        turn_cancelled = threading.Event()
+        result_holder: list[ProviderResult] = []
+        error_holder: list[BaseException] = []
+
+        def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
+            def _wrapped(chunk: str) -> None:
+                if turn_cancelled.is_set() or abort_event.is_set():
+                    return
+                sink(chunk)
+
+            return _wrapped
+
+        def _run_provider() -> None:
+            try:
+                result_holder.append(
+                    self.provider.complete(
+                        provider_request,
+                        # Cancellable wraps the tee so an abort suppresses BOTH
+                        # the renderer write and the automation text_delta event —
+                        # no late chunk can leak after abort/agent_end.
+                        stream_sink=_cancellable_sink(
+                            self._tee_stream_sink(renderer.stream_sink, emitter)
+                        ),
+                        reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
+                        cancel_token=cancel_token,
+                    )
+                )
+            except ProviderCancelledError:
+                pass
+            except BaseException as exc:  # pragma: no cover - re-raised below
+                error_holder.append(exc)
+            finally:
+                done_event.set()
+
+        worker = threading.Thread(
+            target=_run_provider, name="pipy-rpc-provider-turn", daemon=True
+        )
+        worker.start()
+        # Wake on either provider completion or an external abort.
+        while not done_event.wait(timeout=0.05):
+            if abort_event.is_set():
+                # Latch the per-turn cancel before releasing the loop so any
+                # chunk a lingering worker emits later stays suppressed even
+                # after the RPC server clears the shared abort on agent_end.
+                turn_cancelled.set()
+                cancel_token.cancel()
+                worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+                return None
+        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+        if error_holder:
+            raise error_holder[0]
+        if not result_holder:
+            return None
+        return result_holder[0]
+
     def _complete_provider_turn(
         self,
         provider_request: ProviderRequest,
         *,
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
         terminal_ui: ToolLoopTerminalUi | None,
+        emitter: "AutomationEmitter | None" = None,
     ) -> ProviderResult | None:
         if terminal_ui is None:
+            if self.abort_event is not None:
+                # Headless automation (RPC) abort: run the provider on a worker
+                # so an external abort cancels the in-flight turn at the provider
+                # boundary, mirroring the TUI cancel path without a terminal.
+                return self._complete_headless_cancellable_turn(
+                    provider_request, renderer=renderer, emitter=emitter
+                )
             return self.provider.complete(
                 provider_request,
-                stream_sink=renderer.stream_sink,
+                stream_sink=self._tee_stream_sink(renderer.stream_sink, emitter),
                 reasoning_sink=renderer.reasoning_sink,
             )
 
@@ -2171,7 +2376,11 @@ class NativeToolReplSession:
                 result_holder.append(
                     self.provider.complete(
                         provider_request,
-                        stream_sink=_cancellable_sink(renderer.stream_sink),
+                        # Cancellable wraps the tee so an abort suppresses BOTH
+                        # the renderer write and the automation text_delta event.
+                        stream_sink=_cancellable_sink(
+                            self._tee_stream_sink(renderer.stream_sink, emitter)
+                        ),
                         reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
                         cancel_token=cancel_token,
                     )

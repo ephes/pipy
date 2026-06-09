@@ -94,9 +94,14 @@ The broad parity ladder, applied with small-slice discipline:
 - Session workflow parity: durable sessions, resume/search/inspect surfaces,
   compaction/summarization, branch/fork-style exploration, and review-cycle
   learning.
-- Extension/RPC parity: extension APIs, custom commands/UI, headless protocol,
-  and richer integration points after the core shell/tool/session model is
-  stable.
+- Extension/RPC parity: the headless automation protocol has **shipped** —
+  `--mode json` (full Pi-shaped event stream), `--print`/`-p` (one-shot text),
+  and `--mode rpc` (long-lived stdin/stdout JSONL with the full Pi command
+  vocabulary), gated by
+  `scripts/parity_checks/automation_rpc_conformance.py --json`
+  ([automation-rpc.md](automation-rpc.md)). Remaining integration points
+  (extension APIs, custom commands/UI surfaced over the RPC extension-UI
+  channel) build on this foundation.
 
 ### Prioritized Pi Gap Queue (2026-05-28)
 
@@ -238,11 +243,11 @@ not a promise to skip review when a smaller, safer slice appears.
    EOF-on-cancel guard; deterministic `AttributeError`-mapping proofs in both the
    cancelled and not-cancelled directions) and a real-PTY test that drives the
    actual Escape/Ctrl-C key sequences mid-turn.
-9. RPC, multi-agent orchestration, indexing, and local-provider maturity. The
-   local ds4 provider now has real large-model one-shot and tool-call smoke
-   coverage; remaining product maturity work is broader local-provider
-   benchmarking after the core shell, tool, session, and settings surfaces
-   settle.
+9. Multi-agent orchestration, indexing, and local-provider maturity. The
+   headless RPC/JSON automation protocol has shipped (item 5 above). The local
+   ds4 provider now has real large-model one-shot and tool-call smoke coverage;
+   remaining product maturity work is broader local-provider benchmarking after
+   the core shell, tool, session, and settings surfaces settle.
 
 Textual, prompt-toolkit, curses, and a small custom terminal layer were
 compared at the terminal-layer checkpoint. The current direction is a narrow
@@ -289,22 +294,18 @@ aid for the highest-impact remaining product gaps.
 3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
    basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
    history, bracketed paste, undo/redo, resize handling, `/copy`, typed
-   `@path` and `@image:<path>` references). Pi still leads on `@` file
-   picker behavior (Pi scores exact/prefix/substring, not fuzzy), broader path
-   completion in the product editor, clipboard/drag image paste, `!`/`!!` shell
-   shortcuts, thinking-level hotkeys, output/thinking folding, queued
-   steering/follow-up messages during active turns, richer overlays/selectors,
-   and mouse selection. True provider-request cancellation (Escape/Ctrl-C abort
-   the in-flight HTTP request, not just late chunks) now ships (see item 8).
-   Scoped model cycling via `/scoped-models` + Ctrl+P now ships through the
-   settings track. **This track has now shipped** — the remaining editor
-   surfaces (`@` file picker with exact/prefix/substring ranking, general Tab
-   path completion, `!`/`!!` shell shortcuts, `Shift+Tab` thinking-level
-   cycling, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up,
+   `@path` and `@image:<path>` references). **This track has now shipped** —
+   the editor-depth surfaces that Pi historically led on (the `@` file picker
+   with exact/prefix/substring ranking, general Tab path completion, `!`/`!!`
+   shell shortcuts, `Shift+Tab` thinking-level cycling, `Ctrl+O`/`Ctrl+T`
+   folding, queued steering/follow-up messages during active turns,
    clipboard/drag image references, the `/scoped-models` + `/hotkeys` overlays
    and new `/settings` rows, and the mouse-selection invariant) all landed
    through the [tui-workflow.md](tui-workflow.md) track, gated by
-   `scripts/parity_checks/tui_workflow_conformance.py`.
+   `scripts/parity_checks/tui_workflow_conformance.py`. True provider-request
+   cancellation (Escape/Ctrl-C abort the in-flight HTTP request, not just late
+   chunks) ships too (see item 8). Terminal/editor workflow depth is no longer
+   a remaining gap.
 4. Provider and model catalog follow-ons. The catalog/helper layers,
    OpenAI-compatible Chat Completions product path, non-completions construction
    for the implemented catalog-constructed adapter families, `pipy run`
@@ -317,11 +318,24 @@ aid for the highest-impact remaining product gaps.
    legacy-factory exception for settings-derived retry policy, Vertex API-key
    auth, Anthropic adaptive-thinking shape, Azure URL/api-version parity, and
    extension-registered providers once the extension platform exists.
-5. RPC and automation modes. Pi exposes interactive, print, JSON event stream,
-   RPC over stdin/stdout, and SDK embedding. Pipy has `run`, `repl`, a
-   metadata-only `--native-output json`, subprocess capture, and an in-process
-   Python SDK. A protocol-level JSON/RPC mode, long-running process integration
-   surface, and event-stream automation contract remain open.
+5. RPC and automation modes. **Shipped.** Pipy now exposes the Pi-compatible
+   headless automation surfaces alongside `run`, `repl`, and the in-process
+   Python SDK: `pipy repl --mode json "<prompt>"` (full Pi-shaped session event
+   stream as LF-only JSONL), `--print`/`-p` (one-shot final assistant text), and
+   `pipy repl --mode rpc` (long-lived stdin/stdout JSONL protocol with the full
+   Pi command vocabulary, async prompt, queued steer/follow-up delivered as the
+   next run after the active turn settles (abort discards that run's queued
+   steering), queue updates, bash, session-name/state/messages/stats
+   introspection, and well-formed error responses for unimplemented commands;
+   true in-turn steering injection is a follow-on). Events are derived from the
+   real tool-loop run, not a parallel model; the native session tree is the
+   introspection source. The legacy metadata-only `--native-output json` is
+   deprecated in favor of `--mode json` (see §"Parity Cleanup"). Gated by
+   `scripts/parity_checks/automation_rpc_conformance.py --json` and
+   `tests/test_native_automation_*.py`; contract in
+   [automation-rpc.md](automation-rpc.md). The remaining open follow-ons are the
+   network/socket daemon (still deferred) and the RPC extension-UI channel,
+   which lands with the extension platform.
 6. Settings, distribution, and sharing polish. The settings/config/keybindings
    surface now ships (see the Settings track below and
    [settings-config.md](settings-config.md)): layered global/project
@@ -364,8 +378,11 @@ rationale is in [parity-plan.md](parity-plan.md) §3; the actionable removals ar
   no longer present metadata-first as the product session source.
 - **`--archive-transcript` sidecar.** Retire once the native session tree stores
   full transcripts like Pi. The native tree *is* the transcript.
-- **`--native-output json` (metadata-only).** Replace with Pi's `--mode json`
-  full-event stream and `--mode rpc` ([automation-rpc.md](automation-rpc.md)).
+- **`--native-output json` (metadata-only).** **Deprecated** in favor of Pi's
+  `--mode json` full-event stream and `--mode rpc`, which have shipped
+  ([automation-rpc.md](automation-rpc.md)); its `--help` now points there. The
+  metadata-only object is retained on `pipy run` for existing callers and is
+  scheduled for removal once no caller depends on it.
 - **No-tool REPL mode and its `/read` `/ask-file` `/propose-file`
   `/apply-proposal` commands.** Pi has one interactive mode with model-visible
   tools. Fold into the single tool-loop product session and remove the
@@ -503,7 +520,10 @@ shipped in later parity work:
   resume reader shipped first; live `--resume`, `--branch`, and `/compact`
   (plus an automatic compaction threshold) shipped later through the Native
   Session Workflow Track below.
-- RPC mode and SDK embedding.
+- RPC mode and SDK embedding. The in-process Python SDK shipped, and the
+  headless `--mode json`/`--mode rpc`/`--print` automation protocol has now
+  shipped too ([automation-rpc.md](automation-rpc.md)); only the
+  network/socket daemon remains deferred.
 - Extensions, package loading, theme integration, and slash-command loading for
   skills and prompt templates. A pure theme registry shipped later.
 - ~~Automatic `@file` content reads from completion-only references.~~

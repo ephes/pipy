@@ -17,7 +17,12 @@ from pipy_harness.native.conversation import (
     NativeTurnRole,
     NativeTurnStatus,
 )
-from pipy_harness.native.fake import FakeNativeProvider, FakeNoOpNativeTool
+from pipy_harness.native.fake import (
+    AUTOMATION_FAKE_MODEL_ID,
+    AutomationFakeProvider,
+    FakeNativeProvider,
+    FakeNoOpNativeTool,
+)
 from pipy_harness.native.models import (
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_APPLY_STORAGE_KEYS,
@@ -157,6 +162,8 @@ from pipy_harness.native.verification import (
 
 __all__ = [
     "AUTO_DEFAULT_PROVIDER_PRIORITY",
+    "AUTOMATION_FAKE_MODEL_ID",
+    "AutomationFakeProvider",
     "FakeNativeProvider",
     "FakeNoOpNativeTool",
     "FileOpenAICodexCredentialStore",

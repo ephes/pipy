@@ -33,6 +33,8 @@ from pipy_harness.native import (
     OpenAICodexAuthManager,
     OpenAICodexProviderError,
     OpenAICodexResponsesProvider,
+    AUTOMATION_FAKE_MODEL_ID,
+    AutomationFakeProvider,
     FakeNativeProvider,
     OpenAIResponsesProvider,
     OpenRouterChatCompletionsProvider,
@@ -135,7 +137,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--native-output",
         choices=["json"],
-        help="Native stdout mode for --agent pipy-native. Only json is supported.",
+        help=(
+            "DEPRECATED. Emits one final metadata-only object (record paths, "
+            "counters) for --agent pipy-native; it is not a Pi-style event "
+            "stream and has no Pi equivalent. Use 'pipy repl --mode json "
+            "\"<prompt>\"' for the full Pi-shaped session event stream "
+            "(see docs/automation-rpc.md)."
+        ),
     )
     run_parser.add_argument(
         "--stream",
@@ -235,6 +243,39 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Per-user-turn tool invocation budget for --repl-mode tool-loop. "
             "Default 50, capped at 200."
+        ),
+    )
+    repl_parser.add_argument(
+        "--mode",
+        choices=["text", "json", "rpc"],
+        default="text",
+        help=(
+            "Headless automation mode (Pi-compatible). text (default) is the "
+            "interactive REPL, or with --print/-p a one-shot final-text run "
+            "(piped non-TTY stdin stays interactive REPL input — use --print or "
+            "--mode json for one-shot). json emits the native session header then "
+            "the full Pi-shaped session event stream as LF-only JSONL on stdout. "
+            "rpc starts the long-lived stdin/stdout JSONL command protocol. See "
+            "docs/automation-rpc.md."
+        ),
+    )
+    repl_parser.add_argument(
+        "--print",
+        "-p",
+        dest="print_mode",
+        action="store_true",
+        help=(
+            "Run one non-interactive turn and print only the final assistant "
+            "text to stdout (Pi -p). Consumes the trailing positional prompt."
+        ),
+    )
+    repl_parser.add_argument(
+        "prompt",
+        nargs="?",
+        default=None,
+        help=(
+            "One-shot prompt for --mode json / --print. Ignored by the "
+            "interactive REPL."
         ),
     )
     repl_parser.add_argument(
@@ -637,6 +678,25 @@ def main(argv: list[str] | None = None) -> int:
                     system_prompt_source=args.system_prompt,
                     append_system_prompt_sources=args.append_system_prompt,
                     no_context_files=args.no_context_files,
+                )
+            # Headless automation surfaces (Pi --mode json/rpc, --print). These
+            # drive the same tool-loop adapter for a one-shot run (json/print) or
+            # the long-lived JSONL protocol (rpc). The interactive REPL — which
+            # includes piped (non-TTY) stdin as REPL input — is the default.
+            app_mode = _select_repl_app_mode(args)
+            if app_mode != "interactive":
+                return _run_repl_automation(
+                    app_mode,
+                    args,
+                    repl_adapter=repl_adapter,
+                    native_session=native_session,
+                )
+            if args.prompt is not None:
+                # A bare positional prompt is ambiguous in the interactive REPL
+                # (which reads its prompts live); one-shot/RPC must be explicit.
+                raise ValueError(
+                    "a positional prompt requires --print/-p (one-shot text) or "
+                    "--mode json|rpc"
                 )
             request = RunRequest(
                 agent=args.agent,
@@ -1314,6 +1374,108 @@ def _resolve_native_startup_session(args: Any) -> Any:
     return resolve_startup_session(cwd, mode=mode, target=target)
 
 
+def _select_repl_app_mode(args: Any) -> str:
+    """Select the effective ``pipy repl`` app mode.
+
+    One-shot/RPC modes are selected explicitly: ``--mode rpc`` -> rpc,
+    ``--mode json`` -> json full-event stream, ``--print``/``-p`` -> one-shot
+    final text; otherwise the interactive REPL. This is a deliberate pipy
+    boundary over Pi's ``resolveAppMode`` (encoded/tested as ``resolve_app_mode``
+    in ``automation/run_modes.py``): pipy's REPL consumes piped (non-TTY) stdin
+    as live prompts, so a bare non-TTY stdin stays interactive rather than
+    becoming a one-shot, and a positional prompt alone is not enough to switch
+    modes (the caller must pass ``--print`` or ``--mode json|rpc``).
+    """
+
+    if args.mode == "rpc":
+        return "rpc"
+    if args.mode == "json":
+        return "json"
+    if args.print_mode:
+        return "print"
+    return "interactive"
+
+
+def _run_repl_automation(
+    app_mode: str,
+    args: Any,
+    *,
+    repl_adapter: Any,
+    native_session: Any,
+) -> int:
+    """Drive a headless automation run for the resolved ``app_mode``."""
+
+    from pipy_harness.native.automation.run_modes import (
+        run_json_mode,
+        run_print_mode,
+    )
+    from pipy_harness.native.session_tree import NativeSessionTree
+
+    if not isinstance(repl_adapter, PipyNativeToolReplAdapter):
+        raise ValueError(
+            "--mode json/rpc and --print require a tool-capable native provider "
+            "(the automation event stream is produced by the tool loop)"
+        )
+    cwd = args.cwd.expanduser().resolve()
+
+    if app_mode == "rpc":
+        from pipy_harness.native.automation.rpc import run_rpc_mode
+
+        if args.prompt is not None:
+            # RPC reads prompt commands on stdin; a positional prompt would be
+            # silently ignored, so reject it rather than lose user input.
+            raise ValueError(
+                "--mode rpc does not accept a positional prompt; send a "
+                '{"type":"prompt","message":"..."} command on stdin'
+            )
+        if native_session is None:
+            native_session = NativeSessionTree.create(cwd, persist=False)
+        return run_rpc_mode(
+            adapter=repl_adapter,
+            cwd=cwd,
+            native_session=native_session,
+            stdin=sys.stdin,
+            stdout_buffer=sys.stdout.buffer,
+            error_stream=sys.stderr,
+        )
+
+    if app_mode == "json":
+        prompt = args.prompt
+        if prompt is None and not sys.stdin.isatty():
+            # Read stdin as the prompt without stripping its content (a multiline
+            # prompt is preserved verbatim as a single turn); only reject when it
+            # is blank.
+            prompt = sys.stdin.read()
+        if not prompt or not prompt.strip():
+            raise ValueError("--mode json requires a prompt argument")
+        if native_session is None:
+            native_session = NativeSessionTree.create(cwd, persist=False)
+        return run_json_mode(
+            adapter=repl_adapter,
+            prompt=prompt,
+            cwd=cwd,
+            native_session=native_session,
+            stdout_buffer=sys.stdout.buffer,
+            error_stream=sys.stderr,
+        )
+
+    # print
+    prompt = args.prompt
+    if prompt is None and not sys.stdin.isatty():
+        prompt = sys.stdin.read()
+    if not prompt or not prompt.strip():
+        raise ValueError("--print requires a prompt argument")
+    if native_session is not None:
+        repl_adapter.native_session = native_session
+    return run_print_mode(
+        adapter=repl_adapter,
+        prompt=prompt,
+        cwd=cwd,
+        stdout=sys.stdout,
+        error_stream=sys.stderr,
+    )
+
+
 PIPY_READ_ROOTS_ENV = "PIPY_READ_ROOTS"
 _AUTO_REFERENCE_ROOT_DOCS = (
     Path("docs") / "parity-criterion.md",
@@ -1555,6 +1717,10 @@ def _native_provider_for_selection(
 
         return CloudflareWorkersAIProvider(model_id=selection.model_id)
     if selection.provider_name == "fake":
+        if selection.model_id == AUTOMATION_FAKE_MODEL_ID:
+            # Deterministic, tool-capable, streaming fake for the headless
+            # automation surfaces and the conformance gate (offline).
+            return AutomationFakeProvider(model_id=selection.model_id)
         return FakeNativeProvider(model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"])
     raise ValueError(f"unsupported native provider: {selection.provider_name}")
 

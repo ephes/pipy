@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# ``field`` is used by AutomationFakeProvider (and FakeNativeProvider) below for
+# default_factory state.
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -151,6 +153,83 @@ class FakeNativeProvider:
         if cancel_token.event.wait(timeout=self.block_timeout_seconds):
             self._cancel_observed[0] = True
             raise ProviderCancelledError("fake provider turn cancelled")
+
+
+AUTOMATION_FAKE_MODEL_ID = "fake-tools"
+AUTOMATION_FAKE_BLOCK_SENTINEL = "BLOCK"
+
+
+@dataclass(frozen=True, slots=True)
+class AutomationFakeProvider:
+    """Deterministic, tool-capable, streaming provider for automation modes.
+
+    Selectable via ``--native-provider fake --native-model fake-tools`` so the
+    headless ``--mode json``/``--mode rpc``/``--print`` paths and the
+    conformance gate can drive the real tool loop offline. It derives its reply
+    from the latest user message (``"SEEN:<first-token>"``) and streams it as
+    two deterministic text chunks, so ``text_delta`` events concatenate to the
+    ``message_end`` content.
+
+    When the latest user message begins with ``BLOCK`` the turn waits on the
+    active-turn cancel token instead of replying, so the RPC mid-turn
+    ``steer``/``abort`` checks can interrupt a genuinely in-flight turn at the
+    provider boundary. No auth/credential material is ever produced.
+    """
+
+    model_id: str = AUTOMATION_FAKE_MODEL_ID
+    supports_tool_calls: bool = True
+    block_timeout_seconds: float = 30.0
+    _cancel_observed: list[bool] = field(default_factory=lambda: [False])
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    @property
+    def cancel_observed(self) -> bool:
+        return self._cancel_observed[0]
+
+    @staticmethod
+    def _latest_user_text(request: ProviderRequest) -> str:
+        from pipy_harness.native.tools.messages import UserMessage
+
+        for message in reversed(request.messages):
+            if isinstance(message, UserMessage):
+                return message.content
+        return request.user_prompt or ""
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        started_at = datetime.now(UTC)
+        user_text = self._latest_user_text(request).strip()
+        if user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL) and cancel_token is not None:
+            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
+                self._cancel_observed[0] = True
+                raise ProviderCancelledError("automation fake turn cancelled")
+        token = (user_text.split() or ["EMPTY"])[0]
+        chunks = ("SEEN:", token)
+        if stream_sink is not None:
+            for chunk in chunks:
+                stream_sink(chunk)
+        ended_at = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=started_at,
+            ended_at=ended_at,
+            final_text="".join(chunks),
+            usage={},
+            tool_calls=(),
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,49 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Pi-style headless automation surfaces for the product tool loop, through
+  pipy-owned stdlib boundaries with no new runtime dependency
+  ([docs/automation-rpc.md](docs/automation-rpc.md)):
+  - `pipy repl --mode json "<prompt>"` runs one non-interactive turn and emits
+    the native session header line followed by the full Pi-shaped session event
+    stream (`agent_start`/`turn_start`/`message_start`/`message_update` with a
+    `text_delta` `assistantMessageEvent`/`message_end`/`turn_end`/`agent_end`
+    and `tool_execution_*`) as strict LF-only JSONL on stdout; diagnostics stay
+    on stderr. Full assistant/tool/bash content is emitted like Pi; auth
+    secrets/tokens are never emitted.
+  - `pipy repl --print`/`-p "<prompt>"` prints only the final assistant text to
+    stdout (Pi `-p`); failures go to stderr with a non-zero exit.
+  - `pipy repl --mode rpc` starts a long-lived stdin/stdout JSONL protocol with
+    Pi's command names: async `prompt` (correlated success then streamed
+    events); `steer`/`follow_up` (queued during an active run and delivered as
+    the next run after it settles, one message per turn boundary
+    steering-then-follow-up, each observable via `queue_update` and counted in
+    `pendingMessageCount`) and `abort` (cancels the active
+    run; queued steering for that run is discarded) — a documented pipy boundary
+    over Pi's in-turn injection; `bash` (on a worker thread; `abort_bash` errors
+    while a sandboxed bash is in flight rather than falsely claiming a cancel);
+    `get_state`/`get_messages`/`get_session_stats`/
+    `get_last_assistant_text`, `set_session_name`, and queue-mode commands;
+    model/thinking commands are accepted and reflected in `get_state`/events but
+    do not yet switch the live provider or thread the thinking level into the
+    running provider request (a documented follow-on); and well-formed error
+    responses for unimplemented commands. All 29 Pi RPC command types are
+    accepted; unknown commands and unparseable lines return well-formed error
+    responses, never a crash. The native session
+    tree is the introspection source; events derive from the real tool-loop
+    run, not a parallel model.
+  - The legacy metadata-only `--native-output json` on `pipy run` is deprecated
+    in favor of `--mode json`; its `--help` now points there.
+  - The session event grammar matches Pi's: after `turn_start` the user
+    message emits its own `message_start`/`message_end` pair before the
+    assistant message begins.
+  - Gated by `scripts/parity_checks/automation_rpc_conformance.py --json` and
+    `tests/test_native_automation_*.py`, plus a deterministic Pi-vs-pipy
+    comparison (`scripts/parity_checks/automation_pi_comparison.py --json` with
+    `scripts/parity_checks/pi_faux_event_driver.mts`) that drives the real local
+    Pi and pipy with offline providers and asserts matching normalized event
+    order/discriminators, assistant text + delta concatenation, `agent_end`
+    semantics, and durable session-tree reconstruction.
 - Pi-style interactive TUI/editor workflow depth for the product tool-loop
   terminal (`pipy repl --agent pipy-native --repl-mode tool-loop`), all through
   pipy-owned stdlib boundaries with no new runtime dependency and the inline
