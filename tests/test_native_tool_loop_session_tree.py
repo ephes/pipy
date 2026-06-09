@@ -319,3 +319,80 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     assert any("compacted" in m.content.lower() for m in rebuilt if isinstance(m, UserMessage))
     # Oldest dropped turn 'a' is no longer a standalone user message.
     assert " a " not in f" {texts} "
+
+
+class _StubPickerUi:
+    """Minimal terminal-ui stand-in exposing only ``run_session_picker``."""
+
+    def __init__(self, choose):
+        self._choose = choose
+        self.kwargs = None
+
+    def run_session_picker(self, **kwargs):
+        self.kwargs = kwargs
+        return self._choose(kwargs)
+
+
+def test_interactive_resume_picker_wiring(tmp_path: Path) -> None:
+    sessions_dir = tmp_path / "store" / "proj"
+    active = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
+    active.append_message(UserMessage(content="ACTIVE"))
+    other = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
+    other.append_session_info("other-name")
+    other.append_message(UserMessage(content="OTHER"))
+
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+    assert active.path is not None and other.path is not None
+    other_path = other.path
+
+    # The stub picker chooses the `other` session file.
+    ui = _StubPickerUi(lambda kw: other.path)
+    chosen = session._run_interactive_session_picker(
+        session_tree=active,
+        terminal_ui=ui,  # type: ignore[arg-type]
+    )
+    assert chosen == other.path
+    # The picker received both project sessions and the active session as current.
+    listed_ids = {e.session_id for e in ui.kwargs["project_sessions"]}
+    assert {active.session_id, other.session_id} <= listed_ids
+    assert ui.kwargs["current_path"] == active.path
+
+    # The rename callback persists a session name through the native store.
+    ui.kwargs["on_rename"](other_path, "renamed-other")
+    assert NativeSessionTree.open(other_path).name == "renamed-other"
+
+    # The delete callback removes only the native session file.
+    ok, _detail = ui.kwargs["on_delete"](other_path)
+    assert ok
+    assert not other_path.exists()
+    assert active.path.exists()
+
+
+class _RenameActiveUi:
+    """Picker stub that renames a target session then cancels."""
+
+    def __init__(self, target: Path, name: str) -> None:
+        self._target = target
+        self._name = name
+
+    def run_session_picker(self, **kwargs):
+        kwargs["on_rename"](self._target, self._name)
+        return None
+
+
+def test_resume_rename_active_session_updates_live_tree(tmp_path: Path) -> None:
+    sessions_dir = tmp_path / "store" / "proj"
+    active = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
+    active.append_message(UserMessage(content="X"))
+    assert active.path is not None
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+
+    ui = _RenameActiveUi(active.path, "live-renamed")
+    session._run_interactive_session_picker(
+        session_tree=active,
+        terminal_ui=ui,  # type: ignore[arg-type]
+    )
+    # The live tree reflects the new name immediately (no reopen needed)...
+    assert active.name == "live-renamed"
+    # ...and it persisted exactly once (a reopened tree agrees).
+    assert NativeSessionTree.open(active.path).name == "live-renamed"

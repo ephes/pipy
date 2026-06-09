@@ -61,6 +61,7 @@ from pipy_harness.native.session_tree import (
     LabelEntry,
     MessageEntry,
     NativeSessionTree,
+    default_native_session_dir,
 )
 from pipy_harness.native.session_tree_commands import (
     list_native_sessions,
@@ -471,7 +472,282 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     archive_ok, archive_detail = _check_archive_privacy(session_dir_root)
     checks.append(Check("archive_privacy", archive_ok, archive_detail))
 
+    # 15-21. Pi-style startup CLI flags + interactive picker, through the real
+    # ``pipy repl`` CLI and the product picker wiring.
+    checks.extend(_startup_cli_checks(session_dir_root))
+    checks.extend(_resume_picker_product_checks(session_dir_root))
+
     return checks
+
+
+def _run_cli(argv: list[str], stdin_text: str = "") -> tuple[int, str]:
+    """Drive ``pipy.cli.main`` with a scripted stdin, capturing stderr."""
+
+    from pipy_harness.cli import main as cli_main
+
+    old_in, old_err = sys.stdin, sys.stderr
+    err = io.StringIO()
+    sys.stdin = io.StringIO(stdin_text)
+    sys.stderr = err
+    try:
+        rc = cli_main(argv)
+    except SystemExit as exc:  # argparse errors exit via SystemExit
+        rc = int(exc.code or 0)
+    finally:
+        sys.stdin, sys.stderr = old_in, old_err
+    return rc, err.getvalue()
+
+
+def _repl_argv(cwd: Path, archive_root: Path, slug: str, *extra: str) -> list[str]:
+    return [
+        "repl",
+        "--agent",
+        "pipy-native",
+        "--slug",
+        slug,
+        "--root",
+        str(archive_root),
+        "--cwd",
+        str(cwd),
+        "--native-provider",
+        "fake",
+        "--native-model",
+        "fake-tools",
+        *extra,
+    ]
+
+
+def _startup_cli_checks(base: Path) -> list[Check]:
+    """Prove the Pi-style startup flags through the real ``pipy repl`` CLI."""
+
+    checks: list[Check] = []
+    archive = base / "cli-archive"
+    store = base / "cli-store"
+
+    def project_dir(cwd: Path) -> Path:
+        return default_native_session_dir(cwd.expanduser().resolve(), sessions_root=store)
+
+    # 15. --session-id open-exact-or-create + --session-dir override.
+    cwd = base / "cli_ws_sid"
+    cwd.mkdir(parents=True, exist_ok=True)
+    rc1, _ = _run_cli(
+        _repl_argv(cwd, archive, "sid-1", "--session-dir", str(store), "--session-id", "fixed-conf-id"),
+        "/exit\n",
+    )
+    after_first = list_native_sessions(project_dir(cwd))
+    rc2, _ = _run_cli(
+        _repl_argv(cwd, archive, "sid-2", "--session-dir", str(store), "--session-id", "fixed-conf-id"),
+        "/exit\n",
+    )
+    after_second = list_native_sessions(project_dir(cwd))
+    sid_ok = (
+        rc1 == 0
+        and rc2 == 0
+        and [s.session_id for s in after_first] == ["fixed-conf-id"]
+        and [s.session_id for s in after_second] == ["fixed-conf-id"]
+    )
+    checks.append(
+        Check(
+            "cli_session_id_and_session_dir",
+            sid_ok,
+            f"first={[s.session_id for s in after_first]} "
+            f"second={[s.session_id for s in after_second]}",
+        )
+    )
+
+    # 16. --name/-n persists the session name at startup.
+    name_cwd = base / "cli_ws_name"
+    name_cwd.mkdir(parents=True, exist_ok=True)
+    rc, _ = _run_cli(
+        _repl_argv(name_cwd, archive, "name-1", "--session-dir", str(store), "-n", "named-at-startup"),
+        "/exit\n",
+    )
+    named = list_native_sessions(project_dir(name_cwd))
+    checks.append(
+        Check(
+            "cli_name_flag",
+            rc == 0 and len(named) == 1 and named[0].name == "named-at-startup",
+            f"name={[s.name for s in named]}",
+        )
+    )
+
+    # 17. Mutual exclusion: --fork conflicts with --continue (Pi error + exit 2).
+    mx_cwd = base / "cli_ws_mx"
+    mx_cwd.mkdir(parents=True, exist_ok=True)
+    rc, err = _run_cli(
+        _repl_argv(mx_cwd, archive, "mx-1", "--session-dir", str(store), "--fork", "x", "--continue"),
+        "/exit\n",
+    )
+    checks.append(
+        Check(
+            "cli_mutual_exclusion",
+            rc == 2 and "--fork cannot be combined with --continue" in err,
+            f"rc={rc} err={err.strip()[:80]!r}",
+        )
+    )
+
+    # 18. Old metadata-only --resume RECORD / --branch LABEL repl flags retired.
+    old_cwd = base / "cli_ws_old"
+    old_cwd.mkdir(parents=True, exist_ok=True)
+    rc_resume, err_resume = _run_cli(
+        _repl_argv(old_cwd, archive, "old-1", "--session-dir", str(store)) + ["--resume", "rec"],
+        "/exit\n",
+    )
+    rc_branch, err_branch = _run_cli(
+        _repl_argv(old_cwd, archive, "old-2", "--session-dir", str(store)) + ["--branch", "lbl"],
+        "/exit\n",
+    )
+    # Rejected with an explicit retirement message (not silently abbreviated to
+    # --resume-session with the value swallowed as a positional prompt).
+    old_ok = (
+        rc_resume == 2
+        and rc_branch == 2
+        and "retired" in err_resume
+        and "retired" in err_branch
+    )
+    checks.append(
+        Check(
+            "cli_old_resume_branch_retired",
+            old_ok,
+            f"resume_rc={rc_resume} branch_rc={rc_branch} "
+            f"retired_msg={'retired' in err_resume and 'retired' in err_branch}",
+        )
+    )
+
+    # 19. Cross-project --session: a partial id from another project prompts to
+    # fork into the current workspace (decline aborts; accept forks).
+    proj_a = base / "cli_proj_a"
+    proj_a.mkdir(parents=True, exist_ok=True)
+    _run_cli(
+        _repl_argv(proj_a, archive, "xp-seed", "--session-dir", str(store), "-n", "from-a"),
+        "/exit\n",
+    )
+    seed = list_native_sessions(project_dir(proj_a))
+    seed_id = seed[0].session_id if seed else ""
+    proj_b = base / "cli_proj_b"
+    proj_b.mkdir(parents=True, exist_ok=True)
+    rc_decline, err_decline = _run_cli(
+        _repl_argv(proj_b, archive, "xp-no", "--session-dir", str(store), "--session", seed_id[:8]),
+        "n\n/exit\n",
+    )
+    forked_after_decline = list_native_sessions(project_dir(proj_b))
+    rc_accept, _ = _run_cli(
+        _repl_argv(proj_b, archive, "xp-yes", "--session-dir", str(store), "--session", seed_id[:8]),
+        "y\n/exit\n",
+    )
+    forked_after_accept = list_native_sessions(project_dir(proj_b))
+    xp_ok = (
+        bool(seed_id)
+        and rc_decline == 0
+        and "different project" in err_decline
+        and forked_after_decline == []
+        and rc_accept == 0
+        and len(forked_after_accept) == 1
+        and forked_after_accept[0].session_id != seed_id
+    )
+    checks.append(
+        Check(
+            "cli_cross_project_fork_prompt",
+            xp_ok,
+            f"declined={len(forked_after_decline)} accepted={len(forked_after_accept)}",
+        )
+    )
+
+    # 20. -r on a non-TTY deterministically continues the most recent session.
+    r_cwd = base / "cli_ws_r"
+    r_cwd.mkdir(parents=True, exist_ok=True)
+    _run_cli(
+        _repl_argv(r_cwd, archive, "r-seed", "--session-dir", str(store), "-n", "seed-r"),
+        "/exit\n",
+    )
+    before_r = [s.session_id for s in list_native_sessions(project_dir(r_cwd))]
+    rc_r, _ = _run_cli(
+        _repl_argv(r_cwd, archive, "r-run", "--session-dir", str(store), "-r"),
+        "/exit\n",
+    )
+    after_r = [s.session_id for s in list_native_sessions(project_dir(r_cwd))]
+    checks.append(
+        Check(
+            "cli_resume_non_tty_continues_recent",
+            rc_r == 0 and before_r == after_r and len(after_r) == 1,
+            f"before={before_r} after={after_r}",
+        )
+    )
+    return checks
+
+
+class _ScriptedPickerUi:
+    """Stub terminal UI that exercises picker rows + rename/delete actions.
+
+    Stands in for the live overlay: it records the rows the product wiring built
+    (via ``build_session_picker_rows``), renames then deletes a non-current
+    session through the supplied callbacks, and finally returns a chosen path.
+    """
+
+    def __init__(self, rename_target: Path, delete_target: Path, choose: Path) -> None:
+        self._rename_target = rename_target
+        self._delete_target = delete_target
+        self._choose = choose
+        self.row_ids: list[str] = []
+
+    def run_session_picker(self, **kwargs: object) -> Path:
+        from pipy_harness.native.session_tree_commands import (
+            build_session_picker_rows,
+        )
+
+        rows = build_session_picker_rows(
+            list(kwargs["project_sessions"]),  # type: ignore[arg-type]
+            list(kwargs["all_sessions"]),  # type: ignore[arg-type]
+            current_path=kwargs.get("current_path"),  # type: ignore[arg-type]
+        )
+        self.row_ids = [r.session_id for r in rows]
+        on_rename = kwargs["on_rename"]
+        on_delete = kwargs["on_delete"]
+        on_rename(self._rename_target, "picker-renamed")  # type: ignore[operator]
+        on_delete(self._delete_target)  # type: ignore[operator]
+        return self._choose
+
+
+def _resume_picker_product_checks(base: Path) -> list[Check]:
+    """Prove the /resume picker rows + rename/delete through product files."""
+
+    store = base / "picker-store"
+    cwd = base / "picker_ws"
+    cwd.mkdir(parents=True, exist_ok=True)
+    session_dir = default_native_session_dir(cwd.expanduser().resolve(), sessions_root=store)
+
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    active.append_message(UserMessage(content="ACTIVE"))
+    to_rename = NativeSessionTree.create(cwd, session_dir=session_dir)
+    to_rename.append_message(UserMessage(content="RENAME_ME"))
+    to_delete = NativeSessionTree.create(cwd, session_dir=session_dir)
+    to_delete.append_message(UserMessage(content="DELETE_ME"))
+
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+    ui = _ScriptedPickerUi(
+        rename_target=to_rename.path,
+        delete_target=to_delete.path,
+        choose=to_rename.path,
+    )
+    chosen = session._run_interactive_session_picker(
+        session_tree=active,
+        terminal_ui=ui,  # type: ignore[arg-type]
+    )
+
+    rows_ok = {active.session_id, to_rename.session_id, to_delete.session_id} <= set(
+        ui.row_ids
+    )
+    rename_ok = NativeSessionTree.open(to_rename.path).name == "picker-renamed"
+    delete_ok = not to_delete.path.exists() and active.path.exists()
+    open_ok = chosen == to_rename.path
+    return [
+        Check(
+            "resume_picker_product_rows_and_actions",
+            rows_ok and rename_ok and delete_ok and open_ok,
+            f"rows_ok={rows_ok} rename_ok={rename_ok} "
+            f"delete_ok={delete_ok} open_ok={open_ok}",
+        )
+    ]
 
 
 def _check_archive_privacy(base: Path) -> tuple[bool, str]:
