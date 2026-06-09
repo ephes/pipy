@@ -119,6 +119,7 @@ from pipy_harness.native.session_tree_commands import (
     delete_native_session,
     entry_preview,
     format_session_status,
+    list_all_native_sessions,
     list_native_sessions,
     render_tree_lines,
     resolve_entry_ref,
@@ -1468,7 +1469,29 @@ class NativeToolReplSession:
                         )
                     diag("pipy: use '/resume <number|id>' to open a session.")
 
-                if not argument:
+                if not argument and terminal_ui is not None and hasattr(
+                    terminal_ui, "run_session_picker"
+                ):
+                    picked_session = self._run_interactive_session_picker(
+                        session_tree=session_tree,
+                        terminal_ui=terminal_ui,
+                    )
+                    if picked_session is None:
+                        diag("pipy: /resume cancelled.")
+                    elif (
+                        session_tree.path is not None
+                        and picked_session == session_tree.path
+                    ):
+                        diag("pipy: already on the selected native session.")
+                    else:
+                        session_tree = NativeSessionTree.open(picked_session)
+                        rebuild_messages_from_tree()
+                        diag(
+                            "pipy: resumed native session "
+                            f"{session_tree.session_id[:8]} "
+                            f"({session_tree.name or 'unnamed'})."
+                        )
+                elif not argument:
                     _list_sessions()
                 elif resume_sub == "named":
                     _list_sessions(named_only=True)
@@ -3298,6 +3321,49 @@ class NativeToolReplSession:
         if result.copied:
             return f"pipy: copied last answer to clipboard ({result.detail})."
         return f"pipy: could not copy last answer — {result.detail}."
+
+    def _run_interactive_session_picker(
+        self,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: "ToolLoopTerminalUi",
+    ) -> Path | None:
+        """Drive the live-TTY ``/resume`` picker over native product sessions.
+
+        Lists the current project's sessions (Tab toggles to all projects),
+        offers in-overlay rename/delete (the active session cannot be deleted),
+        and returns the chosen native session file or ``None`` on cancel. Runs
+        no provider turn and no model-visible tool call.
+        """
+
+        session_dir = (
+            session_tree.path.parent
+            if session_tree.path is not None
+            else default_native_session_dir(Path(session_tree.get_header().cwd))
+        )
+        sessions_root = session_dir.parent
+        project_sessions = list_native_sessions(session_dir)
+        all_sessions = list_all_native_sessions(sessions_root)
+
+        def on_rename(path: Path, name: str) -> None:
+            # Renaming the currently active session must update the live tree so
+            # `/session` and the footer reflect the new name immediately; other
+            # sessions are renamed through a separately opened tree.
+            if session_tree.path is not None and path == session_tree.path:
+                session_tree.append_session_info(name)
+            else:
+                NativeSessionTree.open(path).append_session_info(name)
+
+        def on_delete(path: Path) -> tuple[bool, str]:
+            return delete_native_session(path)
+
+        return terminal_ui.run_session_picker(
+            project_sessions=project_sessions,
+            all_sessions=all_sessions,
+            current_path=session_tree.path,
+            on_rename=on_rename,
+            on_delete=on_delete,
+        )
 
     def _run_interactive_tree_selector(
         self,

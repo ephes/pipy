@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import uuid
 from collections.abc import Iterable
@@ -76,11 +77,46 @@ def default_state_root() -> Path:
     return Path.home() / ".local" / "state" / "pipy"
 
 
-def default_native_session_dir(
-    cwd: Path, *, state_root: Path | None = None
+def native_sessions_root(
+    *, state_root: Path | None = None, session_dir: Path | None = None
 ) -> Path:
+    """Resolve the root under which per-project session dirs live.
+
+    This is pipy's equivalent of Pi's ``--session-dir`` root: an explicit
+    ``session_dir`` overrides everything (Pi ``--session-dir``/``$PI_SESSION_DIR``),
+    otherwise it is ``<state_root>/native-sessions`` (with ``state_root``
+    defaulting through ``PIPY_NATIVE_SESSIONS_ROOT`` and the XDG state home).
+    """
+
+    if session_dir is not None:
+        return Path(session_dir).expanduser()
     root = state_root or default_state_root()
-    return root / "native-sessions" / encode_cwd_dir_name(cwd)
+    return root / "native-sessions"
+
+
+def default_native_session_dir(
+    cwd: Path,
+    *,
+    state_root: Path | None = None,
+    sessions_root: Path | None = None,
+) -> Path:
+    root = sessions_root or native_sessions_root(state_root=state_root)
+    return root / encode_cwd_dir_name(cwd)
+
+
+def list_session_dirs(sessions_root: Path) -> list[Path]:
+    """List per-project session directories under a sessions root.
+
+    Project dirs are the ``--<encoded-cwd>--`` directories written by
+    :func:`encode_cwd_dir_name`. Missing roots yield an empty list.
+    """
+
+    root = Path(sessions_root).expanduser()
+    if not root.is_dir():
+        return []
+    return sorted(
+        p for p in root.glob("--*--") if p.is_dir()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +585,28 @@ def _new_session_id() -> str:
     return uuid.uuid4().hex
 
 
+_SAFE_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """Reject session ids that are unsafe as a filename component.
+
+    A session id becomes part of the session **filename**
+    (``<timestamp>_<id>.jsonl``), so an id containing path separators, ``..``,
+    absolute-path syntax, control bytes, or other unexpected characters could
+    escape the per-project store or overwrite unintended files. Only
+    ``[A-Za-z0-9_-]`` (1-128 chars) is allowed (auto-generated uuid-hex ids
+    satisfy this); anything else raises ``ValueError``.
+    """
+
+    if not _SAFE_SESSION_ID_RE.fullmatch(session_id):
+        raise ValueError(
+            "session id must be 1-128 characters of letters, digits, '-', or "
+            f"'_' (got {session_id!r})"
+        )
+    return session_id
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -618,7 +676,13 @@ class NativeSessionTree:
         timestamp: str | None = None,
     ) -> NativeSessionTree:
         resolved_cwd = cwd.expanduser().resolve()
-        sid = session_id or _new_session_id()
+        # An explicitly-provided id (e.g. --session-id) lands in the filename,
+        # so validate it as a safe filename component before use.
+        sid = (
+            validate_session_id(session_id)
+            if session_id is not None
+            else _new_session_id()
+        )
         ts = timestamp or _now_iso()
         header = SessionHeader(
             id=sid,
@@ -679,12 +743,14 @@ class NativeSessionTree:
         session_dir: Path | None = None,
         state_root: Path | None = None,
         persist: bool = True,
+        session_id: str | None = None,
     ) -> NativeSessionTree:
         """Create a new session file containing the active branch of ``source``.
 
         When ``leaf_id`` is given, only the root->leaf path is copied;
         otherwise the source's current leaf path is used. The new file records
-        ``parentSession`` pointing at the source.
+        ``parentSession`` pointing at the source. ``session_id`` names the new
+        forked file (Pi ``--fork`` + ``--session-id``); it defaults to a fresh id.
         """
 
         source = cls.open(source_path, persist=False)
@@ -694,6 +760,7 @@ class NativeSessionTree:
             session_dir=session_dir,
             state_root=state_root,
             persist=persist,
+            session_id=session_id,
             parent_session=str(Path(source_path).expanduser()),
         )
         # Re-create entries fresh so ids are unique in the new file. Labels are

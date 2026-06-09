@@ -18,12 +18,8 @@ from pipy_harness.adapters import (
 )
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import (
-    RESUME_RELATIONSHIP_BRANCH,
-    RESUME_RELATIONSHIP_RESUME,
     RunRequest,
     RunResult,
-    SessionLineage,
-    validate_branch_label,
 )
 from pipy_harness.native import (
     DEFAULT_NATIVE_MODELS,
@@ -53,6 +49,7 @@ from pipy_harness.native.provider_registry import (
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.version_check import pipy_version
@@ -300,25 +297,21 @@ def build_parser() -> argparse.ArgumentParser:
             "default. Mutation tools always stay inside the workspace."
         ),
     )
+    # Retired metadata-only session flags. They are still *recognized* (hidden)
+    # so they fail with a clear retirement message instead of argparse silently
+    # abbreviating "--resume" to "--resume-session" (the picker flag) and
+    # treating the value as a positional prompt.
     repl_parser.add_argument(
         "--resume",
+        dest="retired_resume",
         metavar="RECORD",
-        help=(
-            "Resume from a finalized session record (basename or stem). Seeds a "
-            "fresh session with only the safe metadata-only resume context "
-            "(prior provider/model/turn labels). The prior record is never "
-            "modified and no raw transcript is copied."
-        ),
+        help=argparse.SUPPRESS,
     )
     repl_parser.add_argument(
         "--branch",
+        dest="retired_branch",
         metavar="LABEL",
-        help=(
-            "Start a child branch from the --resume parent with a safe label. "
-            "The child records safe parent id, branch label, fork timestamp, "
-            "and relationship metadata; the parent record stays immutable. "
-            "Requires --resume."
-        ),
+        help=argparse.SUPPRESS,
     )
     # Native product session-tree startup controls (Pi-style). These select
     # the durable native session under the native-session store; ``pipy-session``
@@ -360,6 +353,37 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Fork a native product session file or partial id into a new native "
             "session (Pi `--fork`)."
+        ),
+    )
+    repl_parser.add_argument(
+        "--session-id",
+        dest="session_id",
+        metavar="ID",
+        help=(
+            "Open the native product session with this exact id for the current "
+            "workspace, or create a fresh one carrying it (Pi `--session-id`). "
+            "Mutually exclusive with --session/--continue/--resume-session/"
+            "--no-session."
+        ),
+    )
+    repl_parser.add_argument(
+        "--session-dir",
+        dest="session_dir",
+        metavar="DIR",
+        help=(
+            "Use DIR as the native session store root instead of the default "
+            "state directory (Pi `--session-dir`). Per-project session files "
+            "live in encoded-cwd subdirectories under it."
+        ),
+    )
+    repl_parser.add_argument(
+        "-n",
+        "--name",
+        dest="session_name",
+        metavar="NAME",
+        help=(
+            "Name the native product session for this run (Pi `--name`/`-n`). "
+            "Applied after the session is created/opened/forked."
         ),
     )
     repl_parser.add_argument(
@@ -602,6 +626,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "repl":
             if args.agent != "pipy-native":
                 raise ValueError("pipy repl currently requires --agent pipy-native")
+            # Validate session flags (retired --resume/--branch + mutual
+            # exclusion) up front and unconditionally, before any repl-mode
+            # branch or native-session resolution, so the rejection never
+            # depends on a downstream code path being reached.
+            _validate_native_session_flags(args)
             validate_native_repl_input_runtime(
                 input_stream=sys.stdin,
                 error_stream=sys.stderr,
@@ -609,11 +638,13 @@ def main(argv: list[str] | None = None) -> int:
                 workspace=args.cwd,
             )
             repl_adapter: PipyNativeReplAdapter | PipyNativeToolReplAdapter
-            resume_context, resume_lineage, resume_branch_label = _resolve_repl_resume(
-                resume=args.resume,
-                branch=args.branch,
-                root=args.root,
-            )
+            # The native product session tree (Pi-style --session/--fork/-c/-r)
+            # is the product session source; the old metadata-only --resume
+            # RECORD / --branch LABEL repl flags were retired in favour of it.
+            # `pipy-session resume-info` remains the separate archive utility.
+            resume_context = None
+            resume_lineage = None
+            resume_branch_label = None
             # Layered settings: a settings.json defaultProvider/defaultModel/theme
             # is the source of truth over the legacy local-state store (CLI flags
             # still win). The store remains the fallback for selection.
@@ -729,6 +760,10 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             return result.exit_code
+    except StartupSessionAborted:
+        # Declined the cross-project fork prompt (Pi prints "Aborted." / exit 0).
+        print("pipy: aborted.", file=sys.stderr)
+        return 0
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 2
@@ -1186,54 +1221,54 @@ def _fallback_default_selection(
     return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
 
 
-def _resolve_repl_resume(
-    *,
-    resume: str | None,
-    branch: str | None,
-    root: Path | None,
-) -> tuple[Any, SessionLineage | None, str | None]:
-    """Resolve --resume/--branch into a metadata-only context + lineage.
+def _run_startup_resume_picker(args: Any) -> Path | None:
+    """Open the interactive native-session picker for ``-r`` on a real TTY.
 
-    Returns ``(resume_context, lineage, branch_label)``. The resume context is
-    read read-only from the finalized parent record; the parent is never
-    modified. Raises ``ValueError`` on a missing/malformed parent or an unsafe
-    branch label so the CLI reports it cleanly.
+    Returns the chosen native session file to open, or ``None`` to fall back to
+    continuing the most recent session when no interactive picker runs (non-TTY
+    or no sessions to pick). When the picker *does* run and the user cancels it
+    (Esc/Ctrl-C/Ctrl-D), this raises :class:`StartupSessionAborted` so the run
+    exits cleanly like Pi's "No session selected" rather than silently
+    continuing a different session. Shares the in-session ``/resume`` picker.
     """
 
-    if branch is not None and resume is None:
-        raise ValueError("--branch requires --resume")
-    if resume is None:
-        return None, None, None
-
-    from datetime import UTC, datetime
-
-    from pipy_session.recorder import resolve_session_root
-
-    from pipy_harness.native.session_resume import (
-        build_session_lineage,
-        resume_session_from_archive,
+    if not _startup_stdin_is_tty():
+        return None
+    cwd = args.cwd.expanduser().resolve()
+    sessions_root = _native_sessions_root_override(args)
+    from pipy_harness.native.session_tree import (
+        default_native_session_dir,
+        native_sessions_root,
     )
+    from pipy_harness.native.session_tree_commands import (
+        list_all_native_sessions,
+        list_native_sessions,
+    )
+    from pipy_harness.native.tui import run_startup_session_picker
 
-    session_root = resolve_session_root(root)
+    project_dir = default_native_session_dir(cwd, sessions_root=sessions_root)
+    root = native_sessions_root(session_dir=sessions_root)
+    project_sessions = list_native_sessions(project_dir)
+    all_sessions = list_all_native_sessions(root)
+    if not project_sessions and not all_sessions:
+        return None
+    picked = run_startup_session_picker(
+        project_sessions=project_sessions,
+        all_sessions=all_sessions,
+        current_cwd=str(cwd),
+    )
+    if picked is None:
+        # The interactive picker ran and the user cancelled it; abort cleanly
+        # (exit 0) instead of falling through to continue-most-recent.
+        raise StartupSessionAborted("")
+    return picked
+
+
+def _startup_stdin_is_tty() -> bool:
     try:
-        context = resume_session_from_archive(resume, session_root=session_root)
-    except LookupError as exc:
-        raise ValueError(f"--resume record not found: {exc}") from exc
-
-    branch_label: str | None = None
-    relationship = RESUME_RELATIONSHIP_RESUME
-    if branch is not None:
-        branch_label = validate_branch_label(branch)
-        relationship = RESUME_RELATIONSHIP_BRANCH
-
-    fork_timestamp = datetime.now(UTC).isoformat()
-    lineage = build_session_lineage(
-        context,
-        relationship=relationship,
-        fork_timestamp=fork_timestamp,
-        branch_label=branch_label,
-    )
-    return context, lineage, branch_label
+        return bool(sys.stdin) and sys.stdin.isatty() and sys.stdout.isatty()
+    except (ValueError, OSError):
+        return False
 
 
 def _resolve_repl_mode(
@@ -1348,30 +1383,156 @@ def _tool_repl_adapter_for(
     )
 
 
+def _validate_native_session_flags(args: Any) -> None:
+    """Enforce Pi's startup-flag mutual exclusion before resolving a session.
+
+    Matches ``validateForkFlags``/``validateSessionIdFlags`` in Pi's
+    ``main.ts``: ``--fork`` and ``--session-id`` each conflict with
+    ``--session``, ``--continue``, ``--resume-session``, and ``--no-session``.
+    ``--fork`` may be combined with ``--session-id`` (the id names the new
+    forked session).
+    """
+
+    if (
+        getattr(args, "retired_resume", None) is not None
+        or getattr(args, "retired_branch", None) is not None
+    ):
+        raise ValueError(
+            "--resume/--branch were retired; the native session tree is the "
+            "product session source. Use -c/--continue, -r/--resume-session, "
+            "--session, --session-id, or --fork (or /resume in-session). The "
+            "metadata-only archive reader remains as 'pipy-session resume-info'."
+        )
+
+    # ``is not None`` (not truthiness) so an explicit empty ``--session ""`` /
+    # ``--fork ""`` still counts as present for conflict + required-target
+    # handling instead of being silently ignored.
+    conflict_specs = (
+        ("--session", getattr(args, "session_target", None) is not None),
+        ("--continue", bool(getattr(args, "continue_recent", False))),
+        ("--resume-session", bool(getattr(args, "resume_picker", False))),
+        ("--no-session", bool(getattr(args, "no_session", False))),
+    )
+    if getattr(args, "fork_target", None) is not None:
+        clashes = [name for name, present in conflict_specs if present]
+        if clashes:
+            raise ValueError(
+                "--fork cannot be combined with " + ", ".join(clashes)
+            )
+    # Use ``is not None`` so an explicit empty ``--session-id ""`` is not
+    # silently treated as absent (it bypasses validation/mutual exclusion);
+    # an empty value is rejected downstream by ``validate_session_id``.
+    if getattr(args, "session_id", None) is not None:
+        clashes = [name for name, present in conflict_specs if present]
+        if clashes:
+            raise ValueError(
+                "--session-id cannot be combined with " + ", ".join(clashes)
+            )
+
+
+def _native_sessions_root_override(args: Any) -> Path | None:
+    """Resolve the Pi ``--session-dir`` native-store root override.
+
+    Only the ``--session-dir`` flag (or Pi's own ``$PI_SESSION_DIR``) overrides
+    the native session store root. ``$PIPY_SESSION_DIR`` is deliberately *not*
+    honored here: it points at the separate ``pipy-session`` metadata archive,
+    and reusing it would write native product transcripts into the archive's
+    directory tree. The native store root otherwise comes from
+    ``$PIPY_NATIVE_SESSIONS_ROOT`` via ``default_state_root()``.
+    """
+
+    flag = getattr(args, "session_dir", None)
+    if flag:
+        return Path(flag).expanduser()
+    env_dir = os.environ.get("PI_SESSION_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return None
+
+
+def _confirm_cross_project_fork(other_cwd: str) -> bool:
+    """Prompt to fork a session found in a different project (Pi behavior)."""
+
+    print(
+        f"pipy: session found in different project: {other_cwd}",
+        file=sys.stderr,
+    )
+    print(
+        "Fork this session into current directory? [y/N] ",
+        end="",
+        file=sys.stderr,
+        flush=True,
+    )
+    try:
+        answer = sys.stdin.readline()
+    except (OSError, ValueError):
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 def _resolve_native_startup_session(args: Any) -> Any:
     """Build the native product session tree for a ``pipy repl`` run.
 
-    Maps the Pi-style startup flags to a native session, preferring the most
-    specific flag: ``--no-session`` > ``--session`` > ``--fork`` >
-    ``--continue/-c`` > ``--resume-session/-r`` > default (new session).
+    Maps the Pi-style startup flags to a native session. Mutually exclusive
+    flag combinations are rejected first (matching Pi). A ``--session`` partial
+    id that resolves only in a *different* project prompts to fork it into the
+    current workspace (Pi cross-project behavior). ``--name``/``-n`` is applied
+    after the session is resolved, and ``--session-dir`` overrides the native
+    session store root.
     """
 
     from pipy_harness.native.session_tree_commands import resolve_startup_session
 
+    _validate_native_session_flags(args)
+
     cwd = args.cwd.expanduser().resolve()
+    sessions_root = _native_sessions_root_override(args)
+    name = getattr(args, "session_name", None)
+    session_id = getattr(args, "session_id", None)
+
     if getattr(args, "no_session", False):
         mode, target = "none", None
-    elif getattr(args, "session_target", None):
+    elif getattr(args, "session_target", None) is not None:
         mode, target = "session", args.session_target
-    elif getattr(args, "fork_target", None):
+    elif getattr(args, "fork_target", None) is not None:
         mode, target = "fork", args.fork_target
+    elif session_id is not None:
+        # An explicit (even empty) --session-id selects session-id mode; an
+        # empty value is then rejected by the resolver / validate_session_id.
+        mode, target = "session-id", session_id
     elif getattr(args, "continue_recent", False):
         mode, target = "continue", None
     elif getattr(args, "resume_picker", False):
-        mode, target = "resume", None
+        mode, target = _resolve_startup_resume_mode(args)
     else:
         mode, target = "new", None
-    return resolve_startup_session(cwd, mode=mode, target=target)
+
+    def confirm(ref: Any) -> bool:
+        return _confirm_cross_project_fork(getattr(ref, "cwd", "") or "")
+
+    return resolve_startup_session(
+        cwd,
+        mode=mode,
+        target=target,
+        name=name,
+        session_id=session_id if mode in ("fork", "session") else None,
+        sessions_root=sessions_root,
+        confirm_fork=confirm,
+    )
+
+
+def _resolve_startup_resume_mode(args: Any) -> tuple[str, str | None]:
+    """Resolve the ``-r``/``--resume-session`` startup mode.
+
+    On a real TTY this opens the interactive native-session picker; otherwise
+    (captured/non-TTY) it deterministically continues the most recent native
+    session, matching the documented fallback.
+    """
+
+    picked = _run_startup_resume_picker(args)
+    if picked is not None:
+        return "session", str(picked)
+    return "continue", None
 
 
 def _select_repl_app_mode(args: Any) -> str:

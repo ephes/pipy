@@ -23,7 +23,7 @@ import tty
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, cast
 
 from pipy_harness.native.chrome import (
     chrome_style_for,
@@ -41,7 +41,18 @@ from pipy_harness.native.editor_completion import (
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
+from pipy_harness.native.session_tree_commands import (
+    SessionListEntry,
+    SessionPickerRow,
+    build_session_picker_rows,
+    format_session_picker_label,
+    sanitize_label_text,
+)
 
+
+# Sentinel returned by the session-picker key handler to mean "stay open"
+# (distinct from ``None``, which cancels the picker).
+_PICKER_CONTINUE = object()
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
 _MIN_WIDTH = 60
@@ -242,6 +253,25 @@ class ToolLoopTerminalUi:
     scoped_models_rows: tuple["ScopedModelRow", ...] = ()
     scoped_models_selection: int = 0
     scoped_models_checked: set[int] = field(default_factory=set)
+    # Interactive session picker overlay state (the /resume + -r picker, Pi's
+    # session-selector). The picker runs no provider turn. ``_mode`` is
+    # ``list`` | ``rename`` | ``confirm-delete``; the underlying lists are the
+    # current-project and all-projects session entries the rows are built from.
+    session_picker_open: bool = False
+    session_picker_rows: tuple["SessionPickerRow", ...] = ()
+    session_picker_selection: int = 0
+    session_picker_query: str = ""
+    session_picker_scope: str = "current"
+    session_picker_sort: str = "recent"
+    session_picker_named_only: bool = False
+    session_picker_show_path: bool = False
+    session_picker_mode: str = "list"
+    session_picker_input: str = ""
+    session_picker_status: str = ""
+    session_picker_current: Path | None = None
+    _session_picker_project: list["SessionListEntry"] = field(default_factory=list)
+    _session_picker_all: list["SessionListEntry"] = field(default_factory=list)
+    _session_picker_now: float = 0.0
     # Folding/expansion view flags (Pi: Ctrl+O tool-output expansion, Ctrl+T
     # thinking-block fold). These govern how the live region and newly committed
     # blocks render; blocks already scrolled into native scrollback keep the
@@ -1110,6 +1140,384 @@ class ToolLoopTerminalUi:
         lines.extend(footer)
         return lines
 
+    # -- interactive session picker (/resume + -r overlay) ------------------
+
+    def run_session_picker(
+        self,
+        *,
+        project_sessions: Sequence[SessionListEntry],
+        all_sessions: Sequence[SessionListEntry],
+        current_path: Path | None = None,
+        on_rename: Callable[[Path, str], None] | None = None,
+        on_delete: Callable[[Path], tuple[bool, str]] | None = None,
+        now: float | None = None,
+    ) -> Path | None:
+        """Drive the interactive session picker; return a chosen session file.
+
+        Typing searches; ``↑/↓`` move; ``Enter`` opens the highlighted session;
+        ``Tab`` toggles current-project / all-projects scope; ``Ctrl+P`` toggles
+        the file-path column; ``Ctrl+S`` cycles the sort; ``Ctrl+N`` filters to
+        named sessions; ``Ctrl+R`` renames and ``Ctrl+X`` deletes (each with an
+        in-overlay confirmation/edit); ``Esc``/``Ctrl+C``/``Ctrl+D``/EOF cancel.
+        Runs no provider turn and no model-visible tool call.
+        """
+
+        import time as _time
+
+        self._session_picker_project = list(project_sessions)
+        self._session_picker_all = list(all_sessions)
+        self.session_picker_current = current_path
+        self.session_picker_query = ""
+        self.session_picker_scope = "current"
+        self.session_picker_sort = "recent"
+        self.session_picker_named_only = False
+        self.session_picker_show_path = False
+        self.session_picker_mode = "list"
+        self.session_picker_input = ""
+        self.session_picker_status = ""
+        self.session_picker_selection = 0
+        self._session_picker_now = now if now is not None else _time.time()
+        self.session_picker_open = True
+        self._rebuild_session_picker_rows()
+        self._session_picker_select_current()
+        self.paint()
+        fd = self.input_stream.fileno()
+        try:
+            self._enter_raw_mode()
+            while True:
+                key = self._read_key_polling_resize(fd)
+                outcome = self._handle_session_picker_key(
+                    key, on_rename=on_rename, on_delete=on_delete
+                )
+                if outcome is _PICKER_CONTINUE:
+                    continue
+                self._close_session_picker()
+                # Past the sentinel, the outcome is the chosen path or a cancel.
+                return cast("Path | None", outcome)
+        finally:
+            self._restore_terminal_mode()
+
+    def _rebuild_session_picker_rows(self) -> None:
+        rows = build_session_picker_rows(
+            self._session_picker_project,
+            self._session_picker_all,
+            scope=self.session_picker_scope,
+            query=self.session_picker_query,
+            sort=self.session_picker_sort,
+            named_only=self.session_picker_named_only,
+            current_path=self.session_picker_current,
+        )
+        self.session_picker_rows = tuple(rows)
+        if self.session_picker_selection >= len(rows):
+            self.session_picker_selection = max(0, len(rows) - 1)
+
+    def _session_picker_select_current(self) -> None:
+        for index, row in enumerate(self.session_picker_rows):
+            if row.is_current:
+                self.session_picker_selection = index
+                return
+
+    def _selected_session_row(self) -> "SessionPickerRow | None":
+        if 0 <= self.session_picker_selection < len(self.session_picker_rows):
+            return self.session_picker_rows[self.session_picker_selection]
+        return None
+
+    def _handle_session_picker_key(
+        self,
+        key: str | None,
+        *,
+        on_rename: Callable[[Path, str], None] | None,
+        on_delete: Callable[[Path], tuple[bool, str]] | None,
+    ) -> "Path | None | object":
+        if self.session_picker_mode == "rename":
+            return self._handle_session_rename_key(key, on_rename)
+        if self.session_picker_mode == "confirm-delete":
+            return self._handle_session_delete_key(key, on_delete)
+        # --- list mode ----------------------------------------------------
+        if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
+            return None
+        if key == "paste":
+            self._pending_paste = ""
+            return _PICKER_CONTINUE
+        if key in {"up", "down"}:
+            self._navigate_session_picker(key)
+            return _PICKER_CONTINUE
+        if key == "enter":
+            row = self._selected_session_row()
+            if row is not None:
+                return row.path
+            return _PICKER_CONTINUE
+        if key == "tab":
+            self.session_picker_scope = (
+                "all" if self.session_picker_scope == "current" else "current"
+            )
+            self.session_picker_selection = 0
+            self.session_picker_status = ""
+            self._rebuild_session_picker_rows()
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "ctrl-p":
+            self.session_picker_show_path = not self.session_picker_show_path
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "\x13":  # Ctrl+S — cycle sort
+            self.session_picker_sort = (
+                "name" if self.session_picker_sort == "recent" else "recent"
+            )
+            self._rebuild_session_picker_rows()
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "\x0e":  # Ctrl+N — named-only filter
+            self.session_picker_named_only = not self.session_picker_named_only
+            self.session_picker_selection = 0
+            self._rebuild_session_picker_rows()
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "\x12":  # Ctrl+R — rename
+            row = self._selected_session_row()
+            if on_rename is not None and row is not None:
+                self.session_picker_mode = "rename"
+                self.session_picker_input = row.name or ""
+                self.session_picker_status = ""
+                self.paint()
+            return _PICKER_CONTINUE
+        if key == "\x18":  # Ctrl+X — delete (confirm)
+            row = self._selected_session_row()
+            if on_delete is not None and row is not None:
+                if row.is_current:
+                    self.session_picker_status = "cannot delete the active session"
+                else:
+                    self.session_picker_mode = "confirm-delete"
+                self.paint()
+            return _PICKER_CONTINUE
+        if key == "backspace":
+            if self.session_picker_query:
+                self.session_picker_query = self.session_picker_query[:-1]
+                self.session_picker_selection = 0
+                self._rebuild_session_picker_rows()
+                self.paint()
+            return _PICKER_CONTINUE
+        if len(key) == 1 and key.isprintable():
+            self.session_picker_query += key
+            self.session_picker_selection = 0
+            self._rebuild_session_picker_rows()
+            self.paint()
+        return _PICKER_CONTINUE
+
+    def _handle_session_rename_key(
+        self, key: str | None, on_rename: Callable[[Path, str], None] | None
+    ) -> "Path | None | object":
+        # Ctrl-C/Ctrl-D (and EOF) cancel the whole picker from any sub-mode;
+        # Esc backs out of the rename to the list (see below).
+        if key is None or key in {"ctrl-c", "ctrl-d"}:
+            return None
+        if key == "esc":
+            self.session_picker_mode = "list"
+            self.session_picker_input = ""
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "enter":
+            row = self._selected_session_row()
+            name = self.session_picker_input.strip()
+            if row is not None and name and on_rename is not None:
+                on_rename(row.path, name)
+                self._apply_session_rename(row.path, name)
+                self.session_picker_status = f"renamed to {name}"
+            self.session_picker_mode = "list"
+            self.session_picker_input = ""
+            self._rebuild_session_picker_rows()
+            self.paint()
+            return _PICKER_CONTINUE
+        if key == "backspace":
+            self.session_picker_input = self.session_picker_input[:-1]
+            self.paint()
+            return _PICKER_CONTINUE
+        if len(key) == 1 and key.isprintable():
+            self.session_picker_input += key
+            self.paint()
+        return _PICKER_CONTINUE
+
+    def _handle_session_delete_key(
+        self, key: str | None, on_delete: Callable[[Path], tuple[bool, str]] | None
+    ) -> "Path | None | object":
+        # Ctrl-C/Ctrl-D (and EOF) cancel the whole picker; Esc/Enter/n take the
+        # safe [y/N] default and back out to the list.
+        if key is None or key in {"ctrl-c", "ctrl-d"}:
+            return None
+        # The prompt is `[y/N]`: only an explicit `y` confirms; Enter (and Esc/n)
+        # take the safe default and cancel the deletion.
+        if key in {"y", "Y"}:
+            row = self._selected_session_row()
+            if row is not None and on_delete is not None:
+                ok, detail = on_delete(row.path)
+                if ok:
+                    self._remove_session_entry(row.path)
+                self.session_picker_status = detail
+            self.session_picker_mode = "list"
+            self.session_picker_selection = 0
+            self._rebuild_session_picker_rows()
+            self.paint()
+            return _PICKER_CONTINUE
+        if key in {"esc", "enter", "n", "N"}:
+            self.session_picker_mode = "list"
+            self.paint()
+        return _PICKER_CONTINUE
+
+    def _navigate_session_picker(self, key: str) -> None:
+        total = len(self.session_picker_rows)
+        if total == 0:
+            return
+        delta = -1 if key == "up" else 1
+        self.session_picker_selection = (
+            self.session_picker_selection + delta
+        ) % total
+        self.paint()
+
+    def _apply_session_rename(self, path: Path, name: str) -> None:
+        def relabel(entries: list[SessionListEntry]) -> list[SessionListEntry]:
+            updated: list[SessionListEntry] = []
+            for entry in entries:
+                if entry.path == path:
+                    updated.append(
+                        SessionListEntry(
+                            path=entry.path,
+                            session_id=entry.session_id,
+                            name=name,
+                            message_count=entry.message_count,
+                            cwd=entry.cwd,
+                            mtime=entry.mtime,
+                        )
+                    )
+                else:
+                    updated.append(entry)
+            return updated
+
+        self._session_picker_project = relabel(self._session_picker_project)
+        self._session_picker_all = relabel(self._session_picker_all)
+
+    def _remove_session_entry(self, path: Path) -> None:
+        self._session_picker_project = [
+            e for e in self._session_picker_project if e.path != path
+        ]
+        self._session_picker_all = [
+            e for e in self._session_picker_all if e.path != path
+        ]
+
+    def _close_session_picker(self) -> None:
+        self.session_picker_open = False
+        self.session_picker_rows = ()
+        self.session_picker_selection = 0
+        self.session_picker_mode = "list"
+        self.session_picker_input = ""
+        self.session_picker_query = ""
+        self._session_picker_project = []
+        self._session_picker_all = []
+        self.paint()
+
+    def _session_picker_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        """Compose the interactive session-picker overlay."""
+
+        footer = [
+            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+        ]
+        scope_label = (
+            "all projects" if self.session_picker_scope == "all" else "this project"
+        )
+        title = _FrameLine(
+            self._clip(
+                f" Resume session — {scope_label} · sort:{self.session_picker_sort}"
+                + ("· named" if self.session_picker_named_only else "")
+                + " · ↑/↓ enter · ^P path ^S sort ^N named tab scope"
+                + " ^R rename ^X delete · esc cancel",
+                width,
+            ),
+            "selector_title",
+        )
+        if self.session_picker_mode == "rename":
+            # The rename buffer is seeded from the existing (user-controlled)
+            # session name, so sanitize it before rendering to keep terminal
+            # escape sequences out of the live frame.
+            prompt = _FrameLine(
+                self._clip(
+                    f"  rename: {sanitize_label_text(self.session_picker_input)}▏",
+                    width,
+                ),
+                "input",
+            )
+        elif self.session_picker_mode == "confirm-delete":
+            row = self._selected_session_row()
+            shown = (row.name or row.session_id[:8]) if row else ""
+            prompt = _FrameLine(
+                self._clip(
+                    f"  delete {sanitize_label_text(shown)}? [y/N]", width
+                ),
+                "notice",
+            )
+        else:
+            prompt = _FrameLine(
+                self._clip(f"  search: {self.session_picker_query}", width),
+                "normal",
+            )
+        status_lines: list[_FrameLine] = []
+        if self.session_picker_status:
+            # The status echoes user-controlled names / delete details, so
+            # sanitize it against terminal escape injection like the row labels.
+            status_lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  {sanitize_label_text(self.session_picker_status)}",
+                        width,
+                    ),
+                    "notice",
+                )
+            )
+
+        rows_data = self.session_picker_rows
+        # Reserve: title + prompt + status + scroll indicator + 2 footer rows.
+        max_rows = max(1, height - 5 - len(status_lines))
+        total = len(rows_data)
+        if total == 0:
+            empty = _FrameLine(
+                self._clip("  (no native sessions)", width), "normal"
+            )
+            return [title, prompt, *status_lines, empty, *footer]
+        visible_count = min(total, max_rows)
+        start = max(
+            0,
+            min(
+                self.session_picker_selection - (visible_count // 2),
+                max(0, total - visible_count),
+            ),
+        )
+        visible = rows_data[start : start + visible_count]
+        rendered: list[_FrameLine] = []
+        for offset, row in enumerate(visible, start=start):
+            selected = offset == self.session_picker_selection
+            prefix = "→ " if selected else "  "
+            label = format_session_picker_label(
+                row,
+                show_path=self.session_picker_show_path,
+                show_cwd=self.session_picker_scope == "all",
+                now=self._session_picker_now,
+            )
+            kind = "selector_option_selected" if selected else "selector_option"
+            rendered.append(_FrameLine(self._clip(f"{prefix}{label}", width), kind))
+        lines = [title, prompt, *status_lines, *rendered]
+        if start > 0 or start + visible_count < total:
+            lines.append(
+                _FrameLine(
+                    self._clip(
+                        f"  ({self.session_picker_selection + 1}/{total})", width
+                    ),
+                    "slash_menu_scroll",
+                )
+            )
+        lines.extend(footer)
+        return lines
+
     def close(self) -> None:
         self._restore_terminal_mode()
         self._remove_resize_handler()
@@ -1521,6 +1929,7 @@ class ToolLoopTerminalUi:
             or self.settings_dialog_open
             or self.tree_selector_open
             or self.scoped_models_open
+            or self.session_picker_open
         ):
             # Park on the cursor's column *within the visible (possibly
             # horizontally scrolled) input slice*, so the hardware cursor and
@@ -1554,6 +1963,8 @@ class ToolLoopTerminalUi:
 
         if self.settings_dialog_open:
             return self._settings_dialog_region_lines(width=width, height=height)
+        if self.session_picker_open:
+            return self._session_picker_region_lines(width=width, height=height)
         if self.tree_selector_open:
             return self._tree_selector_region_lines(width=width, height=height)
         if self.scoped_models_open:
@@ -3149,3 +3560,49 @@ class ToolLoopTerminalUi:
 
 def _compact_read_header(header: str) -> str:
     return re.sub(r":\d+-\d+(?:\s+\(ctrl\+o to expand\))?$", "", header)
+
+
+def run_startup_session_picker(
+    *,
+    project_sessions: Sequence[SessionListEntry],
+    all_sessions: Sequence[SessionListEntry],
+    current_cwd: str,
+) -> Path | None:
+    """Open the ``-r`` startup session picker on a real TTY.
+
+    Constructs a standalone inline picker bound to ``sys.stdin``/``sys.stdout``
+    and returns the chosen native session file (or ``None`` when there is no TTY
+    or the user cancels). Rename/delete actions run through the same native
+    boundaries as the in-session ``/resume`` picker; no provider turn runs.
+    """
+
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return None
+    except (ValueError, OSError):
+        return None
+
+    from pipy_harness.native.session_tree import NativeSessionTree
+    from pipy_harness.native.session_tree_commands import delete_native_session
+
+    def on_rename(path: Path, new_name: str) -> None:
+        NativeSessionTree.open(path).append_session_info(new_name)
+
+    def on_delete(path: Path) -> tuple[bool, str]:
+        return delete_native_session(path)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=sys.stdin,
+        terminal_stream=sys.stdout,
+        cwd=Path(current_cwd),
+    )
+    try:
+        return ui.run_session_picker(
+            project_sessions=project_sessions,
+            all_sessions=all_sessions,
+            current_path=None,
+            on_rename=on_rename,
+            on_delete=on_delete,
+        )
+    finally:
+        ui.close()
