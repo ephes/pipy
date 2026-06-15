@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 4: tool_call policy hook
+### Extension API slice 5: lifecycle event foundation
 
-Slices 1, 2, and 3 have **landed**:
+Slices 1–4 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1427,25 +1427,30 @@ Slices 1, 2, and 3 have **landed**:
   output as live UI, with **no provider turn**. Names/descriptions appear in the
   slash menu; `/reload` re-activates. Gate:
   `scripts/parity_checks/extension_dispatch_conformance.py --json`.
+- Slice 4 (`tool_call` policy hook): an extension registers
+  `@api.on("tool_call")` (or `api.on("tool_call", handler)`) to inspect a
+  model-selected tool call's live name + parsed input before execution and
+  return `ToolBlock(reason=...)` to block it. Wired into the tool loop
+  (`dispatch_tool_call_hooks` before `_invoke`); first block wins; a crashing
+  hook fails closed; raw inputs are inspected live but not archived. Gate:
+  `scripts/parity_checks/extension_tool_call_conformance.py --json`.
 
-The selected next implementation slice adds the `tool_call` policy hook: an
-extension may register an `@api.on("tool_call")` handler that inspects a
-model-selected tool call's live name and parsed input before execution and may
-return a `ToolBlock(reason=...)` to block a built-in tool call with a safe
-reason. It enables high-value workflows (protected paths, command gating)
-without package loading or rich UI. Live tool inputs may be inspected by trusted
-local handlers, but the default archive still records no raw tool inputs.
+The selected next implementation slice adds the lifecycle event foundation:
+emit `session_start`, `session_shutdown`, `agent_start`, `turn_start`,
+`turn_end`, and `agent_end` to extension `@api.on(...)` handlers with
+mode-aware contexts and safe archive metadata only (event names + counts, no
+prompt/tool/UI content). Handlers observe; they do not alter the turn in this
+slice.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_tool_call_hook.py
+uv run pytest tests/test_native_extension_lifecycle.py
 just check
 ```
 
-The expected follow-up slice is the lifecycle event foundation
-(`session_start` / `agent_start` / `turn_start` / `turn_end` / `agent_end` /
-`session_shutdown`).
+The expected follow-up slice is `input` + `before_agent_start` hooks and
+`send_user_message`.
 
 ## Near Term
 

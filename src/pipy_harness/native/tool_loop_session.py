@@ -128,10 +128,13 @@ from pipy_harness.native.session_tree_commands import (
     visible_tree_entries,
 )
 from pipy_harness.native.extension_runtime import (
+    HookHandler,
     RegisteredCommand,
     activate_extensions,
     dispatch_extension_command,
+    dispatch_tool_call_hooks,
     extension_command_map,
+    extension_tool_call_hooks,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.resources import (
@@ -458,13 +461,19 @@ def _tool_loop_command_descriptions(
 def _activate_workspace_extensions(
     cwd: Path,
     resources: WorkspaceResources,
-) -> tuple[dict[str, RegisteredCommand], tuple[str, ...], dict[str, str]]:
-    """Discover + activate extensions and project their slash commands.
+) -> tuple[
+    dict[str, RegisteredCommand],
+    tuple[str, ...],
+    dict[str, str],
+    tuple[HookHandler, ...],
+]:
+    """Discover + activate extensions and project their contributions.
 
     Reserved names are the executable built-in/custom command set, so an
     extension command can never shadow a built-in or a custom command.
     Returns the command map (for dispatch), the menu ``/<name>`` labels,
-    and a name->description map (for the slash menu). Activation runs
+    a name->description map (for the slash menu), and the ordered
+    ``tool_call`` hooks (for the tool-call policy gate). Activation runs
     extension code; any failing extension is disabled by
     ``activate_extensions`` without affecting the session.
     """
@@ -479,7 +488,23 @@ def _activate_workspace_extensions(
     descriptions = {
         f"/{command.name}": command.description for command in command_map.values()
     }
-    return command_map, menu_names, descriptions
+    tool_call_hooks = extension_tool_call_hooks(activated)
+    return command_map, menu_names, descriptions, tool_call_hooks
+
+
+def _parse_tool_input(arguments_json: str) -> dict[str, object]:
+    """Parse a tool call's argument JSON into a dict for hook inspection.
+
+    A non-object or unparseable payload yields an empty mapping; hooks
+    must tolerate missing keys. The parsed input is for live hook
+    inspection only and is not archived.
+    """
+
+    try:
+        parsed = json.loads(arguments_json)
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -646,6 +671,7 @@ class NativeToolReplSession:
             extension_commands,
             extension_menu_names,
             extension_descriptions,
+            extension_tool_call_hooks_,
         ) = _activate_workspace_extensions(cwd, workspace_resources)
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
@@ -1338,6 +1364,7 @@ class NativeToolReplSession:
                     extension_commands,
                     extension_menu_names,
                     extension_descriptions,
+                    extension_tool_call_hooks_,
                 ) = _activate_workspace_extensions(cwd, workspace_resources)
                 # Re-apply the edited theme (settings is source of truth over the
                 # persisted store) and the derived UI settings.
@@ -2201,6 +2228,43 @@ class NativeToolReplSession:
                         continue
 
                     renderer.render_tool_call(call)
+                    # Extension `tool_call` policy gate: a registered hook
+                    # may inspect the live tool name + parsed input and
+                    # return a ToolBlock to block the call. The raw input
+                    # is inspected live but never archived.
+                    tool_block = dispatch_tool_call_hooks(
+                        extension_tool_call_hooks_,
+                        tool_name=call.tool_name,
+                        tool_input=_parse_tool_input(call.arguments_json),
+                        cwd=str(cwd),
+                        has_ui=terminal_ui is not None,
+                    )
+                    if tool_block is not None:
+                        blocked_observation = self._error_observation(
+                            call=call,
+                            output_text=f"blocked by extension: {tool_block.reason}",
+                        )
+                        emitter.tool_execution_start(call)
+                        emitter.tool_execution_end(
+                            tool_call_id=call.provider_correlation_id,
+                            tool_name=call.tool_name,
+                            result=blocked_observation.output_text,
+                            is_error=True,
+                        )
+                        renderer.render_tool_result(
+                            output_text=blocked_observation.output_text,
+                            is_error=True,
+                        )
+                        turn_tool_results.append(blocked_observation)
+                        messages.append(blocked_observation)
+                        session_tree.append_message(blocked_observation)
+                        # A blocked call still consumes the per-turn tool
+                        # budget, so a provider repeating a blocked call
+                        # cannot drive the loop unbounded. It is not a real
+                        # tool invocation, so `tool_invocation_count` is
+                        # left unchanged.
+                        invocations_this_turn += 1
+                        continue
                     emitter.tool_execution_start(call)
                     active_tool_call[0] = call
                     tool_started_at = datetime.now(UTC)

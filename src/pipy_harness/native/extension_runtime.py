@@ -34,8 +34,8 @@ import importlib.machinery
 import importlib.util
 import inspect
 import sys
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
@@ -50,6 +50,33 @@ REASON_ACTIVATION_ERROR: str = "activation_error"
 REASON_INVALID_COMMAND_NAME: str = "invalid_command_name"
 REASON_RESERVED_COMMAND: str = "reserved_command"
 REASON_DUPLICATE_COMMAND: str = "duplicate_command"
+REASON_INVALID_HOOK: str = "invalid_hook"
+
+# Event names (the dispatched subset grows per slice).
+EVENT_TOOL_CALL: str = "tool_call"
+
+HookHandler = Callable[..., object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolBlock:
+    """Returned by a `tool_call` hook to block a tool call with a reason."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallEvent:
+    """The live model-selected tool call presented to a `tool_call` hook.
+
+    `tool_name` is the tool the model chose; `input` is its parsed
+    arguments. Trusted local hooks may inspect these to gate execution;
+    this live access does not change archive policy (raw tool inputs are
+    not archived by default).
+    """
+
+    tool_name: str
+    input: Mapping[str, object]
 
 _COMMAND_START_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _COMMAND_BODY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
@@ -71,6 +98,12 @@ class PipyExtensionAPI(Protocol):
         description: str,
         handler: CommandHandler,
     ) -> None: ...
+
+    def on(
+        self,
+        event: str,
+        handler: HookHandler | None = None,
+    ) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +135,7 @@ class ActivatedExtension:
     reason: str | None
     commands: tuple[RegisteredCommand, ...]
     diagnostic: str | None
+    hooks: Mapping[str, tuple[HookHandler, ...]] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -274,6 +308,7 @@ class _ActivationApi:
         self._reserved = reserved
         self._taken = taken
         self._staged: dict[str, RegisteredCommand] = {}
+        self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
 
     def register_command(
@@ -313,12 +348,50 @@ class _ActivationApi:
             extension=self._extension_name,
         )
 
+    def on(
+        self,
+        event: str,
+        handler: HookHandler | None = None,
+    ) -> object:
+        """Register an event hook. Supports decorator and direct forms.
+
+        `api.on("tool_call", handler)` registers directly;
+        `@api.on("tool_call")` returns a decorator. Any non-empty event
+        name is accepted (only dispatched events fire); an invalid event
+        or non-callable handler records a failure and re-raises, so the
+        extension is disabled even if it swallows the error.
+        """
+
+        if handler is None:
+            def _decorator(func: HookHandler) -> HookHandler:
+                self._register_hook(event, func)
+                return func
+
+            return _decorator
+        self._register_hook(event, handler)
+        return handler
+
+    def _register_hook(self, event: str, handler: HookHandler) -> None:
+        try:
+            if not isinstance(event, str) or not event:
+                raise _ActivationError(REASON_INVALID_HOOK)
+            if not callable(handler):
+                raise _ActivationError(REASON_INVALID_HOOK)
+            self._hooks.setdefault(event, []).append(handler)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
     @property
     def failure(self) -> tuple[str, str | None] | None:
         return self._failure
 
     def staged_commands(self) -> tuple[RegisteredCommand, ...]:
         return tuple(self._staged.values())
+
+    def staged_hooks(self) -> dict[str, tuple[HookHandler, ...]]:
+        return {event: tuple(handlers) for event, handlers in self._hooks.items()}
 
 
 def activate_extensions(
@@ -407,7 +480,55 @@ def _activate_one(
         reason=None,
         commands=commands,
         diagnostic=None,
+        hooks=api.staged_hooks(),
     )
+
+
+def extension_tool_call_hooks(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[HookHandler, ...]:
+    """Collect `tool_call` hooks from activated extensions, in order."""
+
+    hooks: list[HookHandler] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        hooks.extend(extension.hooks.get(EVENT_TOOL_CALL, ()))
+    return tuple(hooks)
+
+
+def dispatch_tool_call_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    tool_name: str,
+    tool_input: Mapping[str, object],
+    cwd: str,
+    has_ui: bool,
+) -> ToolBlock | None:
+    """Run `tool_call` hooks for one tool call; return the first block.
+
+    Each hook receives a `ToolCallEvent` (live tool name + parsed input)
+    and a mode-aware context. The first hook to return a `ToolBlock`
+    blocks the call; hooks returning anything else allow it. A hook that
+    raises fails closed (blocks with a safe reason), since a policy gate
+    that errors must not silently allow the action. `KeyboardInterrupt` /
+    `SystemExit` propagate (user abort is never swallowed).
+    """
+
+    event = ToolCallEvent(tool_name=tool_name, input=tool_input)
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail closed on a bad gate
+            return ToolBlock(reason="extension tool_call hook error")
+        if isinstance(result, ToolBlock):
+            return result
+    return None
 
 
 def _import_entry_module(descriptor: ExtensionDescriptor) -> object:
@@ -510,30 +631,34 @@ def _safe_module_segment(name: str) -> str:
 
 
 def _run_awaitable(awaitable: object) -> None:
-    """Drive an async `activate` coroutine to completion.
+    """Drive an async `activate` coroutine to completion (return ignored)."""
+
+    _drive_awaitable(awaitable)
+
+
+def _drive_awaitable(awaitable: object) -> object:
+    """Drive an awaitable to completion and return its result.
 
     Works whether or not the caller is already inside a running event
     loop: with no loop, `asyncio.run` is used directly; with a running
-    loop (we cannot block it from the same thread), the coroutine is
+    loop (we cannot block it from the same thread), the awaitable is
     driven in a dedicated worker thread with its own fresh loop. Any
     exception (including an `_ActivationError` raised inside the
-    coroutine) is re-raised in the calling thread, preserving its type so
-    the caller maps it to the right reason code.
+    coroutine) is re-raised in the calling thread, preserving its type.
     """
 
     import asyncio
 
     if not _event_loop_is_running():
-        asyncio.run(_as_coroutine(awaitable))
-        return
+        return asyncio.run(_as_coroutine(awaitable))
 
     import threading
 
-    box: dict[str, BaseException] = {}
+    box: dict[str, object] = {}
 
     def _runner() -> None:
         try:
-            asyncio.run(_as_coroutine(awaitable))
+            box["value"] = asyncio.run(_as_coroutine(awaitable))
         except BaseException as err:  # noqa: BLE001 - re-raised below
             box["err"] = err
 
@@ -541,7 +666,8 @@ def _run_awaitable(awaitable: object) -> None:
     thread.start()
     thread.join()
     if "err" in box:
-        raise box["err"]
+        raise box["err"]  # type: ignore[misc]
+    return box.get("value")
 
 
 def _event_loop_is_running() -> bool:
@@ -554,8 +680,8 @@ def _event_loop_is_running() -> bool:
     return True
 
 
-async def _as_coroutine(awaitable: object) -> None:
-    await awaitable  # type: ignore[misc]
+async def _as_coroutine(awaitable: object) -> object:
+    return await awaitable  # type: ignore[misc]
 
 
 def _passthrough_disabled(descriptor: ExtensionDescriptor) -> ActivatedExtension:

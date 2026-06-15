@@ -764,8 +764,10 @@ extension (`tests/test_native_extension_activation.py`, gate
 `scripts/parity_checks/extension_activation_conformance.py --json`). Slice 3:
 extension `/commands` dispatch through the live tool-loop REPL
 (`dispatch_extension_command`, gate
-`scripts/parity_checks/extension_dispatch_conformance.py --json`). The next
-selected implementation slice is slice 4 (the `tool_call` policy hook).
+`scripts/parity_checks/extension_dispatch_conformance.py --json`). Slice 4: the
+`tool_call` policy hook (`api.on("tool_call")` → `ToolBlock`, gate
+`scripts/parity_checks/extension_tool_call_conformance.py --json`). The next
+selected implementation slice is slice 5 (the lifecycle event foundation).
 Discovery never imports extension code; activation imports only loadable
 descriptors.
 
@@ -789,8 +791,12 @@ descriptors.
    `pipy_harness.native.extension_runtime.dispatch_extension_command` +
    `extension_command_map` + a mode-aware `CommandContext`/`ExtensionUi`, wired
    into `tool_loop_session`.
-4. `tool_call` policy hook: allow extensions to inspect live parsed tool inputs
-   and block built-in tool calls with safe reasons.
+4. `tool_call` policy hook — **landed**: extensions register
+   `@api.on("tool_call")` to inspect live parsed tool inputs and block built-in
+   tool calls with safe reasons. Implemented as `api.on(...)` +
+   `ToolBlock`/`ToolCallEvent` + `dispatch_tool_call_hooks`/`extension_tool_call_hooks`,
+   wired into the `tool_loop_session` tool loop (first block wins; crashing hook
+   fails closed; raw inputs inspected live but not archived).
 5. Lifecycle foundation: emit `session_start`, `session_shutdown`,
    `agent_start`, `turn_start`, `turn_end`, and `agent_end` with mode-aware
    contexts and safe archive metadata only.
