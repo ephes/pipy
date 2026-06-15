@@ -190,6 +190,25 @@ def test_entry_module_is_registered_in_sys_modules(tmp_path: Path) -> None:
     assert activated.status == "activated"
 
 
+def test_keyboard_interrupt_during_activation_propagates(tmp_path: Path) -> None:
+    # A user abort during activation must propagate, not be turned into a
+    # disabled extension.
+    import pytest
+
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "intractivate",
+        "def activate(api):\n    raise KeyboardInterrupt()\n",
+    )
+    descriptors = discover_extensions(
+        workspace, config_home_env={}, home_dir=workspace
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        activate_extensions(descriptors)
+
+
 def test_missing_activate_is_disabled(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write_single_file(workspace, "noact", "x = 1\n")

@@ -761,9 +761,13 @@ boundary (`tests/test_native_extension_discovery.py`, gate
 loadable descriptors and runs `activate(api)` with `register_command` support
 via the public `pipy_harness.extensions.PipyExtensionAPI`, failing closed per
 extension (`tests/test_native_extension_activation.py`, gate
-`scripts/parity_checks/extension_activation_conformance.py --json`). The next
-selected implementation slice is slice 3 (command dispatch). Discovery never
-imports extension code; activation imports only loadable descriptors.
+`scripts/parity_checks/extension_activation_conformance.py --json`). Slice 3:
+extension `/commands` dispatch through the live tool-loop REPL
+(`dispatch_extension_command`, gate
+`scripts/parity_checks/extension_dispatch_conformance.py --json`). The next
+selected implementation slice is slice 4 (the `tool_call` policy hook).
+Discovery never imports extension code; activation imports only loadable
+descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
@@ -778,8 +782,13 @@ imports extension code; activation imports only loadable descriptors.
    Implemented as `pipy_harness.native.extension_runtime.activate_extensions` +
    `PipyExtensionAPI` + `ActivatedExtension`, with the public
    `pipy_harness.extensions` surface.
-3. Command dispatch: run extension slash commands in both REPL product paths
-   with safe diagnostics and no provider turn by default.
+3. Command dispatch — **landed**: run extension slash commands in the tool-loop
+   REPL product path with safe diagnostics and no provider turn by default,
+   after built-ins/custom commands (no shadowing), with menu listing and
+   `/reload` re-activation. Implemented as
+   `pipy_harness.native.extension_runtime.dispatch_extension_command` +
+   `extension_command_map` + a mode-aware `CommandContext`/`ExtensionUi`, wired
+   into `tool_loop_session`.
 4. `tool_call` policy hook: allow extensions to inspect live parsed tool inputs
    and block built-in tool calls with safe reasons.
 5. Lifecycle foundation: emit `session_start`, `session_shutdown`,

@@ -127,6 +127,13 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
+from pipy_harness.native.extension_runtime import (
+    RegisteredCommand,
+    activate_extensions,
+    dispatch_extension_command,
+    extension_command_map,
+)
+from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.resources import (
     DISPATCH_LIST,
     WorkspaceResources,
@@ -410,14 +417,19 @@ def production_tool_registry() -> dict[str, ToolPort]:
     }
 
 
-def _tool_loop_command_names(resources: WorkspaceResources) -> tuple[str, ...]:
+def _tool_loop_command_names(
+    resources: WorkspaceResources,
+    extension_command_names: tuple[str, ...] = (),
+) -> tuple[str, ...]:
     """Tool-loop slash-menu command set, honest to what can execute.
 
     The static built-in set is augmented with the ``/skill`` and
-    ``/template`` resource entry points (which always at least list) and
-    every discovered, non-reserved custom ``/<name>`` command. The
-    no-tool-only commands (``/read``, ``/ask-file``, ...) stay out so the
-    menu never advertises a command that errors in tool-loop mode.
+    ``/template`` resource entry points (which always at least list),
+    every discovered, non-reserved custom ``/<name>`` command, and any
+    activated extension ``/<name>`` commands (appended last, never
+    shadowing a built-in or custom command). The no-tool-only commands
+    (``/read``, ``/ask-file``, ...) stay out so the menu never advertises
+    a command that errors in tool-loop mode.
     """
 
     names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
@@ -426,15 +438,48 @@ def _tool_loop_command_names(resources: WorkspaceResources) -> tuple[str, ...]:
     for slash_name in resources.custom_command_slash_names():
         if slash_name not in names:
             names.append(slash_name)
+    for slash_name in extension_command_names:
+        if slash_name not in names:
+            names.append(slash_name)
     return tuple(names)
 
 
 def _tool_loop_command_descriptions(
     resources: WorkspaceResources,
+    extension_descriptions: dict[str, str] | None = None,
 ) -> dict[str, str]:
     descriptions = dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     descriptions.update(resources.custom_command_descriptions())
+    if extension_descriptions:
+        descriptions.update(extension_descriptions)
     return descriptions
+
+
+def _activate_workspace_extensions(
+    cwd: Path,
+    resources: WorkspaceResources,
+) -> tuple[dict[str, RegisteredCommand], tuple[str, ...], dict[str, str]]:
+    """Discover + activate extensions and project their slash commands.
+
+    Reserved names are the executable built-in/custom command set, so an
+    extension command can never shadow a built-in or a custom command.
+    Returns the command map (for dispatch), the menu ``/<name>`` labels,
+    and a name->description map (for the slash menu). Activation runs
+    extension code; any failing extension is disabled by
+    ``activate_extensions`` without affecting the session.
+    """
+
+    reserved = tuple(
+        name.lstrip("/") for name in _tool_loop_command_names(resources)
+    )
+    descriptors = discover_extensions(cwd)
+    activated = activate_extensions(descriptors, reserved_command_names=reserved)
+    command_map = extension_command_map(activated)
+    menu_names = tuple(f"/{name}" for name in command_map)
+    descriptions = {
+        f"/{command.name}": command.description for command in command_map.values()
+    }
+    return command_map, menu_names, descriptions
 
 
 @dataclass(frozen=True, slots=True)
@@ -594,12 +639,22 @@ class NativeToolReplSession:
             prompts_patterns=settings.get_prompts_patterns(),
             enable_skill_commands=settings.get_enable_skill_commands(),
         )
+        # Discover + activate Python extensions and project their slash
+        # commands. Activation runs extension code; a failing extension is
+        # disabled without affecting the session.
+        (
+            extension_commands,
+            extension_menu_names,
+            extension_descriptions,
+        ) = _activate_workspace_extensions(cwd, workspace_resources)
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=cwd,
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
+            extension_menu_names=extension_menu_names,
+            extension_descriptions=extension_descriptions,
         )
         # Image attachments may reference an owner-only clipboard temp dir
         # (Ctrl+V paste); that dir is added to the image reference roots so a
@@ -904,6 +959,8 @@ class NativeToolReplSession:
                 error_stream=error_stream,
                 workspace=cwd,
                 resources=workspace_resources,
+                extension_menu_names=extension_menu_names,
+                extension_descriptions=extension_descriptions,
             )
         )
         if terminal_ui is None:
@@ -1274,6 +1331,14 @@ class NativeToolReplSession:
                     prompts_patterns=settings.get_prompts_patterns(),
                     enable_skill_commands=settings.get_enable_skill_commands(),
                 )
+                # Re-discover + re-activate extensions on reload (Pi
+                # /reload also reloads extensions). A failing extension is
+                # disabled without affecting the session.
+                (
+                    extension_commands,
+                    extension_menu_names,
+                    extension_descriptions,
+                ) = _activate_workspace_extensions(cwd, workspace_resources)
                 # Re-apply the edited theme (settings is source of truth over the
                 # persisted store) and the derived UI settings.
                 reloaded_theme = settings.get_theme()
@@ -1284,10 +1349,10 @@ class NativeToolReplSession:
                         settings.get_autocomplete_max_visible()
                     )
                     terminal_ui.command_names = _tool_loop_command_names(
-                        workspace_resources
+                        workspace_resources, extension_menu_names
                     )
                     terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                        workspace_resources
+                        workspace_resources, extension_descriptions
                     )
                 load_errors = settings.load_errors()
                 if load_errors:
@@ -1838,6 +1903,39 @@ class NativeToolReplSession:
                 self._emit_diagnostic(
                     terminal_ui, error_stream, resource_dispatch.message
                 )
+            # Extension commands dispatch AFTER built-ins and resource
+            # commands (so they can never shadow them) and BEFORE the
+            # not-handled fallback. The handler runs locally with no
+            # provider turn; its notifications are live UI output only.
+            if resource_provider_text is None:
+                extension_dispatch = dispatch_extension_command(
+                    command_text,
+                    extension_commands,
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                )
+                if extension_dispatch is not None:
+                    for _kind, message in extension_dispatch.messages:
+                        self._emit_diagnostic(terminal_ui, error_stream, message)
+                    if not extension_dispatch.ran and extension_dispatch.error:
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            (
+                                f"pipy: extension command /{extension_dispatch.name} "
+                                f"failed ({extension_dispatch.error})"
+                            ),
+                        )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
             if command_text.startswith("/") and resource_provider_text is None:
                 self._emit_diagnostic(
                     terminal_ui,
@@ -1849,8 +1947,8 @@ class NativeToolReplSession:
                         "/login, /logout, /copy, /compact, /session, /name, "
                         "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                         "/exit, /quit "
-                        "(plus any workspace custom commands). Other prompts are "
-                        "sent to the model."
+                        "(plus any workspace custom commands and activated "
+                        "extension commands). Other prompts are sent to the model."
                     ),
                 )
                 if legacy_footer_enabled():
@@ -2238,14 +2336,18 @@ class NativeToolReplSession:
         error_stream: TextIO,
         workspace: Path,
         resources: WorkspaceResources,
+        extension_menu_names: tuple[str, ...] = (),
+        extension_descriptions: dict[str, str] | None = None,
     ) -> NativeReplInput:
         return native_repl_input_for(
             input_stream=input_stream,
             error_stream=error_stream,
             input_runtime=self.input_runtime,
             workspace=workspace,
-            command_names=_tool_loop_command_names(resources),
-            command_descriptions=_tool_loop_command_descriptions(resources),
+            command_names=_tool_loop_command_names(resources, extension_menu_names),
+            command_descriptions=_tool_loop_command_descriptions(
+                resources, extension_descriptions
+            ),
         )
 
     def _build_terminal_ui(
@@ -2256,6 +2358,8 @@ class NativeToolReplSession:
         workspace: Path,
         resources: WorkspaceResources,
         autocomplete_max_visible: int = 5,
+        extension_menu_names: tuple[str, ...] = (),
+        extension_descriptions: dict[str, str] | None = None,
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -2265,8 +2369,10 @@ class NativeToolReplSession:
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
-            command_names=_tool_loop_command_names(resources),
-            command_descriptions=_tool_loop_command_descriptions(resources),
+            command_names=_tool_loop_command_names(resources, extension_menu_names),
+            command_descriptions=_tool_loop_command_descriptions(
+                resources, extension_descriptions
+            ),
             autocomplete_max_visible=autocomplete_max_visible,
         )
 

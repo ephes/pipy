@@ -19,9 +19,14 @@ from __future__ import annotations
 
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
+    CommandContext,
+    ExtensionCommandDispatch,
+    ExtensionUi,
     PipyExtensionAPI,
     RegisteredCommand,
     activate_extensions,
+    dispatch_extension_command,
+    extension_command_map,
     safe_activation_metadata,
 )
 from pipy_harness.native.extensions import (
@@ -32,9 +37,14 @@ from pipy_harness.native.extensions import (
 
 __all__ = [
     "PipyExtensionAPI",
+    "CommandContext",
+    "ExtensionUi",
     "RegisteredCommand",
     "ActivatedExtension",
+    "ExtensionCommandDispatch",
     "activate_extensions",
+    "dispatch_extension_command",
+    "extension_command_map",
     "safe_activation_metadata",
     "ExtensionDescriptor",
     "discover_extensions",

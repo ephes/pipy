@@ -37,7 +37,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from pipy_harness.native.extensions import ExtensionDescriptor
 
@@ -102,6 +102,147 @@ class ActivatedExtension:
     reason: str | None
     commands: tuple[RegisteredCommand, ...]
     diagnostic: str | None
+
+
+@runtime_checkable
+class ExtensionUi(Protocol):
+    """Minimal mode-aware UI handed to a command handler (slice 3).
+
+    Slice 3 exposes only `notify`; the richer UI surface (dialogs,
+    status, widgets) lands in a later slice. In non-interactive mode the
+    methods still behave deterministically (record/queue, never block).
+    """
+
+    has_ui: bool
+
+    def notify(self, message: str, kind: str = "info") -> None: ...
+
+
+@runtime_checkable
+class CommandContext(Protocol):
+    """Context passed to an extension command handler.
+
+    Slice 3 keeps this small: the workspace root, whether interactive UI
+    is available, and the `ui` capability. It grows (session view, model
+    info, cancellation, system-prompt access) in later slices.
+    """
+
+    cwd: str
+    has_ui: bool
+    ui: ExtensionUi
+
+
+class _CollectingUi:
+    """A mode-aware `ExtensionUi` that records notifications.
+
+    The dispatcher returns the collected messages so the caller (the
+    REPL) emits them as live UI output; nothing is archived. This keeps
+    dispatch pure and testable and gives deterministic non-interactive
+    behavior (notifications are recorded, never blocking).
+    """
+
+    def __init__(self, has_ui: bool) -> None:
+        self.has_ui = has_ui
+        self.messages: list[tuple[str, str]] = []
+
+    def notify(self, message: str, kind: str = "info") -> None:
+        safe_kind = kind if kind in ("info", "warning", "error") else "info"
+        self.messages.append((safe_kind, str(message)))
+
+
+class _CommandContext:
+    """Concrete `CommandContext` for one command invocation."""
+
+    def __init__(self, cwd: str, ui: _CollectingUi) -> None:
+        self.cwd = cwd
+        self.has_ui = ui.has_ui
+        self.ui = ui
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCommandDispatch:
+    """Outcome of dispatching one extension `/command`.
+
+    `ran` is True when the handler completed; `error` carries a safe,
+    bounded label (exception type name only) when it raised. `messages`
+    are the `(kind, text)` notifications the handler emitted, for the
+    caller to render as live UI output. No provider turn is implied.
+    """
+
+    name: str
+    ran: bool
+    error: str | None
+    messages: tuple[tuple[str, str], ...]
+
+
+def extension_command_map(
+    activated: Sequence[ActivatedExtension],
+) -> dict[str, RegisteredCommand]:
+    """Build a `name -> RegisteredCommand` map from activated extensions.
+
+    Only `activated` extensions contribute; a name registered by an
+    earlier extension wins (duplicates were already disabled during
+    activation, so this is deterministic).
+    """
+
+    command_map: dict[str, RegisteredCommand] = {}
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for command in extension.commands:
+            command_map.setdefault(command.name, command)
+    return command_map
+
+
+def dispatch_extension_command(
+    command_text: str,
+    command_map: dict[str, RegisteredCommand],
+    *,
+    cwd: str,
+    has_ui: bool,
+) -> ExtensionCommandDispatch | None:
+    """Dispatch `command_text` to an extension command, or return None.
+
+    Returns None when `command_text` is not a `/<name>` form or names no
+    registered extension command, so the caller falls through to its
+    normal handling (built-ins run earlier, so extensions can never
+    shadow them). When it matches, the handler runs locally with a
+    mode-aware context and the raw argument string; it triggers no
+    provider turn. A handler exception is bounded into a safe `error`.
+    """
+
+    if not command_text.startswith("/"):
+        return None
+    body = command_text[1:]
+    # Split only on the first space: the command name, then the raw
+    # argument string verbatim (intentional leading/trailing whitespace
+    # is preserved, per the handler contract).
+    name, _, args = body.partition(" ")
+    command = command_map.get(name)
+    if command is None:
+        return None
+
+    ui = _CollectingUi(has_ui)
+    ctx = _CommandContext(cwd, ui)
+    try:
+        command.handler(ctx, args)
+    except (KeyboardInterrupt, SystemExit):
+        # A genuine user abort / interpreter exit is control flow, not an
+        # extension failure: never swallow it into a bounded error.
+        raise
+    except BaseException as err:  # noqa: BLE001 - bound a bad handler
+        return ExtensionCommandDispatch(
+            name=name,
+            ran=False,
+            error=_safe_diagnostic(err),
+            messages=tuple(ui.messages),
+        )
+    return ExtensionCommandDispatch(
+        name=name,
+        ran=True,
+        error=None,
+        messages=tuple(ui.messages),
+    )
 
 
 class _ActivationError(Exception):
@@ -223,6 +364,8 @@ def _activate_one(
     try:
         activate = getattr(module, descriptor.entry_function, None)
         is_callable = callable(activate)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
         return _disabled(
             descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err)
@@ -239,6 +382,8 @@ def _activate_one(
             _run_awaitable(result)
     except _ActivationError as err:
         return _disabled(descriptor, err.reason, err.diagnostic)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
         return _disabled(
             descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err)
@@ -296,6 +441,9 @@ def _import_entry_module(descriptor: ExtensionDescriptor) -> object:
         else:
             module = _load_standalone_module(base_name, entry_path)
     except _ActivationError:
+        _purge_modules(base_name)
+        raise
+    except (KeyboardInterrupt, SystemExit):
         _purge_modules(base_name)
         raise
     except BaseException as err:  # noqa: BLE001 - bound a bad import

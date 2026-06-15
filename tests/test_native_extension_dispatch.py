@@ -1,0 +1,278 @@
+"""Slice 3 tests for extension command dispatch.
+
+Slice 3 runs an activated extension's `/<command>` locally: it resolves
+the command, invokes the handler with a mode-aware context and the raw
+argument string, captures any `ctx.ui.notify` output, and runs **no
+provider turn**. A handler exception is bounded into a safe error
+without crashing the loop. Unknown / non-slash input is not an extension
+command (the caller falls through to its normal handling).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from io import StringIO
+from pathlib import Path
+
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.extension_runtime import (
+    activate_extensions,
+    dispatch_extension_command,
+    extension_command_map,
+)
+from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
+
+
+@dataclass
+class _CapturingProvider:
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "capturing-fake"
+
+    @property
+    def model_id(self) -> str:
+        return "capturing-model"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return True
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="OK",
+            usage=None,
+            metadata=None,
+            tool_calls=(),
+        )
+
+
+def _make_workspace(tmp_path: Path) -> Path:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    return workspace
+
+
+def _ext_dir(workspace: Path) -> Path:
+    directory = workspace / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _write(workspace: Path, name: str, body: str) -> None:
+    (_ext_dir(workspace) / f"{name}.py").write_text(body, encoding="utf-8")
+
+
+def _command_map(workspace: Path) -> dict:
+    descriptors = discover_extensions(
+        workspace, config_home_env={}, home_dir=workspace
+    )
+    activated = activate_extensions(descriptors)
+    return extension_command_map(activated)
+
+
+def test_dispatch_runs_handler_and_captures_notify(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "statusext",
+        "def activate(api):\n"
+        "    def status(ctx, args):\n"
+        "        ctx.ui.notify('extension status: ok')\n"
+        "    api.register_command('ext-status', 'Show status', status)\n",
+    )
+    command_map = _command_map(workspace)
+
+    dispatch = dispatch_extension_command(
+        "/ext-status", command_map, cwd=str(workspace), has_ui=True
+    )
+
+    assert dispatch is not None
+    assert dispatch.name == "ext-status"
+    assert dispatch.ran is True
+    assert dispatch.error is None
+    assert dispatch.messages == (("info", "extension status: ok"),)
+
+
+def test_dispatch_passes_raw_args(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "echoext",
+        "def activate(api):\n"
+        "    def echo(ctx, args):\n"
+        "        ctx.ui.notify('got:' + args)\n"
+        "    api.register_command('echo', 'echo', echo)\n",
+    )
+    command_map = _command_map(workspace)
+
+    dispatch = dispatch_extension_command(
+        "/echo hello there", command_map, cwd=str(workspace), has_ui=True
+    )
+
+    assert dispatch is not None
+    assert dispatch.messages == (("info", "got:hello there"),)
+
+    # Raw args are preserved verbatim after the first delimiter space,
+    # including intentional extra whitespace.
+    spaced = dispatch_extension_command(
+        "/echo  keep  spaces ", command_map, cwd=str(workspace), has_ui=True
+    )
+    assert spaced is not None
+    assert spaced.messages == (("info", "got: keep  spaces "),)
+
+
+def test_unknown_command_is_not_dispatched(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "anyext",
+        "def activate(api):\n"
+        "    api.register_command('known', 'k', lambda ctx, args: None)\n",
+    )
+    command_map = _command_map(workspace)
+
+    assert (
+        dispatch_extension_command(
+            "/unknown", command_map, cwd=str(workspace), has_ui=True
+        )
+        is None
+    )
+
+
+def test_non_slash_input_is_not_dispatched(tmp_path: Path) -> None:
+    assert (
+        dispatch_extension_command("hello", {}, cwd="/tmp", has_ui=True) is None
+    )
+
+
+def test_handler_exception_is_bounded(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "crashext",
+        "def activate(api):\n"
+        "    def boom(ctx, args):\n"
+        "        raise RuntimeError('/Users/x/leak-tok-123')\n"
+        "    api.register_command('boom', 'b', boom)\n",
+    )
+    command_map = _command_map(workspace)
+
+    dispatch = dispatch_extension_command(
+        "/boom", command_map, cwd=str(workspace), has_ui=True
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is False
+    assert dispatch.error is not None
+    # Bounded, no raw message leak.
+    assert "/Users/x" not in dispatch.error
+    assert "leak-tok-123" not in dispatch.error
+
+
+def test_extension_command_runs_through_the_session(tmp_path, monkeypatch) -> None:
+    # Product path: an activated extension /command runs in the real
+    # tool-loop session, emits its notify output, and triggers NO
+    # provider turn; a plain prompt still reaches the provider.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "sayhi.py").write_text(
+        "def activate(api):\n"
+        "    def hi(ctx, args):\n"
+        "        ctx.ui.notify('EXTENSION_RAN:' + args)\n"
+        "    api.register_command('sayhi', 'say hi', hi)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    error_stream = StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/sayhi there\nplain prompt\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert "EXTENSION_RAN:there" in error_stream.getvalue()
+    # Only the genuine prompt hit the provider; the extension command did not.
+    assert len(provider.requests) == 1
+    assert "plain prompt" in provider.requests[0].user_prompt
+    assert result.user_turn_count == 1
+
+
+def test_builtin_is_not_shadowed_by_extension(tmp_path, monkeypatch) -> None:
+    # An extension that registers a built-in name is disabled at
+    # activation (reserved), so the built-in keeps working and the
+    # extension command never dispatches.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "shadow.py").write_text(
+        "def activate(api):\n"
+        "    api.register_command('help', 'x', lambda ctx, args: None)\n",
+        encoding="utf-8",
+    )
+    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    # Reserved against the built-in 'help'.
+    activated = activate_extensions(descriptors, reserved_command_names=("help",))
+    command_map = extension_command_map(activated)
+
+    assert "help" not in command_map
+
+
+def test_keyboard_interrupt_propagates(tmp_path: Path) -> None:
+    # A user abort (Ctrl-C) during a handler must not be swallowed into a
+    # bounded extension failure.
+    import pytest
+
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "interruptext",
+        "def activate(api):\n"
+        "    def cmd(ctx, args):\n"
+        "        raise KeyboardInterrupt()\n"
+        "    api.register_command('intr', 'i', cmd)\n",
+    )
+    command_map = _command_map(workspace)
+
+    with pytest.raises(KeyboardInterrupt):
+        dispatch_extension_command(
+            "/intr", command_map, cwd=str(workspace), has_ui=True
+        )
+
+
+def test_non_interactive_notify_degrades(tmp_path: Path) -> None:
+    # With has_ui=False, ctx.has_ui is False and notify still records a
+    # message deterministically (no blocking, no crash).
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "uiext",
+        "def activate(api):\n"
+        "    def cmd(ctx, args):\n"
+        "        ctx.ui.notify('hi' if ctx.has_ui else 'noui')\n"
+        "    api.register_command('uic', 'u', cmd)\n",
+    )
+    command_map = _command_map(workspace)
+
+    dispatch = dispatch_extension_command(
+        "/uic", command_map, cwd=str(workspace), has_ui=False
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "noui"),)

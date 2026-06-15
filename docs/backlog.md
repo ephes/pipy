@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 3: command dispatch in the REPL product paths
+### Extension API slice 4: tool_call policy hook
 
-Slices 1 and 2 have **landed**:
+Slices 1, 2, and 3 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1420,22 +1420,32 @@ Slices 1 and 2 have **landed**:
   invalid / duplicate / reserved command name. Disabled descriptors are never
   imported. Gate:
   `scripts/parity_checks/extension_activation_conformance.py --json`.
+- Slice 3 (command dispatch): activated extension `/<command>`s dispatch through
+  the live tool-loop REPL (`dispatch_extension_command`), after built-ins and
+  custom commands (no shadowing) and before the not-handled fallback, running
+  the handler with a mode-aware context and the raw args, emitting `ctx.ui.notify`
+  output as live UI, with **no provider turn**. Names/descriptions appear in the
+  slash menu; `/reload` re-activates. Gate:
+  `scripts/parity_checks/extension_dispatch_conformance.py --json`.
 
-The selected next implementation slice wires the activated extension commands
-into the live REPL command dispatch (both product REPL paths), so a registered
-`/<command>` runs its handler with a mode-aware context. It runs **no provider
-turn by default** (matching `send_user_message` deferral to a later slice), must
-not shadow built-in commands, and surfaces only safe name/description in the
-slash menu. Command output is live UI output, not archived.
+The selected next implementation slice adds the `tool_call` policy hook: an
+extension may register an `@api.on("tool_call")` handler that inspects a
+model-selected tool call's live name and parsed input before execution and may
+return a `ToolBlock(reason=...)` to block a built-in tool call with a safe
+reason. It enables high-value workflows (protected paths, command gating)
+without package loading or rich UI. Live tool inputs may be inspected by trusted
+local handlers, but the default archive still records no raw tool inputs.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_dispatch.py
+uv run pytest tests/test_native_extension_tool_call_hook.py
 just check
 ```
 
-The expected follow-up slice is the `tool_call` policy hook.
+The expected follow-up slice is the lifecycle event foundation
+(`session_start` / `agent_start` / `turn_start` / `turn_end` / `agent_end` /
+`session_shutdown`).
 
 ## Near Term
 

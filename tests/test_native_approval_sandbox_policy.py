@@ -773,18 +773,12 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert (
-        "### Extension API slice 3: command dispatch in the REPL product paths"
-        in next_slice
-    )
-    assert "Slices 1 and 2 have" in compact_next_slice
-    assert "pipy_harness.native.extension_runtime.activate_extensions" in next_slice
-    assert "pipy_harness.extensions.PipyExtensionAPI" in next_slice
-    assert (
-        "wires the activated extension commands" in compact_next_slice
-    )
-    assert "no provider turn by default" in compact_next_slice
-    assert "must not shadow built-in commands" in compact_next_slice
+    assert "### Extension API slice 4: tool_call policy hook" in next_slice
+    assert "Slices 1, 2, and 3 have" in compact_next_slice
+    assert "dispatch_extension_command" in next_slice
+    assert 'api.on("tool_call")' in next_slice
+    assert "ToolBlock(reason=...)" in next_slice
+    assert "default archive still records no raw tool inputs" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec
