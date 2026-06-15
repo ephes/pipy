@@ -350,3 +350,17 @@ def test_retired_flag_rejected_in_no_tool_mode(tmp_path, monkeypatch, capfd) -> 
     err = capfd.readouterr().err
     assert code == 2
     assert "retired" in err
+
+
+def test_cross_project_prompt_sanitizes_other_cwd(monkeypatch, capsys) -> None:
+    import io as _io
+
+    from pipy_harness.cli import _confirm_cross_project_fork
+
+    monkeypatch.setattr("sys.stdin", _io.StringIO("n\n"))
+    result = _confirm_cross_project_fork("/proj\x1b[31mEVIL\x07")
+    err = capsys.readouterr().err
+    assert result is False
+    assert "\x1b" not in err
+    assert "\x07" not in err
+    assert "EVIL" in err

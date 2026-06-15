@@ -251,9 +251,14 @@ def resolve_entry_ref(
 
 
 def entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
-    """Public alias for a one-line display preview of a tree entry."""
+    """One-line display preview of a tree entry, safe for terminal rendering.
 
-    return _entry_preview(tree, entry)
+    Previews embed user-controlled message content, labels, and names from a
+    (possibly externally-written) session file, so the result is sanitized
+    against terminal escape injection.
+    """
+
+    return sanitize_label_text(_entry_preview(tree, entry))
 
 
 def _entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
@@ -313,8 +318,9 @@ def render_tree_lines(
         select_marker = ">" if entry.id == selected_id else " "
         indent = "  " * depth
         lines.append(
-            f"{select_marker}{active_marker} {index:>3}. {entry.id[:8]} "
-            f"{indent}{_entry_preview(tree, entry)}"
+            f"{select_marker}{active_marker} {index:>3}. "
+            f"{sanitize_label_text(entry.id[:8])} "
+            f"{indent}{entry_preview(tree, entry)}"
         )
     if not lines:
         return ["(empty session tree)"]
@@ -341,9 +347,12 @@ def format_session_status(tree: NativeSessionTree) -> str:
         else "(ephemeral)"
     )
     name = sanitize_label_text(tree.name) if tree.name else "(unnamed)"
+    # ids/leaf come from a (possibly externally-written) session file; sanitize
+    # them too so the status line cannot inject terminal escape sequences.
     return (
         "pipy native session: "
-        f"name={name} id={header.id[:8]} leaf={leaf[:8]} "
+        f"name={name} id={sanitize_label_text(header.id[:8])} "
+        f"leaf={sanitize_label_text(leaf[:8])} "
         f"messages={message_count} branches={branch_count} file={path_label}"
     )
 
@@ -644,20 +653,25 @@ def delete_native_session(path: Path) -> tuple[bool, str]:
     import subprocess
 
     path = Path(path).expanduser()
+    # The detail strings are surfaced in the terminal and embed the file name,
+    # which (via list_session_files) can be an arbitrary on-disk *.jsonl name;
+    # sanitize it against terminal escape injection.
+    safe_name = sanitize_label_text(path.name)
+    safe_path = sanitize_label_text(str(path))
     if not path.is_file():
-        return False, f"no native session file at {path}"
+        return False, f"no native session file at {safe_path}"
     trash = shutil.which("trash")
     if trash is not None:
         try:
             subprocess.run([trash, str(path)], check=True, capture_output=True)
-            return True, f"moved native session {path.name} to trash"
+            return True, f"moved native session {safe_name} to trash"
         except (OSError, subprocess.SubprocessError):
             pass
     try:
         path.unlink()
     except OSError as exc:
-        return False, f"could not delete {path.name}: {exc}"
-    return True, f"deleted native session {path.name}"
+        return False, f"could not delete {safe_name}: {exc}"
+    return True, f"deleted native session {safe_name}"
 
 
 def list_native_sessions(session_dir: Path) -> list[SessionListEntry]:

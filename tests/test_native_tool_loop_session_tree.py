@@ -413,3 +413,38 @@ def test_session_status_and_resume_listing_sanitize_name(tmp_path: Path) -> None
     assert "\x07" not in err
     # The visible (sanitized) text is still present.
     assert "EVIL" in err
+
+
+def test_diagnostics_sanitize_crafted_session_file_fields(tmp_path: Path) -> None:
+    """Header id, entry id/content, and the file name from an untrusted session
+    file must not reach /session, /tree, or the /resume listing raw."""
+
+    import json
+
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "store" / "proj"
+    session_dir.mkdir(parents=True)
+    header = {
+        "type": "session",
+        "version": 1,
+        "id": "id\x1b[2Jx",
+        "timestamp": "2026-01-01T00-00-00+00-00",
+        "cwd": str(cwd),
+    }
+    entry = {
+        "type": "message",
+        "id": "e\x1b1",
+        "parentId": None,
+        "timestamp": "t",
+        "message": {"role": "user", "content": "hi\x1b[5mEVIL\x07"},
+    }
+    crafted = session_dir / "evil\x1bname.jsonl"
+    crafted.write_text(
+        json.dumps(header) + "\n" + json.dumps(entry) + "\n", encoding="utf-8"
+    )
+    tree = NativeSessionTree.open(crafted)
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=tree)
+
+    _out, err = _run(session, cwd, "/session\n/tree\n/resume\n/exit\n")
+    assert "\x1b" not in err
+    assert "\x07" not in err

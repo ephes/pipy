@@ -1472,9 +1472,11 @@ class NativeToolReplSession:
                             else "(unnamed)"
                         )
                         diag(
-                            f"  {index}. {entry.session_id[:8]} {label} "
+                            f"  {index}. "
+                            f"{sanitize_label_text(entry.session_id[:8])} "
+                            f"{label} "
                             f"messages={entry.message_count} "
-                            f"file={entry.path.name}"
+                            f"file={sanitize_label_text(entry.path.name)}"
                         )
                     diag("pipy: use '/resume <number|id>' to open a session.")
 

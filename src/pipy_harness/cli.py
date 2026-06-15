@@ -1453,8 +1453,13 @@ def _native_sessions_root_override(args: Any) -> Path | None:
 def _confirm_cross_project_fork(other_cwd: str) -> bool:
     """Prompt to fork a session found in a different project (Pi behavior)."""
 
+    from pipy_harness.native.session_tree_commands import sanitize_label_text
+
+    # other_cwd is the header cwd of another project's session file; sanitize it
+    # before printing so it cannot inject terminal escape sequences.
     print(
-        f"pipy: session found in different project: {other_cwd}",
+        f"pipy: session found in different project: "
+        f"{sanitize_label_text(other_cwd)}",
         file=sys.stderr,
     )
     print(
