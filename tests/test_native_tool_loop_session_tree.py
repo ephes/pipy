@@ -478,27 +478,36 @@ def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(tmp_path: Path)
     crafted.write_text(
         json.dumps(header) + "\n" + json.dumps(entry) + "\n", encoding="utf-8"
     )
-    # Active session lives in the same dir so /resume can list+open the crafted one.
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
 
-    # Resolve the crafted file's 1-based index for /resume <n>, then open it,
-    # label + select its entry, and rename it.
+    # Open the crafted file by absolute path (a relative sibling ref does not
+    # resolve), then report status, label + select its entry, and rename it —
+    # each notice echoes the crafted id / entry id, which must be sanitized.
+    crafted_abs = str(crafted)
     _out, err = _run(
         session,
         cwd,
         "\n".join(
             [
-                "/resume",  # listing
-                "/resume crafted.jsonl",  # open the crafted file (echoes its id)
-                "/tree label 1 pin",  # echoes entry id
-                "/tree select 1",  # echoes chosen entry id
+                "/resume",  # listing (echoes crafted id + file name)
+                f"/resume {crafted_abs}",  # open it (echoes crafted header id)
+                "/session",  # echoes crafted id + leaf
+                "/tree label 1 pin",  # echoes crafted entry id
+                "/tree select 1",  # echoes chosen crafted entry id
+                f"/resume rename {crafted_abs} renamed-crafted",  # echoes id
                 "/exit",
                 "",
             ]
         ),
     )
     assert "\x1b" not in err
+    # Prove the crafted file was actually opened and its entry reached (the
+    # crafted entry id "ent\x1bid"[:8] sanitizes to "ent id"); otherwise the
+    # test would pass without exercising the open/label path.
+    assert "ent id" in err
+    # The rename persisted the new name to the crafted file.
+    assert NativeSessionTree.open(crafted).name == "renamed-crafted"
 
 
 def test_delete_detail_sanitizes_oserror_text(tmp_path, monkeypatch) -> None:
