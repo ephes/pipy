@@ -126,6 +126,11 @@ class ExtensionDescriptor:
     reason: str | None
     sha256: str
     byte_length: int
+    # Absolute on-disk path of the entry file, for the activation
+    # runtime to import. `None` for disabled descriptors. Intentionally
+    # excluded from `safe_extension_metadata` (it is a local absolute
+    # path, never archived).
+    entry_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,6 +450,13 @@ def _inventory_candidate(candidate: _Candidate) -> ExtensionDescriptor:
         return _disabled(
             candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
         )
+    # entry.module / entry.function must be single Python identifiers
+    # (no dotted package paths), so discovery and the activation loader
+    # agree on the entry file and its module semantics.
+    if not entry_module.isidentifier() or not entry_function.isidentifier():
+        return _disabled(
+            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
+        )
 
     permissions = _parse_permissions(manifest)
     if permissions is None:
@@ -473,7 +485,7 @@ def _inventory_candidate(candidate: _Candidate) -> ExtensionDescriptor:
         )
 
     entry_path, entry_path_label = _entry_file_for(candidate, entry_module)
-    status, sha256, byte_length = _classify_entry_file(
+    status, sha256, byte_length, resolved_entry = _classify_entry_file(
         entry_path, candidate.containment_root
     )
     if status != "ok":
@@ -505,6 +517,7 @@ def _inventory_candidate(candidate: _Candidate) -> ExtensionDescriptor:
         reason=None,
         sha256=sha256,
         byte_length=byte_length,
+        entry_path=resolved_entry,
     )
 
 
@@ -523,46 +536,46 @@ def _entry_file_for(
 def _classify_entry_file(
     entry_path: Path | None,
     containment_root: Path,
-) -> tuple[str, str, int]:
+) -> tuple[str, str, int, str | None]:
     """Classify the entry file for inventory without importing it.
 
     Reading bytes is not execution: the file is hashed for inventory
-    only and never imported. Returns `("ok", sha256, byte_length)` for a
-    usable text entry, or one of the disabled reason codes paired with
-    `("", 0)`:
+    only and never imported. Returns `("ok", sha256, byte_length,
+    resolved_path)` for a usable text entry, or one of the disabled
+    reason codes paired with `("", 0, None)`:
 
     - `REASON_MISSING_ENTRY` when no entry file exists;
     - `REASON_UNSAFE_PATH` when the entry exists but escapes
       `containment_root`;
-    - `REASON_BINARY_ENTRY` when the entry contains a NUL byte (binary
-      content that must never be imported as Python source).
+    - `REASON_BINARY_ENTRY` when the entry is not NUL-free UTF-8 text
+      (binary content that must never be imported as Python source).
     """
 
     if entry_path is None:
-        return (REASON_MISSING_ENTRY, "", 0)
+        return (REASON_MISSING_ENTRY, "", 0, None)
     try:
         is_file = entry_path.is_file()
     except OSError:
-        return (REASON_MISSING_ENTRY, "", 0)
+        return (REASON_MISSING_ENTRY, "", 0, None)
     if not is_file:
-        return (REASON_MISSING_ENTRY, "", 0)
+        return (REASON_MISSING_ENTRY, "", 0, None)
     try:
         resolved = entry_path.resolve()
         resolved.relative_to(containment_root)
     except (OSError, ValueError):
-        return (REASON_UNSAFE_PATH, "", 0)
+        return (REASON_UNSAFE_PATH, "", 0, None)
     try:
         _head, byte_length, sha256 = _read_capped_bytes(
             resolved, per_file_byte_cap=_PER_FILE_BYTE_CAP
         )
     except OSError:
-        return (REASON_MISSING_ENTRY, "", 0)
+        return (REASON_MISSING_ENTRY, "", 0, None)
     # Binary content fails closed across the WHOLE file (not just the
     # capped head): a NUL byte anywhere, or any non-UTF-8 sequence,
     # disqualifies the entry from being inventoried as loadable.
     if not _file_is_utf8_text(resolved):
-        return (REASON_BINARY_ENTRY, "", 0)
-    return ("ok", sha256, byte_length)
+        return (REASON_BINARY_ENTRY, "", 0, None)
+    return ("ok", sha256, byte_length, str(resolved))
 
 
 def _file_is_utf8_text(path: Path) -> bool:

@@ -299,6 +299,21 @@ def test_large_entry_invalid_utf8_after_cap_is_disabled(tmp_path: Path) -> None:
     assert descriptor.reason == REASON_BINARY_ENTRY
 
 
+def test_dotted_entry_module_is_invalid(tmp_path: Path) -> None:
+    # entry.module must be a single module identifier; a dotted value is
+    # not supported and fails closed (keeps discovery and the activation
+    # loader consistent).
+    workspace = _make_workspace(tmp_path)
+    _write_dir_extension(
+        workspace, "dotted", manifest='name = "dotted"\n[entry]\nmodule = "pkg.main"\n'
+    )
+
+    descriptor = _by_name(_discover(workspace), "dotted")
+
+    assert descriptor.status == "disabled"
+    assert descriptor.reason == REASON_INVALID_MANIFEST
+
+
 def test_present_empty_entry_module_is_invalid(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write_dir_extension(

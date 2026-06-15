@@ -1401,51 +1401,41 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 2: activation sandbox boundary (register_command only)
+### Extension API slice 3: command dispatch in the REPL product paths
 
-Slice 1 (discovery and manifest inventory, no execution) has **landed**:
-`pipy_harness.native.extensions.discover_extensions` returns deterministic
-loadable/disabled `ExtensionDescriptor` records with safe labels and reason
-codes, parses optional `pipy-extension.toml` manifests with stdlib `tomllib`,
-infers safe defaults, fails closed on unsafe names/paths/manifests/api_versions/
-duplicates, and **never imports or executes extension code** (proven with a
-top-level side-effect fixture). It is covered by
-`tests/test_native_extension_discovery.py` and the conformance gate
-`scripts/parity_checks/extension_discovery_conformance.py --json`.
+Slices 1 and 2 have **landed**:
 
-The selected next implementation slice is the first activation boundary for the
-Pi-style extension/package platform described in
-[extension-api.md](extension-api.md). It imports an explicit, already-inventoried
-local extension module, calls `activate(api)`, and supports command registration
-only. This is still **not** a package manager.
+- Slice 1 (discovery + manifest inventory, no execution):
+  `pipy_harness.native.extensions.discover_extensions` returns deterministic
+  loadable/disabled `ExtensionDescriptor` records, parses optional
+  `pipy-extension.toml` with stdlib `tomllib`, fails closed on unsafe
+  names/paths/manifests/api_versions/duplicates/binary entries, and never
+  imports extension code. Gate:
+  `scripts/parity_checks/extension_discovery_conformance.py --json`.
+- Slice 2 (activation sandbox boundary):
+  `pipy_harness.native.extension_runtime.activate_extensions` imports only
+  `loadable` descriptors, calls `activate(api)` (sync or async), supports
+  `register_command` only via the public `pipy_harness.extensions.PipyExtensionAPI`,
+  and fails closed per extension on import / no-activate / activation-exception /
+  invalid / duplicate / reserved command name. Disabled descriptors are never
+  imported. Gate:
+  `scripts/parity_checks/extension_activation_conformance.py --json`.
 
-Goal:
-
-- Import only `loadable` slice-1 descriptors, fail closed on import errors, and
-  never import `disabled` descriptors.
-- Provide a minimal `PipyExtensionAPI` whose only supported method is
-  `register_command(name, description, handler)`.
-- Pin failure modes: import error, invalid or duplicate command name, reserved
-  built-in command shadowing, and activation exceptions disable that extension
-  with a safe diagnostic rather than crashing the session.
-- Record only safe metadata: extension name/version/path label, activation
-  status, and registered command names.
-
-Suggested implementation boundaries:
-
-- Keep package sources (`npm:`, `git:`, remote URLs), dependency installation,
-  model-visible tools, lifecycle/tool hooks, providers, and UI hooks out of
-  scope. Those are later slices.
+The selected next implementation slice wires the activated extension commands
+into the live REPL command dispatch (both product REPL paths), so a registered
+`/<command>` runs its handler with a mode-aware context. It runs **no provider
+turn by default** (matching `send_user_message` deferral to a later slice), must
+not shadow built-in commands, and surfaces only safe name/description in the
+slash menu. Command output is live UI output, not archived.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_activation.py
+uv run pytest tests/test_native_extension_dispatch.py
 just check
 ```
 
-The expected follow-up slice is command dispatch in both REPL product paths,
-then the `tool_call` policy hook.
+The expected follow-up slice is the `tool_call` policy hook.
 
 ## Near Term
 

@@ -753,13 +753,17 @@ Suggested future task wording:
 
 ## Suggested Implementation Slices
 
-Slice 1 has **landed**: `pipy_harness.native.extensions.discover_extensions`
-implements the inventory boundary, with `tests/test_native_extension_discovery.py`
-and the conformance gate
-`scripts/parity_checks/extension_discovery_conformance.py --json`. The next
-selected implementation slice is slice 2 (activation). Every slice remains an
-explicit boundary: no extension module is imported and no extension code runs
-until the activation slice.
+Slices 1 and 2 have **landed**. Slice 1:
+`pipy_harness.native.extensions.discover_extensions` implements the inventory
+boundary (`tests/test_native_extension_discovery.py`, gate
+`scripts/parity_checks/extension_discovery_conformance.py --json`). Slice 2:
+`pipy_harness.native.extension_runtime.activate_extensions` imports only
+loadable descriptors and runs `activate(api)` with `register_command` support
+via the public `pipy_harness.extensions.PipyExtensionAPI`, failing closed per
+extension (`tests/test_native_extension_activation.py`, gate
+`scripts/parity_checks/extension_activation_conformance.py --json`). The next
+selected implementation slice is slice 3 (command dispatch). Discovery never
+imports extension code; activation imports only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
@@ -768,9 +772,12 @@ until the activation slice.
    and reason codes, and prove that top-level side effects in extension source
    files never run. Implemented as `ExtensionDescriptor` +
    `discover_extensions` + `safe_extension_metadata`.
-2. Activation sandbox boundary: import explicit local modules, call
-   `activate(api)`, support command registration only, and pin failure modes,
-   duplicate registration behavior, and safe diagnostics.
+2. Activation sandbox boundary — **landed**: import explicit local modules, call
+   `activate(api)` (sync or async), support command registration only, and pin
+   failure modes, duplicate registration behavior, and safe diagnostics.
+   Implemented as `pipy_harness.native.extension_runtime.activate_extensions` +
+   `PipyExtensionAPI` + `ActivatedExtension`, with the public
+   `pipy_harness.extensions` surface.
 3. Command dispatch: run extension slash commands in both REPL product paths
    with safe diagnostics and no provider turn by default.
 4. `tool_call` policy hook: allow extensions to inspect live parsed tool inputs
