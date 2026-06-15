@@ -211,50 +211,51 @@ core Pi single-agent feature. It needs its own target spec before any work.
 ## 5. Recommended sequencing
 
 Ordering reflects dependencies and leverage, not a hard schedule. This sequence
-is kept aligned with the ranked [Pi-Mono Gap Audit](pi-mono-gap-audit.md):
+was groomed on 2026-06-15 after the native session tree, session CLI/pickers,
+settings/keybindings, TUI workflow, provider-catalog construction, and
+JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
+§4 as conformance gates, but they are no longer the next large implementation
+topics.
 
-1. **Session-tree workflow** ([session-tree.md](session-tree.md)) — shipped.
-   The full-transcript native store is now the product session source and
-   unblocks `/export`, `/import`, `/share`, durable `/compact`, `--mode json/rpc`
-   session events, and retiring `--archive-transcript` as follow-up cleanup.
-2. **Provider / model catalog** ([provider-catalog.md](provider-catalog.md)) —
-   construction closeout shipped: the catalog foundation, direct
-   `/model <ref>` resolver, OpenAI-compatible Chat Completions product
-   construction, non-completions construction for implemented
-   catalog-constructed adapter families, `pipy run` one-shot construction, and startup
-   `--native-provider`/`--native-model` resolution are all gated by the provider
-   catalog conformance script. Live Anthropic/Copilot login UX, narrow adapter
-   parity follow-ons, and extension-registered providers remain later work.
-3. **Settings / config / keybindings** ([settings-config.md](settings-config.md))
-   — ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped
-   models + live Ctrl+P cycling, system-prompt files + `--no-context-files`,
-   `pipy config` resource toggles, `/reload`, `/changelog`, and `--version`,
-   with the 17-check conformance gate passing. Remaining follow-on: live
-   re-application surfaces for a few display/transport keys (editor padding,
-   hardware cursor, clear-on-shrink, websocket transport, in-turn steering) that
-   are currently accept+round-trip+report.
-4. **User documentation parity** ([user-documentation.md](user-documentation.md))
-   — can run alongside implementation tracks; pipy needs Pi-like user docs, not
-   only internal planning/spec docs.
-5. **TUI / editor depth** ([tui-workflow.md](tui-workflow.md)) — true
-   provider-request cancellation (the correctness fix, not polish) has **shipped**;
-   remaining work is the editor-comfort surface (`@` picker, path completion,
-   image paste, `!`/`!!`, folding, queued steering, mouse selection).
-6. **Automation: `--mode json` then `--mode rpc`**
-   ([automation-rpc.md](automation-rpc.md)) — depends on the session tree for
-   full session events and on the extension API for the UI channel.
-7. **Export / import / share / distribution**
-   ([export-distribution.md](export-distribution.md)) — depends on the session
-   tree.
-8. **Extension / package platform** ([extension-api.md](extension-api.md)) — the
-   largest platform; many other surfaces (providers, commands, keybindings, UI,
-   verification gates) gain extensibility once it lands.
+1. **Extension / package platform** ([extension-api.md](extension-api.md)) —
+   selected next big topic. Start with local Python extension discovery and
+   manifest inventory with safe diagnostics and no code execution. Then stage
+   activation, command registration, tool registration, lifecycle/tool hooks,
+   provider registration, UI hooks, and only later package install/update/list
+   flows. This unlocks Pi-style customization, extension-defined verification
+   gates, extension-registered providers, and the RPC extension-UI channel.
+2. **Export / import / share / distribution**
+   ([export-distribution.md](export-distribution.md)) — now unblocked by the
+   native product session tree. Add full-session HTML export, active-branch
+   JSONL export, import-and-resume, `/share`, `--export`, and install/update
+   documentation. This is the best lower-risk alternate if the extension
+   platform needs to be paused.
+3. **User documentation parity** ([user-documentation.md](user-documentation.md))
+   — run in parallel with implementation. Pipy needs outside-in product docs,
+   not only internal specs, and those docs should track shipped behavior rather
+   than planned parity.
+4. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
+   — continue as focused adapter slices: live Anthropic/Copilot login UX,
+   Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
+   parity, broader local-provider maturity, and extension-registered providers
+   after the extension API exists.
+5. **Top-level CLI compatibility and parity cleanup** — stage alongside the
+   owning topics. Realign the harness-shaped `auth|run|repl` surfaces where Pi
+   has one top-level product command, remove or hide pipy-only internals such as
+   `--archive-transcript`, no-tool REPL/proposal commands, `/clear`, `/status`,
+   `/theme`, `/skill`, `/template`, `/help`, `--native-output json`, and
+   exposed implementation flags unless a real Pi workflow justifies them.
+6. **Verification / project policy through extensions** — do not revive the
+   removed pipy-only `/verify` command. Richer verification and permission gates
+   should be expressed as extension tools/hooks after the extension platform
+   exists.
 
-Cleanup (§3) happens alongside the relevant topic: e.g. the no-tool REPL and its
-proposal/apply commands retire with the single-session consolidation cleanup
-that follows the shipped session tree; `--native-output json` retires with the
-automation work; the transcript sidecar retires in a session-tree follow-up
-cleanup once callers no longer need it.
+Cleanup (§3) happens alongside the relevant topic: the no-tool REPL and its
+proposal/apply commands retire with single product-session consolidation;
+`--native-output json` retires after callers move to `--mode json`; the
+transcript sidecar retires once the native tree/export surfaces cover its use
+cases; and resource wrapper commands realign when extension/resource loading has
+Pi-shaped command registration.
 
 ## 6. Definition of "real parity done"
 

@@ -753,35 +753,45 @@ Suggested future task wording:
 
 ## Suggested Implementation Slices
 
-1. Docs and contracts only: this spec, backlog links, and no runtime behavior.
-2. Discovery and manifest parser: find local extensions, validate manifests,
-   record safe loaded/disabled metadata, but do not execute extension code.
-3. Activation sandbox boundary: import explicit local modules, call
-   `activate(api)`, support command registration only, and pin failure modes.
-4. Command dispatch: run extension slash commands in both REPL product paths
+The next selected implementation slice is slice 1 below. It is deliberately an
+inventory boundary only: no extension module is imported and no extension code
+runs until the follow-up activation slice.
+
+1. Discovery and manifest inventory (no execution): find workspace/global local
+   Python extension candidates, parse optional `pipy-extension.toml` manifests,
+   infer safe defaults, validate names/API versions/permissions/source paths,
+   record safe loaded/disabled descriptors and reason codes, and prove that
+   top-level side effects in extension source files never run.
+2. Activation sandbox boundary: import explicit local modules, call
+   `activate(api)`, support command registration only, and pin failure modes,
+   duplicate registration behavior, and safe diagnostics.
+3. Command dispatch: run extension slash commands in both REPL product paths
    with safe diagnostics and no provider turn by default.
-5. `tool_call` policy hook: allow extensions to inspect live parsed tool inputs
+4. `tool_call` policy hook: allow extensions to inspect live parsed tool inputs
    and block built-in tool calls with safe reasons.
-6. Lifecycle foundation: emit `session_start`, `session_shutdown`,
+5. Lifecycle foundation: emit `session_start`, `session_shutdown`,
    `agent_start`, `turn_start`, `turn_end`, and `agent_end` with mode-aware
    contexts and safe archive metadata only.
-7. Input and before-agent-start hooks: support `input` transforms,
+6. Input and before-agent-start hooks: support `input` transforms,
    `before_agent_start` context/system-prompt modifications, and
    `send_user_message(...)` enough for a command to trigger a deterministic
    provider turn.
-8. Pure/read-only tool registration: add extension tools to the bounded tool
+7. Pure/read-only tool registration: add extension tools to the bounded tool
    loop using existing JSON-schema validation and output bounds.
-9. Tool result hooks: support Pi-shaped tool `content` plus `details`,
-   bounded progress/update events, `tool_result` transforms, and deterministic
+8. Tool result hooks: support Pi-shaped tool `content` plus `details`, bounded
+   progress/update events, `tool_result` transforms, and deterministic
    propagation of transformed observations to the model.
-10. Minimal UI notifications: expose `ctx.ui.notify` with deterministic
+9. Minimal UI notifications: expose `ctx.ui.notify` with deterministic
    non-interactive behavior.
-11. Golden conformance extension: add the `/pipy-extension-conformance`
-   fixture and product-path proof test after the command, lifecycle, input,
-   before-agent-start, tool registration, tool-call, tool-result, agent-end,
-   and minimal UI slices exist.
-12. Provider registration and package installation only after the previous
-   slices have review coverage and a security model.
+10. Golden conformance extension: add the `/pipy-extension-conformance` fixture
+    and product-path proof test after the command, lifecycle, input,
+    before-agent-start, tool registration, tool-call, tool-result, agent-end,
+    and minimal UI slices exist.
+11. Provider registration through the provider catalog after command/tool/hook
+    slices have review coverage.
+12. Package installation, package resource filters, update/list/config flows,
+    and remote `npm:`/`git:` source handling only after the local extension
+    runtime has a reviewed trust/security model.
 
 ## Open Questions
 

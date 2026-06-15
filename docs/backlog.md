@@ -259,116 +259,71 @@ compared at the terminal-layer checkpoint. The current direction is a narrow
 custom terminal layer stay on the table for when the product needs a fuller UI
 surface or lower-level terminal ownership.
 
-### Current Largest Pi Feature Gaps (2026-06-03)
+### Current Largest Pi Feature Gaps (groomed 2026-06-15)
 
-This snapshot reflects a direct comparison against the local Pi reference in
-`/Users/jochen/src/pi-mono` after the tool loop, product TUI controls, runtime
-resources, theme loading, attachments, session-tree workflow,
-settings/keybindings, and the first catalog-backed provider construction slice
-landed. It is not a replacement for `docs/pi-parity.md`; it is a slice-selection
-aid for the highest-impact remaining product gaps.
+This snapshot supersedes the 2026-06-03 ranking after the session tree,
+session CLI/pickers, product TUI workflow, settings/keybindings, RPC/JSON
+automation, provider-catalog construction, and active-turn cancellation all
+shipped. It is a slice-selection aid, not a replacement for
+`docs/pi-parity.md` or the per-topic specs.
 
-1. Extension and package platform. Pi has TypeScript extensions that can
-   register tools, commands, providers, keybindings, event handlers, and UI
-   surfaces, plus npm/git package install, update, list, and config flows.
-   Pipy currently has bounded Markdown resources (`.pipy/skills`,
-   `.pipy/templates`, `.pipy/commands`) and chrome themes only. A general
-   extension/package loader, runtime UI hooks, third-party dependency
-   execution model, and security/update story remain the largest platform gap.
-   The Python-only, Pi-shaped semantic-compatibility target API is sketched in
+Shipped foundations that should no longer be selected as large topics:
+
+- native product session tree, `/session`/`/name`/`/new`/`/tree`/`/resume`/
+  `/fork`/`/clone`, durable `/compact`, and the full Pi startup-session flag
+  set;
+- product TUI/editor workflow depth, including `@` picker, path completion,
+  `!`/`!!`, thinking/model hotkeys, folding, queued steering/follow-up,
+  clipboard/drag image references, overlays, mouse-selection invariant, and
+  true provider-request cancellation;
+- layered settings/keybindings, scoped models, resource toggles, `/reload`,
+  `/changelog`, and `--version`;
+- Pi-shaped `--mode json`, `--print`/`-p`, and `--mode rpc`; and
+- provider/model catalog construction for the implemented adapter families,
+  one-shot runs, and startup resolution.
+
+The highest-impact remaining gaps are now:
+
+1. **Extension and package platform — selected next big topic.** Pi's most
+   important remaining differentiator is its extension/package surface:
+   trusted local code can register model-visible tools, commands, providers,
+   keybindings, lifecycle hooks, UI surfaces, and package resources. Pipy
+   currently has bounded Markdown resources (`.pipy/skills`,
+   `.pipy/templates`, `.pipy/commands`) and chrome themes, but no general
+   Python extension runtime or package manager. The next implementation slice
+   should be the safest foundation: local Python extension discovery and
+   manifest inventory with fail-closed diagnostics and **no extension code
+   execution yet**. The target API and later slices live in
    [extension-api.md](extension-api.md).
-2. Full session-tree workflow — **shipped (2026-06-02; session CLI + pickers
-   2026-06-09)**. Pipy now has a private native product session tree store
-   (`pipy_harness.native.session_tree`) that is the product session source of
-   truth, replacing the metadata-only product-resume path. Full-history tree
-   navigation (`/tree` with selection semantics, filters, labels, live-TTY
-   selector), in-place branch switching with sibling branches, `/session`,
-   `/name`, `/new`, native `/resume`, `/fork`, `/clone`, durable `/compact`
-   replay, branch summaries, and the full Pi startup-session flag set
-   (`-c`/`-r`/`--no-session`/`--session`/`--session-id`/`--session-dir`/
-   `-n`/`--name`/`--fork`, with the Pi mutual-exclusion errors and the
-   cross-project `--session` fork prompt) all ship through the product runtime.
-   The interactive `/resume` picker overlay (type-to-search, Tab scope, Ctrl+P
-   path, Ctrl+S sort, Ctrl+N named-only, Ctrl+R rename, Ctrl+X delete with
-   confirmation, Esc/Ctrl-C/Ctrl-D cancel) and the `-r` startup picker ship too
-   (shared engine; non-TTY keeps the deterministic listing +
-   `named`/`rename`/`delete --yes`). The old metadata-only `--resume RECORD` /
-   `--branch LABEL` repl flags are retired; `pipy-session` remains a separate
-   metadata/catalog utility. The deterministic conformance gate
-   `scripts/parity_checks/session_tree_conformance.py --json` and the
-   `scripts/parity_checks/session_tree_pi_comparison.py --json` Pi comparison
-   prove the workflow. Remaining Pi follow-ons (explicitly deferred): `/export`
-   HTML export and `/share`/gist upload. Spec and gate:
-   [session-tree.md](session-tree.md).
-3. Terminal/editor workflow depth. Pipy's product TUI now covers daily-driver
-   basics (inline scrollback, slash menu, `/settings`, `/model`, prompt
-   history, bracketed paste, undo/redo, resize handling, `/copy`, typed
-   `@path` and `@image:<path>` references). **This track has now shipped** —
-   the editor-depth surfaces that Pi historically led on (the `@` file picker
-   with exact/prefix/substring ranking, general Tab path completion, `!`/`!!`
-   shell shortcuts, `Shift+Tab` thinking-level cycling, `Ctrl+O`/`Ctrl+T`
-   folding, queued steering/follow-up messages during active turns,
-   clipboard/drag image references, the `/scoped-models` + `/hotkeys` overlays
-   and new `/settings` rows, and the mouse-selection invariant) all landed
-   through the [tui-workflow.md](tui-workflow.md) track, gated by
-   `scripts/parity_checks/tui_workflow_conformance.py`. True provider-request
-   cancellation (Escape/Ctrl-C abort the in-flight HTTP request, not just late
-   chunks) ships too (see item 8). Terminal/editor workflow depth is no longer
-   a remaining gap.
-4. Provider and model catalog follow-ons. The catalog/helper layers,
-   OpenAI-compatible Chat Completions product path, non-completions construction
-   for the implemented catalog-constructed adapter families, `pipy run`
-   one-shot construction, and startup `--native-provider`/`--native-model`
-   resolution are wired and gated end to end through
-   `native/provider_construction.py` and the shared Pi-style resolver. The
-   provider catalog conformance gate now covers Verification-Plan items 1-24.
-   Remaining provider-catalog follow-ons are narrower adapter/product gaps:
-   live Anthropic/Copilot login UX, the deliberate `openai-codex-responses`
-   legacy-factory exception for settings-derived retry policy, Vertex API-key
-   auth, Anthropic adaptive-thinking shape, Azure URL/api-version parity, and
-   extension-registered providers once the extension platform exists.
-5. RPC and automation modes. **Shipped.** Pipy now exposes the Pi-compatible
-   headless automation surfaces alongside `run`, `repl`, and the in-process
-   Python SDK: `pipy repl --mode json "<prompt>"` (full Pi-shaped session event
-   stream as LF-only JSONL), `--print`/`-p` (one-shot final assistant text), and
-   `pipy repl --mode rpc` (long-lived stdin/stdout JSONL protocol with the full
-   Pi command vocabulary, async prompt, queued steer/follow-up delivered as the
-   next run after the active turn settles (abort discards that run's queued
-   steering), queue updates, bash, session-name/state/messages/stats
-   introspection, and well-formed error responses for unimplemented commands;
-   true in-turn steering injection is a follow-on). Events are derived from the
-   real tool-loop run, not a parallel model; the native session tree is the
-   introspection source. The legacy metadata-only `--native-output json` is
-   deprecated in favor of `--mode json` (see §"Parity Cleanup"). Gated by
-   `scripts/parity_checks/automation_rpc_conformance.py --json` and
-   `tests/test_native_automation_*.py`; contract in
-   [automation-rpc.md](automation-rpc.md). The remaining open follow-ons are the
-   network/socket daemon (still deferred) and the RPC extension-UI channel,
-   which lands with the extension platform.
-6. Settings, distribution, and sharing polish. The settings/config/keybindings
-   surface now ships (see the Settings track below and
-   [settings-config.md](settings-config.md)): layered global/project
-   `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P,
-   message-delivery/transport settings (reported; honored where a surface
-   exists), system-prompt replace/append files + `--no-context-files`, `pipy
-   config` resource enablement, `/reload`, `/changelog`, and `--version` with a
-   default-off update check — all covered by
-   `scripts/parity_checks/settings_config_conformance.py`. The remaining gaps in
-   this item are distribution/sharing only: package/self-update commands,
-   documented npm/curl installs, HTML export, and private gist share. Pipy
-   remains a local `uv`-driven project with metadata-only archive export. These
-   are product-readiness gaps rather than core runtime gaps.
-7. User documentation parity. Pi has product docs for quickstart, usage,
-   providers, settings, keybindings, sessions, compaction, customization,
-   packages, models, SDK/RPC/JSON, terminal setup, tmux, and platforms. Pipy's
-   docs are still mostly internal specs and backlog/planning pages. The target
-   structure and checklist live in [user-documentation.md](user-documentation.md).
-8. Verification breadth and policy. Pipy now relies on bounded model-visible
-   `bash` for Pi-style verification-like workflows. The former supervised
-   `/verify just-check` command was removed because it is not a Pi feature.
-   Pi's broader shell/tool posture plus extension-defined permission gates make
-   richer verification workflows possible. Pipy still needs an explicit design
-   before adding project-defined verification policy.
+2. **Export / import / share / distribution.** The native session tree now
+   contains full product transcripts, so pipy can add Pi-style full-session
+   HTML export, active-branch JSONL export, import-and-resume, private gist
+   share, `--export`, and install/update documentation. This is more bounded
+   than extensions and is the best alternate next topic if implementation risk
+   should be lower. Spec: [export-distribution.md](export-distribution.md).
+3. **User documentation parity.** Pipy still has mostly maintainer/agent specs
+   rather than Pi-like product docs for quickstart, usage, providers, settings,
+   keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
+   tmux, and platforms. This can run in parallel with implementation tracks.
+   Spec: [user-documentation.md](user-documentation.md).
+4. **Provider/model catalog follow-ons.** Remaining provider work is narrower
+   adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
+   Anthropic adaptive-thinking shape, Azure URL/api-version parity, the
+   deliberate `openai-codex-responses` legacy-factory exception for
+   settings-derived retry policy, broader local-provider benchmarking, and
+   extension-registered providers after the extension API exists. Spec:
+   [provider-catalog.md](provider-catalog.md).
+5. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
+   harness-shaped `auth|run|repl` layout in places where Pi has a single
+   product command, and several pipy-only surfaces remain to remove or realign
+   (`--archive-transcript`, no-tool REPL/proposal commands, `/clear`,
+   `/status`, `/theme`, `/skill`, `/template`, `/help`, and exposed internal
+   flags where they do not map to Pi). This cleanup should be staged alongside
+   the topic that owns each surface rather than done as one risky rewrite.
+6. **Verification breadth and policy.** Pipy now relies on the model-visible
+   `bash` tool for Pi-style verification-like workflows. Richer project policy
+   should come through extension-defined permission/tool gates once the
+   extension platform exists, not through a revived pipy-only `/verify` command.
 
 ## Parity Cleanup: accidental pipy-only surfaces to remove or realign
 
@@ -1446,253 +1401,63 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Terminal/editor workflow depth: Pi-parity TUI interaction (shipped)
+### Extension API slice 1: discovery and manifest inventory (no execution)
 
-The Pi-parity TUI/editor workflow track specified in
-[tui-workflow.md](tui-workflow.md) has shipped on `main`. The product TUI now
-covers the daily-driver basics (inline scrollback, slash menu, `/settings`,
-`/model`, prompt history, bracketed paste, undo/redo, resize handling, `/copy`,
-typed `@path`/`@image:` references, italic reasoning), true provider-request
-cancellation (milestone 6, see Pi Gap Queue item 8), and the remaining
-interaction-comfort surfaces below — all through pipy-owned, stdlib-only
-boundaries that preserve the inline (no alternate-screen) contract:
+The selected next implementation slice is the first safe foundation for the
+Pi-style extension/package platform described in
+[extension-api.md](extension-api.md). This is intentionally **not** a package
+manager and **does not execute extension code yet**. It should create the
+loader inventory boundary that later activation, command registration,
+model-visible tools, hooks, providers, UI, and package install/update flows can
+build on.
 
-- `@` file picker with Pi exact/prefix/substring ranking (not fuzzy) and
-  bounded stdlib path walk;
-- general Tab path completion in the editor (prefix-match, dirs-first), no-op
-  in prose;
-- local `!`/`!!` shell shortcuts reusing the real bash execution boundary,
-  with bash-mode affordance, context vs no-context recording, queue-while-
-  streaming, refuse-while-running, and Escape-cancel;
-- `shift+tab` thinking-level cycling and `ctrl+p`/`shift+ctrl+p` model
-  cycling over the scoped/available set;
-- `ctrl+o` tool-output expansion and `ctrl+t` thinking-block fold as renderer
-  view flags;
-- queued steering/follow-up during active turns (`alt+enter`, `alt+up`), a
-  pending-messages region, and drain-on-settle ordering;
-- clipboard/drag image reference handling (`ctrl+v`, owner-only temp files);
-- richer overlays (`/scoped-models`, `/hotkeys`) and new actionable `/settings`
-  rows; and
-- the mouse-selection invariant (no xterm mouse-tracking enable sequences).
+Goal:
 
-Verification target for this slice:
+- Discover explicit local extension candidates from workspace and global pipy
+  config locations using pipy-owned paths, not Pi's TypeScript loader.
+- Parse optional `pipy-extension.toml` manifests with stdlib-only code and
+  infer safe defaults when no manifest exists.
+- Return a deterministic descriptor list of loadable/disabled extensions with
+  safe labels and reason codes.
+- Record or surface only safe metadata: name, version, API version, source
+  scope, path label/hash, declared permissions, and disabled reason.
+- Prove that extension source files are never imported or executed in this
+  slice, even when they contain top-level side effects.
+
+Suggested implementation boundaries:
+
+- Add a small `pipy_harness.native.extensions` (or similarly named) module with
+  dataclasses for `ExtensionManifest`, `ExtensionCandidate`, and
+  `ExtensionInventory`.
+- Discovery locations: `<workspace>/.pipy/extensions/<name>.py`,
+  `<workspace>/.pipy/extensions/<name>/extension.py`, and the matching global
+  config locations under `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` →
+  `~/.config/pipy`. Explicit CLI paths can be represented in the data model but
+  do not need product wiring in this slice.
+- Fail closed for unsafe names, symlinked extension directories that escape the
+  store, malformed manifests, unsupported `api_version`, duplicate names, binary
+  files, and secret-looking paths. Diagnostics must not include source bodies or
+  raw private absolute paths.
+- Keep package sources (`npm:`, `git:`, remote URLs), dependency installation,
+  activation/import, command/tool/provider registration, UI hooks, hot reload,
+  and settings writes out of scope.
+
+Acceptance criteria:
 
 ```sh
-uv run python scripts/parity_checks/tui_workflow_conformance.py --json
-uv run pytest tests/test_native_tool_loop_tui_pty.py
-uv run pytest tests/test_native_repl_pty_chrome.py
+uv run pytest tests/test_extension_inventory.py
 just check
 ```
 
-### Provider / model catalog closeout: docs, review, and merge readiness (shipped)
+The focused tests should cover workspace/global ordering, manifest parsing,
+manifest inference, duplicate handling, symlink/path safety, malformed-file
+fail-closed behavior, no-import/no-execution proof, deterministic diagnostics,
+and archive-safe metadata boundaries if the inventory is surfaced through a
+product startup/session event.
 
-The provider/model catalog construction closeout has shipped and merged to
-`main`: non-completions construction for the implemented catalog-constructed
-adapter families, `pipy run` one-shot catalog construction, and startup
-`--native-provider`/`--native-model` resolution through the shared Pi-style
-resolver all pass deterministic conformance coverage
-(`scripts/parity_checks/provider_catalog_conformance.py --json`, covering
-Verification-Plan items 1-24). The narrower remaining provider-catalog
-follow-ons (live Anthropic/Copilot login UX, the deliberate
-`openai-codex-responses` legacy-factory exception, Vertex API-key auth,
-Anthropic adaptive-thinking shape, Azure URL/api-version parity, and
-extension-registered providers once the extension platform exists) are
-tracked under Current Largest Gaps item 4, not as the selected Next Slice.
-
-### Settings / config / keybindings (landed 2026-06-03)
-
-The Pi-style settings/config/keybindings track from
-[settings-config.md](settings-config.md) has shipped through pipy-owned Python:
-
-- `pipy_harness.native.settings` — layered global `<config>/settings.json` +
-  project `.pipy/settings.json`, Pi migrations, one-level deep merge with project
-  precedence, CLI/env overrides, parse-error isolation, field-scoped lock-guarded
-  writes preserving unknown keys, and typed accessors.
-- `pipy_harness.native.keybindings` — default editor/app binding table (35+ app
-  bindings), `keybindings.json` load with legacy-name migration and
-  malformed-file fallback to defaults, and `/hotkeys` rendered from the resolved
-  manager.
-- Settings drive provider/model/theme/quietStartup/prompt-history/
-  autocompleteMaxVisible at startup; `/settings` reports the resolved config.
-- System-prompt inputs (`--system-prompt`, repeatable `--append-system-prompt`,
-  `SYSTEM.md`/`APPEND_SYSTEM.md`, `--no-context-files`/`-nc`); `retry.*` and
-  `compaction.enabled` honored; scoped models (`enabledModels` + `/scoped-models`
-  + Ctrl+P); resource enablement via `pipy config`; `/reload`; `/changelog` +
-  startup display; `--version` and a default-off update gate.
-
-The shipped conformance gate is:
-
-```sh
-uv run python scripts/parity_checks/settings_config_conformance.py --json
-```
-
-A few display/transport keys (editor padding, hardware cursor, clear-on-shrink,
-websocket transport, in-turn steering/follow-up queueing,
-compaction.reserveTokens/keepRecentTokens, branchSummary) are accepted,
-round-tripped, and reported by `/settings` but not yet live-applied, pending the
-corresponding runtime surfaces; see the honoring-status notes in
-[settings-config.md](settings-config.md).
-
-### Full Pi-style native session tree workflow (landed 2026-06-02)
-
-The prior selected slice has shipped. `pipy_harness.native.session_tree` is now
-the product session source of truth: a private append-only raw conversation tree
-that supports product turn persistence, provider-visible context reconstruction,
-`/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, durable
-`/compact`, branch summaries, and the startup flags `-c`, `-r`, `--session`,
-`--fork`, and `--no-session`. The metadata-first `pipy-session` archive remains
-a separate catalog/learning utility and is no longer the product session store.
-
-The shipped conformance gate is:
-
-```sh
-uv run python scripts/parity_checks/session_tree_conformance.py --json
-```
-
-### Local ds4 custom-provider path (landed)
-
-The provider catalog no longer treats `ds4` as a built-in model row. ds4 is now
-represented as a `models.json` custom provider for a locally running
-`antirez/ds4` DeepSeek V4 Flash server, with a pasteable example at
-`docs/examples/ds4.models.json`; the `PIPY_DS4_BASE_URL`/`PIPY_DS4_API_KEY` env
-shim synthesizes the same catalog entry. A legacy `--native-provider ds4`
-adapter path remains for compatibility while provider construction is fully
-catalog-driven. The implementation reuses the OpenAI-compatible Chat
-Completions provider machinery, requires no API key by default, and has a
-hermetic product-path test against a local stub server that pins request shape,
-tool-call serialization, response parsing, catalog wiring, base URL/model
-handling, and metadata-only archive behavior.
-
-Local setup evidence: `antirez/ds4` has been cloned outside this repo at
-`/Users/jochen/src/ds4` and built successfully for this Mac; `ds4-server`
-exists there. The explicit q2-imatrix model download completed through ds4's
-resumable downloader, producing `ds4flash.gguf` -> the 81 GB imatrix GGUF.
-`ds4-server` was launched with `--ctx 100000 --kv-disk-dir /tmp/ds4-kv
---kv-disk-space-mb 8192`. A real
-`uv run pipy run --agent pipy-native --native-provider ds4 --native-model deepseek-v4-flash ...`
-smoke against the live server returned the expected one-sentence answer for
-the local `antirez/ds4` server. A live Chat Completions probe returned
-OpenAI-style `tool_calls`, and the provider is now registered
-`supports_tool_calls=True` for pipy's bounded tool loop.
-
-### Product TUI interactive provider/model selector (landed)
-
-Advanced item 2 of the Prioritized Pi Gap Queue past the then-read-only
-`/settings` overlay (since superseded by the interactive `/settings` dialog —
-see the landed subsection below): the product tool-loop TUI now exposes
-interactive provider/model
-selection through `/model`, so a user can switch provider/model without leaving
-the TUI.
-
-What landed:
-
-- `pipy_harness.native.tui.ToolLoopTerminalUi.run_model_selector` renders an
-  in-frame, keyboard-navigable selector through the existing whole-frame paint
-  path: a title/affordance row, one row per `NativeReplProviderState.model_options()`
-  entry showing the `provider/model` reference and availability state (with
-  reasons), the active selection marked `(current)`, Up/Down highlight movement
-  (wrapping), Enter to choose a selectable row, and Esc/Ctrl-C/Ctrl-D to cancel.
-  The selector has no editable input cell, so the cursor stays hidden while it
-  is open. `render_lines()` and `paint()` agree on the overlay
-- `NativeToolReplSession` dispatches `/model`: bare `/model` opens the selector
-  in the product TUI (and prints the read-only options in the captured-stream
-  fallback); `/model <provider>/<model>` (or `<model>`) switches directly in
-  both surfaces. Selection goes through the existing
-  `NativeReplProviderState.select_model` boundary — the same one the no-tool
-  `/model` uses
-- a successful choice rebinds the live provider, clears the in-memory
-  conversation context, rebinds the usage meter, refreshes the footer/status
-  model label, and persists the non-secret default; the next provider turn is
-  constructed with the new provider/model. No provider turn runs during
-  selection
-- rows for unavailable providers, and for providers that do not advertise
-  tool-call support (which tool-loop mode requires), stay visible with a reason
-  but cannot be chosen; a direct `/model` switch to a non-tool-capable provider
-  is refused and the previous selection restored
-- the slash menu now lists `model`, `login`, and `logout` alongside `help`,
-  `settings`, `copy`, `exit`, and `quit`, so the menu still advertises only
-  commands the dispatcher can execute. The `/settings` overlay footer is
-  updated: it points at `/model` to switch provider/model and `/login`/`/logout`
-  to manage openai-codex OAuth (all three are now executable here)
-- metadata-first archive behavior is unchanged: the selector reads and mutates
-  only the in-memory provider state and the non-secret defaults file (provider
-  name and model id) and adds no prompts, model output, provider payloads,
-  command text, credentials, auth payloads, or transcript bodies to session
-  records
-- behavior is pinned by focused unit tests (selector render, navigation
-  wrap, hidden cursor, option gating, direct-reference rebind, and
-  non-tool-capable refusal) plus a real-PTY product-path test
-  (`tests/test_native_tool_loop_tui_pty.py`) that drives keyboard navigation,
-  selection, the footer/status update, no provider turn during selection, and
-  next-turn provider/model use against the hermetic fake provider
-
-`/login [openai-codex]` and `/logout [openai-codex]` are now wired into the
-product TUI (executable through the shared `NativeReplProviderState` auth
-boundary, no provider turn, no tool call, conversation context cleared,
-model-option availability refreshed, and the interactive login output kept off
-the session archive). Alongside them the core editor ergonomics landed:
-in-memory Up/Down prompt history (session-scoped, never persisted), ANSI
-bracketed paste (literal multi-line insert, no accidental submission),
-Ctrl-Z/Ctrl-Y undo/redo, and poll-based resize/SIGWINCH handling that repaints
-the inline frame coherently at 80x24 and 100x40. Two frame-coherence refinements
-followed the first review: multi-line input renders on one physical row (each
-embedded newline shown as a single-width `⏎` glyph; the literal text is still
-submitted) and over-wide input is horizontally scrolled through one shared
-`_input_view` helper so the input cell never wraps; and a resize does a
-drift-independent clear-and-full-redraw (`_repaint_after_resize`) instead of a
-relative-cursor erase, because a width shrink can reflow the previous frame and
-leave stale rows. These are pinned by focused
-unit tests plus real-PTY keystroke tests (`tests/test_native_tool_loop_tui_pty.py`:
-history recall edit/submit, multi-line paste (the live screen is parsed before
-Enter to confirm the pasted newline renders as one `⏎` glyph on a single
-separator-framed input row), undo/redo, fake-auth login/logout
-without a provider turn, a TIOCSWINSZ resize while a slash overlay is open, and a
-resize with a multi-line paste in the editor that asserts a single coherent
-post-resize frame — and one after a further keypress — with no stale rows before
-the literal prompt is submitted).
-The interactive-`/settings`-dialog work on item 2 has since landed (see the
-subsection below); broader selectors/overlays and mouse selection stay deferred.
-
-### Product TUI interactive `/settings` dialog + persistent prompt history (landed)
-
-Closed the remaining item-2 work and the previously-deferred persistent
-cross-session history:
-
-- `pipy_harness.native.tui.ToolLoopTerminalUi.run_settings_dialog` renders an
-  interactive in-frame settings/control dialog in the live region (not a
-  committed history block), through the same inline-scrollback paint path as the
-  `/model` selector: a title/affordance row, section headers, read-only status
-  rows (active selection and per-provider availability), and actionable rows.
-  Up/Down move the highlight between actionable rows only (skipping headers/
-  status, wrapping), Enter/Space activate, the list windows with a scroll
-  indicator when it overflows the height, the cursor stays hidden, and
-  Esc/Ctrl-C/Ctrl-D cancel back to the input. A resize while the dialog is open
-  repaints it coherently (no alternate screen).
-- Actions: change provider/model (reuses `run_model_selector` and the
-  `NativeReplProviderState.select_model` boundary), openai-codex auth
-  (reuses the `/login`/`/logout` auth boundary, showing logged-in/out status),
-  toggle persistent prompt history, and clear persisted history. All run no
-  provider turn and no tool call; provider/model and auth reuse the existing
-  state boundaries and return to the dialog afterward, while the prompt-history
-  toggles apply in place.
-- `pipy_harness.native.prompt_history.PromptHistoryStore` is a local-only,
-  opt-in store (off by default) at `~/.local/state/pipy/prompt-history.json`
-  (overridable via `PIPY_PROMPT_HISTORY_PATH`), written atomically with
-  owner-only permissions. When enabled, `NativeToolReplSession` records submitted
-  prompts (genuine prompts only — never slash commands), capped and
-  blank/consecutive-duplicate suppressed, and seeds a fresh TUI session's Up/Down
-  recall buffer from the saved prompts. When disabled, nothing is persisted and a
-  fresh session does not seed; "clear persisted history" wipes the saved entries
-  (leaving the current session's in-memory recall intact). In-memory per-session
-  recall always works. The store is independent of the metadata-first session
-  archive: prompt bodies never enter the archive.
-- Pinned by store unit tests (`tests/test_prompt_history.py`), session-level
-  wiring/privacy tests (`tests/test_native_tool_loop_tui.py`: persistence on/off,
-  recall seeding, dialog toggle/clear with no provider turn, and the persisted
-  prompt staying out of the metadata result/archive), and real-PTY product-path
-  tests (`tests/test_native_tool_loop_tui_pty.py`: the live `/settings` dialog at
-  80x24 and 100x40 with navigation/toggle/clear/resize/cancel, and a
-  cross-session enable→submit→fresh-recall→disable/clear→fresh-no-recall test).
+The expected follow-up slice is activation with a minimal API that supports
+`register_command` only, still without package installation or model-visible
+extension tools.
 
 ## Near Term
 
