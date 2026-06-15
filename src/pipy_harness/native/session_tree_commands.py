@@ -670,7 +670,8 @@ def delete_native_session(path: Path) -> tuple[bool, str]:
     try:
         path.unlink()
     except OSError as exc:
-        return False, f"could not delete {safe_name}: {exc}"
+        # The OSError text can embed the (untrusted) path/name; sanitize it too.
+        return False, f"could not delete {safe_name}: {sanitize_label_text(str(exc))}"
     return True, f"deleted native session {safe_name}"
 
 

@@ -448,3 +448,75 @@ def test_diagnostics_sanitize_crafted_session_file_fields(tmp_path: Path) -> Non
     _out, err = _run(session, cwd, "/session\n/tree\n/resume\n/exit\n")
     assert "\x1b" not in err
     assert "\x07" not in err
+
+
+def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(tmp_path: Path) -> None:
+    """Opening/renaming a crafted-id session and labelling/selecting its entries
+    must not echo the untrusted id/entry-id raw in any notice."""
+
+    import json
+
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "store" / "proj"
+    session_dir.mkdir(parents=True)
+    # A crafted sibling file with control bytes in the header id and entry id.
+    header = {
+        "type": "session",
+        "version": 1,
+        "id": "id\x1b[2Jx",
+        "timestamp": "2026-01-01T00-00-00+00-00",
+        "cwd": str(cwd),
+    }
+    entry = {
+        "type": "message",
+        "id": "ent\x1bid",
+        "parentId": None,
+        "timestamp": "t",
+        "message": {"role": "user", "content": "hi"},
+    }
+    crafted = session_dir / "crafted.jsonl"
+    crafted.write_text(
+        json.dumps(header) + "\n" + json.dumps(entry) + "\n", encoding="utf-8"
+    )
+    # Active session lives in the same dir so /resume can list+open the crafted one.
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
+
+    # Resolve the crafted file's 1-based index for /resume <n>, then open it,
+    # label + select its entry, and rename it.
+    _out, err = _run(
+        session,
+        cwd,
+        "\n".join(
+            [
+                "/resume",  # listing
+                "/resume crafted.jsonl",  # open the crafted file (echoes its id)
+                "/tree label 1 pin",  # echoes entry id
+                "/tree select 1",  # echoes chosen entry id
+                "/exit",
+                "",
+            ]
+        ),
+    )
+    assert "\x1b" not in err
+
+
+def test_delete_detail_sanitizes_oserror_text(tmp_path, monkeypatch) -> None:
+    import shutil
+
+    from pipy_harness.native.session_tree_commands import delete_native_session
+
+    target = tmp_path / "s.jsonl"
+    target.write_text("{}", encoding="utf-8")
+
+    # Force the direct-unlink path (no `trash`) and make it fail with control
+    # bytes in the OSError text.
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+    def _boom(self):
+        raise OSError("[Errno 1] failed: bad\x1b[2Jpath")
+
+    monkeypatch.setattr(Path, "unlink", _boom)
+    ok, detail = delete_native_session(target)
+    assert ok is False
+    assert "\x1b" not in detail

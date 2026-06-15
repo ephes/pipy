@@ -1429,7 +1429,7 @@ class NativeToolReplSession:
                 rebuild_messages_from_tree()
                 diag(
                     "pipy: started a new native session "
-                    f"({session_tree.session_id[:8]})."
+                    f"({sanitize_label_text(session_tree.session_id[:8])})."
                 )
                 refresh_legacy_footer()
                 continue
@@ -1499,7 +1499,7 @@ class NativeToolReplSession:
                         rebuild_messages_from_tree()
                         diag(
                             "pipy: resumed native session "
-                            f"{session_tree.session_id[:8]} "
+                            f"{sanitize_label_text(session_tree.session_id[:8])} "
                             f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
                         )
                 elif not argument:
@@ -1518,7 +1518,7 @@ class NativeToolReplSession:
                             new_name = " ".join(resume_tokens[2:])
                             renamed.append_session_info(new_name)
                             diag(
-                                f"pipy: renamed session {renamed.session_id[:8]} "
+                                f"pipy: renamed session {sanitize_label_text(renamed.session_id[:8])} "
                                 f"to {new_name!r}."
                             )
                 elif resume_sub == "delete":
@@ -1551,7 +1551,7 @@ class NativeToolReplSession:
                         rebuild_messages_from_tree()
                         diag(
                             "pipy: resumed native session "
-                            f"{session_tree.session_id[:8]} "
+                            f"{sanitize_label_text(session_tree.session_id[:8])} "
                             f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
                         )
                 refresh_legacy_footer()
@@ -1582,7 +1582,7 @@ class NativeToolReplSession:
                 rebuild_messages_from_tree()
                 diag(
                     "pipy: forked into new native session "
-                    f"{session_tree.session_id[:8]}."
+                    f"{sanitize_label_text(session_tree.session_id[:8])}."
                 )
                 refresh_legacy_footer()
                 continue
@@ -1600,7 +1600,7 @@ class NativeToolReplSession:
                 rebuild_messages_from_tree()
                 diag(
                     "pipy: cloned active branch into new native session "
-                    f"{session_tree.session_id[:8]}."
+                    f"{sanitize_label_text(session_tree.session_id[:8])}."
                 )
                 refresh_legacy_footer()
                 continue
@@ -3451,7 +3451,7 @@ class NativeToolReplSession:
         self._emit_diagnostic(
             terminal_ui,
             error_stream,
-            f"pipy: continuing from entry {chosen[:8]}.",
+            f"pipy: continuing from entry {sanitize_label_text(chosen[:8])}.",
         )
         return _TreeCommandOutcome(filter_mode=new_filter)
 
@@ -3601,7 +3601,7 @@ class NativeToolReplSession:
             self._emit_diagnostic(
                 terminal_ui,
                 error_stream,
-                f"pipy: continuing from entry {entry.id[:8]}.",
+                f"pipy: continuing from entry {sanitize_label_text(entry.id[:8])}.",
             )
             return _TreeCommandOutcome()
 
@@ -3630,9 +3630,9 @@ class NativeToolReplSession:
                 terminal_ui,
                 error_stream,
                 (
-                    f"pipy: labeled {entry.id[:8]} {label_text!r}."
+                    f"pipy: labeled {sanitize_label_text(entry.id[:8])} {label_text!r}."
                     if label_text
-                    else f"pipy: cleared label on {entry.id[:8]}."
+                    else f"pipy: cleared label on {sanitize_label_text(entry.id[:8])}."
                 ),
             )
             return _TreeCommandOutcome()
