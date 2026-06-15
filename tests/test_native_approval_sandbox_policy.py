@@ -774,19 +774,22 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Product TUI interactive provider/model selector (landed)" in next_slice
+        "### Extension API slice 2: activation sandbox boundary (register_command only)"
+        in next_slice
     )
     assert (
-        "the next provider turn is constructed with the new provider/model"
-        in compact_next_slice
+        "Slice 1 (discovery and manifest inventory, no execution) has" in (
+            compact_next_slice
+        )
     )
+    assert "never imports or executes extension code" in compact_next_slice
+    assert "pipy_harness.native.extensions" in next_slice
+    assert "`register_command(name, description, handler)`" in next_slice
     assert (
-        "pipy_harness.native.tui.ToolLoopTerminalUi.run_model_selector" in next_slice
+        "imports an explicit, already-inventoried local extension module" in (
+            compact_next_slice
+        )
     )
-    assert "NativeReplProviderState.select_model" in next_slice
-    assert "No provider turn runs during" in compact_next_slice
-    assert "metadata-first archive behavior is unchanged" in compact_next_slice
-    assert "real-PTY product-path test" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

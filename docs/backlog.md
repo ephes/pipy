@@ -1401,63 +1401,51 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 1: discovery and manifest inventory (no execution)
+### Extension API slice 2: activation sandbox boundary (register_command only)
 
-The selected next implementation slice is the first safe foundation for the
+Slice 1 (discovery and manifest inventory, no execution) has **landed**:
+`pipy_harness.native.extensions.discover_extensions` returns deterministic
+loadable/disabled `ExtensionDescriptor` records with safe labels and reason
+codes, parses optional `pipy-extension.toml` manifests with stdlib `tomllib`,
+infers safe defaults, fails closed on unsafe names/paths/manifests/api_versions/
+duplicates, and **never imports or executes extension code** (proven with a
+top-level side-effect fixture). It is covered by
+`tests/test_native_extension_discovery.py` and the conformance gate
+`scripts/parity_checks/extension_discovery_conformance.py --json`.
+
+The selected next implementation slice is the first activation boundary for the
 Pi-style extension/package platform described in
-[extension-api.md](extension-api.md). This is intentionally **not** a package
-manager and **does not execute extension code yet**. It should create the
-loader inventory boundary that later activation, command registration,
-model-visible tools, hooks, providers, UI, and package install/update flows can
-build on.
+[extension-api.md](extension-api.md). It imports an explicit, already-inventoried
+local extension module, calls `activate(api)`, and supports command registration
+only. This is still **not** a package manager.
 
 Goal:
 
-- Discover explicit local extension candidates from workspace and global pipy
-  config locations using pipy-owned paths, not Pi's TypeScript loader.
-- Parse optional `pipy-extension.toml` manifests with stdlib-only code and
-  infer safe defaults when no manifest exists.
-- Return a deterministic descriptor list of loadable/disabled extensions with
-  safe labels and reason codes.
-- Record or surface only safe metadata: name, version, API version, source
-  scope, path label/hash, declared permissions, and disabled reason.
-- Prove that extension source files are never imported or executed in this
-  slice, even when they contain top-level side effects.
+- Import only `loadable` slice-1 descriptors, fail closed on import errors, and
+  never import `disabled` descriptors.
+- Provide a minimal `PipyExtensionAPI` whose only supported method is
+  `register_command(name, description, handler)`.
+- Pin failure modes: import error, invalid or duplicate command name, reserved
+  built-in command shadowing, and activation exceptions disable that extension
+  with a safe diagnostic rather than crashing the session.
+- Record only safe metadata: extension name/version/path label, activation
+  status, and registered command names.
 
 Suggested implementation boundaries:
 
-- Add a small `pipy_harness.native.extensions` (or similarly named) module with
-  dataclasses for `ExtensionManifest`, `ExtensionCandidate`, and
-  `ExtensionInventory`.
-- Discovery locations: `<workspace>/.pipy/extensions/<name>.py`,
-  `<workspace>/.pipy/extensions/<name>/extension.py`, and the matching global
-  config locations under `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` →
-  `~/.config/pipy`. Explicit CLI paths can be represented in the data model but
-  do not need product wiring in this slice.
-- Fail closed for unsafe names, symlinked extension directories that escape the
-  store, malformed manifests, unsupported `api_version`, duplicate names, binary
-  files, and secret-looking paths. Diagnostics must not include source bodies or
-  raw private absolute paths.
 - Keep package sources (`npm:`, `git:`, remote URLs), dependency installation,
-  activation/import, command/tool/provider registration, UI hooks, hot reload,
-  and settings writes out of scope.
+  model-visible tools, lifecycle/tool hooks, providers, and UI hooks out of
+  scope. Those are later slices.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_extension_inventory.py
+uv run pytest tests/test_native_extension_activation.py
 just check
 ```
 
-The focused tests should cover workspace/global ordering, manifest parsing,
-manifest inference, duplicate handling, symlink/path safety, malformed-file
-fail-closed behavior, no-import/no-execution proof, deterministic diagnostics,
-and archive-safe metadata boundaries if the inventory is surfaced through a
-product startup/session event.
-
-The expected follow-up slice is activation with a minimal API that supports
-`register_command` only, still without package installation or model-visible
-extension tools.
+The expected follow-up slice is command dispatch in both REPL product paths,
+then the `tool_call` policy hook.
 
 ## Near Term
 

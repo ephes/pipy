@@ -753,15 +753,21 @@ Suggested future task wording:
 
 ## Suggested Implementation Slices
 
-The next selected implementation slice is slice 1 below. It is deliberately an
-inventory boundary only: no extension module is imported and no extension code
-runs until the follow-up activation slice.
+Slice 1 has **landed**: `pipy_harness.native.extensions.discover_extensions`
+implements the inventory boundary, with `tests/test_native_extension_discovery.py`
+and the conformance gate
+`scripts/parity_checks/extension_discovery_conformance.py --json`. The next
+selected implementation slice is slice 2 (activation). Every slice remains an
+explicit boundary: no extension module is imported and no extension code runs
+until the activation slice.
 
-1. Discovery and manifest inventory (no execution): find workspace/global local
-   Python extension candidates, parse optional `pipy-extension.toml` manifests,
-   infer safe defaults, validate names/API versions/permissions/source paths,
-   record safe loaded/disabled descriptors and reason codes, and prove that
-   top-level side effects in extension source files never run.
+1. Discovery and manifest inventory (no execution) — **landed**: find
+   workspace/global local Python extension candidates, parse optional
+   `pipy-extension.toml` manifests, infer safe defaults, validate names/API
+   versions/permissions/source paths, record safe loadable/disabled descriptors
+   and reason codes, and prove that top-level side effects in extension source
+   files never run. Implemented as `ExtensionDescriptor` +
+   `discover_extensions` + `safe_extension_metadata`.
 2. Activation sandbox boundary: import explicit local modules, call
    `activate(api)`, support command registration only, and pin failure modes,
    duplicate registration behavior, and safe diagnostics.
