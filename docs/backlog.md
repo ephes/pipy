@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 6: input + before_agent_start hooks and send_user_message
+### Extension API slice 7: pure/read-only extension tool registration
 
-Slices 1–5 have **landed**:
+Slices 1–6 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1437,27 +1437,32 @@ Slices 1–5 have **landed**:
 - Slice 5 (lifecycle events): `session_start`, `session_shutdown`,
   `agent_start`, `agent_end`, `turn_start`, and `turn_end` fire to `@api.on(...)`
   observers via an `_ExtensionAwareEmitter` wrapping the automation emitter
-  (`dispatch_lifecycle_hooks`); observe-only, fail-soft (a crashing observer
-  never breaks the session), `LifecycleEvent` carries only the event name +
-  session-start reason. `/reload` refreshes the observers. Gate:
+  (`dispatch_lifecycle_hooks`); observe-only, fail-soft. Gate:
   `scripts/parity_checks/extension_lifecycle_conformance.py --json`.
+- Slice 6 (`input`/`before_agent_start` + `send_user_message`): an `input` hook
+  transforms the provider-visible prompt (`dispatch_input_hooks`, fail-safe);
+  a `before_agent_start` hook injects bounded context into the turn's system
+  prompt (`dispatch_before_agent_start_hooks`); `api.send_user_message` enqueues
+  a deterministic provider turn drained by the loop (`drain_user_messages`).
+  Gate: `scripts/parity_checks/extension_input_hooks_conformance.py --json`.
 
-The selected next implementation slice adds the `input` and
-`before_agent_start` hooks plus `send_user_message`: `input` may observe or
-transform a submitted prompt before a turn; `before_agent_start` may inject
-bounded safe context or alter system-prompt options; and `api.send_user_message`
-lets an extension enqueue a deterministic provider turn (enough for a command to
-trigger one). Prompts/injected context are inspected/added live but not archived
-beyond existing safe metadata.
+The selected next implementation slice adds pure / read-only extension tool
+registration: an extension registers a model-visible tool (`api.register_tool`)
+with a JSON-schema input, joined to the bounded tool registry; the model can
+call it and its `ToolResult(content, details)` flows back. First-slice tools are
+read-only / pure transforms — shell/network/write require a later permission
+policy. Tool exceptions become bounded tool errors, and results are bounded
+before returning to the model.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_input_hooks.py
+uv run pytest tests/test_native_extension_tools.py
 just check
 ```
 
-The expected follow-up slice is pure/read-only extension tool registration.
+The expected follow-up slice is tool_result hooks (Pi-shaped content + details,
+bounded progress, result transforms).
 
 ## Near Term
 

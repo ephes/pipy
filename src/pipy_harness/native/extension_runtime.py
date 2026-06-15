@@ -60,6 +60,8 @@ EVENT_AGENT_START: str = "agent_start"
 EVENT_AGENT_END: str = "agent_end"
 EVENT_TURN_START: str = "turn_start"
 EVENT_TURN_END: str = "turn_end"
+EVENT_INPUT: str = "input"
+EVENT_BEFORE_AGENT_START: str = "before_agent_start"
 
 LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_SESSION_START,
@@ -87,6 +89,47 @@ class LifecycleEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class InputEvent:
+    """A submitted prompt presented to an `input` hook before a turn."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class InputTransform:
+    """Returned by an `input` hook to replace the submitted prompt text."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeAgentStartEvent:
+    """Presented to a `before_agent_start` hook before an agent run."""
+
+    system_prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeAgentStartResult:
+    """Returned by a `before_agent_start` hook to inject bounded context.
+
+    `append_system_prompt` is appended (bounded) to the turn's system
+    prompt. Later slices may add more fields (custom messages, model
+    options); they default off so existing extensions keep working.
+    """
+
+    append_system_prompt: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedUserMessage:
+    """A message an extension enqueued via `api.send_user_message`."""
+
+    content: str
+    options: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
 class ToolBlock:
     """Returned by a `tool_call` hook to block a tool call with a reason."""
 
@@ -109,6 +152,9 @@ class ToolCallEvent:
 _COMMAND_START_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _COMMAND_BODY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 _DIAGNOSTIC_MAX_LENGTH: int = 200
+# Cap the total `before_agent_start` system-prompt injection so a buggy or
+# malicious extension cannot create unbounded provider input.
+_BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -132,6 +178,12 @@ class PipyExtensionAPI(Protocol):
         event: str,
         handler: HookHandler | None = None,
     ) -> object: ...
+
+    def send_user_message(
+        self,
+        content: str,
+        options: Mapping[str, object] | None = None,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,13 +383,41 @@ class _ActivationApi:
         *,
         reserved: frozenset[str],
         taken: frozenset[str],
+        outbox: list[QueuedUserMessage],
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
         self._taken = taken
+        self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
+        # Messages are staged during activation and only committed to the
+        # shared outbox once activation succeeds, so a disabled extension
+        # never leaves a queued prompt behind. After activation commits,
+        # runtime calls (from command handlers / hooks) append directly.
+        self._staged_messages: list[QueuedUserMessage] = []
+        self._activated = False
+
+    def send_user_message(
+        self,
+        content: str,
+        options: Mapping[str, object] | None = None,
+    ) -> None:
+        """Enqueue a deterministic user turn (drained by the session loop)."""
+
+        message = QueuedUserMessage(content=str(content), options=dict(options or {}))
+        if self._activated:
+            self._outbox.append(message)
+        else:
+            self._staged_messages.append(message)
+
+    def commit_activation(self) -> None:
+        """Flush staged `send_user_message` calls after successful activation."""
+
+        self._activated = True
+        self._outbox.extend(self._staged_messages)
+        self._staged_messages = []
 
     def register_command(
         self,
@@ -426,6 +506,7 @@ def activate_extensions(
     descriptors: Sequence[ExtensionDescriptor],
     *,
     reserved_command_names: Sequence[str] = (),
+    message_outbox: list[QueuedUserMessage] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
 
@@ -434,10 +515,15 @@ def activate_extensions(
     isolation; any failure disables only that extension. Command names
     are deduplicated across all extensions in this pass (first
     registration wins; a later collision disables the later extension).
+
+    `message_outbox` is the shared list that `api.send_user_message`
+    appends to; the session drains it with `drain_user_messages`. When
+    omitted, a private outbox is used (messages are simply unread).
     """
 
     reserved = frozenset(reserved_command_names)
     taken: set[str] = set()
+    outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
     for descriptor in descriptors:
@@ -445,8 +531,20 @@ def activate_extensions(
             # Discovery already disabled this; never import it.
             results.append(_passthrough_disabled(descriptor))
             continue
-        results.append(_activate_one(descriptor, reserved=reserved, taken=taken))
+        results.append(
+            _activate_one(descriptor, reserved=reserved, taken=taken, outbox=outbox)
+        )
     return results
+
+
+def drain_user_messages(
+    outbox: list[QueuedUserMessage],
+) -> list[QueuedUserMessage]:
+    """Return and clear the queued `send_user_message` messages, in order."""
+
+    drained = list(outbox)
+    outbox.clear()
+    return drained
 
 
 def _activate_one(
@@ -454,6 +552,7 @@ def _activate_one(
     *,
     reserved: frozenset[str],
     taken: set[str],
+    outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
         module = _import_entry_module(descriptor)
@@ -475,7 +574,7 @@ def _activate_one(
         return _disabled(descriptor, REASON_NO_ACTIVATE, None)
 
     api = _ActivationApi(
-        descriptor.name, reserved=reserved, taken=frozenset(taken)
+        descriptor.name, reserved=reserved, taken=frozenset(taken), outbox=outbox
     )
     try:
         result = activate(api)
@@ -497,9 +596,11 @@ def _activate_one(
         return _disabled(descriptor, failure_reason, failure_diagnostic)
 
     commands = api.staged_commands()
-    # Commit the names only now that activation fully succeeded.
+    # Commit the names + staged send_user_message prompts only now that
+    # activation fully succeeded.
     for command in commands:
         taken.add(command.name)
+    api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
         version=descriptor.version,
@@ -532,6 +633,91 @@ def extension_tool_call_hooks(
     """Collect `tool_call` hooks from activated extensions, in order."""
 
     return extension_event_hooks(activated, EVENT_TOOL_CALL)
+
+
+def dispatch_input_hooks(
+    hooks: Sequence[HookHandler],
+    text: str,
+    *,
+    cwd: str,
+    has_ui: bool,
+) -> str:
+    """Run `input` hooks over a submitted prompt; return the final text.
+
+    Hooks run in registration order, each receiving an `InputEvent` with
+    the current text. A hook returning an `InputTransform` replaces the
+    text for subsequent hooks; any other return value observes only. A
+    hook that raises is fail-safe: the current text is kept unchanged so
+    a buggy hook never breaks submission. `KeyboardInterrupt` /
+    `SystemExit` propagate.
+    """
+
+    current = text
+    if not hooks:
+        return current
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    for hook in hooks:
+        try:
+            result = hook(InputEvent(text=current), ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail-safe: keep current text
+            continue
+        if isinstance(result, InputTransform) and isinstance(result.text, str):
+            # Ignore a non-string transform (fail-safe): never propagate a
+            # non-string into @file resolution / the provider request.
+            current = result.text
+    return current
+
+
+def dispatch_before_agent_start_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    cwd: str,
+    has_ui: bool,
+    system_prompt: str = "",
+) -> BeforeAgentStartResult:
+    """Run `before_agent_start` hooks; aggregate their context injections.
+
+    Each hook receives a `BeforeAgentStartEvent` (the current system
+    prompt) and may return a `BeforeAgentStartResult` whose
+    `append_system_prompt` is concatenated (in order). A hook that raises
+    is fail-safe (ignored). `KeyboardInterrupt` / `SystemExit` propagate.
+    """
+
+    appended: list[str] = []
+    if hooks:
+        ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+        current_prompt = system_prompt
+        for hook in hooks:
+            try:
+                result = hook(BeforeAgentStartEvent(system_prompt=current_prompt), ctx)
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - fail-safe: ignore a bad hook
+                continue
+            if (
+                isinstance(result, BeforeAgentStartResult)
+                and isinstance(result.append_system_prompt, str)
+                and result.append_system_prompt
+            ):
+                appended.append(result.append_system_prompt)
+                # Later hooks see earlier hooks' appended context (ordered
+                # composition), matching `BeforeAgentStartEvent.system_prompt`.
+                current_prompt = current_prompt + "\n" + result.append_system_prompt
+    if not appended:
+        return BeforeAgentStartResult(append_system_prompt=None)
+    combined = "\n".join(appended)
+    if len(combined) > _BEFORE_AGENT_START_MAX_CHARS:
+        combined = (
+            combined[:_BEFORE_AGENT_START_MAX_CHARS]
+            + "\n[pipy: before_agent_start injection truncated]"
+        )
+    return BeforeAgentStartResult(append_system_prompt=combined)
 
 
 def dispatch_lifecycle_hooks(

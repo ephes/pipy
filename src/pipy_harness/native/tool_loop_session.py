@@ -130,6 +130,8 @@ from pipy_harness.native.session_tree_commands import (
 from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
     EVENT_AGENT_START,
+    EVENT_BEFORE_AGENT_START,
+    EVENT_INPUT,
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
     EVENT_TURN_END,
@@ -137,11 +139,15 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     HookHandler,
     LifecycleEvent,
+    QueuedUserMessage,
     RegisteredCommand,
     activate_extensions,
+    dispatch_before_agent_start_hooks,
     dispatch_extension_command,
+    dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_tool_call_hooks,
+    drain_user_messages,
     extension_command_map,
     extension_event_hooks,
     extension_tool_call_hooks,
@@ -468,33 +474,44 @@ def _tool_loop_command_descriptions(
     return descriptions
 
 
+@dataclass(frozen=True, slots=True)
+class _ExtensionRuntime:
+    """The activated-extension contributions wired into one session run."""
+
+    commands: dict[str, RegisteredCommand]
+    menu_names: tuple[str, ...]
+    descriptions: dict[str, str]
+    tool_call_hooks: tuple[HookHandler, ...]
+    lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
+    input_hooks: tuple[HookHandler, ...]
+    before_agent_start_hooks: tuple[HookHandler, ...]
+    outbox: list[QueuedUserMessage]
+
+
 def _activate_workspace_extensions(
     cwd: Path,
     resources: WorkspaceResources,
-) -> tuple[
-    dict[str, RegisteredCommand],
-    tuple[str, ...],
-    dict[str, str],
-    tuple[HookHandler, ...],
-    dict[str, tuple[HookHandler, ...]],
-]:
+) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
     Reserved names are the executable built-in/custom command set, so an
     extension command can never shadow a built-in or a custom command.
-    Returns the command map (for dispatch), the menu ``/<name>`` labels,
-    a name->description map (for the slash menu), the ordered ``tool_call``
-    hooks (for the policy gate), and the per-event lifecycle hooks
-    (``session_start``/``agent_start``/...). Activation runs extension
-    code; any failing extension is disabled by ``activate_extensions``
-    without affecting the session.
+    The result bundles the command map (for dispatch), the menu
+    ``/<name>`` labels + descriptions, the ordered ``tool_call`` hooks,
+    the per-event lifecycle hooks, the ``input`` and ``before_agent_start``
+    hooks, and the shared ``send_user_message`` outbox. Activation runs
+    extension code; any failing extension is disabled by
+    ``activate_extensions`` without affecting the session.
     """
 
     reserved = tuple(
         name.lstrip("/") for name in _tool_loop_command_names(resources)
     )
     descriptors = discover_extensions(cwd)
-    activated = activate_extensions(descriptors, reserved_command_names=reserved)
+    outbox: list[QueuedUserMessage] = []
+    activated = activate_extensions(
+        descriptors, reserved_command_names=reserved, message_outbox=outbox
+    )
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
     descriptions = {
@@ -504,7 +521,18 @@ def _activate_workspace_extensions(
     lifecycle_hooks = {
         event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
     }
-    return command_map, menu_names, descriptions, tool_call_hooks, lifecycle_hooks
+    input_hooks = extension_event_hooks(activated, EVENT_INPUT)
+    before_agent_start_hooks = extension_event_hooks(activated, EVENT_BEFORE_AGENT_START)
+    return _ExtensionRuntime(
+        commands=command_map,
+        menu_names=menu_names,
+        descriptions=descriptions,
+        tool_call_hooks=tool_call_hooks,
+        lifecycle_hooks=lifecycle_hooks,
+        input_hooks=input_hooks,
+        before_agent_start_hooks=before_agent_start_hooks,
+        outbox=outbox,
+    )
 
 
 class _ExtensionAwareEmitter(AutomationEmitter):
@@ -739,13 +767,18 @@ class NativeToolReplSession:
         # Discover + activate Python extensions and project their slash
         # commands. Activation runs extension code; a failing extension is
         # disabled without affecting the session.
-        (
-            extension_commands,
-            extension_menu_names,
-            extension_descriptions,
-            extension_tool_call_hooks_,
-            extension_lifecycle_hooks,
-        ) = _activate_workspace_extensions(cwd, workspace_resources)
+        _ext_runtime = _activate_workspace_extensions(cwd, workspace_resources)
+        extension_commands = _ext_runtime.commands
+        extension_menu_names = _ext_runtime.menu_names
+        extension_descriptions = _ext_runtime.descriptions
+        extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
+        extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
+        extension_input_hooks = _ext_runtime.input_hooks
+        extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
+        extension_message_outbox = _ext_runtime.outbox
+        # Prompts an extension enqueues via send_user_message become the
+        # next prompts processed by the loop (deterministic turns).
+        extension_pending_messages: list[str] = []
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
@@ -1259,6 +1292,15 @@ class NativeToolReplSession:
                 # locally (Pi): it is dispatched here through the NORMAL path (it is
                 # not a drained message, so ``command_text`` keeps its value below
                 # and local-command dispatch applies) before any queued prompts.
+                # Drain any messages an extension enqueued via
+                # send_user_message (from a command, hook, or other
+                # callback) at the top of every iteration, so they are
+                # always scheduled as deterministic prompts regardless of
+                # which callback queued them.
+                extension_pending_messages.extend(
+                    message.content
+                    for message in drain_user_messages(extension_message_outbox)
+                )
                 pending_command = (
                     terminal_ui.take_pending_command()
                     if terminal_ui is not None
@@ -1275,6 +1317,18 @@ class NativeToolReplSession:
                         terminal_ui.take_next_drain() if terminal_ui is not None else None
                     )
                 )
+                # Prompts an extension enqueued via send_user_message are
+                # delivered through the same `drained` path as Pi
+                # steering/follow-ups: provider-visible prompt text, never
+                # parsed as a local command (so a queued "/help" is a prompt,
+                # not the help command). They come after user steering and
+                # before blocking on fresh input.
+                if (
+                    drained is None
+                    and pending_command is None
+                    and extension_pending_messages
+                ):
+                    drained = extension_pending_messages.pop(0)
                 if pending_command is not None:
                     line = f"{pending_command}\n"
                 elif drained is not None:
@@ -1448,13 +1502,19 @@ class NativeToolReplSession:
                     # Re-discover + re-activate extensions on reload (Pi
                     # /reload also reloads extensions). A failing extension is
                     # disabled without affecting the session.
-                    (
-                        extension_commands,
-                        extension_menu_names,
-                        extension_descriptions,
-                        extension_tool_call_hooks_,
-                        extension_lifecycle_hooks,
-                    ) = _activate_workspace_extensions(cwd, workspace_resources)
+                    _ext_runtime = _activate_workspace_extensions(
+                        cwd, workspace_resources
+                    )
+                    extension_commands = _ext_runtime.commands
+                    extension_menu_names = _ext_runtime.menu_names
+                    extension_descriptions = _ext_runtime.descriptions
+                    extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
+                    extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
+                    extension_input_hooks = _ext_runtime.input_hooks
+                    extension_before_agent_start_hooks = (
+                        _ext_runtime.before_agent_start_hooks
+                    )
+                    extension_message_outbox = _ext_runtime.outbox
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
                     emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
@@ -2045,6 +2105,8 @@ class NativeToolReplSession:
                                     f"failed ({extension_dispatch.error})"
                                 ),
                             )
+                        # Messages a command enqueued via send_user_message
+                        # are drained at the top of the next iteration.
                         if legacy_footer_enabled():
                             self._print_footer(
                                 error_stream,
@@ -2094,9 +2156,20 @@ class NativeToolReplSession:
                     # literal resource text never leaks past the provider.
                     provider_user_input = resource_provider_text
                 else:
-                    provider_user_input = user_input
-                    file_references = resolve_file_references(
+                    # `input` hooks may transform the submitted prompt before
+                    # the provider turn. The original `user_input` still goes
+                    # to prompt history, the sidecar, and the rendered panel;
+                    # only the provider-visible text and @file resolution use
+                    # the transformed value.
+                    transformed_input = dispatch_input_hooks(
+                        extension_input_hooks,
                         user_input,
+                        cwd=str(cwd),
+                        has_ui=terminal_ui is not None,
+                    )
+                    provider_user_input = transformed_input
+                    file_references = resolve_file_references(
+                        transformed_input,
                         workspace_root=cwd,
                         reference_roots=self.reference_roots,
                     )
@@ -2108,14 +2181,14 @@ class NativeToolReplSession:
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         if file_references.used:
                             provider_user_input = file_references.augmented_prompt(
-                                user_input
+                                transformed_input
                             )
                     # User-directed image attachments (@image:<path>): bounded,
                     # fail-closed image loading that becomes provider-visible image
                     # blocks on the current user message. Raw bytes never reach the
                     # prompt history, the transcript sidecar, or the result.
                     image_attachments = resolve_image_attachments(
-                        user_input,
+                        transformed_input,
                         workspace_root=cwd,
                         reference_roots=image_reference_roots,
                     )
@@ -2127,6 +2200,23 @@ class NativeToolReplSession:
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         turn_attachments = image_attachments.attachments()
                 turn_user_message = UserMessage(content=provider_user_input)
+                # `before_agent_start` hooks may inject bounded context into
+                # this agent run's system prompt. Computed once per accepted
+                # prompt; the injected text is provider-visible but not added
+                # to the metadata archive.
+                before_agent_result = dispatch_before_agent_start_hooks(
+                    extension_before_agent_start_hooks,
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                    system_prompt=base_system_prompt,
+                )
+                agent_system_prompt = base_system_prompt
+                if before_agent_result.append_system_prompt:
+                    agent_system_prompt = (
+                        base_system_prompt
+                        + "\n"
+                        + before_agent_result.append_system_prompt
+                    )
                 # Automation: this accepted prompt begins one agent run. Snapshot the
                 # message index so agent_end can report the messages this run added
                 # (the user message and everything the loop appends below).
@@ -2167,7 +2257,7 @@ class NativeToolReplSession:
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)
                     provider_request = ProviderRequest(
-                        system_prompt=base_system_prompt + compaction_summary,
+                        system_prompt=agent_system_prompt + compaction_summary,
                         user_prompt=provider_user_input,
                         provider_name=effective_provider_name,
                         model_id=effective_model_id,

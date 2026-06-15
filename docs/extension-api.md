@@ -770,8 +770,8 @@ extension `/commands` dispatch through the live tool-loop REPL
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 6 (`input`/`before_agent_start` +
-`send_user_message`). Discovery never imports extension code; activation imports
+selected implementation slice is slice 7 (pure/read-only extension tool
+registration). Discovery never imports extension code; activation imports
 only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -806,10 +806,14 @@ only loadable descriptors.
    `dispatch_lifecycle_hooks` + `extension_event_hooks`, fired through an
    `_ExtensionAwareEmitter` (observe-only, fail-soft) wired into
    `tool_loop_session`.
-6. Input and before-agent-start hooks: support `input` transforms,
+6. Input and before-agent-start hooks — **landed**: support `input` transforms,
    `before_agent_start` context/system-prompt modifications, and
    `send_user_message(...)` enough for a command to trigger a deterministic
-   provider turn.
+   provider turn. Implemented as `InputEvent`/`InputTransform`,
+   `BeforeAgentStartEvent`/`BeforeAgentStartResult`, `QueuedUserMessage`,
+   `dispatch_input_hooks`/`dispatch_before_agent_start_hooks`,
+   `api.send_user_message` + `drain_user_messages`, wired into the
+   `tool_loop_session` prompt/turn path.
 7. Pure/read-only tool registration: add extension tools to the bounded tool
    loop using existing JSON-schema validation and output bounds.
 8. Tool result hooks: support Pi-shaped tool `content` plus `details`, bounded
