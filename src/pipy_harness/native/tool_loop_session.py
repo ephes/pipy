@@ -128,12 +128,22 @@ from pipy_harness.native.session_tree_commands import (
     visible_tree_entries,
 )
 from pipy_harness.native.extension_runtime import (
+    EVENT_AGENT_END,
+    EVENT_AGENT_START,
+    EVENT_SESSION_SHUTDOWN,
+    EVENT_SESSION_START,
+    EVENT_TURN_END,
+    EVENT_TURN_START,
+    LIFECYCLE_EVENTS,
     HookHandler,
+    LifecycleEvent,
     RegisteredCommand,
     activate_extensions,
     dispatch_extension_command,
+    dispatch_lifecycle_hooks,
     dispatch_tool_call_hooks,
     extension_command_map,
+    extension_event_hooks,
     extension_tool_call_hooks,
 )
 from pipy_harness.native.extensions import discover_extensions
@@ -466,16 +476,18 @@ def _activate_workspace_extensions(
     tuple[str, ...],
     dict[str, str],
     tuple[HookHandler, ...],
+    dict[str, tuple[HookHandler, ...]],
 ]:
     """Discover + activate extensions and project their contributions.
 
     Reserved names are the executable built-in/custom command set, so an
     extension command can never shadow a built-in or a custom command.
     Returns the command map (for dispatch), the menu ``/<name>`` labels,
-    a name->description map (for the slash menu), and the ordered
-    ``tool_call`` hooks (for the tool-call policy gate). Activation runs
-    extension code; any failing extension is disabled by
-    ``activate_extensions`` without affecting the session.
+    a name->description map (for the slash menu), the ordered ``tool_call``
+    hooks (for the policy gate), and the per-event lifecycle hooks
+    (``session_start``/``agent_start``/...). Activation runs extension
+    code; any failing extension is disabled by ``activate_extensions``
+    without affecting the session.
     """
 
     reserved = tuple(
@@ -489,7 +501,67 @@ def _activate_workspace_extensions(
         f"/{command.name}": command.description for command in command_map.values()
     }
     tool_call_hooks = extension_tool_call_hooks(activated)
-    return command_map, menu_names, descriptions, tool_call_hooks
+    lifecycle_hooks = {
+        event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
+    }
+    return command_map, menu_names, descriptions, tool_call_hooks, lifecycle_hooks
+
+
+class _ExtensionAwareEmitter(AutomationEmitter):
+    """`AutomationEmitter` that also fires extension lifecycle hooks.
+
+    Mirrors Pi's lifecycle vocabulary onto the extension `@api.on(...)`
+    observers at the existing emit points, so hook dispatch is not
+    scattered through the loop. Lifecycle hooks are observe-only and
+    fail-soft (a crashing observer never breaks the session). When an
+    extension registers no lifecycle hooks this behaves exactly like the
+    base emitter.
+    """
+
+    def __init__(
+        self,
+        sink: object,
+        *,
+        lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
+        cwd: Path,
+        has_ui: bool,
+    ) -> None:
+        super().__init__(sink)  # type: ignore[arg-type]
+        self._lifecycle_hooks = lifecycle_hooks
+        self._lifecycle_cwd = str(cwd)
+        self._lifecycle_has_ui = has_ui
+
+    def set_lifecycle_hooks(
+        self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
+    ) -> None:
+        self._lifecycle_hooks = lifecycle_hooks
+
+    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+        hooks = self._lifecycle_hooks.get(name)
+        if not hooks:
+            return
+        dispatch_lifecycle_hooks(
+            hooks,
+            LifecycleEvent(name=name, reason=reason),
+            cwd=self._lifecycle_cwd,
+            has_ui=self._lifecycle_has_ui,
+        )
+
+    def agent_start(self) -> None:
+        super().agent_start()
+        self.fire_lifecycle(EVENT_AGENT_START)
+
+    def agent_end(self, messages, *, will_retry: bool = False) -> None:
+        super().agent_end(messages, will_retry=will_retry)
+        self.fire_lifecycle(EVENT_AGENT_END)
+
+    def turn_start(self) -> None:
+        super().turn_start()
+        self.fire_lifecycle(EVENT_TURN_START)
+
+    def turn_end(self, message, tool_results) -> None:
+        super().turn_end(message, tool_results)
+        self.fire_lifecycle(EVENT_TURN_END)
 
 
 def _parse_tool_input(arguments_json: str) -> dict[str, object]:
@@ -672,6 +744,7 @@ class NativeToolReplSession:
             extension_menu_names,
             extension_descriptions,
             extension_tool_call_hooks_,
+            extension_lifecycle_hooks,
         ) = _activate_workspace_extensions(cwd, workspace_resources)
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
@@ -721,7 +794,17 @@ class NativeToolReplSession:
         # A no-op when no observer is attached (CLI/TUI), so the interactive path
         # is unchanged; otherwise it serializes this real loop's lifecycle onto
         # Pi's AgentSessionEvent vocabulary.
-        emitter = AutomationEmitter(self.automation_observer)
+        # Extension-aware emitter: also fires the lifecycle `@api.on(...)`
+        # observers at the existing agent/turn emit points (no-op when no
+        # lifecycle hooks were registered).
+        emitter = _ExtensionAwareEmitter(
+            self.automation_observer,
+            lifecycle_hooks=extension_lifecycle_hooks,
+            cwd=cwd,
+            has_ui=terminal_ui is not None,
+        )
+        # `session_start` fires once the session is set up (reason "startup");
+        # `session_shutdown` fires when the run ends.
         # Stream long-running tool output (e.g. pytest dots) into the live UI as
         # it is produced, matching Pi. Rebuilt here so the sink can target the
         # renderer that was just selected. For automation it also emits Pi's
@@ -1138,1005 +1221,272 @@ class NativeToolReplSession:
                 usage_accumulator=usage_accumulator,
             )
 
-        while True:
-            if terminal_ui is None:
-                print_input_separator(error_stream)
-            footer_text = self._footer_text(
-                cwd=cwd,
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
-                user_turn_count=user_turn_count,
-                tool_invocation_count=tool_invocation_count,
-                error_stream=error_stream,
-                usage_accumulator=usage_accumulator,
-            )
-            if pending_prefill is not None:
-                # A ``/tree`` user-message selection puts the chosen text back
-                # into the editor. The live TUI rehydrates the editor directly;
-                # captured-stream callers see a hint and type the (edited) text
-                # as the next line, which branches from the selected parent.
-                if terminal_ui is not None and hasattr(
-                    terminal_ui, "set_input_text"
-                ):
-                    terminal_ui.set_input_text(pending_prefill)
-                elif terminal_ui is None:
-                    diag(
-                        "pipy: editor rehydrated with selected message; "
-                        "type your (edited) message to branch from here, or "
-                        "submit as-is.\n"
-                        f"  > {pending_prefill}"
-                    )
-                pending_prefill = None
-            # A local command (`/…`/`!…`) submitted with Enter mid-turn runs
-            # locally (Pi): it is dispatched here through the NORMAL path (it is
-            # not a drained message, so ``command_text`` keeps its value below
-            # and local-command dispatch applies) before any queued prompts.
-            pending_command = (
-                terminal_ui.take_pending_command()
-                if terminal_ui is not None
-                else None
-            )
-            # Deliver any queued steering/follow-up messages (Pi) before reading
-            # fresh input: a steering interrupt or a turn that settled with
-            # follow-ups promotes them to a sequential drain, delivered in order
-            # (all steering, then all follow-up) as the next prompts.
-            drained = (
-                None
-                if pending_command is not None
-                else (
-                    terminal_ui.take_next_drain() if terminal_ui is not None else None
-                )
-            )
-            if pending_command is not None:
-                line = f"{pending_command}\n"
-            elif drained is not None:
-                line = f"{drained}\n"
-            else:
-                try:
-                    # Pi's input cursor has no leading `> ` glyph; the
-                    # separator pair above and below the input area is the
-                    # visual frame instead. Pass an empty prompt so the
-                    # readline / slash-menu adapter renders just the cursor.
-                    line = repl_input.read_line("", footer=footer_text)
-                except KeyboardInterrupt:
-                    print(file=error_stream)
-                    break
-            if not line:
-                break
-            user_input = line.rstrip("\n")
-            stripped = user_input.strip()
-            # Queued steering/follow-up messages (Pi) are provider-visible prompt
-            # text, never local commands: a follow-up enqueued mid-turn that
-            # happens to begin with `/` (slash command) or `!` (bash shortcut)
-            # must reach the model verbatim, not be intercepted and silently
-            # dropped from the conversation. ``command_text`` is the dispatch key
-            # for every local command/hotkey below; it is blank for a drained
-            # line so none match and it falls through to the provider-message
-            # path (which still resolves any @file/@image references). Typed
-            # input keeps ``command_text == stripped`` and is unaffected.
-            command_text = "" if drained is not None else stripped
-            # In-editor hotkeys arrive as private sentinel "commands" from the
-            # TUI so they dispatch without rendering a user-message bubble.
-            # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
-            # the model (translated to the existing /scoped-models dispatch).
-            if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
-                self._toggle_view_fold(
-                    stripped,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    settings=settings,
-                )
-                continue
-            if command_text == HOTKEY_THINKING_CYCLE:
-                self._cycle_thinking_level(
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    session_tree=session_tree,
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            from_hotkey = command_text in {
-                HOTKEY_MODEL_CYCLE_NEXT,
-                HOTKEY_MODEL_CYCLE_PREV,
-            }
-            if from_hotkey:
-                stripped = (
-                    "/scoped-models next"
-                    if stripped == HOTKEY_MODEL_CYCLE_NEXT
-                    else "/scoped-models prev"
-                )
-                user_input = stripped
-                # Keep the dispatch key in sync with the translated command so
-                # the /scoped-models handler below matches (a hotkey is never a
-                # drained line, so this only rewrites typed-hotkey input).
-                command_text = stripped
-            # Local shell shortcut: a submitted line whose first non-space
-            # character is ``!`` runs a bash command from the editor with no
-            # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
-            # command/output into the conversation context and native session
-            # tree so the next turn and resume see it; ``!!cmd`` runs identically
-            # but is excluded from context (a live-only diagnostic). Escape
-            # cancels a running command. Intercepted before the user-message
-            # panel so it renders as a shell block, not a chat bubble.
-            if command_text.startswith("!"):
-                shell_context_text = self._run_local_shell_shortcut(
-                    stripped,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
+        # session_start fires once the session is set up; session_shutdown
+        # is fired from the finally below so it runs on EVERY exit path
+        # (normal return, fatal return, or a propagated exception).
+        emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
+        try:
+            while True:
+                if terminal_ui is None:
+                    print_input_separator(error_stream)
+                footer_text = self._footer_text(
                     cwd=cwd,
-                )
-                if shell_context_text is not None:
-                    shell_message = UserMessage(content=shell_context_text)
-                    messages.append(shell_message)
-                    session_tree.append_message(shell_message)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            # Pi paints the submitted user message back on a muted
-            # `userMessageBg` panel — distinct from the green tool
-            # panel — so the prompt reads as a chat bubble. Overwrite
-            # the readline echo line with the styled panel row when
-            # the renderer can drive ANSI cursor controls.
-            if stripped and not from_hotkey:
-                renderer.render_user_message(user_input)
-            if not stripped:
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text in {"/exit", "/quit"}:
-                break
-            if command_text == "/help":
-                if terminal_ui is not None:
-                    terminal_ui.add_notice(self._help_text())
-                else:
-                    self._print_help(error_stream)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/hotkeys":
-                # Local-only: render the grouped keyboard-shortcut table from
-                # the resolved keybinding manager (reflecting any user
-                # keybindings.json overrides). Runs no provider turn.
-                hotkeys_text = render_hotkeys(keybindings)
-                if terminal_ui is not None:
-                    terminal_ui.add_notice(hotkeys_text)
-                else:
-                    print(hotkeys_text, file=error_stream)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/reload":
-                # Local-only: re-read settings (both scopes), keybindings, and
-                # workspace resources, then re-apply derived UI settings. Runs
-                # between turns at the prompt, so no provider turn or compaction
-                # is in flight. A settings/theme load error keeps the prior good
-                # state for that scope; a malformed keybindings.json falls back
-                # to the built-in defaults. No provider turn, no tool call.
-                settings.reload()
-                keybindings.reload()
-                workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
-                    skills_patterns=settings.get_skills_patterns(),
-                    prompts_patterns=settings.get_prompts_patterns(),
-                    enable_skill_commands=settings.get_enable_skill_commands(),
-                )
-                # Re-discover + re-activate extensions on reload (Pi
-                # /reload also reloads extensions). A failing extension is
-                # disabled without affecting the session.
-                (
-                    extension_commands,
-                    extension_menu_names,
-                    extension_descriptions,
-                    extension_tool_call_hooks_,
-                ) = _activate_workspace_extensions(cwd, workspace_resources)
-                # Re-apply the edited theme (settings is source of truth over the
-                # persisted store) and the derived UI settings.
-                reloaded_theme = settings.get_theme()
-                if reloaded_theme:
-                    os.environ["PIPY_THEME"] = reloaded_theme
-                if terminal_ui is not None:
-                    terminal_ui.autocomplete_max_visible = (
-                        settings.get_autocomplete_max_visible()
-                    )
-                    terminal_ui.command_names = _tool_loop_command_names(
-                        workspace_resources, extension_menu_names
-                    )
-                    terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                        workspace_resources, extension_descriptions
-                    )
-                load_errors = settings.load_errors()
-                if load_errors:
-                    for scope, detail in load_errors.items():
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: kept prior {scope} settings ({detail}).",
-                        )
-                if not settings.get_quiet_startup():
-                    print_startup_chrome(error_stream, cwd=cwd)
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: reloaded settings, keybindings, and resources.",
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/changelog":
-                # Local-only: render the full changelog (oldest-first) under a
-                # "What's New" header. Runs no provider turn.
-                changelog_text = render_changelog(read_changelog_entries())
-                if terminal_ui is not None:
-                    terminal_ui.add_notice(changelog_text)
-                else:
-                    print(changelog_text, file=error_stream)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/settings":
-                if terminal_ui is not None:
-                    self._drive_settings_dialog(
-                        terminal_ui,
-                        prompt_history_store,
-                        apply_model_selection=apply_model_selection,
-                        apply_auth_change=apply_auth_change,
-                        settings=settings,
-                        session_tree=session_tree,
-                        error_stream=error_stream,
-                    )
-                else:
-                    for overlay_line in self._settings_overlay_lines(settings):
-                        print(overlay_line, file=error_stream)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/copy":
-                # Local-only command: copies the most recent assistant answer
-                # through a safe OS/terminal clipboard path. It never invokes
-                # the provider, tools, login/logout, or model switching.
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    self._copy_last_answer(messages, error_stream=error_stream),
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/compact":
-                # Local-only command: reduce the provider-visible history while
-                # keeping recent turns plus a safe metadata-only summary. No
-                # provider turn, tool call, or auth change.
-                self._emit_diagnostic(
-                    terminal_ui, error_stream, apply_compaction("manual")
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if command_text == "/session":
-                # Local-only: report safe current native-session status. No
-                # provider turn, tool call, or transcript content.
-                diag(format_session_status(session_tree))
-                refresh_legacy_footer()
-                continue
-            if command_text == "/name" or command_text.startswith("/name "):
-                argument = stripped[len("/name") :].strip()
-                if not argument:
-                    diag(
-                        "pipy: current session name: "
-                        + (
-                            sanitize_label_text(session_tree.name)
-                            if session_tree.name
-                            else "(unnamed)"
-                        )
-                    )
-                else:
-                    session_tree.append_session_info(argument)
-                    diag(f"pipy: session named {argument!r}.")
-                refresh_legacy_footer()
-                continue
-            if command_text == "/new":
-                # Start a fresh native product session in the same store.
-                session_dir = (
-                    session_tree.path.parent
-                    if session_tree.path is not None
-                    else None
-                )
-                session_tree = NativeSessionTree.create(
-                    cwd,
-                    session_dir=session_dir,
-                    persist=session_tree.persist,
-                )
-                rebuild_messages_from_tree()
-                diag(
-                    "pipy: started a new native session "
-                    f"({sanitize_label_text(session_tree.session_id[:8])})."
-                )
-                refresh_legacy_footer()
-                continue
-            if command_text == "/tree" or command_text.startswith("/tree "):
-                argument = stripped[len("/tree") :].strip()
-                outcome = self._handle_tree_command(
-                    argument,
-                    session_tree=session_tree,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    repl_input=repl_input,
-                    filter_mode=tree_filter_mode,
-                    rebuild_messages=rebuild_messages_from_tree,
-                    summarizer=summarize_branch,
-                )
-                if outcome.filter_mode is not None:
-                    tree_filter_mode = outcome.filter_mode
-                if outcome.prefill is not None:
-                    pending_prefill = outcome.prefill
-                refresh_legacy_footer()
-                continue
-            if command_text == "/resume" or command_text.startswith("/resume "):
-                argument = stripped[len("/resume") :].strip()
-                resume_tokens = argument.split()
-                resume_sub = resume_tokens[0].lower() if resume_tokens else ""
-
-                def _list_sessions(named_only: bool = False) -> None:
-                    sessions = list_native_sessions(current_session_dir())
-                    if named_only:
-                        sessions = [s for s in sessions if s.name]
-                    if not sessions:
-                        diag("pipy: no native sessions found for this workspace.")
-                        return
-                    scope = "named " if named_only else ""
-                    diag(f"pipy: {scope}native sessions (newest first):")
-                    for index, entry in enumerate(sessions, start=1):
-                        label = (
-                            sanitize_label_text(entry.name)
-                            if entry.name
-                            else "(unnamed)"
-                        )
-                        diag(
-                            f"  {index}. "
-                            f"{sanitize_label_text(entry.session_id[:8])} "
-                            f"{label} "
-                            f"messages={entry.message_count} "
-                            f"file={sanitize_label_text(entry.path.name)}"
-                        )
-                    diag("pipy: use '/resume <number|id>' to open a session.")
-
-                if not argument and terminal_ui is not None and hasattr(
-                    terminal_ui, "run_session_picker"
-                ):
-                    picked_session = self._run_interactive_session_picker(
-                        session_tree=session_tree,
-                        terminal_ui=terminal_ui,
-                    )
-                    if picked_session is None:
-                        diag("pipy: /resume cancelled.")
-                    elif (
-                        session_tree.path is not None
-                        and picked_session == session_tree.path
-                    ):
-                        diag("pipy: already on the selected native session.")
-                    else:
-                        session_tree = NativeSessionTree.open(picked_session)
-                        rebuild_messages_from_tree()
-                        diag(
-                            "pipy: resumed native session "
-                            f"{sanitize_label_text(session_tree.session_id[:8])} "
-                            f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
-                        )
-                elif not argument:
-                    _list_sessions()
-                elif resume_sub == "named":
-                    _list_sessions(named_only=True)
-                elif resume_sub == "rename":
-                    if len(resume_tokens) < 3:
-                        diag("pipy: usage: /resume rename <number|id> <name>")
-                    else:
-                        target = resolve_session_file(resume_tokens[1])
-                        if target is None:
-                            diag(f"pipy: no native session matched {resume_tokens[1]!r}.")
-                        else:
-                            renamed = NativeSessionTree.open(target)
-                            new_name = " ".join(resume_tokens[2:])
-                            renamed.append_session_info(new_name)
-                            diag(
-                                f"pipy: renamed session {sanitize_label_text(renamed.session_id[:8])} "
-                                f"to {new_name!r}."
-                            )
-                elif resume_sub == "delete":
-                    confirm = "--yes" in resume_tokens[1:]
-                    refs = [t for t in resume_tokens[1:] if t != "--yes"]
-                    if not refs:
-                        diag("pipy: usage: /resume delete <number|id> --yes")
-                    else:
-                        target = resolve_session_file(refs[0])
-                        if target is None:
-                            diag(f"pipy: no native session matched {refs[0]!r}.")
-                        elif session_tree.path is not None and target == session_tree.path:
-                            diag("pipy: cannot delete the active native session.")
-                        elif not confirm:
-                            diag(
-                                "pipy: deletion needs confirmation; re-run "
-                                f"'/resume delete {refs[0]} --yes'. This removes "
-                                "only the native session file, never pipy-session "
-                                "archive records."
-                            )
-                        else:
-                            ok, detail = delete_native_session(target)
-                            diag(f"pipy: {detail}" if ok else f"pipy: {detail}")
-                else:
-                    target = resolve_session_file(argument)
-                    if target is None:
-                        diag(f"pipy: no native session matched {argument!r}.")
-                    else:
-                        session_tree = NativeSessionTree.open(target)
-                        rebuild_messages_from_tree()
-                        diag(
-                            "pipy: resumed native session "
-                            f"{sanitize_label_text(session_tree.session_id[:8])} "
-                            f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
-                        )
-                refresh_legacy_footer()
-                continue
-            if command_text == "/fork" or command_text.startswith("/fork "):
-                argument = stripped[len("/fork") :].strip()
-                if session_tree.path is None:
-                    diag("pipy: /fork requires a persistent native session.")
-                    refresh_legacy_footer()
-                    continue
-                if argument:
-                    target_entry = resolve_entry_ref(
-                        session_tree, argument, filter_mode=tree_filter_mode
-                    )
-                    if target_entry is None:
-                        diag(f"pipy: no tree entry matched {argument!r}.")
-                        refresh_legacy_footer()
-                        continue
-                    fork_leaf: str | None = target_entry.id
-                else:
-                    fork_leaf = session_tree.get_leaf_id()
-                session_tree = NativeSessionTree.fork_from(
-                    session_tree.path,
-                    cwd,
-                    leaf_id=fork_leaf,
-                    session_dir=session_tree.path.parent,
-                )
-                rebuild_messages_from_tree()
-                diag(
-                    "pipy: forked into new native session "
-                    f"{sanitize_label_text(session_tree.session_id[:8])}."
-                )
-                refresh_legacy_footer()
-                continue
-            if command_text == "/clone":
-                if session_tree.path is None:
-                    diag("pipy: /clone requires a persistent native session.")
-                    refresh_legacy_footer()
-                    continue
-                session_tree = NativeSessionTree.fork_from(
-                    session_tree.path,
-                    cwd,
-                    leaf_id=session_tree.get_leaf_id(),
-                    session_dir=session_tree.path.parent,
-                )
-                rebuild_messages_from_tree()
-                diag(
-                    "pipy: cloned active branch into new native session "
-                    f"{sanitize_label_text(session_tree.session_id[:8])}."
-                )
-                refresh_legacy_footer()
-                continue
-            if command_text == "/model" or command_text.startswith("/model "):
-                argument = stripped[len("/model") :].strip()
-                state = self.provider_state
-                if not isinstance(state, NativeReplProviderState):
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        "pipy: /model is unavailable for this REPL provider state.",
-                    )
-                elif argument:
-                    _ok, message = apply_model_selection(argument)
-                    self._emit_diagnostic(terminal_ui, error_stream, message)
-                elif terminal_ui is not None:
-                    ui_options, selections = self._model_selector_rows(state)
-                    current = state.current_selection()
-                    current_index = next(
-                        (
-                            index
-                            for index, selection in enumerate(selections)
-                            if selection.provider_name == current.provider_name
-                            and selection.model_id == current.model_id
-                        ),
-                        0,
-                    )
-                    chosen = terminal_ui.run_model_selector(
-                        ui_options, current_index=current_index
-                    )
-                    if chosen is not None:
-                        _ok, message = apply_model_selection(
-                            selections[chosen].reference
-                        )
-                        terminal_ui.add_notice(message)
-                else:
-                    for overlay_line in self._settings_overlay_lines(settings):
-                        print(overlay_line, file=error_stream)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            if command_text == "/scoped-models" or command_text.startswith("/scoped-models "):
-                # Local-only: view/set/clear the enabledModels patterns that
-                # constrain the model cycle, or cycle (next/prev) over the scoped
-                # set (or full available catalog when empty). Cycling rebinds the
-                # live provider through the same select_model boundary as /model;
-                # no command here runs a provider turn or a tool call.
-                argument = stripped[len("/scoped-models"):].strip()
-                state = self.provider_state
-                available_refs = (
-                    [o.selection.reference for o in state.model_options() if o.available]
-                    if isinstance(state, NativeReplProviderState)
-                    else []
-                )
-                patterns = settings.get_enabled_models()
-                scoped = filter_scoped_references(available_refs, patterns)
-                if (
-                    not argument
-                    and terminal_ui is not None
-                    and isinstance(state, NativeReplProviderState)
-                    and available_refs
-                ):
-                    # Interactive multi-select overlay defining the Ctrl+P cycle
-                    # scope (saved back as the enabledModels patterns).
-                    self._open_scoped_models_overlay(
-                        terminal_ui, state=state, settings=settings
-                    )
-                elif not argument:
-                    pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
-                    cycle_text = ", ".join(scoped) if scoped else "(none available)"
-                    for line in (
-                        "pipy: scoped models:",
-                        f"  patterns: {pattern_text}",
-                        f"  cycle set: {cycle_text}",
-                    ):
-                        self._emit_diagnostic(terminal_ui, error_stream, line)
-                elif argument == "clear":
-                    try:
-                        settings.set_enabled_models([])
-                        msg = "pipy: scoped models cleared (cycle uses the full catalog)."
-                    except RuntimeError as exc:
-                        msg = f"pipy: could not update scoped models: {exc}"
-                    self._emit_diagnostic(terminal_ui, error_stream, msg)
-                elif argument in {"next", "prev"}:
-                    current_ref = (
-                        state.current_selection().reference
-                        if isinstance(state, NativeReplProviderState)
-                        else ""
-                    )
-                    cycle_target = next_reference(
-                        scoped, current_ref, forward=argument == "next"
-                    )
-                    if cycle_target is None:
-                        self._emit_diagnostic(
-                            terminal_ui, error_stream, "pipy: no models available to cycle."
-                        )
-                    else:
-                        _ok, message = apply_model_selection(cycle_target)
-                        self._emit_diagnostic(terminal_ui, error_stream, message)
-                else:
-                    new_patterns = argument.split()
-                    try:
-                        settings.set_enabled_models(new_patterns)
-                        msg = "pipy: scoped models set: " + ", ".join(new_patterns)
-                    except RuntimeError as exc:
-                        msg = f"pipy: could not update scoped models: {exc}"
-                    self._emit_diagnostic(terminal_ui, error_stream, msg)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            if command_text == "/theme" or command_text.startswith("/theme "):
-                # Chrome-only command: swap the active color palette. No
-                # provider turn, no tool call, no archive write. The next TUI
-                # frame (and footer) repaints with the new palette because
-                # chrome_style_for re-reads the ambient PIPY_THEME the switch
-                # sets; only the non-secret theme name reaches the store.
-                argument = stripped[len("/theme") :].strip()
-                if not argument:
-                    for line in theme_status_lines(store=NativeThemeStore()):
-                        self._emit_diagnostic(terminal_ui, error_stream, line)
-                else:
-                    _ok, message = select_theme(
-                        argument, environ=os.environ, store=NativeThemeStore()
-                    )
-                    # add_notice repaints the frame, so the new palette takes
-                    # effect immediately on the next rendered frame.
-                    self._emit_diagnostic(terminal_ui, error_stream, message)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            if command_text == "/login" or command_text.startswith("/login "):
-                # Auth-only command: no provider turn, no tool call. Runs the
-                # OAuth login through the provider-state boundary, refreshes
-                # model-option availability, and clears conversation context.
-                argument = stripped[len("/login") :].strip()
-                message = apply_auth_change("login", argument)
-                self._emit_diagnostic(terminal_ui, error_stream, message)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            if command_text == "/logout" or command_text.startswith("/logout "):
-                # Auth-only command: no provider turn, no tool call. Removes the
-                # stored OAuth credentials, resets the selection to the local
-                # default, refreshes availability, and clears context.
-                argument = stripped[len("/logout") :].strip()
-                message = apply_auth_change("logout", argument)
-                self._emit_diagnostic(terminal_ui, error_stream, message)
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        usage_accumulator=usage_accumulator,
-                    )
-                continue
-            # Resource dispatch (skills, prompt templates, custom commands)
-            # runs through the same local-command boundary as the built-ins,
-            # after them so a custom command can never shadow a built-in.
-            resource_dispatch = dispatch_resource_command(
-                command_text, workspace_resources
-            )
-            resource_provider_text: str | None = None
-            if resource_dispatch is not None and resource_dispatch.kind == DISPATCH_LIST:
-                self._emit_diagnostic(
-                    terminal_ui, error_stream, resource_dispatch.message
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if resource_dispatch is not None and resource_dispatch.is_reject:
-                # Fail closed: diagnostic only, no provider turn, no archive
-                # write, no prompt-history or sidecar entry.
-                self._emit_diagnostic(
-                    terminal_ui, error_stream, resource_dispatch.message
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            if resource_dispatch is not None and resource_dispatch.is_run:
-                # The expanded/instruction text becomes the bounded
-                # provider-visible message; it never reaches prompt history,
-                # the sidecar body, or the metadata archive. Only the
-                # invocation counter is surfaced.
-                resource_invocation_count += 1
-                resource_provider_text = resource_dispatch.provider_text or ""
-                self._emit_diagnostic(
-                    terminal_ui, error_stream, resource_dispatch.message
-                )
-            # Extension commands dispatch AFTER built-ins and resource
-            # commands (so they can never shadow them) and BEFORE the
-            # not-handled fallback. The handler runs locally with no
-            # provider turn; its notifications are live UI output only.
-            if resource_provider_text is None:
-                extension_dispatch = dispatch_extension_command(
-                    command_text,
-                    extension_commands,
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                )
-                if extension_dispatch is not None:
-                    for _kind, message in extension_dispatch.messages:
-                        self._emit_diagnostic(terminal_ui, error_stream, message)
-                    if not extension_dispatch.ran and extension_dispatch.error:
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            (
-                                f"pipy: extension command /{extension_dispatch.name} "
-                                f"failed ({extension_dispatch.error})"
-                            ),
-                        )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
-                    continue
-            if command_text.startswith("/") and resource_provider_text is None:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    (
-                        f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                        "supported local commands are /help, /hotkeys, /reload, "
-                        "/changelog, /model, /scoped-models, /settings, "
-                        "/login, /logout, /copy, /compact, /session, /name, "
-                        "/new, /tree, /resume, /fork, /clone, /skill, /template, "
-                        "/exit, /quit "
-                        "(plus any workspace custom commands and activated "
-                        "extension commands). Other prompts are sent to the model."
-                    ),
-                )
-                if legacy_footer_enabled():
-                    self._print_footer(
-                        error_stream,
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                    )
-                continue
-            # User-directed file context: a genuine prompt may name workspace
-            # files with ``@path``. Resolve them through the shared bounded
-            # reader (reusing this loop's ``read`` policy and reference roots),
-            # append the bounded excerpts to the provider-visible user message,
-            # and keep the literal prompt for the rendered panel, prompt
-            # history, and the sidecar transcript.
-            turn_attachments: tuple[ProviderImageAttachment, ...] = ()
-            if resource_provider_text is not None:
-                # Resource turn: the bounded instruction/expansion is the
-                # provider message verbatim. @file augmentation, prompt
-                # history, and the sidecar body are all skipped so the
-                # literal resource text never leaks past the provider.
-                provider_user_input = resource_provider_text
-            else:
-                provider_user_input = user_input
-                file_references = resolve_file_references(
-                    user_input,
-                    workspace_root=cwd,
-                    reference_roots=self.reference_roots,
-                )
-                if file_references.reference_count:
-                    file_reference_count += file_references.reference_count
-                    file_reference_loaded_count += file_references.loaded_count
-                    file_reference_failed_count += file_references.failed_count
-                    for diagnostic in file_references.diagnostics():
-                        self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
-                    if file_references.used:
-                        provider_user_input = file_references.augmented_prompt(
-                            user_input
-                        )
-                # User-directed image attachments (@image:<path>): bounded,
-                # fail-closed image loading that becomes provider-visible image
-                # blocks on the current user message. Raw bytes never reach the
-                # prompt history, the transcript sidecar, or the result.
-                image_attachments = resolve_image_attachments(
-                    user_input,
-                    workspace_root=cwd,
-                    reference_roots=image_reference_roots,
-                )
-                if image_attachments.reference_count:
-                    image_attachment_count += image_attachments.reference_count
-                    image_attachment_loaded_count += image_attachments.loaded_count
-                    image_attachment_failed_count += image_attachments.failed_count
-                    for diagnostic in image_attachments.diagnostics():
-                        self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
-                    turn_attachments = image_attachments.attachments()
-            turn_user_message = UserMessage(content=provider_user_input)
-            # Automation: this accepted prompt begins one agent run. Snapshot the
-            # message index so agent_end can report the messages this run added
-            # (the user message and everything the loop appends below).
-            agent_run_start_index = len(messages)
-            emitter.agent_start()
-            messages.append(turn_user_message)
-            session_tree.append_message(turn_user_message)
-            user_turn_count += 1
-            # Persist the prompt for cross-session recall when the user has
-            # enabled it from /settings. record() is a no-op when disabled and
-            # writes only to the local prompt-history file — never the
-            # metadata-first session archive. Slash commands and resource
-            # invocations never reach here, so only genuine prompts are
-            # persisted. The literal prompt (not the @file-augmented variant)
-            # is recorded so history stays user text.
-            if resource_provider_text is None:
-                prompt_history_store.record(user_input)
-                if self.transcript_sink is not None:
-                    self.transcript_sink.append("user", {"content": user_input})
-
-            invocations_this_turn = 0
-            inner_iteration_cap = self.tool_budget + 2
-            inner_iterations = 0
-
-            while inner_iterations < inner_iteration_cap:
-                inner_iterations += 1
-                available_tools = tuple(
-                    tool.definition for tool in self.tool_registry.values()
-                )
-                # Automatic compaction: when the provider-visible history grows
-                # past the threshold, drop the oldest user-turn groups before
-                # building the next request. The cut is at a UserMessage
-                # boundary so no tool result is orphaned, and the safe summary
-                # rides in the system prompt suffix below.
-                if settings.get_compaction_enabled() and should_compact_tool_loop_messages(
-                    messages
-                ):
-                    notice = apply_compaction("auto")
-                    self._emit_diagnostic(terminal_ui, error_stream, notice)
-                provider_request = ProviderRequest(
-                    system_prompt=base_system_prompt + compaction_summary,
-                    user_prompt=provider_user_input,
                     provider_name=effective_provider_name,
                     model_id=effective_model_id,
-                    cwd=cwd,
-                    messages=tuple(messages),
-                    available_tools=available_tools,
-                    # Image attachments belong to the current user message, so
-                    # they ride only the first provider call of this turn; later
-                    # tool-loop iterations append tool results (also user-role),
-                    # and re-sending would mis-attach the image to those.
-                    attachments=turn_attachments if inner_iterations == 1 else (),
+                    user_turn_count=user_turn_count,
+                    tool_invocation_count=tool_invocation_count,
+                    error_stream=error_stream,
+                    usage_accumulator=usage_accumulator,
                 )
-                emitter.turn_start()
-                if inner_iterations == 1:
-                    # Pi emits the user message_start/message_end pair after
-                    # turn_start and before the assistant message begins.
-                    emitter.non_streamed_message(turn_user_message)
-                emitter.assistant_message_start()
-                renderer.begin_provider_turn()
-                renderer.show_working()
-                provider_result = self._complete_provider_turn(
-                    provider_request,
-                    renderer=renderer,
-                    terminal_ui=terminal_ui,
-                    emitter=emitter,
+                if pending_prefill is not None:
+                    # A ``/tree`` user-message selection puts the chosen text back
+                    # into the editor. The live TUI rehydrates the editor directly;
+                    # captured-stream callers see a hint and type the (edited) text
+                    # as the next line, which branches from the selected parent.
+                    if terminal_ui is not None and hasattr(
+                        terminal_ui, "set_input_text"
+                    ):
+                        terminal_ui.set_input_text(pending_prefill)
+                    elif terminal_ui is None:
+                        diag(
+                            "pipy: editor rehydrated with selected message; "
+                            "type your (edited) message to branch from here, or "
+                            "submit as-is.\n"
+                            f"  > {pending_prefill}"
+                        )
+                    pending_prefill = None
+                # A local command (`/…`/`!…`) submitted with Enter mid-turn runs
+                # locally (Pi): it is dispatched here through the NORMAL path (it is
+                # not a drained message, so ``command_text`` keeps its value below
+                # and local-command dispatch applies) before any queued prompts.
+                pending_command = (
+                    terminal_ui.take_pending_command()
+                    if terminal_ui is not None
+                    else None
                 )
-                if provider_result is None:
-                    # Aborted/steered turn (RPC abort, or TUI Escape/steer).
-                    # Close the assistant message and the turn so the automation
-                    # lifecycle stays balanced (message_start has a matching
-                    # message_end, turn_start a matching turn_end) before the
-                    # agent_end emitted after the inner loop.
-                    aborted_assistant_message = AssistantMessage(content="")
-                    emitter.assistant_message_end(aborted_assistant_message)
-                    emitter.turn_end(aborted_assistant_message, [])
-                    break
-                usage_accumulator.absorb(provider_result.usage)
-                renderer.end_provider_turn(
-                    final_text=provider_result.final_text or "",
-                    has_tool_calls=bool(provider_result.tool_calls),
-                )
-                if provider_result.status != HarnessStatus.SUCCEEDED:
-                    error_type = provider_result.error_type or "ProviderFailed"
-                    error_message = (
-                        provider_result.error_message
-                        or f"provider {effective_provider_name!r} returned status "
-                        f"{provider_result.status.value!r} without a final response"
+                # Deliver any queued steering/follow-up messages (Pi) before reading
+                # fresh input: a steering interrupt or a turn that settled with
+                # follow-ups promotes them to a sequential drain, delivered in order
+                # (all steering, then all follow-up) as the next prompts.
+                drained = (
+                    None
+                    if pending_command is not None
+                    else (
+                        terminal_ui.take_next_drain() if terminal_ui is not None else None
                     )
-                    # Surface the failure on the error stream but keep the
-                    # REPL alive: a transient HTTP error from a single
-                    # provider turn (e.g. a 503 the retry helper exhausted
-                    # against, or a brief network hiccup) should not tear
-                    # the whole session down. The user can ask again at
-                    # the next prompt.
+                )
+                if pending_command is not None:
+                    line = f"{pending_command}\n"
+                elif drained is not None:
+                    line = f"{drained}\n"
+                else:
+                    try:
+                        # Pi's input cursor has no leading `> ` glyph; the
+                        # separator pair above and below the input area is the
+                        # visual frame instead. Pass an empty prompt so the
+                        # readline / slash-menu adapter renders just the cursor.
+                        line = repl_input.read_line("", footer=footer_text)
+                    except KeyboardInterrupt:
+                        print(file=error_stream)
+                        break
+                if not line:
+                    break
+                user_input = line.rstrip("\n")
+                stripped = user_input.strip()
+                # Queued steering/follow-up messages (Pi) are provider-visible prompt
+                # text, never local commands: a follow-up enqueued mid-turn that
+                # happens to begin with `/` (slash command) or `!` (bash shortcut)
+                # must reach the model verbatim, not be intercepted and silently
+                # dropped from the conversation. ``command_text`` is the dispatch key
+                # for every local command/hotkey below; it is blank for a drained
+                # line so none match and it falls through to the provider-message
+                # path (which still resolves any @file/@image references). Typed
+                # input keeps ``command_text == stripped`` and is unaffected.
+                command_text = "" if drained is not None else stripped
+                # In-editor hotkeys arrive as private sentinel "commands" from the
+                # TUI so they dispatch without rendering a user-message bubble.
+                # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
+                # the model (translated to the existing /scoped-models dispatch).
+                if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
+                    self._toggle_view_fold(
+                        stripped,
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        settings=settings,
+                    )
+                    continue
+                if command_text == HOTKEY_THINKING_CYCLE:
+                    self._cycle_thinking_level(
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        session_tree=session_tree,
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                from_hotkey = command_text in {
+                    HOTKEY_MODEL_CYCLE_NEXT,
+                    HOTKEY_MODEL_CYCLE_PREV,
+                }
+                if from_hotkey:
+                    stripped = (
+                        "/scoped-models next"
+                        if stripped == HOTKEY_MODEL_CYCLE_NEXT
+                        else "/scoped-models prev"
+                    )
+                    user_input = stripped
+                    # Keep the dispatch key in sync with the translated command so
+                    # the /scoped-models handler below matches (a hotkey is never a
+                    # drained line, so this only rewrites typed-hotkey input).
+                    command_text = stripped
+                # Local shell shortcut: a submitted line whose first non-space
+                # character is ``!`` runs a bash command from the editor with no
+                # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
+                # command/output into the conversation context and native session
+                # tree so the next turn and resume see it; ``!!cmd`` runs identically
+                # but is excluded from context (a live-only diagnostic). Escape
+                # cancels a running command. Intercepted before the user-message
+                # panel so it renders as a shell block, not a chat bubble.
+                if command_text.startswith("!"):
+                    shell_context_text = self._run_local_shell_shortcut(
+                        stripped,
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        cwd=cwd,
+                    )
+                    if shell_context_text is not None:
+                        shell_message = UserMessage(content=shell_context_text)
+                        messages.append(shell_message)
+                        session_tree.append_message(shell_message)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                # Pi paints the submitted user message back on a muted
+                # `userMessageBg` panel — distinct from the green tool
+                # panel — so the prompt reads as a chat bubble. Overwrite
+                # the readline echo line with the styled panel row when
+                # the renderer can drive ANSI cursor controls.
+                if stripped and not from_hotkey:
+                    renderer.render_user_message(user_input)
+                if not stripped:
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text in {"/exit", "/quit"}:
+                    break
+                if command_text == "/help":
+                    if terminal_ui is not None:
+                        terminal_ui.add_notice(self._help_text())
+                    else:
+                        self._print_help(error_stream)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/hotkeys":
+                    # Local-only: render the grouped keyboard-shortcut table from
+                    # the resolved keybinding manager (reflecting any user
+                    # keybindings.json overrides). Runs no provider turn.
+                    hotkeys_text = render_hotkeys(keybindings)
+                    if terminal_ui is not None:
+                        terminal_ui.add_notice(hotkeys_text)
+                    else:
+                        print(hotkeys_text, file=error_stream)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/reload":
+                    # Local-only: re-read settings (both scopes), keybindings, and
+                    # workspace resources, then re-apply derived UI settings. Runs
+                    # between turns at the prompt, so no provider turn or compaction
+                    # is in flight. A settings/theme load error keeps the prior good
+                    # state for that scope; a malformed keybindings.json falls back
+                    # to the built-in defaults. No provider turn, no tool call.
+                    settings.reload()
+                    keybindings.reload()
+                    workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
+                        skills_patterns=settings.get_skills_patterns(),
+                        prompts_patterns=settings.get_prompts_patterns(),
+                        enable_skill_commands=settings.get_enable_skill_commands(),
+                    )
+                    # Re-discover + re-activate extensions on reload (Pi
+                    # /reload also reloads extensions). A failing extension is
+                    # disabled without affecting the session.
+                    (
+                        extension_commands,
+                        extension_menu_names,
+                        extension_descriptions,
+                        extension_tool_call_hooks_,
+                        extension_lifecycle_hooks,
+                    ) = _activate_workspace_extensions(cwd, workspace_resources)
+                    # Refresh the emitter's lifecycle hooks so reloaded
+                    # extensions observe subsequent agent/turn events.
+                    emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
+                    # Re-apply the edited theme (settings is source of truth over the
+                    # persisted store) and the derived UI settings.
+                    reloaded_theme = settings.get_theme()
+                    if reloaded_theme:
+                        os.environ["PIPY_THEME"] = reloaded_theme
+                    if terminal_ui is not None:
+                        terminal_ui.autocomplete_max_visible = (
+                            settings.get_autocomplete_max_visible()
+                        )
+                        terminal_ui.command_names = _tool_loop_command_names(
+                            workspace_resources, extension_menu_names
+                        )
+                        terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+                            workspace_resources, extension_descriptions
+                        )
+                    load_errors = settings.load_errors()
+                    if load_errors:
+                        for scope, detail in load_errors.items():
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                f"pipy: kept prior {scope} settings ({detail}).",
+                            )
+                    if not settings.get_quiet_startup():
+                        print_startup_chrome(error_stream, cwd=cwd)
                     self._emit_diagnostic(
                         terminal_ui,
                         error_stream,
-                        (
-                            "pipy: provider failure during turn: "
-                            f"{error_type}: {error_message}"
-                        ),
+                        "pipy: reloaded settings, keybindings, and resources.",
                     )
                     if legacy_footer_enabled():
                         self._print_footer(
@@ -2146,43 +1496,16 @@ class NativeToolReplSession:
                             model_id=effective_model_id,
                             user_turn_count=user_turn_count,
                             tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
                         )
-                    # Balance the assistant message_start emitted above and close
-                    # the turn so the automation stream stays well-formed even on
-                    # a failed provider turn.
-                    failed_assistant_message = AssistantMessage(content="")
-                    emitter.assistant_message_end(failed_assistant_message)
-                    emitter.turn_end(failed_assistant_message, [])
-                    break
-                tool_calls = tuple(provider_result.tool_calls)
-                turn_assistant_message = AssistantMessage(
-                    content=provider_result.final_text or "",
-                    tool_calls=tool_calls,
-                )
-                emitter.assistant_message_end(turn_assistant_message)
-                turn_tool_results: list[ToolResultMessage] = []
-                messages.append(turn_assistant_message)
-                session_tree.append_message(turn_assistant_message)
-                if self.transcript_sink is not None:
-                    self.transcript_sink.append(
-                        "assistant",
-                        {
-                            "content": provider_result.final_text or "",
-                            "tool_calls": [
-                                {
-                                    "provider_correlation_id": call.provider_correlation_id,
-                                    "tool_name": call.tool_name,
-                                    "arguments_json": call.arguments_json,
-                                }
-                                for call in tool_calls
-                            ],
-                        },
-                    )
-
-                if not tool_calls:
-                    if provider_result.final_text and not renderer.streamed_any:
-                        print(provider_result.final_text, file=output_stream)
+                    continue
+                if command_text == "/changelog":
+                    # Local-only: render the full changelog (oldest-first) under a
+                    # "What's New" header. Runs no provider turn.
+                    changelog_text = render_changelog(read_changelog_entries())
+                    if terminal_ui is not None:
+                        terminal_ui.add_notice(changelog_text)
+                    else:
+                        print(changelog_text, file=error_stream)
                     if legacy_footer_enabled():
                         self._print_footer(
                             error_stream,
@@ -2191,207 +1514,978 @@ class NativeToolReplSession:
                             model_id=effective_model_id,
                             user_turn_count=user_turn_count,
                             tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
                         )
-                    emitter.turn_end(turn_assistant_message, turn_tool_results)
-                    break
+                    continue
+                if command_text == "/settings":
+                    if terminal_ui is not None:
+                        self._drive_settings_dialog(
+                            terminal_ui,
+                            prompt_history_store,
+                            apply_model_selection=apply_model_selection,
+                            apply_auth_change=apply_auth_change,
+                            settings=settings,
+                            session_tree=session_tree,
+                            error_stream=error_stream,
+                        )
+                    else:
+                        for overlay_line in self._settings_overlay_lines(settings):
+                            print(overlay_line, file=error_stream)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/copy":
+                    # Local-only command: copies the most recent assistant answer
+                    # through a safe OS/terminal clipboard path. It never invokes
+                    # the provider, tools, login/logout, or model switching.
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        self._copy_last_answer(messages, error_stream=error_stream),
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/compact":
+                    # Local-only command: reduce the provider-visible history while
+                    # keeping recent turns plus a safe metadata-only summary. No
+                    # provider turn, tool call, or auth change.
+                    self._emit_diagnostic(
+                        terminal_ui, error_stream, apply_compaction("manual")
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/session":
+                    # Local-only: report safe current native-session status. No
+                    # provider turn, tool call, or transcript content.
+                    diag(format_session_status(session_tree))
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/name" or command_text.startswith("/name "):
+                    argument = stripped[len("/name") :].strip()
+                    if not argument:
+                        diag(
+                            "pipy: current session name: "
+                            + (
+                                sanitize_label_text(session_tree.name)
+                                if session_tree.name
+                                else "(unnamed)"
+                            )
+                        )
+                    else:
+                        session_tree.append_session_info(argument)
+                        diag(f"pipy: session named {argument!r}.")
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/new":
+                    # Start a fresh native product session in the same store.
+                    session_dir = (
+                        session_tree.path.parent
+                        if session_tree.path is not None
+                        else None
+                    )
+                    session_tree = NativeSessionTree.create(
+                        cwd,
+                        session_dir=session_dir,
+                        persist=session_tree.persist,
+                    )
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: started a new native session "
+                        f"({sanitize_label_text(session_tree.session_id[:8])})."
+                    )
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/tree" or command_text.startswith("/tree "):
+                    argument = stripped[len("/tree") :].strip()
+                    outcome = self._handle_tree_command(
+                        argument,
+                        session_tree=session_tree,
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        repl_input=repl_input,
+                        filter_mode=tree_filter_mode,
+                        rebuild_messages=rebuild_messages_from_tree,
+                        summarizer=summarize_branch,
+                    )
+                    if outcome.filter_mode is not None:
+                        tree_filter_mode = outcome.filter_mode
+                    if outcome.prefill is not None:
+                        pending_prefill = outcome.prefill
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/resume" or command_text.startswith("/resume "):
+                    argument = stripped[len("/resume") :].strip()
+                    resume_tokens = argument.split()
+                    resume_sub = resume_tokens[0].lower() if resume_tokens else ""
 
-                fatal = False
-                for call in tool_calls:
-                    if invocations_this_turn >= self.tool_budget:
-                        budget_exhausted_count += 1
-                        renderer.render_tool_call(call)
-                        renderer.render_tool_result(
-                            output_text=(
-                                f"tool budget exhausted "
-                                f"(limit {self.tool_budget})"
-                            ),
-                            is_error=True,
+                    def _list_sessions(named_only: bool = False) -> None:
+                        sessions = list_native_sessions(current_session_dir())
+                        if named_only:
+                            sessions = [s for s in sessions if s.name]
+                        if not sessions:
+                            diag("pipy: no native sessions found for this workspace.")
+                            return
+                        scope = "named " if named_only else ""
+                        diag(f"pipy: {scope}native sessions (newest first):")
+                        for index, entry in enumerate(sessions, start=1):
+                            label = (
+                                sanitize_label_text(entry.name)
+                                if entry.name
+                                else "(unnamed)"
+                            )
+                            diag(
+                                f"  {index}. "
+                                f"{sanitize_label_text(entry.session_id[:8])} "
+                                f"{label} "
+                                f"messages={entry.message_count} "
+                                f"file={sanitize_label_text(entry.path.name)}"
+                            )
+                        diag("pipy: use '/resume <number|id>' to open a session.")
+
+                    if not argument and terminal_ui is not None and hasattr(
+                        terminal_ui, "run_session_picker"
+                    ):
+                        picked_session = self._run_interactive_session_picker(
+                            session_tree=session_tree,
+                            terminal_ui=terminal_ui,
                         )
-                        budget_observation = self._error_observation(
-                            call=call,
-                            output_text=(
-                                f"tool budget exhausted "
-                                f"(limit {self.tool_budget})"
-                            ),
-                        )
-                        emitter.tool_execution_start(call)
-                        emitter.tool_execution_end(
-                            tool_call_id=call.provider_correlation_id,
-                            tool_name=call.tool_name,
-                            result=budget_observation.output_text,
-                            is_error=True,
-                        )
-                        turn_tool_results.append(budget_observation)
-                        messages.append(budget_observation)
-                        session_tree.append_message(budget_observation)
+                        if picked_session is None:
+                            diag("pipy: /resume cancelled.")
+                        elif (
+                            session_tree.path is not None
+                            and picked_session == session_tree.path
+                        ):
+                            diag("pipy: already on the selected native session.")
+                        else:
+                            session_tree = NativeSessionTree.open(picked_session)
+                            rebuild_messages_from_tree()
+                            diag(
+                                "pipy: resumed native session "
+                                f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                            )
+                    elif not argument:
+                        _list_sessions()
+                    elif resume_sub == "named":
+                        _list_sessions(named_only=True)
+                    elif resume_sub == "rename":
+                        if len(resume_tokens) < 3:
+                            diag("pipy: usage: /resume rename <number|id> <name>")
+                        else:
+                            target = resolve_session_file(resume_tokens[1])
+                            if target is None:
+                                diag(f"pipy: no native session matched {resume_tokens[1]!r}.")
+                            else:
+                                renamed = NativeSessionTree.open(target)
+                                new_name = " ".join(resume_tokens[2:])
+                                renamed.append_session_info(new_name)
+                                diag(
+                                    f"pipy: renamed session {sanitize_label_text(renamed.session_id[:8])} "
+                                    f"to {new_name!r}."
+                                )
+                    elif resume_sub == "delete":
+                        confirm = "--yes" in resume_tokens[1:]
+                        refs = [t for t in resume_tokens[1:] if t != "--yes"]
+                        if not refs:
+                            diag("pipy: usage: /resume delete <number|id> --yes")
+                        else:
+                            target = resolve_session_file(refs[0])
+                            if target is None:
+                                diag(f"pipy: no native session matched {refs[0]!r}.")
+                            elif session_tree.path is not None and target == session_tree.path:
+                                diag("pipy: cannot delete the active native session.")
+                            elif not confirm:
+                                diag(
+                                    "pipy: deletion needs confirmation; re-run "
+                                    f"'/resume delete {refs[0]} --yes'. This removes "
+                                    "only the native session file, never pipy-session "
+                                    "archive records."
+                                )
+                            else:
+                                ok, detail = delete_native_session(target)
+                                diag(f"pipy: {detail}" if ok else f"pipy: {detail}")
+                    else:
+                        target = resolve_session_file(argument)
+                        if target is None:
+                            diag(f"pipy: no native session matched {argument!r}.")
+                        else:
+                            session_tree = NativeSessionTree.open(target)
+                            rebuild_messages_from_tree()
+                            diag(
+                                "pipy: resumed native session "
+                                f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                            )
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/fork" or command_text.startswith("/fork "):
+                    argument = stripped[len("/fork") :].strip()
+                    if session_tree.path is None:
+                        diag("pipy: /fork requires a persistent native session.")
+                        refresh_legacy_footer()
                         continue
-
-                    renderer.render_tool_call(call)
-                    # Extension `tool_call` policy gate: a registered hook
-                    # may inspect the live tool name + parsed input and
-                    # return a ToolBlock to block the call. The raw input
-                    # is inspected live but never archived.
-                    tool_block = dispatch_tool_call_hooks(
-                        extension_tool_call_hooks_,
-                        tool_name=call.tool_name,
-                        tool_input=_parse_tool_input(call.arguments_json),
+                    if argument:
+                        target_entry = resolve_entry_ref(
+                            session_tree, argument, filter_mode=tree_filter_mode
+                        )
+                        if target_entry is None:
+                            diag(f"pipy: no tree entry matched {argument!r}.")
+                            refresh_legacy_footer()
+                            continue
+                        fork_leaf: str | None = target_entry.id
+                    else:
+                        fork_leaf = session_tree.get_leaf_id()
+                    session_tree = NativeSessionTree.fork_from(
+                        session_tree.path,
+                        cwd,
+                        leaf_id=fork_leaf,
+                        session_dir=session_tree.path.parent,
+                    )
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: forked into new native session "
+                        f"{sanitize_label_text(session_tree.session_id[:8])}."
+                    )
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/clone":
+                    if session_tree.path is None:
+                        diag("pipy: /clone requires a persistent native session.")
+                        refresh_legacy_footer()
+                        continue
+                    session_tree = NativeSessionTree.fork_from(
+                        session_tree.path,
+                        cwd,
+                        leaf_id=session_tree.get_leaf_id(),
+                        session_dir=session_tree.path.parent,
+                    )
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: cloned active branch into new native session "
+                        f"{sanitize_label_text(session_tree.session_id[:8])}."
+                    )
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/model" or command_text.startswith("/model "):
+                    argument = stripped[len("/model") :].strip()
+                    state = self.provider_state
+                    if not isinstance(state, NativeReplProviderState):
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            "pipy: /model is unavailable for this REPL provider state.",
+                        )
+                    elif argument:
+                        _ok, message = apply_model_selection(argument)
+                        self._emit_diagnostic(terminal_ui, error_stream, message)
+                    elif terminal_ui is not None:
+                        ui_options, selections = self._model_selector_rows(state)
+                        current = state.current_selection()
+                        current_index = next(
+                            (
+                                index
+                                for index, selection in enumerate(selections)
+                                if selection.provider_name == current.provider_name
+                                and selection.model_id == current.model_id
+                            ),
+                            0,
+                        )
+                        chosen = terminal_ui.run_model_selector(
+                            ui_options, current_index=current_index
+                        )
+                        if chosen is not None:
+                            _ok, message = apply_model_selection(
+                                selections[chosen].reference
+                            )
+                            terminal_ui.add_notice(message)
+                    else:
+                        for overlay_line in self._settings_overlay_lines(settings):
+                            print(overlay_line, file=error_stream)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                if command_text == "/scoped-models" or command_text.startswith("/scoped-models "):
+                    # Local-only: view/set/clear the enabledModels patterns that
+                    # constrain the model cycle, or cycle (next/prev) over the scoped
+                    # set (or full available catalog when empty). Cycling rebinds the
+                    # live provider through the same select_model boundary as /model;
+                    # no command here runs a provider turn or a tool call.
+                    argument = stripped[len("/scoped-models"):].strip()
+                    state = self.provider_state
+                    available_refs = (
+                        [o.selection.reference for o in state.model_options() if o.available]
+                        if isinstance(state, NativeReplProviderState)
+                        else []
+                    )
+                    patterns = settings.get_enabled_models()
+                    scoped = filter_scoped_references(available_refs, patterns)
+                    if (
+                        not argument
+                        and terminal_ui is not None
+                        and isinstance(state, NativeReplProviderState)
+                        and available_refs
+                    ):
+                        # Interactive multi-select overlay defining the Ctrl+P cycle
+                        # scope (saved back as the enabledModels patterns).
+                        self._open_scoped_models_overlay(
+                            terminal_ui, state=state, settings=settings
+                        )
+                    elif not argument:
+                        pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
+                        cycle_text = ", ".join(scoped) if scoped else "(none available)"
+                        for line in (
+                            "pipy: scoped models:",
+                            f"  patterns: {pattern_text}",
+                            f"  cycle set: {cycle_text}",
+                        ):
+                            self._emit_diagnostic(terminal_ui, error_stream, line)
+                    elif argument == "clear":
+                        try:
+                            settings.set_enabled_models([])
+                            msg = "pipy: scoped models cleared (cycle uses the full catalog)."
+                        except RuntimeError as exc:
+                            msg = f"pipy: could not update scoped models: {exc}"
+                        self._emit_diagnostic(terminal_ui, error_stream, msg)
+                    elif argument in {"next", "prev"}:
+                        current_ref = (
+                            state.current_selection().reference
+                            if isinstance(state, NativeReplProviderState)
+                            else ""
+                        )
+                        cycle_target = next_reference(
+                            scoped, current_ref, forward=argument == "next"
+                        )
+                        if cycle_target is None:
+                            self._emit_diagnostic(
+                                terminal_ui, error_stream, "pipy: no models available to cycle."
+                            )
+                        else:
+                            _ok, message = apply_model_selection(cycle_target)
+                            self._emit_diagnostic(terminal_ui, error_stream, message)
+                    else:
+                        new_patterns = argument.split()
+                        try:
+                            settings.set_enabled_models(new_patterns)
+                            msg = "pipy: scoped models set: " + ", ".join(new_patterns)
+                        except RuntimeError as exc:
+                            msg = f"pipy: could not update scoped models: {exc}"
+                        self._emit_diagnostic(terminal_ui, error_stream, msg)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                if command_text == "/theme" or command_text.startswith("/theme "):
+                    # Chrome-only command: swap the active color palette. No
+                    # provider turn, no tool call, no archive write. The next TUI
+                    # frame (and footer) repaints with the new palette because
+                    # chrome_style_for re-reads the ambient PIPY_THEME the switch
+                    # sets; only the non-secret theme name reaches the store.
+                    argument = stripped[len("/theme") :].strip()
+                    if not argument:
+                        for line in theme_status_lines(store=NativeThemeStore()):
+                            self._emit_diagnostic(terminal_ui, error_stream, line)
+                    else:
+                        _ok, message = select_theme(
+                            argument, environ=os.environ, store=NativeThemeStore()
+                        )
+                        # add_notice repaints the frame, so the new palette takes
+                        # effect immediately on the next rendered frame.
+                        self._emit_diagnostic(terminal_ui, error_stream, message)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                if command_text == "/login" or command_text.startswith("/login "):
+                    # Auth-only command: no provider turn, no tool call. Runs the
+                    # OAuth login through the provider-state boundary, refreshes
+                    # model-option availability, and clears conversation context.
+                    argument = stripped[len("/login") :].strip()
+                    message = apply_auth_change("login", argument)
+                    self._emit_diagnostic(terminal_ui, error_stream, message)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                if command_text == "/logout" or command_text.startswith("/logout "):
+                    # Auth-only command: no provider turn, no tool call. Removes the
+                    # stored OAuth credentials, resets the selection to the local
+                    # default, refreshes availability, and clears context.
+                    argument = stripped[len("/logout") :].strip()
+                    message = apply_auth_change("logout", argument)
+                    self._emit_diagnostic(terminal_ui, error_stream, message)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+                    continue
+                # Resource dispatch (skills, prompt templates, custom commands)
+                # runs through the same local-command boundary as the built-ins,
+                # after them so a custom command can never shadow a built-in.
+                resource_dispatch = dispatch_resource_command(
+                    command_text, workspace_resources
+                )
+                resource_provider_text: str | None = None
+                if resource_dispatch is not None and resource_dispatch.kind == DISPATCH_LIST:
+                    self._emit_diagnostic(
+                        terminal_ui, error_stream, resource_dispatch.message
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if resource_dispatch is not None and resource_dispatch.is_reject:
+                    # Fail closed: diagnostic only, no provider turn, no archive
+                    # write, no prompt-history or sidecar entry.
+                    self._emit_diagnostic(
+                        terminal_ui, error_stream, resource_dispatch.message
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if resource_dispatch is not None and resource_dispatch.is_run:
+                    # The expanded/instruction text becomes the bounded
+                    # provider-visible message; it never reaches prompt history,
+                    # the sidecar body, or the metadata archive. Only the
+                    # invocation counter is surfaced.
+                    resource_invocation_count += 1
+                    resource_provider_text = resource_dispatch.provider_text or ""
+                    self._emit_diagnostic(
+                        terminal_ui, error_stream, resource_dispatch.message
+                    )
+                # Extension commands dispatch AFTER built-ins and resource
+                # commands (so they can never shadow them) and BEFORE the
+                # not-handled fallback. The handler runs locally with no
+                # provider turn; its notifications are live UI output only.
+                if resource_provider_text is None:
+                    extension_dispatch = dispatch_extension_command(
+                        command_text,
+                        extension_commands,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
                     )
-                    if tool_block is not None:
-                        blocked_observation = self._error_observation(
-                            call=call,
-                            output_text=f"blocked by extension: {tool_block.reason}",
-                        )
-                        emitter.tool_execution_start(call)
-                        emitter.tool_execution_end(
-                            tool_call_id=call.provider_correlation_id,
-                            tool_name=call.tool_name,
-                            result=blocked_observation.output_text,
-                            is_error=True,
-                        )
-                        renderer.render_tool_result(
-                            output_text=blocked_observation.output_text,
-                            is_error=True,
-                        )
-                        turn_tool_results.append(blocked_observation)
-                        messages.append(blocked_observation)
-                        session_tree.append_message(blocked_observation)
-                        # A blocked call still consumes the per-turn tool
-                        # budget, so a provider repeating a blocked call
-                        # cannot drive the loop unbounded. It is not a real
-                        # tool invocation, so `tool_invocation_count` is
-                        # left unchanged.
-                        invocations_this_turn += 1
-                        continue
-                    emitter.tool_execution_start(call)
-                    active_tool_call[0] = call
-                    tool_started_at = datetime.now(UTC)
-                    try:
-                        observation = self._invoke(call=call, context=context)
-                    finally:
-                        active_tool_call[0] = None
-                    tool_ended_at = datetime.now(UTC)
-                    tool_duration = (
-                        tool_ended_at - tool_started_at
-                    ).total_seconds()
-                    emitter.tool_execution_end(
-                        tool_call_id=call.provider_correlation_id,
-                        tool_name=call.tool_name,
-                        result=observation.output_text,
-                        is_error=observation.is_error,
-                    )
-                    turn_tool_results.append(observation)
-                    renderer.render_tool_result(
-                        output_text=observation.output_text,
-                        is_error=observation.is_error,
-                        duration_seconds=tool_duration,
-                    )
-                    if observation.is_error:
-                        malformed_argument_count += 1
-                        consecutive_malformed_streak += 1
-                        messages.append(observation)
-                        session_tree.append_message(observation)
-                        if consecutive_malformed_streak >= self.MAX_MALFORMED_STREAK:
+                    if extension_dispatch is not None:
+                        for _kind, message in extension_dispatch.messages:
+                            self._emit_diagnostic(terminal_ui, error_stream, message)
+                        if not extension_dispatch.ran and extension_dispatch.error:
                             self._emit_diagnostic(
                                 terminal_ui,
                                 error_stream,
                                 (
-                                    "pipy: tool-loop ended after "
-                                    f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                                    "tool calls"
+                                    f"pipy: extension command /{extension_dispatch.name} "
+                                    f"failed ({extension_dispatch.error})"
                                 ),
                             )
-                            fatal = True
-                            break
+                        if legacy_footer_enabled():
+                            self._print_footer(
+                                error_stream,
+                                cwd=cwd,
+                                provider_name=effective_provider_name,
+                                model_id=effective_model_id,
+                                user_turn_count=user_turn_count,
+                                tool_invocation_count=tool_invocation_count,
+                            )
                         continue
+                if command_text.startswith("/") and resource_provider_text is None:
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        (
+                            f"pipy: {stripped!r} is not handled in tool-loop mode; "
+                            "supported local commands are /help, /hotkeys, /reload, "
+                            "/changelog, /model, /scoped-models, /settings, "
+                            "/login, /logout, /copy, /compact, /session, /name, "
+                            "/new, /tree, /resume, /fork, /clone, /skill, /template, "
+                            "/exit, /quit "
+                            "(plus any workspace custom commands and activated "
+                            "extension commands). Other prompts are sent to the model."
+                        ),
+                    )
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                # User-directed file context: a genuine prompt may name workspace
+                # files with ``@path``. Resolve them through the shared bounded
+                # reader (reusing this loop's ``read`` policy and reference roots),
+                # append the bounded excerpts to the provider-visible user message,
+                # and keep the literal prompt for the rendered panel, prompt
+                # history, and the sidecar transcript.
+                turn_attachments: tuple[ProviderImageAttachment, ...] = ()
+                if resource_provider_text is not None:
+                    # Resource turn: the bounded instruction/expansion is the
+                    # provider message verbatim. @file augmentation, prompt
+                    # history, and the sidecar body are all skipped so the
+                    # literal resource text never leaks past the provider.
+                    provider_user_input = resource_provider_text
+                else:
+                    provider_user_input = user_input
+                    file_references = resolve_file_references(
+                        user_input,
+                        workspace_root=cwd,
+                        reference_roots=self.reference_roots,
+                    )
+                    if file_references.reference_count:
+                        file_reference_count += file_references.reference_count
+                        file_reference_loaded_count += file_references.loaded_count
+                        file_reference_failed_count += file_references.failed_count
+                        for diagnostic in file_references.diagnostics():
+                            self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
+                        if file_references.used:
+                            provider_user_input = file_references.augmented_prompt(
+                                user_input
+                            )
+                    # User-directed image attachments (@image:<path>): bounded,
+                    # fail-closed image loading that becomes provider-visible image
+                    # blocks on the current user message. Raw bytes never reach the
+                    # prompt history, the transcript sidecar, or the result.
+                    image_attachments = resolve_image_attachments(
+                        user_input,
+                        workspace_root=cwd,
+                        reference_roots=image_reference_roots,
+                    )
+                    if image_attachments.reference_count:
+                        image_attachment_count += image_attachments.reference_count
+                        image_attachment_loaded_count += image_attachments.loaded_count
+                        image_attachment_failed_count += image_attachments.failed_count
+                        for diagnostic in image_attachments.diagnostics():
+                            self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
+                        turn_attachments = image_attachments.attachments()
+                turn_user_message = UserMessage(content=provider_user_input)
+                # Automation: this accepted prompt begins one agent run. Snapshot the
+                # message index so agent_end can report the messages this run added
+                # (the user message and everything the loop appends below).
+                agent_run_start_index = len(messages)
+                emitter.agent_start()
+                messages.append(turn_user_message)
+                session_tree.append_message(turn_user_message)
+                user_turn_count += 1
+                # Persist the prompt for cross-session recall when the user has
+                # enabled it from /settings. record() is a no-op when disabled and
+                # writes only to the local prompt-history file — never the
+                # metadata-first session archive. Slash commands and resource
+                # invocations never reach here, so only genuine prompts are
+                # persisted. The literal prompt (not the @file-augmented variant)
+                # is recorded so history stays user text.
+                if resource_provider_text is None:
+                    prompt_history_store.record(user_input)
+                    if self.transcript_sink is not None:
+                        self.transcript_sink.append("user", {"content": user_input})
 
-                    invocations_this_turn += 1
-                    tool_invocation_count += 1
-                    consecutive_malformed_streak = 0
-                    messages.append(observation)
-                    session_tree.append_message(observation)
+                invocations_this_turn = 0
+                inner_iteration_cap = self.tool_budget + 2
+                inner_iterations = 0
+
+                while inner_iterations < inner_iteration_cap:
+                    inner_iterations += 1
+                    available_tools = tuple(
+                        tool.definition for tool in self.tool_registry.values()
+                    )
+                    # Automatic compaction: when the provider-visible history grows
+                    # past the threshold, drop the oldest user-turn groups before
+                    # building the next request. The cut is at a UserMessage
+                    # boundary so no tool result is orphaned, and the safe summary
+                    # rides in the system prompt suffix below.
+                    if settings.get_compaction_enabled() and should_compact_tool_loop_messages(
+                        messages
+                    ):
+                        notice = apply_compaction("auto")
+                        self._emit_diagnostic(terminal_ui, error_stream, notice)
+                    provider_request = ProviderRequest(
+                        system_prompt=base_system_prompt + compaction_summary,
+                        user_prompt=provider_user_input,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        cwd=cwd,
+                        messages=tuple(messages),
+                        available_tools=available_tools,
+                        # Image attachments belong to the current user message, so
+                        # they ride only the first provider call of this turn; later
+                        # tool-loop iterations append tool results (also user-role),
+                        # and re-sending would mis-attach the image to those.
+                        attachments=turn_attachments if inner_iterations == 1 else (),
+                    )
+                    emitter.turn_start()
+                    if inner_iterations == 1:
+                        # Pi emits the user message_start/message_end pair after
+                        # turn_start and before the assistant message begins.
+                        emitter.non_streamed_message(turn_user_message)
+                    emitter.assistant_message_start()
+                    renderer.begin_provider_turn()
+                    renderer.show_working()
+                    provider_result = self._complete_provider_turn(
+                        provider_request,
+                        renderer=renderer,
+                        terminal_ui=terminal_ui,
+                        emitter=emitter,
+                    )
+                    if provider_result is None:
+                        # Aborted/steered turn (RPC abort, or TUI Escape/steer).
+                        # Close the assistant message and the turn so the automation
+                        # lifecycle stays balanced (message_start has a matching
+                        # message_end, turn_start a matching turn_end) before the
+                        # agent_end emitted after the inner loop.
+                        aborted_assistant_message = AssistantMessage(content="")
+                        emitter.assistant_message_end(aborted_assistant_message)
+                        emitter.turn_end(aborted_assistant_message, [])
+                        break
+                    usage_accumulator.absorb(provider_result.usage)
+                    renderer.end_provider_turn(
+                        final_text=provider_result.final_text or "",
+                        has_tool_calls=bool(provider_result.tool_calls),
+                    )
+                    if provider_result.status != HarnessStatus.SUCCEEDED:
+                        error_type = provider_result.error_type or "ProviderFailed"
+                        error_message = (
+                            provider_result.error_message
+                            or f"provider {effective_provider_name!r} returned status "
+                            f"{provider_result.status.value!r} without a final response"
+                        )
+                        # Surface the failure on the error stream but keep the
+                        # REPL alive: a transient HTTP error from a single
+                        # provider turn (e.g. a 503 the retry helper exhausted
+                        # against, or a brief network hiccup) should not tear
+                        # the whole session down. The user can ask again at
+                        # the next prompt.
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            (
+                                "pipy: provider failure during turn: "
+                                f"{error_type}: {error_message}"
+                            ),
+                        )
+                        if legacy_footer_enabled():
+                            self._print_footer(
+                                error_stream,
+                                cwd=cwd,
+                                provider_name=effective_provider_name,
+                                model_id=effective_model_id,
+                                user_turn_count=user_turn_count,
+                                tool_invocation_count=tool_invocation_count,
+                                usage_accumulator=usage_accumulator,
+                            )
+                        # Balance the assistant message_start emitted above and close
+                        # the turn so the automation stream stays well-formed even on
+                        # a failed provider turn.
+                        failed_assistant_message = AssistantMessage(content="")
+                        emitter.assistant_message_end(failed_assistant_message)
+                        emitter.turn_end(failed_assistant_message, [])
+                        break
+                    tool_calls = tuple(provider_result.tool_calls)
+                    turn_assistant_message = AssistantMessage(
+                        content=provider_result.final_text or "",
+                        tool_calls=tool_calls,
+                    )
+                    emitter.assistant_message_end(turn_assistant_message)
+                    turn_tool_results: list[ToolResultMessage] = []
+                    messages.append(turn_assistant_message)
+                    session_tree.append_message(turn_assistant_message)
                     if self.transcript_sink is not None:
                         self.transcript_sink.append(
-                            "tool_result",
+                            "assistant",
                             {
-                                "tool_request_id": observation.tool_request_id,
-                                "output_text": observation.output_text,
-                                "is_error": observation.is_error,
-                                "provider_correlation_id": observation.provider_correlation_id,
+                                "content": provider_result.final_text or "",
+                                "tool_calls": [
+                                    {
+                                        "provider_correlation_id": call.provider_correlation_id,
+                                        "tool_name": call.tool_name,
+                                        "arguments_json": call.arguments_json,
+                                    }
+                                    for call in tool_calls
+                                ],
                             },
                         )
 
-                emitter.turn_end(turn_assistant_message, turn_tool_results)
-                if fatal:
-                    emitter.agent_end(
-                        messages[agent_run_start_index:], will_retry=False
-                    )
-                    ended_at = datetime.now(UTC)
-                    try:
-                        repl_input.close()
-                    except Exception:
-                        pass
-                    return NativeToolReplResult(
-                        status=HarnessStatus.FAILED,
-                        exit_code=1,
-                        started_at=started_at,
-                        ended_at=ended_at,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        resource_invocation_count=resource_invocation_count,
-                        malformed_argument_count=malformed_argument_count,
-                        consecutive_malformed_streak=consecutive_malformed_streak,
-                        budget_exhausted_count=budget_exhausted_count,
-                        file_reference_count=file_reference_count,
-                        file_reference_loaded_count=file_reference_loaded_count,
-                        file_reference_failed_count=file_reference_failed_count,
-                        compaction_count=compaction_count,
-                        compaction_dropped_group_count=compaction_dropped_group_count_total,
-                        error_type="NativeToolLoopMalformedFatal",
-                        error_message=(
-                            f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                            "tool calls"
-                        ),
-                    )
+                    if not tool_calls:
+                        if provider_result.final_text and not renderer.streamed_any:
+                            print(provider_result.final_text, file=output_stream)
+                        if legacy_footer_enabled():
+                            self._print_footer(
+                                error_stream,
+                                cwd=cwd,
+                                provider_name=effective_provider_name,
+                                model_id=effective_model_id,
+                                user_turn_count=user_turn_count,
+                                tool_invocation_count=tool_invocation_count,
+                                usage_accumulator=usage_accumulator,
+                            )
+                        emitter.turn_end(turn_assistant_message, turn_tool_results)
+                        break
 
-            # The inner loop settled this accepted prompt's agent run (no tool
-            # calls left, the budget cap, or a provider failure). Close it on the
-            # automation stream before the outer loop reads the next prompt.
-            emitter.agent_end(
-                messages[agent_run_start_index:], will_retry=False
+                    fatal = False
+                    for call in tool_calls:
+                        if invocations_this_turn >= self.tool_budget:
+                            budget_exhausted_count += 1
+                            renderer.render_tool_call(call)
+                            renderer.render_tool_result(
+                                output_text=(
+                                    f"tool budget exhausted "
+                                    f"(limit {self.tool_budget})"
+                                ),
+                                is_error=True,
+                            )
+                            budget_observation = self._error_observation(
+                                call=call,
+                                output_text=(
+                                    f"tool budget exhausted "
+                                    f"(limit {self.tool_budget})"
+                                ),
+                            )
+                            emitter.tool_execution_start(call)
+                            emitter.tool_execution_end(
+                                tool_call_id=call.provider_correlation_id,
+                                tool_name=call.tool_name,
+                                result=budget_observation.output_text,
+                                is_error=True,
+                            )
+                            turn_tool_results.append(budget_observation)
+                            messages.append(budget_observation)
+                            session_tree.append_message(budget_observation)
+                            continue
+
+                        renderer.render_tool_call(call)
+                        # Extension `tool_call` policy gate: a registered hook
+                        # may inspect the live tool name + parsed input and
+                        # return a ToolBlock to block the call. The raw input
+                        # is inspected live but never archived.
+                        tool_block = dispatch_tool_call_hooks(
+                            extension_tool_call_hooks_,
+                            tool_name=call.tool_name,
+                            tool_input=_parse_tool_input(call.arguments_json),
+                            cwd=str(cwd),
+                            has_ui=terminal_ui is not None,
+                        )
+                        if tool_block is not None:
+                            blocked_observation = self._error_observation(
+                                call=call,
+                                output_text=f"blocked by extension: {tool_block.reason}",
+                            )
+                            emitter.tool_execution_start(call)
+                            emitter.tool_execution_end(
+                                tool_call_id=call.provider_correlation_id,
+                                tool_name=call.tool_name,
+                                result=blocked_observation.output_text,
+                                is_error=True,
+                            )
+                            renderer.render_tool_result(
+                                output_text=blocked_observation.output_text,
+                                is_error=True,
+                            )
+                            turn_tool_results.append(blocked_observation)
+                            messages.append(blocked_observation)
+                            session_tree.append_message(blocked_observation)
+                            # A blocked call still consumes the per-turn tool
+                            # budget, so a provider repeating a blocked call
+                            # cannot drive the loop unbounded. It is not a real
+                            # tool invocation, so `tool_invocation_count` is
+                            # left unchanged.
+                            invocations_this_turn += 1
+                            continue
+                        emitter.tool_execution_start(call)
+                        active_tool_call[0] = call
+                        tool_started_at = datetime.now(UTC)
+                        try:
+                            observation = self._invoke(call=call, context=context)
+                        finally:
+                            active_tool_call[0] = None
+                        tool_ended_at = datetime.now(UTC)
+                        tool_duration = (
+                            tool_ended_at - tool_started_at
+                        ).total_seconds()
+                        emitter.tool_execution_end(
+                            tool_call_id=call.provider_correlation_id,
+                            tool_name=call.tool_name,
+                            result=observation.output_text,
+                            is_error=observation.is_error,
+                        )
+                        turn_tool_results.append(observation)
+                        renderer.render_tool_result(
+                            output_text=observation.output_text,
+                            is_error=observation.is_error,
+                            duration_seconds=tool_duration,
+                        )
+                        if observation.is_error:
+                            malformed_argument_count += 1
+                            consecutive_malformed_streak += 1
+                            messages.append(observation)
+                            session_tree.append_message(observation)
+                            if consecutive_malformed_streak >= self.MAX_MALFORMED_STREAK:
+                                self._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    (
+                                        "pipy: tool-loop ended after "
+                                        f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
+                                        "tool calls"
+                                    ),
+                                )
+                                fatal = True
+                                break
+                            continue
+
+                        invocations_this_turn += 1
+                        tool_invocation_count += 1
+                        consecutive_malformed_streak = 0
+                        messages.append(observation)
+                        session_tree.append_message(observation)
+                        if self.transcript_sink is not None:
+                            self.transcript_sink.append(
+                                "tool_result",
+                                {
+                                    "tool_request_id": observation.tool_request_id,
+                                    "output_text": observation.output_text,
+                                    "is_error": observation.is_error,
+                                    "provider_correlation_id": observation.provider_correlation_id,
+                                },
+                            )
+
+                    emitter.turn_end(turn_assistant_message, turn_tool_results)
+                    if fatal:
+                        emitter.agent_end(
+                            messages[agent_run_start_index:], will_retry=False
+                        )
+                        ended_at = datetime.now(UTC)
+                        try:
+                            repl_input.close()
+                        except Exception:
+                            pass
+                        return NativeToolReplResult(
+                            status=HarnessStatus.FAILED,
+                            exit_code=1,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            resource_invocation_count=resource_invocation_count,
+                            malformed_argument_count=malformed_argument_count,
+                            consecutive_malformed_streak=consecutive_malformed_streak,
+                            budget_exhausted_count=budget_exhausted_count,
+                            file_reference_count=file_reference_count,
+                            file_reference_loaded_count=file_reference_loaded_count,
+                            file_reference_failed_count=file_reference_failed_count,
+                            compaction_count=compaction_count,
+                            compaction_dropped_group_count=compaction_dropped_group_count_total,
+                            error_type="NativeToolLoopMalformedFatal",
+                            error_message=(
+                                f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
+                                "tool calls"
+                            ),
+                        )
+
+                # The inner loop settled this accepted prompt's agent run (no tool
+                # calls left, the budget cap, or a provider failure). Close it on the
+                # automation stream before the outer loop reads the next prompt.
+                emitter.agent_end(
+                    messages[agent_run_start_index:], will_retry=False
+                )
+
+            try:
+                repl_input.close()
+            except Exception:
+                pass
+            ended_at = datetime.now(UTC)
+            return NativeToolReplResult(
+                status=HarnessStatus.SUCCEEDED,
+                exit_code=0,
+                started_at=started_at,
+                ended_at=ended_at,
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                user_turn_count=user_turn_count,
+                tool_invocation_count=tool_invocation_count,
+                resource_invocation_count=resource_invocation_count,
+                malformed_argument_count=malformed_argument_count,
+                consecutive_malformed_streak=consecutive_malformed_streak,
+                budget_exhausted_count=budget_exhausted_count,
+                file_reference_count=file_reference_count,
+                file_reference_loaded_count=file_reference_loaded_count,
+                file_reference_failed_count=file_reference_failed_count,
+                image_attachment_count=image_attachment_count,
+                image_attachment_loaded_count=image_attachment_loaded_count,
+                image_attachment_failed_count=image_attachment_failed_count,
+                compaction_count=compaction_count,
+                compaction_dropped_group_count=compaction_dropped_group_count_total,
             )
-
-        try:
-            repl_input.close()
-        except Exception:
-            pass
-        ended_at = datetime.now(UTC)
-        return NativeToolReplResult(
-            status=HarnessStatus.SUCCEEDED,
-            exit_code=0,
-            started_at=started_at,
-            ended_at=ended_at,
-            provider_name=effective_provider_name,
-            model_id=effective_model_id,
-            user_turn_count=user_turn_count,
-            tool_invocation_count=tool_invocation_count,
-            resource_invocation_count=resource_invocation_count,
-            malformed_argument_count=malformed_argument_count,
-            consecutive_malformed_streak=consecutive_malformed_streak,
-            budget_exhausted_count=budget_exhausted_count,
-            file_reference_count=file_reference_count,
-            file_reference_loaded_count=file_reference_loaded_count,
-            file_reference_failed_count=file_reference_failed_count,
-            image_attachment_count=image_attachment_count,
-            image_attachment_loaded_count=image_attachment_loaded_count,
-            image_attachment_failed_count=image_attachment_failed_count,
-            compaction_count=compaction_count,
-            compaction_dropped_group_count=compaction_dropped_group_count_total,
-        )
+        finally:
+            emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
 
     def _build_repl_input(
         self,

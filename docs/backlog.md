@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 5: lifecycle event foundation
+### Extension API slice 6: input + before_agent_start hooks and send_user_message
 
-Slices 1–4 have **landed**:
+Slices 1–5 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1434,23 +1434,30 @@ Slices 1–4 have **landed**:
   (`dispatch_tool_call_hooks` before `_invoke`); first block wins; a crashing
   hook fails closed; raw inputs are inspected live but not archived. Gate:
   `scripts/parity_checks/extension_tool_call_conformance.py --json`.
+- Slice 5 (lifecycle events): `session_start`, `session_shutdown`,
+  `agent_start`, `agent_end`, `turn_start`, and `turn_end` fire to `@api.on(...)`
+  observers via an `_ExtensionAwareEmitter` wrapping the automation emitter
+  (`dispatch_lifecycle_hooks`); observe-only, fail-soft (a crashing observer
+  never breaks the session), `LifecycleEvent` carries only the event name +
+  session-start reason. `/reload` refreshes the observers. Gate:
+  `scripts/parity_checks/extension_lifecycle_conformance.py --json`.
 
-The selected next implementation slice adds the lifecycle event foundation:
-emit `session_start`, `session_shutdown`, `agent_start`, `turn_start`,
-`turn_end`, and `agent_end` to extension `@api.on(...)` handlers with
-mode-aware contexts and safe archive metadata only (event names + counts, no
-prompt/tool/UI content). Handlers observe; they do not alter the turn in this
-slice.
+The selected next implementation slice adds the `input` and
+`before_agent_start` hooks plus `send_user_message`: `input` may observe or
+transform a submitted prompt before a turn; `before_agent_start` may inject
+bounded safe context or alter system-prompt options; and `api.send_user_message`
+lets an extension enqueue a deterministic provider turn (enough for a command to
+trigger one). Prompts/injected context are inspected/added live but not archived
+beyond existing safe metadata.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_lifecycle.py
+uv run pytest tests/test_native_extension_input_hooks.py
 just check
 ```
 
-The expected follow-up slice is `input` + `before_agent_start` hooks and
-`send_user_message`.
+The expected follow-up slice is pure/read-only extension tool registration.
 
 ## Near Term
 

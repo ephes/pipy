@@ -766,10 +766,13 @@ extension `/commands` dispatch through the live tool-loop REPL
 (`dispatch_extension_command`, gate
 `scripts/parity_checks/extension_dispatch_conformance.py --json`). Slice 4: the
 `tool_call` policy hook (`api.on("tool_call")` → `ToolBlock`, gate
-`scripts/parity_checks/extension_tool_call_conformance.py --json`). The next
-selected implementation slice is slice 5 (the lifecycle event foundation).
-Discovery never imports extension code; activation imports only loadable
-descriptors.
+`scripts/parity_checks/extension_tool_call_conformance.py --json`). Slice 5: the
+lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
+`turn_end`/`agent_end`/`session_shutdown`, gate
+`scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
+selected implementation slice is slice 6 (`input`/`before_agent_start` +
+`send_user_message`). Discovery never imports extension code; activation imports
+only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
@@ -797,9 +800,12 @@ descriptors.
    `ToolBlock`/`ToolCallEvent` + `dispatch_tool_call_hooks`/`extension_tool_call_hooks`,
    wired into the `tool_loop_session` tool loop (first block wins; crashing hook
    fails closed; raw inputs inspected live but not archived).
-5. Lifecycle foundation: emit `session_start`, `session_shutdown`,
+5. Lifecycle foundation — **landed**: emit `session_start`, `session_shutdown`,
    `agent_start`, `turn_start`, `turn_end`, and `agent_end` with mode-aware
-   contexts and safe archive metadata only.
+   contexts and safe archive metadata only. Implemented as `LifecycleEvent` +
+   `dispatch_lifecycle_hooks` + `extension_event_hooks`, fired through an
+   `_ExtensionAwareEmitter` (observe-only, fail-soft) wired into
+   `tool_loop_session`.
 6. Input and before-agent-start hooks: support `input` transforms,
    `before_agent_start` context/system-prompt modifications, and
    `send_user_message(...)` enough for a command to trigger a deterministic

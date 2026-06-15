@@ -54,8 +54,36 @@ REASON_INVALID_HOOK: str = "invalid_hook"
 
 # Event names (the dispatched subset grows per slice).
 EVENT_TOOL_CALL: str = "tool_call"
+EVENT_SESSION_START: str = "session_start"
+EVENT_SESSION_SHUTDOWN: str = "session_shutdown"
+EVENT_AGENT_START: str = "agent_start"
+EVENT_AGENT_END: str = "agent_end"
+EVENT_TURN_START: str = "turn_start"
+EVENT_TURN_END: str = "turn_end"
+
+LIFECYCLE_EVENTS: tuple[str, ...] = (
+    EVENT_SESSION_START,
+    EVENT_SESSION_SHUTDOWN,
+    EVENT_AGENT_START,
+    EVENT_AGENT_END,
+    EVENT_TURN_START,
+    EVENT_TURN_END,
+)
 
 HookHandler = Callable[..., object]
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleEvent:
+    """An observe-only lifecycle event passed to `@api.on(<event>)` hooks.
+
+    `name` is the event (for example `session_start`). `reason` is the
+    session-start reason (`"startup"`, `"reload"`, ...) where applicable,
+    and `None` otherwise. The event carries only safe metadata.
+    """
+
+    name: str
+    reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -484,17 +512,57 @@ def _activate_one(
     )
 
 
-def extension_tool_call_hooks(
+def extension_event_hooks(
     activated: Sequence[ActivatedExtension],
+    event_name: str,
 ) -> tuple[HookHandler, ...]:
-    """Collect `tool_call` hooks from activated extensions, in order."""
+    """Collect hooks for `event_name` from activated extensions, in order."""
 
     hooks: list[HookHandler] = []
     for extension in activated:
         if extension.status != "activated":
             continue
-        hooks.extend(extension.hooks.get(EVENT_TOOL_CALL, ()))
+        hooks.extend(extension.hooks.get(event_name, ()))
     return tuple(hooks)
+
+
+def extension_tool_call_hooks(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[HookHandler, ...]:
+    """Collect `tool_call` hooks from activated extensions, in order."""
+
+    return extension_event_hooks(activated, EVENT_TOOL_CALL)
+
+
+def dispatch_lifecycle_hooks(
+    hooks: Sequence[HookHandler],
+    event: LifecycleEvent,
+    *,
+    cwd: str,
+    has_ui: bool,
+) -> None:
+    """Run observe-only lifecycle hooks for one event, in order.
+
+    Each hook receives the `LifecycleEvent` and a mode-aware context. The
+    return value is ignored (these hooks observe; they do not alter the
+    turn in this slice). A hook that raises is bounded and ignored so one
+    crashing observer never breaks the session or the other observers.
+    `KeyboardInterrupt` / `SystemExit` propagate (user abort is never
+    swallowed).
+    """
+
+    if not hooks:
+        return
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - an observer must not break the session
+            continue
 
 
 def dispatch_tool_call_hooks(
