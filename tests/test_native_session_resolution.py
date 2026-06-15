@@ -252,3 +252,38 @@ def test_resolve_ref_missing_path_is_not_found(tmp_path) -> None:
         proj, str(tmp_path / "nope" / "missing.jsonl"), sessions_root=sessions_root
     )
     assert result.kind == "not_found"
+
+
+def test_resolve_ref_relative_path_uses_workspace_cwd(tmp_path) -> None:
+    import os
+
+    sessions_root = tmp_path / "root"
+    proj = tmp_path / "p"
+    proj.mkdir()
+    tree = _make(proj, sessions_root)
+    assert tree.path is not None
+    rel = os.path.relpath(tree.path, proj)
+    # A relative path-like ref resolves against the workspace cwd, not the
+    # process cwd.
+    result = resolve_session_ref(proj, rel, sessions_root=sessions_root)
+    assert result.kind == "path"
+    assert result.path is not None
+    assert result.path.resolve() == tree.path.resolve()
+
+
+def test_startup_fork_with_existing_session_id_is_rejected(tmp_path) -> None:
+    sessions_root = tmp_path / "root"
+    proj = tmp_path / "p"
+    proj.mkdir()
+    src = _make(proj, sessions_root)
+    NativeSessionTree.create(
+        proj, session_dir=sessions_root / _encoded(proj), session_id="taken-id"
+    )
+    with pytest.raises(ValueError, match="already exists"):
+        resolve_startup_session(
+            proj,
+            mode="fork",
+            target=src.session_id[:8],
+            session_id="taken-id",
+            sessions_root=sessions_root,
+        )

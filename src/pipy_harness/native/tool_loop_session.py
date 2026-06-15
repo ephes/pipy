@@ -124,6 +124,7 @@ from pipy_harness.native.session_tree_commands import (
     render_tree_lines,
     resolve_entry_ref,
     resolve_session_target,
+    sanitize_label_text,
     visible_tree_entries,
 )
 from pipy_harness.native.resources import (
@@ -1402,7 +1403,11 @@ class NativeToolReplSession:
                 if not argument:
                     diag(
                         "pipy: current session name: "
-                        + (session_tree.name or "(unnamed)")
+                        + (
+                            sanitize_label_text(session_tree.name)
+                            if session_tree.name
+                            else "(unnamed)"
+                        )
                     )
                 else:
                     session_tree.append_session_info(argument)
@@ -1461,7 +1466,11 @@ class NativeToolReplSession:
                     scope = "named " if named_only else ""
                     diag(f"pipy: {scope}native sessions (newest first):")
                     for index, entry in enumerate(sessions, start=1):
-                        label = entry.name or "(unnamed)"
+                        label = (
+                            sanitize_label_text(entry.name)
+                            if entry.name
+                            else "(unnamed)"
+                        )
                         diag(
                             f"  {index}. {entry.session_id[:8]} {label} "
                             f"messages={entry.message_count} "
@@ -1489,7 +1498,7 @@ class NativeToolReplSession:
                         diag(
                             "pipy: resumed native session "
                             f"{session_tree.session_id[:8]} "
-                            f"({session_tree.name or 'unnamed'})."
+                            f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
                         )
                 elif not argument:
                     _list_sessions()
@@ -1541,7 +1550,7 @@ class NativeToolReplSession:
                         diag(
                             "pipy: resumed native session "
                             f"{session_tree.session_id[:8]} "
-                            f"({session_tree.name or 'unnamed'})."
+                            f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
                         )
                 refresh_legacy_footer()
                 continue

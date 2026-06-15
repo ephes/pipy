@@ -342,18 +342,15 @@ boundary records counters and labels alone — never the raw command or output.
 
 #### Resume, branch, and compaction
 
-- `pipy repl --agent pipy-native --resume <stem>` starts a fresh session
-  seeded from a finalized record's safe metadata-only `ResumeContext` (prior
-  provider/model/turn labels only — never prompts, model output, tool
-  payloads, file contents, diffs, or raw Markdown summary text). Both REPL
-  modes show a safe resumed-state banner (prior session id, provider, model,
-  turn count, finalized time). The parent record is never modified and no raw
-  transcript sidecar is copied; the child archive records only a safe `resume`
-  object on `session.started` plus a `native.session.resumed` event.
-- `pipy repl --resume <stem> --branch <label>` forks a child *branch* from the
-  parent with a validated safe label (`--branch` requires `--resume`; unsafe
-  labels fail closed). The child records safe parent id, branch label, fork
-  timestamp, and relationship; the parent stays byte-for-byte immutable.
+- Product resume/branch/fork is the native session tree — see the "Native
+  product session-tree controls" section above (`-c`/`-r`/`--session`/
+  `--session-id`/`--fork`, the `/resume` picker, and in-session `/tree`/`/fork`/
+  `/clone`). The old pipy-only metadata-only `pipy repl --resume <stem>` /
+  `--branch <label>` repl flags were **retired** in favour of it; the separate
+  `pipy-session resume-info <stem>` archive utility still reads the safe
+  metadata-only `ResumeContext` (prior provider/model/turn labels only — never
+  prompts, model output, tool payloads, file contents, diffs, or summary text)
+  for the catalog/learning surface, and finalized records remain immutable.
 - `/compact` reduces the provider-visible context in place (and an automatic
   threshold does the same) while keeping recent turns plus a safe
   metadata-only summary. In the tool loop the cut happens at a user-turn

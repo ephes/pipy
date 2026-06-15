@@ -333,8 +333,14 @@ def format_session_status(tree: NativeSessionTree) -> str:
         1 for e in tree.get_entries() if isinstance(e, MessageEntry)
     )
     branch_count = _branch_count(tree)
-    path_label = str(tree.path) if tree.path is not None else "(ephemeral)"
-    name = tree.name or "(unnamed)"
+    # name and the workspace-derived path are user-controlled; sanitize them so
+    # the status line cannot inject terminal escape sequences.
+    path_label = (
+        sanitize_label_text(str(tree.path))
+        if tree.path is not None
+        else "(ephemeral)"
+    )
+    name = sanitize_label_text(tree.name) if tree.name else "(unnamed)"
     return (
         "pipy native session: "
         f"name={name} id={header.id[:8]} leaf={leaf[:8]} "
@@ -427,15 +433,19 @@ def resolve_session_ref(
     ref = ref.strip()
     if not ref:
         return SessionRefResult(kind="not_found", arg=ref)
+    resolved_cwd = cwd.expanduser().resolve()
     if _looks_like_path(ref):
         candidate = Path(ref).expanduser()
-        # Only resolve an explicit path that actually exists; a missing file
-        # becomes ``not_found`` so the CLI reports a clean error instead of
-        # raising an uncaught file error when it is later opened/forked.
+        # A relative path is resolved against the CLI workspace ``cwd`` (Pi's
+        # ``resolvePath(sessionArg, cwd)``), not the process cwd. Only an
+        # existing file resolves to a path; a missing file becomes
+        # ``not_found`` so the CLI reports a clean error instead of raising an
+        # uncaught file error when it is later opened/forked.
+        if not candidate.is_absolute():
+            candidate = resolved_cwd / candidate
         if candidate.is_file():
             return SessionRefResult(kind="path", arg=ref, path=candidate)
         return SessionRefResult(kind="not_found", arg=ref)
-    resolved_cwd = cwd.expanduser().resolve()
     root = native_sessions_root(state_root=state_root, session_dir=sessions_root)
     local_dir = root / _encode_cwd(resolved_cwd)
     local = _match_by_id(list_native_sessions(local_dir), ref)
@@ -600,6 +610,16 @@ def _resolve_startup_tree(
     if mode == "fork":
         if not target:
             raise ValueError("--fork requires a path or id")
+        # --fork --session-id names the new file; reject an id that already
+        # exists locally rather than writing a duplicate-id session (Pi
+        # main.ts findLocalSessionByExactId guard). (--session is mutually
+        # exclusive with --session-id, so only fork mode can carry one here.)
+        if session_id is not None and any(
+            e.session_id == session_id for e in list_native_sessions(proj_dir)
+        ):
+            raise ValueError(
+                f"a native session already exists with id {session_id!r}"
+            )
         ref = resolve_session_ref(
             resolved_cwd, target, state_root=state_root, sessions_root=sessions_root
         )

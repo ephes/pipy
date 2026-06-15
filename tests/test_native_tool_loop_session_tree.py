@@ -396,3 +396,20 @@ def test_resume_rename_active_session_updates_live_tree(tmp_path: Path) -> None:
     assert active.name == "live-renamed"
     # ...and it persisted exactly once (a reopened tree agrees).
     assert NativeSessionTree.open(active.path).name == "live-renamed"
+
+
+def test_session_status_and_resume_listing_sanitize_name(tmp_path: Path) -> None:
+    """A session name with control bytes must not reach diagnostics raw."""
+
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "store" / "proj"
+    tree = NativeSessionTree.create(cwd, session_dir=session_dir)
+    # A name with an ESC sequence (e.g. set via --name or a shared file).
+    tree.append_session_info("nm\x1b[31mEVIL\x07")
+    session = NativeToolReplSession(provider=_SeenProvider(), native_session=tree)
+
+    _out, err = _run(session, cwd, "/session\n/resume\n/exit\n")
+    assert "\x1b" not in err
+    assert "\x07" not in err
+    # The visible (sanitized) text is still present.
+    assert "EVIL" in err
