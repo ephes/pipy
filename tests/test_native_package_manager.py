@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native.package_manager import (
+    PackageSettingsError,
     canonical_local_source,
     configure_resource_filter,
     format_package_listing,
@@ -110,6 +113,68 @@ def test_git_and_pypi_sources_are_not_local(tmp_path: Path) -> None:
         assert is_local_path_source(source) is False
         assert canonical_local_source(source, tmp_path) is None
     assert is_local_path_source("../local-path") is True
+
+
+def test_writes_refuse_to_clobber_corrupt_settings(tmp_path: Path) -> None:
+    # A present-but-unparseable settings file must not be silently overwritten
+    # (matching SettingsManager's clobber-refusal); a missing file is fine.
+    user = _settings(tmp_path, "user")
+    user.parent.mkdir(parents=True)
+    user.write_text("{ this is not json", encoding="utf-8")
+
+    with pytest.raises(PackageSettingsError):
+        install_package("../pkg", user)
+    with pytest.raises(PackageSettingsError):
+        remove_package("../pkg", user)
+    with pytest.raises(PackageSettingsError):
+        configure_resource_filter(
+            settings_path=user, kind="skills", pattern="x", enable=False
+        )
+    # The corrupt content is preserved, not overwritten.
+    assert user.read_text(encoding="utf-8") == "{ this is not json"
+
+
+def test_remote_source_screen_is_case_and_scheme_robust(tmp_path: Path) -> None:
+    # Uppercase / mixed-case, extra schemes, and leading whitespace must all be
+    # classified as remote (non-local), matching Pi's package-source contract.
+    for source in (
+        "GIT:foo",
+        "Git+https://x/y",
+        "HTTPS://host/pkg",
+        "ssh://git@host/x.git",
+        "git://host/x.git",
+        "file:///etc/passwd",
+        "  https://host/pkg",
+        "NPM:left-pad",
+    ):
+        assert is_local_path_source(source) is False, source
+        assert canonical_local_source(source, tmp_path) is None, source
+
+
+def test_object_form_package_entries_are_preserved(tmp_path: Path) -> None:
+    # A `{source, skills: [...]}` PackageSource object stays intact when other
+    # sources are installed/removed (the spec documents object-form entries).
+    user = _settings(tmp_path, "user")
+    user.parent.mkdir(parents=True)
+    user.write_text(
+        json.dumps({"packages": [{"source": "../obj-pkg", "skills": ["+only"]}]}),
+        encoding="utf-8",
+    )
+
+    install_package("../str-pkg", user)
+    packages = _read(user)["packages"]
+    assert {"source": "../obj-pkg", "skills": ["+only"]} in packages
+    assert "../str-pkg" in packages
+
+    # list/format surface the object's source string.
+    listing = list_packages(user_path=user, project_path=None)
+    assert "../obj-pkg" in listing.user
+    assert "../str-pkg" in listing.user
+
+    # Removing the object-form source by its source string drops only it.
+    assert remove_package("../obj-pkg", user) == "Removed ../obj-pkg"
+    remaining = _read(user)["packages"]
+    assert remaining == ["../str-pkg"]
 
 
 # -- product path: the `pipy install/remove/list` CLI ---------------------

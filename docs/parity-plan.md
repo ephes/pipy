@@ -136,7 +136,7 @@ cross-project `--session` fork prompt; the old metadata-only `--resume RECORD`/
 | `--export <file>` | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |
-| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <kind> <enable\|disable> <pattern>` ship for local-path sources (`packages` array in user/project settings, `+pattern`/`-pattern` resource filters); `git:`/PyPI/`npm:` rejected, `update` deferred to a supply-chain policy | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
+| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path sources (`packages` array in user/project settings, `+pattern`/`-pattern` resource filters); `git:`/PyPI/`npm:` rejected, `update` deferred to a supply-chain policy. **Package runtime composition** (installed package resources flowing through discovery) is the remaining slice-12 work | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | ❌ missing | [extension-api.md](extension-api.md) |
 
 **Pipy-only flags (not in Pi → remove or realign — see §3):**
@@ -191,7 +191,7 @@ the product state, not the spec state.
 | --- | --- | --- | --- |
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume` interactive picker, durable compaction, full startup session flag set incl. `--session-id`/`--session-dir`/`--name`, mutual exclusion, cross-project fork prompt) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` + `tui.run_session_picker` pass the conformance gate and the Pi comparison (full-transcript store, branch/fork/clone, interactive picker rows/actions, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` + `scripts/parity_checks/session_tree_pi_comparison.py --json` (passing) |
-| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | ✅ all 12 slices shipped — discovery/inventory + activation + dispatch + all hooks + tool registration + `ctx.ui.notify` + golden conformance ext + provider registration mechanism (`api.register_provider`/`ProviderPort` composition) + package install/list/config CLI (`pipy install/remove/uninstall [-l]`, `list`, `config`, local-path sources); deferred: remote `git:`/PyPI sources + `update` (supply-chain policy) and catalog/`/model` wiring of extension providers | the `extension_*_conformance.py` gates incl. `extension_providers_conformance.py --json` + `extension_package_conformance.py --json`; golden conformance extension `extension_conformance_gate.py --json` |
+| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 slices 1–11 shipped — discovery/inventory + activation + dispatch + all hooks + tool registration + `ctx.ui.notify` + golden conformance ext + provider registration mechanism (`api.register_provider`/`ProviderPort` composition); slice 12's package CLI ships for local-path sources (`pipy install/remove/uninstall [-l]`, `list`, `config`), but **package runtime composition** (installed package resources flowing through discovery — spec gate items 2/4/8) is the remaining slice-12 work. Deferred: remote `git:`/PyPI sources + `update` (supply-chain policy) and catalog/`/model` wiring of extension providers | the `extension_*_conformance.py` gates incl. `extension_providers_conformance.py --json` + `extension_package_conformance.py --json`; golden conformance extension `extension_conformance_gate.py --json` |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction closeout shipped for implemented catalog-constructed provider families, one-shot, and startup resolution; remaining work is live Anthropic/Copilot login UX, the deliberate `openai-codex-responses` legacy-factory exception, narrow adapter parity follow-ons, and extension-registered providers | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-24, including product construction for Chat Completions, non-completions families, one-shot, and startup resolution) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
@@ -218,17 +218,20 @@ JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
 topics.
 
 1. **Extension / package platform** ([extension-api.md](extension-api.md)) —
-   **shipped (all 12 slices).** Local Python extension discovery and manifest
+   **nearly complete.** Local Python extension discovery and manifest
    inventory, activation, command/tool registration, lifecycle/input/tool-call/
    tool-result hooks, `ctx.ui.notify`, the golden conformance extension, the
-   provider registration mechanism, and the local-path package CLI (`pipy
-   install/remove/uninstall [-l]`, `list`, `config`) all landed with
-   per-slice conformance gates. This unlocked Pi-style customization,
-   extension-defined verification gates, and extension-registered providers.
-   Remaining follow-ons (not a blocking topic): remote `git:`/PyPI package
-   sources behind a supply-chain policy + `update`, the catalog/`/model`
-   selector wiring of extension-registered providers, and the RPC extension-UI
-   channel.
+   provider registration mechanism, and slice 12's local-path package CLI
+   (`pipy install/remove/uninstall [-l]`, `list`, `config`) all landed with
+   per-slice conformance gates. **Remaining slice-12 work:** package runtime
+   composition — installed package resources flowing through extension/skill/
+   prompt/theme discovery with deterministic precedence and filters, and an
+   archive-privacy proof (spec gate items 2/4/8). This unlocked Pi-style
+   customization, extension-defined verification gates, and
+   extension-registered providers. Other follow-ons (not blocking): remote
+   `git:`/PyPI package sources behind a supply-chain policy + `update`, the
+   catalog/`/model` selector wiring of extension-registered providers, and the
+   RPC extension-UI channel.
 2. **Export / import / share / distribution**
    ([export-distribution.md](export-distribution.md)) — now unblocked by the
    native product session tree. Add full-session HTML export, active-branch

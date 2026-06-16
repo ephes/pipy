@@ -1034,23 +1034,28 @@ def _cmd_package(args: Any) -> int:
     settings_path = (
         project_settings_path(cwd) if args.local else global_settings_path()
     )
-    if args.command == "install":
-        if not pkg.is_local_path_source(source):
-            print(
-                f"pipy: only local-path package sources are supported; got {source!r}",
-                file=sys.stderr,
-            )
-            return 2
-        if pkg.canonical_local_source(source, cwd if args.local else None) is None:
-            print(
-                f"pipy: package source not found: {source}",
-                file=sys.stderr,
-            )
-            return 2
-        print(pkg.install_package(source, settings_path))
-        return 0
-    # remove / uninstall
-    message = pkg.remove_package(source, settings_path)
+    try:
+        if args.command == "install":
+            if not pkg.is_local_path_source(source):
+                print(
+                    f"pipy: only local-path package sources are supported; "
+                    f"got {source!r}",
+                    file=sys.stderr,
+                )
+                return 2
+            if pkg.canonical_local_source(source, cwd if args.local else None) is None:
+                print(
+                    f"pipy: package source not found: {source}",
+                    file=sys.stderr,
+                )
+                return 2
+            print(pkg.install_package(source, settings_path))
+            return 0
+        # remove / uninstall
+        message = pkg.remove_package(source, settings_path)
+    except pkg.PackageSettingsError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 1
     if message is None:
         print(f"pipy: package source not configured: {source}", file=sys.stderr)
         return 1

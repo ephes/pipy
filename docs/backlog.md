@@ -1401,10 +1401,12 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API: all 12 slices landed
+### Extension API slice 12 closeout: package runtime composition
 
-The extension + package platform from `docs/extension-api.md` is now
-feature-complete. Slices 1–12 have **landed**:
+Slices 1–11 and slice 12's package-management CLI have **landed**. The
+remaining slice-12 work is **package runtime composition**: installed
+local-path package resources flowing through discovery (see the closing note
+below). Landed so far:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1475,24 +1477,32 @@ feature-complete. Slices 1–12 have **landed**:
   the shared auth store). The catalog / `/model` selector wiring is the
   provider-catalog track's follow-on. Gate:
   `scripts/parity_checks/extension_providers_conformance.py --json`.
-- Slice 12 (package install/list/update/config CLI): `pipy install/remove/uninstall
+- Slice 12 package CLI (settings management): `pipy install/remove/uninstall
   [-l]` and `pipy list` manage Pi-shaped local-path package sources recorded in
   a `packages` array in user `<config>/settings.json` or project
-  `<cwd>/.pipy/settings.json` (with `-l`); `pipy config <kind> <enable|disable>
-  <pattern>` writes `+pattern`/`-pattern` resource filters (never deleting
-  discovered resources). `git:`/`git+`/URL/`npm:` sources are rejected (exit 2),
-  a missing local path fails closed, removing an unconfigured source exits
-  non-zero, and no package lifecycle scripts run. Settings-only: no source path
-  or command output crosses into the metadata archive. Gate:
+  `<cwd>/.pipy/settings.json` (with `-l`), preserving object-form `{source,
+  ...}` entries; `pipy config <enable|disable> <skill|prompt|theme|extension>
+  <name>` writes `+pattern`/`-pattern` resource filters (never deleting
+  discovered resources). `git:`/`git+`/`npm:`/any `<scheme>://` URL source is
+  rejected (exit 2, case-insensitive), a missing local path fails closed,
+  removing an unconfigured source exits non-zero, a corrupt settings file is
+  never clobbered, and no package lifecycle scripts run. Gate:
   `scripts/parity_checks/extension_package_conformance.py --json`.
 
-With slice 12 landed the whole extension API surface from `docs/extension-api.md`
-is implemented, and Pi judged whole-API completion. The remaining deferred work —
-remote `git:`/PyPI package sources behind a supply-chain policy and the
-catalog/`/model` selector wiring for extension-registered providers — is tracked
-under Deferred and the provider-catalog track, not as a next slice.
+The remaining slice-12 work is **package runtime composition**: installed
+local-path package resources must flow through discovery — extension entry
+points through the activation boundary, skills/templates/commands through
+`pipy_harness.native.resources`, themes through the theme registry — at the
+spec's lowest precedence (after project and user resources), with `+pattern`/
+`-pattern` and per-package filters affecting discovery, and the package gate
+proving manifests contribute an extension/skill/prompt/theme, that filters
+affect discovery, and that no source path or resource body leaks into the
+metadata archive (spec gate items 2, 4, 8 in `docs/extension-api.md`). Until
+that lands, `pipy install` records a source but its resources are not yet
+loaded. Remote `git:`/PyPI sources, `update`, and catalog/`/model` wiring of
+extension-registered providers remain deferred.
 
-Acceptance criteria (whole extension API):
+Acceptance criteria:
 
 ```sh
 uv run python scripts/parity_checks/extension_package_conformance.py --json

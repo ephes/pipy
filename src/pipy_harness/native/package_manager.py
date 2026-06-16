@@ -24,6 +24,7 @@ into the metadata archive.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,33 @@ from pipy_harness.native.settings import _atomic_write_json
 
 PACKAGES_KEY = "packages"
 RESOURCE_KINDS: tuple[str, ...] = ("extensions", "skills", "prompts", "themes")
+
+# Remote / non-local source classification. A bare scheme prefix (`git:`,
+# `git+`, `npm:`) or any `<scheme>://` URL (http(s), ssh, git, file, ...) is a
+# remote source kind that stays out until a supply-chain policy is written. The
+# screen is case-insensitive and ignores surrounding whitespace so trivially
+# disguised remote sources (`GIT:foo`, `  https://...`) cannot slip through as
+# local paths.
+_SCHEME_URL_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://")
+_REMOTE_SCHEME_PREFIXES: tuple[str, ...] = ("git:", "git+", "npm:")
+
+
+def _is_remote_source(source: str) -> bool:
+    normalized = source.strip().lower()
+    if _SCHEME_URL_RE.match(normalized):
+        return True
+    return any(normalized.startswith(prefix) for prefix in _REMOTE_SCHEME_PREFIXES)
+
+
+def _source_of(entry: object) -> str | None:
+    """The source string of a package entry (string or `{source, ...}` object)."""
+
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, dict):
+        source = entry.get("source")
+        return source if isinstance(source, str) else None
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +70,18 @@ class PackageList:
     project: tuple[str, ...]
 
 
+class PackageSettingsError(RuntimeError):
+    """A settings file exists but could not be read for a package write.
+
+    Raised by the mutating helpers so a corrupt settings file is never silently
+    overwritten (mirroring `SettingsManager`'s clobber-refusal). The CLI turns
+    this into a non-zero exit with a diagnostic.
+    """
+
+
 def _read_settings(path: Path) -> dict:
+    """Lenient read for display paths: missing or invalid file → ``{}``."""
+
     try:
         with path.open(encoding="utf-8") as handle:
             data = json.load(handle)
@@ -51,23 +90,62 @@ def _read_settings(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _packages(data: dict) -> list[str]:
+def _read_settings_for_write(path: Path) -> dict:
+    """Strict read for mutating paths.
+
+    A missing file yields an empty document. A file that exists but does not
+    parse as a JSON object raises `PackageSettingsError` so the caller refuses
+    to clobber unreadable user data.
+    """
+
+    if not path.exists():
+        return {}
+    try:
+        with path.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+    except OSError as exc:
+        raise PackageSettingsError(f"cannot read {path}: {exc}") from exc
+    except ValueError as exc:
+        raise PackageSettingsError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise PackageSettingsError(f"{path} is not a JSON object")
+    return data
+
+
+def _raw_packages(data: dict) -> list:
+    """The raw `packages` entries (string sources and `{source, ...}` objects).
+
+    Entries without a resolvable source string are dropped, but valid
+    object-form `PackageSource` entries are preserved verbatim so per-package
+    resource filters survive a string-source install/remove.
+    """
+
     raw = data.get(PACKAGES_KEY)
     if not isinstance(raw, list):
         return []
-    return [item for item in raw if isinstance(item, str)]
+    return [item for item in raw if _source_of(item) is not None]
+
+
+def _package_sources(data: dict) -> list[str]:
+    sources: list[str] = []
+    for item in _raw_packages(data):
+        source = _source_of(item)
+        if source is not None:
+            sources.append(source)
+    return sources
 
 
 def install_package(source: str, settings_path: Path) -> str:
     """Record `source` in the `packages` array of `settings_path`.
 
-    The source string is stored verbatim (deduplicated). Returns the
-    Pi-shaped `Installed <source>` message.
+    The source string is stored verbatim (deduplicated by source). Existing
+    object-form entries are preserved. Returns the Pi-shaped `Installed
+    <source>` message.
     """
 
-    data = _read_settings(settings_path)
-    packages = _packages(data)
-    if source not in packages:
+    data = _read_settings_for_write(settings_path)
+    packages = _raw_packages(data)
+    if source not in (_source_of(item) for item in packages):
         packages.append(source)
     data[PACKAGES_KEY] = packages
     _atomic_write_json(settings_path, data)
@@ -75,17 +153,18 @@ def install_package(source: str, settings_path: Path) -> str:
 
 
 def remove_package(source: str, settings_path: Path) -> str | None:
-    """Remove `source` from the `packages` array of `settings_path`.
+    """Remove the entry whose source is `source` from `settings_path`.
 
-    Returns the Pi-shaped `Removed <source>` message, or `None` when the
-    source is not configured in this scope (the caller exits non-zero).
+    Matches both string sources and `{source, ...}` objects by their source
+    string. Returns the Pi-shaped `Removed <source>` message, or `None` when
+    the source is not configured in this scope (the caller exits non-zero).
     """
 
-    data = _read_settings(settings_path)
-    packages = _packages(data)
-    if source not in packages:
+    data = _read_settings_for_write(settings_path)
+    packages = _raw_packages(data)
+    if source not in (_source_of(item) for item in packages):
         return None
-    data[PACKAGES_KEY] = [item for item in packages if item != source]
+    data[PACKAGES_KEY] = [item for item in packages if _source_of(item) != source]
     _atomic_write_json(settings_path, data)
     return f"Removed {source}"
 
@@ -93,9 +172,9 @@ def remove_package(source: str, settings_path: Path) -> str | None:
 def list_packages(*, user_path: Path, project_path: Path | None) -> PackageList:
     """Return the configured user and project package sources."""
 
-    user = tuple(_packages(_read_settings(user_path)))
+    user = tuple(_package_sources(_read_settings(user_path)))
     project = (
-        tuple(_packages(_read_settings(project_path)))
+        tuple(_package_sources(_read_settings(project_path)))
         if project_path is not None
         else ()
     )
@@ -138,7 +217,7 @@ def configure_resource_filter(
     # `pipy config` write filters identically.
     from pipy_harness.native.resource_enablement import disable_entry, enable_entry
 
-    data = _read_settings(settings_path)
+    data = _read_settings_for_write(settings_path)
     raw = data.get(kind)
     entries = [item for item in raw if isinstance(item, str)] if isinstance(raw, list) else []
     entries = enable_entry(entries, pattern) if enable else disable_entry(entries, pattern)
@@ -165,7 +244,7 @@ def canonical_local_source(source: str, workspace_root: Path | None) -> Path | N
     (`git:` / `git+` / URLs) are not local paths and return `None`.
     """
 
-    if any(source.startswith(prefix) for prefix in ("git:", "git+", "http://", "https://", "npm:")):
+    if _is_remote_source(source):
         return None
     candidate = Path(source).expanduser()
     if not candidate.is_absolute() and workspace_root is not None:
@@ -178,12 +257,9 @@ def canonical_local_source(source: str, workspace_root: Path | None) -> Path | N
 
 
 def is_local_path_source(source: str) -> bool:
-    """Whether `source` is a (supported) local-path source, not git/PyPI."""
+    """Whether `source` is a (supported) local-path source, not git/PyPI/URL."""
 
-    return not any(
-        source.startswith(prefix)
-        for prefix in ("git:", "git+", "http://", "https://", "npm:")
-    )
+    return not _is_remote_source(source)
 
 
 def configured_packages(paths: Sequence[Path]) -> list[str]:
@@ -191,5 +267,5 @@ def configured_packages(paths: Sequence[Path]) -> list[str]:
 
     out: list[str] = []
     for path in paths:
-        out.extend(_packages(_read_settings(path)))
+        out.extend(_package_sources(_read_settings(path)))
     return out

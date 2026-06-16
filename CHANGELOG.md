@@ -14,6 +14,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Pi-style extension **package manager CLI** for local-path package sources
+  ([docs/extension-api.md](docs/extension-api.md)): `pipy install <source>
+  [-l]`, `pipy remove`/`pipy uninstall <source> [-l]`, and `pipy list` record
+  and report package sources in a `packages` array in user `<config>/
+  settings.json` or project `<cwd>/.pipy/settings.json` (with `-l`), preserving
+  object-form `{source, ...}` entries. `pipy config <enable|disable>
+  <skill|prompt|theme|extension> <name>` writes Pi-shaped `+pattern`/`-pattern`
+  resource filters without deleting discovered resources. Only local-path
+  sources are supported: `git:`/`git+`/`npm:`/any `<scheme>://` URL is rejected
+  (case-insensitive), a missing path fails closed, removing an unconfigured
+  source exits non-zero, a corrupt settings file is never overwritten, and no
+  package lifecycle scripts run. Wiring installed package resources through
+  discovery is the remaining slice-12 work.
 - Pi-style session startup flags and an interactive session picker for the
   native product session tree ([docs/session-tree.md](docs/session-tree.md)):
   - new startup flags `--session-id <id>` (open the native session with this

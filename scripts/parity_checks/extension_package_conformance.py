@@ -1,8 +1,9 @@
-"""Hard conformance gate for the extension package CLI (slice 12).
+"""Conformance gate for the extension package-management CLI (slice 12).
 
 Exercises the real `pipy install/remove/list` CLI and the package-manager
-settings mutations in temporary user/project settings files, and asserts
-the slice-12 invariants from `docs/extension-api.md` (local-path scope):
+settings mutations in temporary user/project settings files, and asserts the
+settings/CLI invariants of slice 12 from `docs/extension-api.md` (local-path
+scope):
 
 1. `install` persists a local-path source to user and (with -l) project
    settings;
@@ -11,9 +12,14 @@ the slice-12 invariants from `docs/extension-api.md` (local-path scope):
    (not deletions);
 4. `remove`/`uninstall` removes only the selected source/scope; a missing
    source fails non-zero;
-5. git / PyPI sources are rejected (no supply-chain execution);
-6. package operations are settings-only: no source path leaks into a
-   session metadata archive (none is written by these commands).
+5. git / PyPI / URL sources are rejected (no supply-chain execution).
+
+Scope note: this gate covers the package-management CLI only. The spec
+"Package conformance gate" items 2 (package manifests contribute an
+extension/skill/prompt/theme with deterministic precedence), 4 (filters affect
+runtime discovery), and 8 (no source path or resource body leaks into the
+metadata archive) require **package runtime composition**, which is the
+remaining slice-12 work; this gate is extended to prove them when that lands.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -140,13 +146,20 @@ def run_checks(base: Path) -> list[Check]:
         )
     )
 
-    code_git, _, err_git = _run_cli(["install", "git:example/repo"])
-    code_url, _, _ = _run_cli(["install", "https://example/x.tgz"])
+    remote_sources = (
+        "git:example/repo",
+        "https://example/x.tgz",
+        "GIT:example/repo",  # case-insensitive
+        "ssh://git@host/x.git",  # other URL schemes
+        "  https://example/x.tgz",  # leading whitespace
+        "npm:left-pad",
+    )
+    remote_codes = [_run_cli(["install", src])[0] for src in remote_sources]
     checks.append(
         Check(
             "git_pypi_rejected",
-            code_git == 2 and code_url == 2,
-            "git / PyPI sources are rejected",
+            all(code == 2 for code in remote_codes),
+            "git / PyPI / URL sources are rejected (case- and scheme-robust)",
         )
     )
     return checks
