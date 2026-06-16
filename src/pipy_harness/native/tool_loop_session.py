@@ -502,9 +502,16 @@ class _ExtensionToolPort:
     output, and bounded errors.
     """
 
-    def __init__(self, registered: RegisteredTool, *, has_ui: bool) -> None:
+    def __init__(
+        self,
+        registered: RegisteredTool,
+        *,
+        has_ui: bool,
+        notify_sink: Callable[[str, str], None] | None = None,
+    ) -> None:
         self._registered = registered
         self._has_ui = has_ui
+        self._notify_sink = notify_sink
         tool = registered.tool
         self._definition = ToolDefinition(
             name=tool.name,
@@ -519,7 +526,9 @@ class _ExtensionToolPort:
     def invoke(
         self, request: ToolRequest, context: ToolContext
     ) -> ToolExecutionResult:
-        ctx = make_extension_context(str(context.workspace_root), self._has_ui)
+        ctx = make_extension_context(
+            str(context.workspace_root), self._has_ui, self._notify_sink
+        )
         try:
             result = self._registered.tool.handler(ctx, dict(request.arguments))
         except (KeyboardInterrupt, SystemExit):
@@ -636,11 +645,13 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
         cwd: Path,
         has_ui: bool,
+        notify_sink: Callable[[str, str], None] | None = None,
     ) -> None:
         super().__init__(sink)  # type: ignore[arg-type]
         self._lifecycle_hooks = lifecycle_hooks
         self._lifecycle_cwd = str(cwd)
         self._lifecycle_has_ui = has_ui
+        self._lifecycle_notify_sink = notify_sink
 
     def set_lifecycle_hooks(
         self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
@@ -656,6 +667,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
             LifecycleEvent(name=name, reason=reason),
             cwd=self._lifecycle_cwd,
             has_ui=self._lifecycle_has_ui,
+            notify_sink=self._lifecycle_notify_sink,
         )
 
     def agent_start(self) -> None:
@@ -876,6 +888,13 @@ class NativeToolReplSession:
             extension_menu_names=extension_menu_names,
             extension_descriptions=extension_descriptions,
         )
+
+        # Live UI sink for extension `ctx.ui.notify` from hooks and tools:
+        # notifications are emitted as local diagnostics (interactive) and
+        # degrade deterministically in non-interactive mode.
+        def _extension_notify(_kind: str, message: str) -> None:
+            self._emit_diagnostic(terminal_ui, error_stream, message)
+
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
         # join the bounded tool loop with the same schema validation +
@@ -883,7 +902,9 @@ class NativeToolReplSession:
         run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
         for _registered_tool in _ext_runtime.tools:
             _port = _ExtensionToolPort(
-                _registered_tool, has_ui=terminal_ui is not None
+                _registered_tool,
+                has_ui=terminal_ui is not None,
+                notify_sink=_extension_notify,
             )
             run_tool_registry[_port.definition.name] = _port
         # Image attachments may reference an owner-only clipboard temp dir
@@ -933,6 +954,7 @@ class NativeToolReplSession:
             lifecycle_hooks=extension_lifecycle_hooks,
             cwd=cwd,
             has_ui=terminal_ui is not None,
+            notify_sink=_extension_notify,
         )
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
@@ -1619,7 +1641,9 @@ class NativeToolReplSession:
                     run_tool_registry = dict(self.tool_registry)
                     for _registered_tool in _ext_runtime.tools:
                         _port = _ExtensionToolPort(
-                            _registered_tool, has_ui=terminal_ui is not None
+                            _registered_tool,
+                            has_ui=terminal_ui is not None,
+                            notify_sink=_extension_notify,
                         )
                         run_tool_registry[_port.definition.name] = _port
                     # Refresh the emitter's lifecycle hooks so reloaded
@@ -2273,6 +2297,7 @@ class NativeToolReplSession:
                         user_input,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
+                        notify_sink=_extension_notify,
                     )
                     provider_user_input = transformed_input
                     file_references = resolve_file_references(
@@ -2316,6 +2341,7 @@ class NativeToolReplSession:
                     cwd=str(cwd),
                     has_ui=terminal_ui is not None,
                     system_prompt=base_system_prompt,
+                    notify_sink=_extension_notify,
                 )
                 agent_system_prompt = base_system_prompt
                 if before_agent_result.append_system_prompt:
@@ -2527,6 +2553,7 @@ class NativeToolReplSession:
                             tool_input=_parse_tool_input(call.arguments_json),
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
+                            notify_sink=_extension_notify,
                         )
                         if tool_block is not None:
                             blocked_observation = self._error_observation(
@@ -2575,6 +2602,7 @@ class NativeToolReplSession:
                                 is_error=observation.is_error,
                                 cwd=str(cwd),
                                 has_ui=terminal_ui is not None,
+                                notify_sink=_extension_notify,
                             )
                             if _transformed != observation.output_text:
                                 observation = ToolResultMessage(

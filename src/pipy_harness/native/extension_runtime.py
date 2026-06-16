@@ -200,10 +200,19 @@ class RegisteredTool:
     extension: str
 
 
-def make_extension_context(cwd: str, has_ui: bool) -> CommandContext:
-    """Build a mode-aware context for a tool/command/hook invocation."""
+def make_extension_context(
+    cwd: str,
+    has_ui: bool,
+    notify_sink: "Callable[[str, str], None] | None" = None,
+) -> CommandContext:
+    """Build a mode-aware context for a tool/command/hook invocation.
 
-    return _CommandContext(cwd, _CollectingUi(has_ui))
+    When `notify_sink` is given, `ctx.ui.notify` routes to it (live UI
+    output) in addition to recording; otherwise notifications are only
+    recorded (deterministic non-interactive behavior).
+    """
+
+    return _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,13 +344,24 @@ class _CollectingUi:
     behavior (notifications are recorded, never blocking).
     """
 
-    def __init__(self, has_ui: bool) -> None:
+    def __init__(
+        self,
+        has_ui: bool,
+        notify_sink: "Callable[[str, str], None] | None" = None,
+    ) -> None:
         self.has_ui = has_ui
         self.messages: list[tuple[str, str]] = []
+        self._notify_sink = notify_sink
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"
-        self.messages.append((safe_kind, str(message)))
+        text = str(message)
+        self.messages.append((safe_kind, text))
+        if self._notify_sink is not None:
+            try:
+                self._notify_sink(safe_kind, text)
+            except Exception:  # noqa: BLE001 - a UI sink must not break the handler
+                pass
 
 
 class _CommandContext:
@@ -799,6 +819,7 @@ def dispatch_input_hooks(
     *,
     cwd: str,
     has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
 ) -> str:
     """Run `input` hooks over a submitted prompt; return the final text.
 
@@ -813,7 +834,7 @@ def dispatch_input_hooks(
     current = text
     if not hooks:
         return current
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
     for hook in hooks:
         try:
             result = hook(InputEvent(text=current), ctx)
@@ -835,6 +856,7 @@ def dispatch_before_agent_start_hooks(
     *,
     cwd: str,
     has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
     system_prompt: str = "",
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
@@ -847,7 +869,7 @@ def dispatch_before_agent_start_hooks(
 
     appended: list[str] = []
     if hooks:
-        ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+        ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
         current_prompt = system_prompt
         for hook in hooks:
             try:
@@ -886,6 +908,7 @@ def dispatch_tool_result_hooks(
     is_error: bool,
     cwd: str,
     has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
 ) -> str:
     """Run `tool_result` hooks over a finalized tool result; return content.
 
@@ -899,7 +922,7 @@ def dispatch_tool_result_hooks(
 
     current = content
     if hooks:
-        ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+        ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
         for hook in hooks:
             try:
                 result = hook(
@@ -932,6 +955,7 @@ def dispatch_lifecycle_hooks(
     *,
     cwd: str,
     has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
 ) -> None:
     """Run observe-only lifecycle hooks for one event, in order.
 
@@ -945,7 +969,7 @@ def dispatch_lifecycle_hooks(
 
     if not hooks:
         return
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
     for hook in hooks:
         try:
             result = hook(event, ctx)
@@ -964,6 +988,7 @@ def dispatch_tool_call_hooks(
     tool_input: Mapping[str, object],
     cwd: str,
     has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
@@ -976,7 +1001,7 @@ def dispatch_tool_call_hooks(
     """
 
     event = ToolCallEvent(tool_name=tool_name, input=tool_input)
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
     for hook in hooks:
         try:
             result = hook(event, ctx)

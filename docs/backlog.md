@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 9: minimal UI notifications (ctx.ui.notify)
+### Extension API slice 10: golden conformance extension (/pipy-extension-conformance)
 
-Slices 1–8 have **landed**:
+Slices 1–9 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1453,26 +1453,31 @@ Slices 1–8 have **landed**:
   `[permissions]`) is a later permission-policy slice. Gate:
   `scripts/parity_checks/extension_tools_conformance.py --json`.
 - Slice 8 (`tool_result` hooks): after any tool runs, `@api.on("tool_result")`
-  may transform the bounded observation (`ToolResultEvent`/`ToolResultTransform`,
-  `dispatch_tool_result_hooks`) before the emitter/renderer/model/session-tree
-  see it; chained, fail-safe, bounded. Gate:
+  may transform the bounded observation; chained, fail-safe, bounded. Gate:
   `scripts/parity_checks/extension_tool_result_conformance.py --json`.
+- Slice 9 (minimal UI notifications): `ctx.ui.notify(message, kind)` from a
+  command or hook handler surfaces to the live UI via a notify sink threaded
+  through the dispatchers / tool adapter / emitter; deterministic
+  (record + sink) in non-interactive mode. Gate:
+  `scripts/parity_checks/extension_ui_notify_conformance.py --json`.
 
-The selected next implementation slice surfaces `ctx.ui.notify` to the live UI:
-a command / hook handler's `ctx.ui.notify(message, kind)` is rendered as a local
-diagnostic in interactive mode and degrades deterministically in
-non-interactive mode (recorded, never blocking). Notification text is live UI
-output only — never archived.
+The selected next implementation slice adds the golden conformance extension
+fixture and a product-path proof test. A single `/pipy-extension-conformance`
+trigger exercises the API end to end (command + tool registration/execution,
+lifecycle, input, before_agent_start, tool_call, tool_result, agent-end, minimal
+UI) and writes safe feature markers to a test proof JSONL file; the test asserts
+all markers are present and the default archive contains no prompt bodies, tool
+arguments, tool results, UI text, provider payloads, or proof-file contents.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_ui_notify.py
+uv run pytest tests/test_native_extension_conformance.py
 just check
 ```
 
-The expected follow-up slice is the golden conformance extension
-(`/pipy-extension-conformance`).
+The expected follow-up slice is provider registration through the provider
+catalog.
 
 ## Near Term
 

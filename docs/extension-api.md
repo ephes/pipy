@@ -770,7 +770,7 @@ extension `/commands` dispatch through the live tool-loop REPL
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 9 (minimal `ctx.ui.notify`). Discovery never imports extension code; activation imports
+selected implementation slice is slice 10 (the golden conformance extension). Discovery never imports extension code; activation imports
 only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -824,8 +824,10 @@ only loadable descriptors.
    before the model sees it, chained + fail-safe + bounded. (Pi-shaped
    `content`+`details` blocks and bounded progress/update events remain a
    later refinement.)
-9. Minimal UI notifications: expose `ctx.ui.notify` with deterministic
-   non-interactive behavior.
+9. Minimal UI notifications — **landed**: `ctx.ui.notify` from a command or
+   hook handler surfaces to the live UI via a notify sink threaded through the
+   dispatchers / tool adapter / `_ExtensionAwareEmitter`; deterministic
+   (records + sink) in non-interactive mode.
 10. Golden conformance extension: add the `/pipy-extension-conformance` fixture
     and product-path proof test after the command, lifecycle, input,
     before-agent-start, tool registration, tool-call, tool-result, agent-end,
