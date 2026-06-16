@@ -69,6 +69,10 @@ EVENT_TURN_START: str = "turn_start"
 EVENT_TURN_END: str = "turn_end"
 EVENT_INPUT: str = "input"
 EVENT_BEFORE_AGENT_START: str = "before_agent_start"
+EVENT_TOOL_RESULT: str = "tool_result"
+
+# Bound a transformed tool-result observation before it reaches the model.
+_TOOL_RESULT_MAX_CHARS: int = 60 * 1024
 
 LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_SESSION_START,
@@ -134,6 +138,27 @@ class QueuedUserMessage:
 
     content: str
     options: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultEvent:
+    """The finalized, bounded result of a tool, shown to `tool_result` hooks.
+
+    `tool_name` is the tool that ran (built-in or extension); `content`
+    is the current provider-visible result text; `is_error` marks an
+    error observation.
+    """
+
+    tool_name: str
+    content: str
+    is_error: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultTransform:
+    """Returned by a `tool_result` hook to replace the observation content."""
+
+    content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -851,6 +876,54 @@ def dispatch_before_agent_start_hooks(
             + "\n[pipy: before_agent_start injection truncated]"
         )
     return BeforeAgentStartResult(append_system_prompt=combined)
+
+
+def dispatch_tool_result_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    tool_name: str,
+    content: str,
+    is_error: bool,
+    cwd: str,
+    has_ui: bool,
+) -> str:
+    """Run `tool_result` hooks over a finalized tool result; return content.
+
+    Each hook receives a `ToolResultEvent` with the current content and
+    may return a `ToolResultTransform` to replace it for later hooks /
+    the model. Hooks run in registration order. A hook that raises or
+    returns a non-string transform is fail-safe (the current content is
+    kept). The final content is bounded before returning to the model.
+    `KeyboardInterrupt` / `SystemExit` propagate.
+    """
+
+    current = content
+    if hooks:
+        ctx = _CommandContext(cwd, _CollectingUi(has_ui))
+        for hook in hooks:
+            try:
+                result = hook(
+                    ToolResultEvent(
+                        tool_name=tool_name, content=current, is_error=is_error
+                    ),
+                    ctx,
+                )
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - fail-safe: keep current content
+                continue
+            if isinstance(result, ToolResultTransform) and isinstance(
+                result.content, str
+            ):
+                current = result.content
+    if len(current) > _TOOL_RESULT_MAX_CHARS:
+        current = (
+            current[:_TOOL_RESULT_MAX_CHARS]
+            + "\n[pipy: tool_result transform truncated]"
+        )
+    return current
 
 
 def dispatch_lifecycle_hooks(

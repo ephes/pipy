@@ -134,6 +134,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_INPUT,
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
+    EVENT_TOOL_RESULT,
     EVENT_TURN_END,
     EVENT_TURN_START,
     LIFECYCLE_EVENTS,
@@ -149,6 +150,7 @@ from pipy_harness.native.extension_runtime import (
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_tool_call_hooks,
+    dispatch_tool_result_hooks,
     drain_user_messages,
     extension_command_map,
     extension_event_hooks,
@@ -557,6 +559,7 @@ class _ExtensionRuntime:
     lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
     input_hooks: tuple[HookHandler, ...]
     before_agent_start_hooks: tuple[HookHandler, ...]
+    tool_result_hooks: tuple[HookHandler, ...]
     outbox: list[QueuedUserMessage]
     tools: tuple[RegisteredTool, ...]
 
@@ -600,6 +603,7 @@ def _activate_workspace_extensions(
     }
     input_hooks = extension_event_hooks(activated, EVENT_INPUT)
     before_agent_start_hooks = extension_event_hooks(activated, EVENT_BEFORE_AGENT_START)
+    tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
     return _ExtensionRuntime(
         commands=command_map,
         menu_names=menu_names,
@@ -608,6 +612,7 @@ def _activate_workspace_extensions(
         lifecycle_hooks=lifecycle_hooks,
         input_hooks=input_hooks,
         before_agent_start_hooks=before_agent_start_hooks,
+        tool_result_hooks=tool_result_hooks,
         outbox=outbox,
         tools=extension_tools(activated),
     )
@@ -857,6 +862,7 @@ class NativeToolReplSession:
         extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
         extension_input_hooks = _ext_runtime.input_hooks
         extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
+        extension_tool_result_hooks = _ext_runtime.tool_result_hooks
         extension_message_outbox = _ext_runtime.outbox
         # Prompts an extension enqueues via send_user_message become the
         # next prompts processed by the loop (deterministic turns).
@@ -1606,6 +1612,7 @@ class NativeToolReplSession:
                     extension_before_agent_start_hooks = (
                         _ext_runtime.before_agent_start_hooks
                     )
+                    extension_tool_result_hooks = _ext_runtime.tool_result_hooks
                     extension_message_outbox = _ext_runtime.outbox
                     # Rebuild this run's tool registry with the reloaded
                     # extension tools.
@@ -2556,6 +2563,28 @@ class NativeToolReplSession:
                             )
                         finally:
                             active_tool_call[0] = None
+                        # tool_result hooks may transform the finalized,
+                        # bounded observation before the emitter, renderer,
+                        # model, and session tree see it. ToolResultMessage is
+                        # frozen, so a changed result is rebuilt.
+                        if extension_tool_result_hooks:
+                            _transformed = dispatch_tool_result_hooks(
+                                extension_tool_result_hooks,
+                                tool_name=call.tool_name,
+                                content=observation.output_text,
+                                is_error=observation.is_error,
+                                cwd=str(cwd),
+                                has_ui=terminal_ui is not None,
+                            )
+                            if _transformed != observation.output_text:
+                                observation = ToolResultMessage(
+                                    tool_request_id=observation.tool_request_id,
+                                    output_text=_transformed,
+                                    is_error=observation.is_error,
+                                    provider_correlation_id=(
+                                        observation.provider_correlation_id
+                                    ),
+                                )
                         tool_ended_at = datetime.now(UTC)
                         tool_duration = (
                             tool_ended_at - tool_started_at

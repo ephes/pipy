@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 8: tool_result hooks (content + details, transforms)
+### Extension API slice 9: minimal UI notifications (ctx.ui.notify)
 
-Slices 1–7 have **landed**:
+Slices 1–8 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1452,21 +1452,27 @@ Slices 1–7 have **landed**:
   capability enforcement (shell/network/write gates from the manifest
   `[permissions]`) is a later permission-policy slice. Gate:
   `scripts/parity_checks/extension_tools_conformance.py --json`.
+- Slice 8 (`tool_result` hooks): after any tool runs, `@api.on("tool_result")`
+  may transform the bounded observation (`ToolResultEvent`/`ToolResultTransform`,
+  `dispatch_tool_result_hooks`) before the emitter/renderer/model/session-tree
+  see it; chained, fail-safe, bounded. Gate:
+  `scripts/parity_checks/extension_tool_result_conformance.py --json`.
 
-The selected next implementation slice adds `tool_result` hooks: after a tool
-(built-in or extension) runs, an extension `@api.on("tool_result")` handler may
-observe or transform the bounded result content/metadata before the next model
-turn, with deterministic propagation of the transformed observation. Fail-safe;
-no raw tool results enter the default archive.
+The selected next implementation slice surfaces `ctx.ui.notify` to the live UI:
+a command / hook handler's `ctx.ui.notify(message, kind)` is rendered as a local
+diagnostic in interactive mode and degrades deterministically in
+non-interactive mode (recorded, never blocking). Notification text is live UI
+output only — never archived.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_tool_result_hooks.py
+uv run pytest tests/test_native_extension_ui_notify.py
 just check
 ```
 
-The expected follow-up slice is minimal UI notifications (`ctx.ui.notify`).
+The expected follow-up slice is the golden conformance extension
+(`/pipy-extension-conformance`).
 
 ## Near Term
 
