@@ -1,30 +1,35 @@
-"""Extension activation sandbox boundary (slice 2).
+"""Extension activation sandbox boundary + runtime dispatch surface.
 
-This module imports an explicit, already-inventoried *loadable*
-extension module (from `pipy_harness.native.extensions`), calls its
-`activate(api)` entry point, and supports command registration only.
+This module imports an explicit, already-inventoried *loadable* extension
+module (from `pipy_harness.native.extensions`), calls its `activate(api)` entry
+point, and exposes the registered contributions to the live session. The
+activation API supports command and keyboard-shortcut registration, event
+hooks, tool and provider registration/unregistration, and `send_user_message`.
 
-It is the first slice that actually executes extension code, so it is
-deliberately fail-closed per extension: an import error, a missing or
-non-callable `activate`, an exception during activation, or an
-invalid / duplicate / reserved command name disables that one extension
-with a safe reason code — it never crashes the session and never lets a
-bad extension take down the others. Disabled discovery descriptors are
-never imported.
+It is fail-closed per extension: an import error, a missing or non-callable
+`activate`, an exception during activation, or an invalid / duplicate /
+reserved command / tool / provider / shortcut registration disables that one
+extension with a safe reason code — it never crashes the session and never lets
+a bad extension take down the others. Disabled discovery descriptors are never
+imported, and a partial registration set is never committed.
 
-This slice does NOT wire commands into the live REPL dispatch (that is
-slice 3); it produces the activation result + registered command table
-and proves the failure modes. Command output, handlers, and source code
-never enter the default archive; project the result through
+Command/shortcut handlers run with a mode-aware `CommandContext` (workspace
+root, `ui` with `notify` + `custom` interactive overlays, a read-only
+`conversation` view, and a bounded `complete`). Command output, handlers, and
+source code never enter the default archive; project activation results through
 `safe_activation_metadata`.
 
-Public API:
+Public API (also re-exported from `pipy_harness.extensions`):
 
-- `PipyExtensionAPI` — the activation-time API protocol (also re-exported
-  from `pipy_harness.extensions`).
-- `RegisteredCommand` / `ActivatedExtension` value objects.
-- `activate_extensions(descriptors, *, reserved_command_names=())`.
-- `safe_activation_metadata(activated)`.
+- `PipyExtensionAPI` — the activation-time API protocol.
+- `RegisteredCommand` / `RegisteredShortcut` / `RegisteredTool` /
+  `RegisteredProvider` / `ActivatedExtension` value objects.
+- `activate_extensions(descriptors, *, reserved_command_names=(),
+  reserved_tool_names=(), message_outbox=None)`.
+- The collectors (`extension_command_map`, `extension_shortcuts`,
+  `extension_tools`, `extension_event_hooks`, ...) and dispatchers
+  (`dispatch_extension_command`, `dispatch_extension_shortcut`, the hook
+  dispatchers), plus `safe_activation_metadata(activated)`.
 """
 
 from __future__ import annotations
@@ -393,8 +398,11 @@ ActivationStatus = Literal["activated", "disabled"]
 class PipyExtensionAPI(Protocol):
     """The activation-time API handed to an extension's `activate`.
 
-    Slice 2 supports command registration only. Later slices add tool /
-    hook / provider / UI registration to this surface.
+    Supports command and keyboard-shortcut registration (`register_command`,
+    `register_shortcut`), event hooks (`on`), tool and provider registration
+    (`register_tool`, `register_provider` / `unregister_provider`), and
+    `send_user_message`. Each registration is validated eagerly and committed
+    only if `activate` completes without error.
     """
 
     def register_command(

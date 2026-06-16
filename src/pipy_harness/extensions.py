@@ -11,8 +11,14 @@ the pipy-owned native runtime, so extension authors depend on
     def activate(api: PipyExtensionAPI) -> None:
         api.register_command("hello", "Print a greeting", _hello)
 
-The surface grows by slice: slice 2 supports `register_command` only.
-Tool / hook / provider / UI registration land in later slices.
+The activation API supports command and keyboard-shortcut registration
+(`register_command`, `register_shortcut`), event hooks (`on`), tool and
+provider registration (`register_tool`, `register_provider` /
+`unregister_provider`), and `send_user_message`. Command/shortcut handlers
+receive a mode-aware context exposing the workspace root, `ui` (`notify` and
+`custom` interactive overlays), a read-only `conversation` view
+(`last_assistant_message`), and a bounded `complete(system_prompt, user_text)`
+one-shot completion.
 """
 
 from __future__ import annotations
