@@ -24,9 +24,15 @@ but not Pi-equivalent as an extension platform**. The landed API is enough for
 translated Python versions of common Pi patterns such as permission gates,
 simple custom slash commands, simple model-visible tools, input transforms,
 before-agent-start prompt/context injection, lifecycle observers, tool-result
-patching, and basic provider experiments. It is not source-compatible with Pi's
-TypeScript extensions, and it still lacks several mature Pi surfaces: rich TUI
-extension UI, custom message/tool rendering, session switch/fork/tree/compaction
+patching, and basic provider experiments. A later block of interactive
+command-context capabilities also landed (used by the `answer.py` example, a
+port of Pi's `answer.ts`): `ctx.conversation.last_assistant_message()`, a
+bounded one-shot `ctx.complete(system_prompt, user_text)`, a full-screen
+custom interactive overlay `ctx.ui.custom(...)`, and keyboard-shortcut
+registration `api.register_shortcut(...)`. It is not source-compatible with
+Pi's TypeScript extensions, and it still lacks several mature Pi surfaces:
+richer multi-widget TUI and custom message/tool rendering (only single
+`ctx.ui.custom` overlays exist), session switch/fork/tree/compaction
 interception, dynamic active-tool/model/thinking controls, `user_bash` and
 provider-payload hooks, extension state/session-manager helpers, CLI
 `--extension`/`--no-extensions`, package runtime composition, remote npm/git
@@ -791,6 +797,16 @@ and slice 12's package-management CLI have **landed** (gate
 slice-12 work is **package runtime composition** — wiring installed local-path
 package resources through discovery (see slice 12 below). Discovery never
 imports extension code; activation imports only loadable descriptors.
+
+Beyond the numbered slices, an **interactive command-context block** has also
+landed to support porting Pi's `answer.ts`
+(`docs/examples/extensions/answer.py`): the command/shortcut context now exposes
+`ctx.conversation.last_assistant_message()` (read-only), a bounded one-shot
+`ctx.complete(system_prompt, user_text)` on the active provider, a full-screen
+`ctx.ui.custom(factory)` interactive overlay (`ToolLoopTerminalUi.run_custom_component`),
+and `api.register_shortcut(key, handler)` keyboard shortcuts. These are covered
+by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty,shortcuts}.py`,
+`tests/test_example_answer_extension.py`, and the live `scripts/tmux_answer_verify.sh`.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
