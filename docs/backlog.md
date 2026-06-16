@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 11: provider registration through the provider catalog
+### Extension API slice 12: package install/list/update/config CLI
 
-Slices 1–10 have **landed**:
+Slices 1–11 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1460,30 +1460,37 @@ Slices 1–10 have **landed**:
   emitter; deterministic in non-interactive mode. Gate:
   `scripts/parity_checks/extension_ui_notify_conformance.py --json`.
 - Slice 10 (golden conformance extension): the golden
-  `docs/examples/extensions/pipy-extension-conformance.py` registers a command +
-  tool + all hooks; a single `/pipy-extension-conformance` trigger exercises the
-  whole API and writes safe feature markers to a proof JSONL. The product-path
-  test + gate assert all 12 markers, that the before_agent_start injection and
-  tool_result patch reach the provider/model, and that the proof leaks no
-  prompt/tool/UI bodies. Gates:
+  `docs/examples/extensions/pipy-extension-conformance.py` + product-path test +
+  gate prove a single `/pipy-extension-conformance` trigger exercises the whole
+  API (12 markers) with no body leaks to proof/archive/result. Gates:
   `tests/test_native_extension_conformance.py`,
   `scripts/parity_checks/extension_conformance_gate.py --json`.
+- Slice 11 (provider registration mechanism):
+  `api.register_provider(ExtensionProvider(name, default_model, models, factory))`
+  + `api.unregister_provider(name)` (staged, committed on success, duplicate
+  across extensions disables the later one, invalid disables, factory failures
+  bounded); `build_extension_provider_port` composes the factory into a
+  `ProviderPort`; `ProviderContext` carries only safe selection metadata (never
+  the shared auth store). The catalog / `/model` selector wiring is the
+  provider-catalog track's follow-on. Gate:
+  `scripts/parity_checks/extension_providers_conformance.py --json`.
 
-The selected next implementation slice adds provider registration: an extension
-registers a model provider via `api.register_provider(ExtensionProvider(...))`
-(name, default model, models, factory) that composes with the provider catalog
-and can be selected with `/model`; `api.unregister_provider(name)` removes it and
-restores any built-in it overrode. Providers read their own env vars / a future
-auth capability, never the shared auth store wholesale.
+The selected next (final) implementation slice adds the package CLI: Pi-shaped
+`pipy install/remove/uninstall [-l]`, `list`, `config`, and `update`
+[source|self|pipy] over local-path package sources, recorded in user/project
+`settings.json` as `+pattern`/`-pattern` filters (never deleting discovered
+resources). Package manifests contribute extensions/skills/prompts/themes through
+the same runtime boundaries; no lifecycle scripts run; remote `git:`/PyPI sources
+stay out until a supply-chain policy exists.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_providers.py
+uv run python scripts/parity_checks/extension_package_conformance.py --json
 just check
 ```
 
-The expected follow-up slice is the package install/list/update/config CLI.
+This is the last extension-API slice; after it, Pi judges whole-API completion.
 
 ## Near Term
 

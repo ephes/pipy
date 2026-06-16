@@ -55,6 +55,8 @@ REASON_INVALID_HOOK: str = "invalid_hook"
 REASON_INVALID_TOOL: str = "invalid_tool"
 REASON_RESERVED_TOOL: str = "reserved_tool"
 REASON_DUPLICATE_TOOL: str = "duplicate_tool"
+REASON_INVALID_PROVIDER: str = "invalid_provider"
+REASON_DUPLICATE_PROVIDER: str = "duplicate_provider"
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
@@ -200,6 +202,66 @@ class RegisteredTool:
     extension: str
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderContext:
+    """Context passed to an extension provider `factory`.
+
+    Carries only safe selection metadata: the provider name and its
+    default model. A provider extension must read its own environment /
+    a future auth capability — it never receives the shared auth store.
+    """
+
+    provider_name: str
+    default_model: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionProvider:
+    """A model provider an extension registers via `api.register_provider`.
+
+    `name` is the provider name (selectable through the catalog / `/model`);
+    `default_model` and `models` describe the provider's model ids;
+    `factory(ProviderContext)` builds a `ProviderPort`. A provider may
+    override a built-in of the same name; `unregister_provider(name)`
+    removes it and restores the built-in.
+    """
+
+    name: str
+    default_model: str | None
+    models: tuple[str, ...]
+    factory: Callable[..., object]
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredProvider:
+    """An extension provider accepted during activation, with its owner."""
+
+    provider: ExtensionProvider
+    extension: str
+
+
+def build_extension_provider_port(registered: RegisteredProvider) -> object | None:
+    """Build a `ProviderPort` from a registered extension provider.
+
+    Calls the provider's `factory(ProviderContext)`. A factory that raises
+    (or returns nothing) yields `None` rather than crashing the caller, so
+    a bad provider is bounded. `KeyboardInterrupt` / `SystemExit`
+    propagate.
+    """
+
+    provider = registered.provider
+    context = ProviderContext(
+        provider_name=provider.name, default_model=provider.default_model
+    )
+    try:
+        port = provider.factory(context)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - bound a bad provider factory
+        return None
+    return port
+
+
 def make_extension_context(
     cwd: str,
     has_ui: bool,
@@ -273,6 +335,10 @@ class PipyExtensionAPI(Protocol):
 
     def register_tool(self, tool: "ExtensionTool") -> None: ...
 
+    def register_provider(self, provider: "ExtensionProvider") -> None: ...
+
+    def unregister_provider(self, name: str) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RegisteredCommand:
@@ -305,6 +371,8 @@ class ActivatedExtension:
     diagnostic: str | None
     hooks: Mapping[str, tuple[HookHandler, ...]] = field(default_factory=dict)
     tools: tuple[RegisteredTool, ...] = ()
+    providers: tuple[RegisteredProvider, ...] = ()
+    unregistered_providers: tuple[str, ...] = ()
 
 
 @runtime_checkable
@@ -486,15 +554,19 @@ class _ActivationApi:
         outbox: list[QueuedUserMessage],
         reserved_tools: frozenset[str] = frozenset(),
         taken_tools: frozenset[str] = frozenset(),
+        taken_providers: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
         self._taken = taken
         self._reserved_tools = reserved_tools
         self._taken_tools = taken_tools
+        self._taken_providers = taken_providers
         self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
+        self._staged_providers: dict[str, RegisteredProvider] = {}
+        self._staged_unregistered: list[str] = []
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -562,6 +634,43 @@ class _ActivationApi:
 
     def staged_tools(self) -> tuple[RegisteredTool, ...]:
         return tuple(self._staged_tools.values())
+
+    def register_provider(self, provider: ExtensionProvider) -> None:
+        try:
+            self._validate_and_stage_provider(provider)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def _validate_and_stage_provider(self, provider: ExtensionProvider) -> None:
+        if not isinstance(provider, ExtensionProvider):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        name = provider.name
+        if not isinstance(name, str) or not name:
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        if not callable(provider.factory):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        if not isinstance(provider.models, tuple):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        # Providers MAY override a built-in of the same name (Pi behavior;
+        # unregister restores it), so there is no reserved-name check; only
+        # a duplicate registration across extensions is rejected.
+        if name in self._staged_providers or name in self._taken_providers:
+            raise _ActivationError(REASON_DUPLICATE_PROVIDER)
+        self._staged_providers[name] = RegisteredProvider(
+            provider=provider, extension=self._extension_name
+        )
+
+    def unregister_provider(self, name: str) -> None:
+        if isinstance(name, str) and name and name not in self._staged_unregistered:
+            self._staged_unregistered.append(name)
+
+    def staged_providers(self) -> tuple[RegisteredProvider, ...]:
+        return tuple(self._staged_providers.values())
+
+    def staged_unregistered(self) -> tuple[str, ...]:
+        return tuple(self._staged_unregistered)
 
     def register_command(
         self,
@@ -670,6 +779,7 @@ def activate_extensions(
     reserved_tools = frozenset(reserved_tool_names)
     taken: set[str] = set()
     taken_tools: set[str] = set()
+    taken_providers: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
@@ -685,10 +795,39 @@ def activate_extensions(
                 taken=taken,
                 reserved_tools=reserved_tools,
                 taken_tools=taken_tools,
+                taken_providers=taken_providers,
                 outbox=outbox,
             )
         )
     return results
+
+
+def extension_providers(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[RegisteredProvider, ...]:
+    """Collect registered providers from activated extensions, in order."""
+
+    providers: list[RegisteredProvider] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        providers.extend(extension.providers)
+    return tuple(providers)
+
+
+def extension_unregistered_providers(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[str, ...]:
+    """Collect provider names extensions asked to unregister, in order."""
+
+    names: list[str] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for name in extension.unregistered_providers:
+            if name not in names:
+                names.append(name)
+    return tuple(names)
 
 
 def extension_tools(
@@ -721,6 +860,7 @@ def _activate_one(
     taken: set[str],
     reserved_tools: frozenset[str],
     taken_tools: set[str],
+    taken_providers: set[str],
     outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
@@ -748,6 +888,7 @@ def _activate_one(
         taken=frozenset(taken),
         reserved_tools=reserved_tools,
         taken_tools=frozenset(taken_tools),
+        taken_providers=frozenset(taken_providers),
         outbox=outbox,
     )
     try:
@@ -771,12 +912,15 @@ def _activate_one(
 
     commands = api.staged_commands()
     tools = api.staged_tools()
-    # Commit the command/tool names + staged send_user_message prompts only
-    # now that activation fully succeeded.
+    providers = api.staged_providers()
+    # Commit the command/tool/provider names + staged send_user_message
+    # prompts only now that activation fully succeeded.
     for command in commands:
         taken.add(command.name)
     for registered in tools:
         taken_tools.add(registered.tool.name)
+    for registered_provider in providers:
+        taken_providers.add(registered_provider.provider.name)
     api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
@@ -788,6 +932,8 @@ def _activate_one(
         diagnostic=None,
         hooks=api.staged_hooks(),
         tools=tools,
+        providers=providers,
+        unregistered_providers=api.staged_unregistered(),
     )
 
 

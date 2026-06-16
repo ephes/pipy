@@ -770,7 +770,7 @@ extension `/commands` dispatch through the live tool-loop REPL
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 11 (provider registration). Discovery never imports extension code; activation imports
+selected implementation slice is slice 12 (the package CLI). Discovery never imports extension code; activation imports
 only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -834,8 +834,12 @@ only loadable descriptors.
     (`scripts/parity_checks/extension_conformance_gate.py --json`). A single
     `/pipy-extension-conformance` trigger writes all 12 feature markers and the
     proof leaks no prompt/tool/UI bodies.
-11. Provider registration through the provider catalog after command/tool/hook
-    slices have review coverage.
+11. Provider registration — **landed (mechanism)**: `api.register_provider`/
+    `api.unregister_provider` + `ExtensionProvider`/`ProviderContext`/
+    `RegisteredProvider` + `build_extension_provider_port` compose a factory into
+    a `ProviderPort` (staged/committed, duplicate/invalid disable, bounded
+    factory failures). The catalog/`/model` selector wiring is the
+    provider-catalog track's follow-on.
 12. Package installation, package resource filters, update/list/config flows,
     and remote `npm:`/`git:` source handling only after the local extension
     runtime has a reviewed trust/security model.
