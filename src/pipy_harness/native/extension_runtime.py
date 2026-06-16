@@ -57,6 +57,79 @@ REASON_RESERVED_TOOL: str = "reserved_tool"
 REASON_DUPLICATE_TOOL: str = "duplicate_tool"
 REASON_INVALID_PROVIDER: str = "invalid_provider"
 REASON_DUPLICATE_PROVIDER: str = "duplicate_provider"
+REASON_INVALID_SHORTCUT: str = "invalid_shortcut"
+REASON_RESERVED_SHORTCUT: str = "reserved_shortcut"
+REASON_DUPLICATE_SHORTCUT: str = "duplicate_shortcut"
+
+# Built-in hotkey / editor keys an extension shortcut may never claim, so a
+# binding can never shadow core input editing or the app hotkeys. Compared
+# against the normalized key string (see `normalize_shortcut_key`).
+RESERVED_SHORTCUT_KEYS: frozenset[str] = frozenset(
+    {
+        "enter",
+        "tab",
+        "shift-tab",
+        "backspace",
+        "esc",
+        "ctrl-c",
+        "ctrl-d",
+        "ctrl-u",
+        "ctrl-y",
+        "ctrl-z",
+        "ctrl-o",
+        "ctrl-p",
+        "ctrl-t",
+        "ctrl-v",
+        "shift-ctrl-p",
+        "alt-enter",
+        "alt-up",
+        "home",
+        "end",
+        "up",
+        "down",
+        "left",
+        "right",
+        "paste",
+        # Defensive: common editor keys that are not decoded to a named form
+        # today but must never be claimable if the decoder grows to emit them.
+        "delete",
+        "insert",
+        "pageup",
+        "pagedown",
+    }
+)
+
+# Canonical modifier order for a normalized shortcut key, matching pipy's
+# decoded forms (e.g. "shift-ctrl-p", "shift-tab"). Modifiers are re-emitted in
+# this order so "Ctrl+Shift+P" and "Shift+Ctrl+P" canonicalize identically and a
+# reserved hotkey cannot be bypassed by reordering its modifiers.
+_SHORTCUT_MODIFIERS: tuple[str, ...] = ("shift", "ctrl", "alt", "meta")
+
+
+def normalize_shortcut_key(key: str) -> str:
+    """Normalize a Pi-style shortcut key to pipy's internal key string.
+
+    Accepts ``"Ctrl+."`` / ``"ctrl+x"`` (Pi's ``+``-joined form), lowercases and
+    ``+``→``-`` it to pipy's decoded form (``"ctrl-."`` / ``"ctrl-x"``), and
+    re-emits leading modifiers in a canonical order (``shift`` before ``ctrl``
+    before ``alt``), so modifier reordering can neither bypass a reserved key
+    nor create duplicate bindings. A single character is returned as-is.
+    """
+
+    raw = key.strip().lower().replace("+", "-")
+    if not raw:
+        return raw
+    parts = raw.split("-")
+    modifiers: list[str] = []
+    index = 0
+    # Leading tokens that are modifiers (but never the final base token) are
+    # collected; the remainder is the base key (which may itself contain "-").
+    while index < len(parts) - 1 and parts[index] in _SHORTCUT_MODIFIERS:
+        modifiers.append(parts[index])
+        index += 1
+    base = "-".join(parts[index:])
+    ordered = [mod for mod in _SHORTCUT_MODIFIERS if mod in modifiers]
+    return "-".join([*ordered, base]) if ordered else base
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
@@ -331,6 +404,8 @@ class PipyExtensionAPI(Protocol):
         handler: CommandHandler,
     ) -> None: ...
 
+    def register_shortcut(self, key: str, handler: CommandHandler) -> None: ...
+
     def on(
         self,
         event: str,
@@ -361,6 +436,20 @@ class RegisteredCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class RegisteredShortcut:
+    """One keyboard shortcut an extension bound during activation.
+
+    `key` is the normalized pipy key string (e.g. ``"ctrl-."``). `handler` has
+    the same shape as a command handler (`handler(ctx, args)`); a shortcut
+    always dispatches it with an empty argument string.
+    """
+
+    key: str
+    handler: CommandHandler
+    extension: str
+
+
+@dataclass(frozen=True, slots=True)
 class ActivatedExtension:
     """The outcome of attempting to activate one extension.
 
@@ -383,6 +472,7 @@ class ActivatedExtension:
     tools: tuple[RegisteredTool, ...] = ()
     providers: tuple[RegisteredProvider, ...] = ()
     unregistered_providers: tuple[str, ...] = ()
+    shortcuts: tuple[RegisteredShortcut, ...] = ()
 
 
 @runtime_checkable
@@ -606,6 +696,25 @@ def extension_command_map(
     return command_map
 
 
+def extension_shortcuts(
+    activated: Sequence[ActivatedExtension],
+) -> dict[str, RegisteredShortcut]:
+    """Build a `key -> RegisteredShortcut` map from activated extensions.
+
+    Only `activated` extensions contribute; a key bound by an earlier
+    extension wins (duplicate keys were already disabled during activation,
+    so this is deterministic).
+    """
+
+    shortcut_map: dict[str, RegisteredShortcut] = {}
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for shortcut in extension.shortcuts:
+            shortcut_map.setdefault(shortcut.key, shortcut)
+    return shortcut_map
+
+
 def dispatch_extension_command(
     command_text: str,
     command_map: dict[str, RegisteredCommand],
@@ -638,10 +747,73 @@ def dispatch_extension_command(
     if command is None:
         return None
 
+    return _run_extension_handler(
+        name,
+        command.handler,
+        args,
+        cwd=cwd,
+        has_ui=has_ui,
+        messages=messages,
+        complete_fn=complete_fn,
+        notify_sink=notify_sink,
+        ui_custom_driver=ui_custom_driver,
+    )
+
+
+def dispatch_extension_shortcut(
+    key: str,
+    shortcut_map: dict[str, RegisteredShortcut],
+    *,
+    cwd: str,
+    has_ui: bool,
+    messages: "Sequence[object]" = (),
+    complete_fn: "CompletionFn | None" = None,
+    notify_sink: "Callable[[str, str], None] | None" = None,
+    ui_custom_driver: "CustomComponentDriver | None" = None,
+) -> ExtensionCommandDispatch | None:
+    """Dispatch a registered extension shortcut `key`, or return None.
+
+    Returns None when `key` (already normalized by the caller) names no
+    registered shortcut. When it matches, the bound handler runs locally with
+    the same mode-aware context as a command and an empty argument string; it
+    triggers no provider turn and a handler exception is bounded into a safe
+    `error`.
+    """
+
+    shortcut = shortcut_map.get(normalize_shortcut_key(key))
+    if shortcut is None:
+        return None
+    return _run_extension_handler(
+        shortcut.key,
+        shortcut.handler,
+        "",
+        cwd=cwd,
+        has_ui=has_ui,
+        messages=messages,
+        complete_fn=complete_fn,
+        notify_sink=notify_sink,
+        ui_custom_driver=ui_custom_driver,
+    )
+
+
+def _run_extension_handler(
+    name: str,
+    handler: CommandHandler,
+    args: str,
+    *,
+    cwd: str,
+    has_ui: bool,
+    messages: "Sequence[object]",
+    complete_fn: "CompletionFn | None",
+    notify_sink: "Callable[[str, str], None] | None",
+    ui_custom_driver: "CustomComponentDriver | None",
+) -> ExtensionCommandDispatch:
+    """Run a command/shortcut handler with a mode-aware context; bound errors."""
+
     ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver)
     ctx = _CommandContext(cwd, ui, _ConversationView(messages), complete_fn)
     try:
-        command.handler(ctx, args)
+        handler(ctx, args)
     except (KeyboardInterrupt, SystemExit):
         # A genuine user abort / interpreter exit is control flow, not an
         # extension failure: never swallow it into a bounded error.
@@ -689,6 +861,7 @@ class _ActivationApi:
         reserved_tools: frozenset[str] = frozenset(),
         taken_tools: frozenset[str] = frozenset(),
         taken_providers: frozenset[str] = frozenset(),
+        taken_shortcuts: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
@@ -696,8 +869,10 @@ class _ActivationApi:
         self._reserved_tools = reserved_tools
         self._taken_tools = taken_tools
         self._taken_providers = taken_providers
+        self._taken_shortcuts = taken_shortcuts
         self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
+        self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
         self._staged_providers: dict[str, RegisteredProvider] = {}
         self._staged_unregistered: list[str] = []
@@ -843,6 +1018,41 @@ class _ActivationApi:
             extension=self._extension_name,
         )
 
+    def register_shortcut(self, key: str, handler: CommandHandler) -> None:
+        try:
+            if not isinstance(key, str) or not key.strip():
+                raise _ActivationError(REASON_INVALID_SHORTCUT)
+            if not callable(handler):
+                raise _ActivationError(REASON_INVALID_SHORTCUT)
+            normalized = normalize_shortcut_key(key)
+            # A single-character key (a bare printable like "a"/"." or a raw
+            # control char) would shadow ordinary typing in the editor, since
+            # the shortcut check runs before text insertion. Only multi-char
+            # named keys (e.g. "ctrl-g") may be bound.
+            if len(normalized) <= 1:
+                raise _ActivationError(REASON_INVALID_SHORTCUT)
+            # A modifier-only key with an empty base (e.g. "ctrl-" from "Ctrl+")
+            # can never be emitted by the decoder; refuse it rather than
+            # register an unreachable binding.
+            if normalized.endswith("-"):
+                raise _ActivationError(REASON_INVALID_SHORTCUT)
+            if normalized in RESERVED_SHORTCUT_KEYS:
+                raise _ActivationError(REASON_RESERVED_SHORTCUT)
+            if normalized in self._taken_shortcuts or normalized in self._staged_shortcuts:
+                raise _ActivationError(REASON_DUPLICATE_SHORTCUT)
+            self._staged_shortcuts[normalized] = RegisteredShortcut(
+                key=normalized,
+                handler=handler,
+                extension=self._extension_name,
+            )
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def staged_shortcuts(self) -> tuple[RegisteredShortcut, ...]:
+        return tuple(self._staged_shortcuts.values())
+
     def on(
         self,
         event: str,
@@ -914,6 +1124,7 @@ def activate_extensions(
     taken: set[str] = set()
     taken_tools: set[str] = set()
     taken_providers: set[str] = set()
+    taken_shortcuts: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
@@ -930,6 +1141,7 @@ def activate_extensions(
                 reserved_tools=reserved_tools,
                 taken_tools=taken_tools,
                 taken_providers=taken_providers,
+                taken_shortcuts=taken_shortcuts,
                 outbox=outbox,
             )
         )
@@ -995,6 +1207,7 @@ def _activate_one(
     reserved_tools: frozenset[str],
     taken_tools: set[str],
     taken_providers: set[str],
+    taken_shortcuts: set[str],
     outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
@@ -1023,6 +1236,7 @@ def _activate_one(
         reserved_tools=reserved_tools,
         taken_tools=frozenset(taken_tools),
         taken_providers=frozenset(taken_providers),
+        taken_shortcuts=frozenset(taken_shortcuts),
         outbox=outbox,
     )
     try:
@@ -1047,14 +1261,17 @@ def _activate_one(
     commands = api.staged_commands()
     tools = api.staged_tools()
     providers = api.staged_providers()
-    # Commit the command/tool/provider names + staged send_user_message
-    # prompts only now that activation fully succeeded.
+    shortcuts = api.staged_shortcuts()
+    # Commit the command/tool/provider/shortcut names + staged
+    # send_user_message prompts only now that activation fully succeeded.
     for command in commands:
         taken.add(command.name)
     for registered in tools:
         taken_tools.add(registered.tool.name)
     for registered_provider in providers:
         taken_providers.add(registered_provider.provider.name)
+    for shortcut in shortcuts:
+        taken_shortcuts.add(shortcut.key)
     api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
@@ -1068,6 +1285,7 @@ def _activate_one(
         tools=tools,
         providers=providers,
         unregistered_providers=api.staged_unregistered(),
+        shortcuts=shortcuts,
     )
 
 

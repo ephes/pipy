@@ -121,6 +121,9 @@ HOTKEY_MODEL_CYCLE_NEXT = "\x00pipy-hotkey:model-cycle-next"
 HOTKEY_MODEL_CYCLE_PREV = "\x00pipy-hotkey:model-cycle-prev"
 HOTKEY_TOGGLE_TOOLS = "\x00pipy-hotkey:toggle-tools"
 HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
+# An activated extension's registered keyboard shortcut fired; the normalized
+# key follows the prefix so the session can look up and dispatch the handler.
+HOTKEY_EXTENSION_SHORTCUT_PREFIX = "\x00pipy-hotkey:ext-shortcut:"
 
 # Outcomes of the active-turn watcher / mid-turn editor.
 TURN_SETTLED = "settled"  # the provider turn finished on its own
@@ -226,6 +229,12 @@ class ToolLoopTerminalUi:
     # ``autocompleteMaxVisible``; default 5, clamped 3..20 by the settings
     # getter). Overflow rows scroll behind a "… N more" tail.
     autocomplete_max_visible: int = 5
+    # Decoded key strings (e.g. ``"ctrl-g"``) bound by activated extensions via
+    # ``api.register_shortcut``. When the editor reads one of these keys it
+    # returns the HOTKEY_EXTENSION_SHORTCUT sentinel so the session dispatches
+    # the bound handler. Keys the decoder cannot produce (e.g. ``ctrl-.`` on a
+    # non-kitty terminal) simply never fire — the registration is still valid.
+    extension_shortcut_keys: frozenset[str] = frozenset()
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
     # Editor autocomplete popup state (the ``@`` file picker and Tab path
@@ -487,6 +496,19 @@ class ToolLoopTerminalUi:
                     self._paste_clipboard_image()
                     self.paint()
                     continue
+                if key in self.extension_shortcut_keys:
+                    # An activated extension bound this key via
+                    # api.register_shortcut. Preserve any partially-typed input
+                    # into the next prompt (like the app hotkeys) and hand the
+                    # session the sentinel so it dispatches the bound handler.
+                    if self.input_text:
+                        self._pending_initial_text = self.input_text
+                    self.input_text = ""
+                    self.input_cursor = 0
+                    self.slash_menu_open = False
+                    self._close_autocomplete()
+                    self._reset_line_editor_state()
+                    return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key}\n"
                 if key == "backspace":
                     self._delete_before_cursor()
                     self.paint()
@@ -2812,6 +2834,14 @@ class ToolLoopTerminalUi:
             return "ctrl-t"
         if ch == "\x16":
             return "ctrl-v"
+        # Decode any remaining C0 control byte (Ctrl+letter) to a named
+        # "ctrl-<letter>" form so extension shortcuts can bind it. The explicit
+        # aliases above (home/end and the app/editor hotkeys) take precedence;
+        # an unbound control key still does nothing (it is not a length-1
+        # printable, so it is never inserted as text).
+        code = ord(ch)
+        if 1 <= code <= 26:
+            return f"ctrl-{chr(code + 96)}"
         return ch
 
     def _read_escape_sequence(self, fd: int) -> str:

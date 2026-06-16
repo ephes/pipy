@@ -143,11 +143,13 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     QueuedUserMessage,
     RegisteredCommand,
+    RegisteredShortcut,
     RegisteredTool,
     ToolResult,
     activate_extensions,
     dispatch_before_agent_start_hooks,
     dispatch_extension_command,
+    dispatch_extension_shortcut,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_tool_call_hooks,
@@ -155,6 +157,7 @@ from pipy_harness.native.extension_runtime import (
     drain_user_messages,
     extension_command_map,
     extension_event_hooks,
+    extension_shortcuts,
     extension_tool_call_hooks,
     extension_tools,
     make_extension_context,
@@ -171,6 +174,7 @@ from pipy_harness.native.themes import (
     theme_status_lines,
 )
 from pipy_harness.native.tui import (
+    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
     HOTKEY_MODEL_CYCLE_PREV,
     HOTKEY_THINKING_CYCLE,
@@ -572,6 +576,7 @@ class _ExtensionRuntime:
     tool_result_hooks: tuple[HookHandler, ...]
     outbox: list[QueuedUserMessage]
     tools: tuple[RegisteredTool, ...]
+    shortcuts: dict[str, RegisteredShortcut]
 
 
 def _activate_workspace_extensions(
@@ -625,6 +630,7 @@ def _activate_workspace_extensions(
         tool_result_hooks=tool_result_hooks,
         outbox=outbox,
         tools=extension_tools(activated),
+        shortcuts=extension_shortcuts(activated),
     )
 
 
@@ -888,6 +894,7 @@ class NativeToolReplSession:
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
             extension_menu_names=extension_menu_names,
             extension_descriptions=extension_descriptions,
+            extension_shortcut_keys=frozenset(_ext_runtime.shortcuts),
         )
 
         # Live UI sink for extension `ctx.ui.notify` from hooks and tools:
@@ -1538,6 +1545,44 @@ class NativeToolReplSession:
                             usage_accumulator=usage_accumulator,
                         )
                     continue
+                if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
+                    # An activated extension's registered keyboard shortcut
+                    # fired; dispatch its handler with the same mode-aware
+                    # context as its command. Like the command path, a handler
+                    # that calls api.send_user_message enqueues to the shared
+                    # outbox, which is drained into a deterministic provider
+                    # prompt at the top of the next iteration (see the
+                    # drain_user_messages call above) — so the turn fires; this
+                    # branch only needs to surface a handler failure and
+                    # continue. Covered by
+                    # test_shortcut_send_user_message_triggers_a_turn.
+                    shortcut_key = command_text[
+                        len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :
+                    ]
+                    shortcut_dispatch = dispatch_extension_shortcut(
+                        shortcut_key,
+                        _ext_runtime.shortcuts,
+                        cwd=str(cwd),
+                        has_ui=terminal_ui is not None,
+                        messages=messages,
+                        complete_fn=_extension_complete,
+                        notify_sink=_extension_notify,
+                        ui_custom_driver=_extension_custom_driver,
+                    )
+                    if (
+                        shortcut_dispatch is not None
+                        and not shortcut_dispatch.ran
+                        and shortcut_dispatch.error
+                    ):
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            (
+                                f"pipy: extension shortcut {shortcut_key!r} "
+                                f"failed ({shortcut_dispatch.error})"
+                            ),
+                        )
+                    continue
                 from_hotkey = command_text in {
                     HOTKEY_MODEL_CYCLE_NEXT,
                     HOTKEY_MODEL_CYCLE_PREV,
@@ -1695,6 +1740,9 @@ class NativeToolReplSession:
                         )
                         terminal_ui.command_descriptions = _tool_loop_command_descriptions(
                             workspace_resources, extension_descriptions
+                        )
+                        terminal_ui.extension_shortcut_keys = frozenset(
+                            _ext_runtime.shortcuts
                         )
                     load_errors = settings.load_errors()
                     if load_errors:
@@ -2803,6 +2851,7 @@ class NativeToolReplSession:
         autocomplete_max_visible: int = 5,
         extension_menu_names: tuple[str, ...] = (),
         extension_descriptions: dict[str, str] | None = None,
+        extension_shortcut_keys: frozenset[str] = frozenset(),
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -2817,6 +2866,7 @@ class NativeToolReplSession:
                 resources, extension_descriptions
             ),
             autocomplete_max_visible=autocomplete_max_visible,
+            extension_shortcut_keys=extension_shortcut_keys,
         )
 
     @staticmethod
