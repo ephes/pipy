@@ -187,14 +187,16 @@ not a promise to skip review when a smaller, safer slice appears.
    cycling, `Ctrl+O`/`Ctrl+T` folding, queued steering/follow-up, `Ctrl+V`
    clipboard / drag image references, the `/scoped-models` + `/hotkeys` overlays
    and new `/settings` rows, and the mouse-selection invariant.
-4. Extension and resource runtime. Pi has first-class extensions, command/theme
-   registration, prompt templates, skills, and UI hooks. Runtime resource
-   loading has now landed for the three bounded kinds — skills, prompt
-   templates, and custom slash commands — through `pipy_harness.native.resources`,
-   wired into both REPL product paths (see the Runtime Resource Loading Track
-   below); the `[Skills]` chrome now lists loadable skill names from the real
-   loader. A general extension/package loader, theme registration, and UI hooks
-   remain deferred and are intentionally **not** built as part of that track.
+4. Extension and resource runtime. Pi has first-class extensions, packages,
+   command/theme registration, prompt templates, skills, and UI hooks. Runtime
+   resource loading has landed for skills, prompt templates, custom slash
+   commands, and chrome themes. The Python extension runtime has also landed for
+   core local automation (commands/shortcuts, tools, lifecycle/input/prompt
+   hooks, `tool_call` gates, `tool_result` transforms, minimal UI notices, and
+   provider-registration mechanics). It is still **Pi-shaped rather than
+   Pi-equivalent**: package runtime composition, rich extension UI/rendering,
+   broader session hooks, dynamic controls, source-loading flags, remote
+   packages, and update flows remain follow-ons.
 5. Session workflows — **shipped (2026-06-02)**. The native product session
    tree (`pipy_harness.native.session_tree`) is now pipy's product session
    store, a raw private append-only JSONL tree like Pi's
@@ -284,17 +286,23 @@ Shipped foundations that should no longer be selected as large topics:
 
 The highest-impact remaining gaps are now:
 
-1. **Extension and package platform — selected next big topic.** Pi's most
-   important remaining differentiator is its extension/package surface:
-   trusted local code can register model-visible tools, commands, providers,
-   keybindings, lifecycle hooks, UI surfaces, and package resources. Pipy
-   currently has bounded Markdown resources (`.pipy/skills`,
-   `.pipy/templates`, `.pipy/commands`) and chrome themes, but no general
-   Python extension runtime or package manager. The next implementation slice
-   should be the safest foundation: local Python extension discovery and
-   manifest inventory with fail-closed diagnostics and **no extension code
-   execution yet**. The target API and later slices live in
-   [extension-api.md](extension-api.md).
+1. **Extension and package platform — selected next big topic, now in
+   closeout.** Pi's most important remaining differentiator is still the
+   breadth and maturity of its extension/package surface. Pipy now has a
+   useful **Pi-shaped but not Pi-equivalent** Python extension runtime:
+   local discovery/activation, extension slash commands and shortcuts,
+   lifecycle/input/before-agent-start hooks, `tool_call` policy gates,
+   extension tools, `tool_result` transforms, minimal `ctx.ui.notify`, a
+   golden conformance extension, provider-registration mechanics, and the
+   local-path package-management CLI. That makes common local workflows
+   (permission gates, simple commands/tools, prompt/input hooks, and basic
+   provider experiments) comparable in concept, but Pi remains ahead on rich
+   TUI extension UI, custom rendering, session/tree/compaction hooks, dynamic
+   tool/model/thinking controls, `user_bash` and provider-payload hooks,
+   hot-reload/source loading flags, and the npm/git package ecosystem.
+   The next slice is therefore package runtime composition: installed local
+   packages must actually contribute extensions/skills/prompts/themes through
+   discovery. The target API and status live in [extension-api.md](extension-api.md).
 2. **Export / import / share / distribution.** The native session tree now
    contains full product transcripts, so pipy can add Pi-style full-session
    HTML export, active-branch JSONL export, import-and-resume, private gist
@@ -1499,8 +1507,21 @@ proving manifests contribute an extension/skill/prompt/theme, that filters
 affect discovery, and that no source path or resource body leaks into the
 metadata archive (spec gate items 2, 4, 8 in `docs/extension-api.md`). Until
 that lands, `pipy install` records a source but its resources are not yet
-loaded. Remote `git:`/PyPI sources, `update`, and catalog/`/model` wiring of
-extension-registered providers remain deferred.
+loaded.
+
+Compatibility assessment for slice selection: treat Pipy's extension support as
+**comparable for core local automation, not comparable to Pi as a mature
+extension platform**. The landed slices cover the high-value Python equivalents
+of Pi permission gates, custom slash commands, simple model-visible tools,
+input/system-prompt hooks, lifecycle observation, and minimal UI notices. They
+do not yet cover Pi's richer extension APIs: custom message/tool rendering,
+full `ctx.ui` dialogs/widgets/editor/autocomplete/theme controls, session
+switch/fork/tree/compaction interception, dynamic active-tool/model/thinking
+control, shell/user-bash operation adapters, provider-payload hooks, extension
+state helpers equivalent to `appendEntry`/session-manager access, TypeScript
+source compatibility, or npm/git/update package distribution. Remote `git:`/
+PyPI sources, `update`, and catalog/`/model` wiring of extension-registered
+providers remain deferred.
 
 Acceptance criteria:
 
@@ -1637,27 +1658,28 @@ Invariants that must hold for any near-term slice:
   removed.
 - Full interactive TUI behavior beyond the shipped product TUI shell. Prompt
   history, bracketed paste, undo/redo, resize/SIGWINCH handling, an interactive
-  `/settings` control dialog, and optional persistent cross-session prompt
-  history (off by default, local-only state file) now ship in the product TUI;
-  still deferred are `@` file picker behavior (scored, not fuzzy), broader path
-  completion in the product editor, clipboard/drag image paste, `!`/`!!` shell
-  shortcuts, thinking-level hotkeys, output/thinking folding, queued
-  steering/follow-up messages during active turns, richer overlays and
-  selectors, mouse selection, and theme/extension UI hooks. True
-  provider-request cancellation (Escape/Ctrl-C abort the in-flight HTTP request)
-  now ships. Scoped model cycling via `/scoped-models` + Ctrl+P now ships through
-  the settings track.
-- General extension/package platform: Python-only Pi-shaped extension API,
-  extension-registered tools/commands/providers/keybindings/UI, third-party
-  package install/update/list/config flows, package manifests, and the
-  corresponding security/update model. The draft target specification is
-  [extension-api.md](extension-api.md).
+  `/settings` control dialog, optional persistent cross-session prompt history,
+  `@` file picker/path completion, clipboard/drag image paste, `!`/`!!`,
+  thinking/model hotkeys, output/thinking folding, queued steering/follow-up,
+  `/scoped-models`, `/hotkeys`, mouse-selection invariants, and true
+  provider-request cancellation now ship. Still deferred are the richer
+  extension-owned UI surfaces Pi exposes: dialogs, widgets, editor replacement,
+  autocomplete providers, theme controls, custom overlays beyond the narrow
+  Python `ctx.ui.custom` path, and custom message/tool rendering.
+- Extension/package platform closeout and follow-ons: package runtime
+  composition for installed local-path packages is the selected next slice.
+  After that, remaining Pi gaps are `--extension`/`--no-extensions`, dynamic
+  extension flags, richer event/session hooks, dynamic active-tool/model/
+  thinking controls, `user_bash` and provider-payload hooks, extension state /
+  session-manager views, richer extension UI/rendering, remote package sources,
+  package `update`, and the corresponding supply-chain/security model. The
+  target specification is [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
-  Anthropic/Copilot login UX and extension-registered providers once the
-  extension platform exists.
-- RPC and automation modes beyond `pipy run`, `--native-output json`, and the
-  in-process Python SDK: JSON event-stream mode, stdin/stdout RPC, and a
-  long-running process-integration protocol.
+  Anthropic/Copilot login UX and catalog/`/model` wiring for
+  extension-registered providers.
+- RPC and automation follow-ons: the stdin/stdout JSON/RPC mode ships; true
+  in-turn steering, native/socket daemon transport, full session fork/switch
+  over RPC, and the RPC extension-UI bridge remain follow-ons.
 - Product distribution and sharing polish: documented package install/update
   path, self-update flow, changelog surface, HTML export, and private
   share/upload workflow.
@@ -1679,10 +1701,9 @@ another full-screen TUI framework; RPC mode.
   personal data in the `pipy-session` metadata archive, `--native-output json`,
   docs, or synced artifacts by default. The private native product session tree
   is the explicit Pi-like exception for raw conversation history.
-- Building broad approvals, sandboxing, retries, streaming, raw transcript
-  import, multiple native tool requests, post-tool provider turns, general write
-  tools beyond supervised patch apply, non-allowlisted verification commands,
-  Textual or another full-screen TUI framework, RPC, or orchestration
+- Building broad approvals, sandboxing, raw transcript import,
+  non-allowlisted verification commands, Textual or another full-screen TUI
+  framework, network/socket daemon transports, or orchestration
   opportunistically. Provider registry/catalog work is allowed only inside the
   selected provider-catalog track and its conformance gate; additional OAuth
   providers remain part of that track's reviewed milestones, not opportunistic

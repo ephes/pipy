@@ -19,6 +19,19 @@ themes), which is not implemented yet. The pre-existing pipy runtime resources
 (bounded Markdown skills, prompt templates, custom slash commands, and chrome
 themes) remain supported alongside the Python extension API.
 
+Comparability to Pi: Pipy is now **Pi-shaped for core local extension workflows,
+but not Pi-equivalent as an extension platform**. The landed API is enough for
+translated Python versions of common Pi patterns such as permission gates,
+simple custom slash commands, simple model-visible tools, input transforms,
+before-agent-start prompt/context injection, lifecycle observers, tool-result
+patching, and basic provider experiments. It is not source-compatible with Pi's
+TypeScript extensions, and it still lacks several mature Pi surfaces: rich TUI
+extension UI, custom message/tool rendering, session switch/fork/tree/compaction
+interception, dynamic active-tool/model/thinking controls, `user_bash` and
+provider-payload hooks, extension state/session-manager helpers, CLI
+`--extension`/`--no-extensions`, package runtime composition, remote npm/git
+package distribution, and `update`.
+
 ## Goals
 
 - Let trusted local Python code extend pipy without forking pipy internals.

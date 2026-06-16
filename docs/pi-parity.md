@@ -144,17 +144,16 @@ remain Pi-class surfaces that pipy has not yet closed:
   next provider request. Image bytes never reach the metadata archive.
 - Broader context/resource loading beyond user-directed `@file` excerpts and
   bounded per-session file reads.
-- Richer resource loading beyond AGENTS/CLAUDE-style instruction discovery.
-  Workspace/global skills (`.pipy/skills`), prompt templates
-  (`.pipy/templates`), and custom slash commands (`.pipy/commands`) now ship
-  as executable runtime resources through `pipy_harness.native.resources`,
-  wired into both REPL product paths. Chrome themes (`pipy_harness.native.themes`)
-  now also ship with a runtime consumer — the `/theme` command and the
-  palette-aware `chrome.ChromeStyle` — see the Themes row above.
-- Network-transported RPC (the in-process Python SDK at
-  `pipy_harness.sdk` closes parity-criterion row E7; a long-running daemon,
-  socket transport, or wire protocol remains explicitly deferred).
-- Provider registry and broad provider/model catalog.
+- Extension/package parity beyond the landed Python core: package runtime
+  composition for installed local-path packages is still open; Pi-level rich
+  TUI extension UI, custom message/tool rendering, session/tree/compaction
+  interception, dynamic tool/model/thinking controls, `user_bash`, provider
+  payload hooks, extension state/session-manager helpers, `--extension` /
+  `--no-extensions`, remote packages, and `update` remain future work.
+- Network-transported RPC (the in-process Python SDK and stdin/stdout JSON/RPC
+  mode ship; a long-running daemon, socket transport, or wire protocol remains
+  explicitly deferred).
+- Provider registry and broad provider/model catalog follow-ons.
 - Cost/context/token footer behavior beyond safe usage counters.
 - Project-defined verification policy beyond the Pi-style `bash`/extension-gate workflow.
 
@@ -224,7 +223,7 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the implemented bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, `truncate`, and `bash` behind `pipy repl --repl-mode tool-loop`; `bash` is a real shell matching Pi (arbitrary commands in the workspace, combined bounded output, optional timeout), with only metadata recorded at the archive boundary. See the [Tool-Loop Parity Track](backlog.md#tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve real provider adapters behind `ProviderPort` plus the fake bootstrap, now fronted by a pipy-owned catalog foundation (`native/catalog.py`/`catalog_data.py`) with multiple rows per provider, a `models.json` custom-provider/override loader (`native/models_json.py`), the layered matcher (`native/model_resolver.py`), auth helpers + availability gate (`native/auth_store.py`), the stdlib OAuth registry for Anthropic/Copilot/Codex (`native/oauth_providers.py`), thinking helpers (`native/thinking.py`), routing config (`native/routing.py`), `--list-models [search]`, the full-catalog `/model` selector + direct `/model <ref>` through the shared resolver, and catalog-driven product construction (`native/provider_construction.py`, `native/catalog_state.py`). ds4 is reframed as a `models.json` custom provider (`native/ds4.py`). Catalog construction now covers the OpenAI-compatible Chat Completions family, implemented catalog-constructed non-completions API families, `pipy run` one-shot construction, and startup `--native-provider`/`--native-model` resolution through the shared resolver; the conformance gate covers Verification-Plan items 1-24 with fake HTTP/product-path assertions. Remaining provider-access gaps are live Anthropic/Copilot login UX, the deliberate `openai-codex-responses` legacy-factory exception for settings-derived retry policy, narrow adapter parity follow-ons (Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version parity), and extension-registered providers; see `docs/provider-catalog.md`. |
-| Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | Skills, prompt templates, and custom slash commands now load at runtime from pipy-owned `.pipy/skills`, `.pipy/templates`, and `.pipy/commands` stores (workspace + global) through `pipy_harness.native.resources`, wired into both REPL product paths; the `[Skills]` chrome section lists the loadable skill names a user can run with `/skill`. Chrome color themes also ship through `/theme` (`pipy_harness.native.themes`). A general extension/package loader and runtime UI hooks remain deferred until a consumer exists. This is deliberately **not** a general extension API — only the bounded resource kinds and the theme palette load, through the existing provider/session/tool/archive boundaries. |
+| Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | **Partial, Pi-shaped but not Pi-equivalent.** Runtime skills, prompt templates, custom slash commands, and chrome themes ship. A Python-only extension runtime now covers local discovery/activation, extension slash commands and shortcuts, lifecycle/input/before-agent-start hooks, `tool_call` permission gates, extension tools, `tool_result` transforms, minimal `ctx.ui.notify`, a golden conformance extension, and provider-registration mechanics. The local-path package CLI (`pipy install/remove/uninstall [-l]`, `list`, `config`) records sources and filters, but package runtime composition is still the selected closeout slice: installed package resources do not yet flow through discovery. Compared with Pi, remaining gaps include TypeScript source compatibility (intentionally non-goal), rich TUI extension UI and custom rendering, session/tree/compaction hooks, dynamic active-tool/model/thinking controls, `user_bash` and provider-payload hooks, extension state/session-manager helpers, CLI `--extension`/`--no-extensions`, remote npm/git/PyPI-style packages, and `update`. See [extension-api.md](extension-api.md). |
 | Privacy posture | Full Pi sessions are native product transcripts. | Pipy archive is metadata-first and excludes prompts, model output, provider payloads, file contents, command output, and auth material by default. |
 | External agent wrapping | Pi is itself the product. | Pipy can wrap external CLIs for conservative capture, but external wrappers are not the product runtime. |
 | Verification | Pi exposes broad bash/tool capability. | Pipy now relies on the Pi-style model-visible `bash` tool for verification-like workflows; a separate project-defined verification policy remains future work. |

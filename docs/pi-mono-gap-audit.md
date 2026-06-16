@@ -72,20 +72,21 @@ After the 2026-06-15 grooming pass, the important command-surface deltas are:
   open: `--extension`, tool allow/deny flags, `--verbose`, `--offline`, theme
   load flags, and resource-wrapper cleanup (`/skill`/`/template`/`/theme`).
 
-These deltas make the next big topic clear: provider-catalog, TUI workflow,
-session workflow, settings, and automation are no longer the gating large
-tracks. The highest-leverage remaining platform gap is extension/package
-support, starting with local Python extension discovery and manifest inventory.
+These deltas made extension/package support the next big topic. Since this
+audit snapshot, the core Python extension runtime has landed through reviewed
+slices; the highest-leverage remaining extension/package gap is now package
+runtime composition plus richer Pi extension-platform follow-ons.
 
 ## Ranked biggest gaps
 
-### 1. Extension and package platform — selected next big topic
+### 1. Extension and package platform — selected topic, in closeout
 
-**Why it is first now:** Pi's extension/package story is the largest remaining
-platform gap and the surface that lets users adapt the agent without forking.
-It also unlocks several other parity follow-ons: extension-defined verification
-gates, extension-registered providers, dynamic commands/flags, keybindings, UI
-contributions, package resources, and the RPC extension-UI channel.
+**Why it is first now:** Pi's extension/package story remains the largest
+remaining platform gap and the surface that lets users adapt the agent without
+forking. Pipy now has core local Python extension support, but it is
+Pi-shaped rather than Pi-equivalent: common local automation patterns are
+covered, while Pi's mature package distribution, rich UI/rendering, broader
+session hooks, dynamic controls, and source-loading flags remain ahead.
 
 Pi reference:
 
@@ -100,31 +101,32 @@ Pi reference:
 
 Pipy current state:
 
-- `docs/extension-api.md` defines a Python-only, Pi-shaped target API.
+- `docs/extension-api.md` defines and tracks a Python-only, Pi-shaped API.
 - Runtime resources exist for `.pipy/skills`, `.pipy/templates`,
   `.pipy/commands`, and themes.
-- No general extension runtime, activation boundary, extension tools/hooks,
-  provider registration, package install/remove/list/update, or package resource
-  filters ship yet.
+- Extension slices 1–11 have shipped: local discovery/inventory, activation,
+  command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
+  extension tool registration, `tool_result` transforms, minimal UI
+  notification, golden conformance, shortcuts, and provider-registration
+  mechanics.
+- Slice 12's local-path package CLI ships (`install/remove/uninstall [-l]`,
+  `list`, `config`), but installed package resources are not yet loaded.
 
 Implement next in pipy:
 
-1. Local Python extension discovery and manifest inventory only: workspace/global
-   extension paths, optional `pipy-extension.toml`, safe descriptors, disabled
-   reason codes, duplicate handling, and no code execution.
-2. Activation with a minimal `register_command` API and failure isolation.
-3. Command dispatch in both REPL product paths.
-4. Tool-call policy hooks and pure/read-only extension tool registration.
-5. Lifecycle/input/before-agent-start/tool-result hooks, minimal UI
-   notifications, and the golden conformance extension.
-6. Provider registration and package install/list/config/update after the local
-   extension runtime has review coverage and a security model.
+1. Package runtime composition: installed local-path package manifests contribute
+   extensions/skills/prompts/themes through discovery at deterministic lowest
+   precedence, with filters applied and archive-privacy proof.
+2. CLI source-loading flags (`--extension`/`--no-extensions`) and dynamic
+   extension flags after package composition is stable.
+3. Richer Pi extension follow-ons: UI/rendering, session switch/fork/tree/
+   compaction hooks, dynamic active-tool/model/thinking controls, `user_bash`,
+   provider-payload hooks, and extension state/session-manager views.
+4. Remote package sources and `update` only after a supply-chain/update policy.
 
-Complete the first slice when focused inventory tests and `just check` pass.
-Complete the topic when the golden extension/package conformance gate described
-in [extension-api.md](extension-api.md) proves discovery, activation,
-command/tool registration, hooks, UI degradation, provider registration,
-package install/list/config/update, and archive secret hygiene.
+Complete the closeout when the package conformance gate described in
+[extension-api.md](extension-api.md) proves package resources flow through real
+discovery and no source path/resource body leaks to the metadata archive.
 
 ### 2. Export / import / share / distribution
 
