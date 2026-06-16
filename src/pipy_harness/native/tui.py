@@ -257,6 +257,14 @@ class ToolLoopTerminalUi:
     # session-selector). The picker runs no provider turn. ``_mode`` is
     # ``list`` | ``rename`` | ``confirm-delete``; the underlying lists are the
     # current-project and all-projects session entries the rows are built from.
+    # Custom interactive overlay state for an extension command handler
+    # (`ctx.ui.custom`). The component is trusted local extension code that
+    # renders its own full-screen lines and consumes keys; the driver only
+    # paints its lines and routes keystrokes, running no provider turn.
+    custom_overlay_open: bool = False
+    _custom_component: object | None = None
+    _custom_done: bool = False
+    _custom_result: object = None
     session_picker_open: bool = False
     session_picker_rows: tuple["SessionPickerRow", ...] = ()
     session_picker_selection: int = 0
@@ -1140,6 +1148,92 @@ class ToolLoopTerminalUi:
         lines.extend(footer)
         return lines
 
+    # -- custom extension overlay (ctx.ui.custom) ---------------------------
+
+    def run_custom_component(
+        self, factory: "Callable[[Callable[..., None]], object]"
+    ) -> object:
+        """Drive a trusted extension custom component; return its result.
+
+        `factory(done)` builds a component exposing `render(width) -> list[str]`
+        and `handle_input(key) -> None`; the component calls `done(result)` to
+        finish. The driver paints the component's lines as a full-screen inline
+        overlay and routes decoded keys to it until it finishes (or the input
+        stream ends / errors, which finishes with ``None``). Runs no provider
+        turn. Returns the result passed to `done`, or ``None`` if cancelled.
+        """
+
+        self._custom_done = False
+        self._custom_result = None
+
+        def done(result: object = None) -> None:
+            if not self._custom_done:
+                self._custom_done = True
+                self._custom_result = result
+
+        component = factory(done)
+        try:
+            self._custom_component = component
+            self.custom_overlay_open = True
+            self.paint()
+            fd = self.input_stream.fileno()
+            self._enter_raw_mode()
+            while not self._custom_done:
+                key = self._read_key_polling_resize(fd)
+                if key is None:
+                    # Stream EOF / read error: cancel deterministically.
+                    done(None)
+                    break
+                if key == "paste":
+                    # A bracketed-paste marker carries no decoded text here;
+                    # ignore it rather than forwarding a sentinel to the
+                    # component.
+                    continue
+                try:
+                    component.handle_input(key)  # type: ignore[attr-defined]
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:  # noqa: BLE001 - a bad component cancels
+                    done(None)
+                    break
+                if not self._custom_done:
+                    self.paint()
+        finally:
+            self.custom_overlay_open = False
+            self._custom_component = None
+            # Relinquish the screen immediately: repaint the normal frame so the
+            # overlay does not linger until some unrelated later paint. Guarded
+            # so a repaint failure never masks the in-flight result/exception.
+            try:
+                self.paint()
+            except (OSError, ValueError):
+                pass
+            self._restore_terminal_mode()
+        return self._custom_result
+
+    def _custom_overlay_region_lines(
+        self, *, width: int, height: int
+    ) -> list[_FrameLine]:
+        """Compose the custom extension overlay from the component's lines.
+
+        The component owns its own styling/layout (it is trusted local code,
+        matching the extension trust boundary), so its lines pass through
+        verbatim; the driver only bounds the line count to the screen height so
+        a misbehaving component cannot overrun the frame.
+        """
+
+        component = self._custom_component
+        if component is None:
+            return []
+        try:
+            raw = component.render(width)  # type: ignore[attr-defined]
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - never let a bad render crash paint
+            raw = ["(custom component render error)"]
+        lines = [str(line) for line in (raw or [])][: max(1, height)]
+        return [_FrameLine(line, "normal") for line in lines]
+
     # -- interactive session picker (/resume + -r overlay) ------------------
 
     def run_session_picker(
@@ -1761,11 +1855,16 @@ class ToolLoopTerminalUi:
             or self.model_selector_open
             or self.tree_selector_open
             or self.scoped_models_open
+            or self.custom_overlay_open
         ):
             # The overlay replaces the input/menu region; keep as much trailing
             # history as fits above it so render_lines() agrees with the paint()
             # live region.
-            if self.settings_dialog_open:
+            if self.custom_overlay_open:
+                selector = self._custom_overlay_region_lines(
+                    width=width, height=height
+                )
+            elif self.settings_dialog_open:
                 selector = self._settings_dialog_region_lines(
                     width=width, height=height
                 )
@@ -1930,6 +2029,7 @@ class ToolLoopTerminalUi:
             or self.tree_selector_open
             or self.scoped_models_open
             or self.session_picker_open
+            or self.custom_overlay_open
         ):
             # Park on the cursor's column *within the visible (possibly
             # horizontally scrolled) input slice*, so the hardware cursor and
@@ -1961,6 +2061,8 @@ class ToolLoopTerminalUi:
         footer rows pinned at the bottom).
         """
 
+        if self.custom_overlay_open:
+            return self._custom_overlay_region_lines(width=width, height=height)
         if self.settings_dialog_open:
             return self._settings_dialog_region_lines(width=width, height=height)
         if self.session_picker_open:

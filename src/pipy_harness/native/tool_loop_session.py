@@ -919,6 +919,14 @@ class NativeToolReplSession:
                 )
             return result.final_text or ""
 
+        def _extension_custom_driver(factory: Any) -> object:
+            # Only an interactive terminal can take over the screen; a
+            # captured-stream run degrades to a deterministic no-op (also
+            # enforced by ExtensionUi.custom when has_ui is False).
+            if terminal_ui is None:
+                return None
+            return terminal_ui.run_custom_component(factory)
+
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
         # join the bounded tool loop with the same schema validation +
@@ -2249,10 +2257,12 @@ class NativeToolReplSession:
                         has_ui=terminal_ui is not None,
                         messages=messages,
                         complete_fn=_extension_complete,
+                        notify_sink=_extension_notify,
+                        ui_custom_driver=_extension_custom_driver,
                     )
                     if extension_dispatch is not None:
-                        for _kind, message in extension_dispatch.messages:
-                            self._emit_diagnostic(terminal_ui, error_stream, message)
+                        # Notifications already surfaced live via the sink while
+                        # the handler ran; only the failure diagnostic remains.
                         if not extension_dispatch.ran and extension_dispatch.error:
                             self._emit_diagnostic(
                                 terminal_ui,

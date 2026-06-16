@@ -386,17 +386,42 @@ class ActivatedExtension:
 
 
 @runtime_checkable
-class ExtensionUi(Protocol):
-    """Minimal mode-aware UI handed to a command handler (slice 3).
+class CustomComponent(Protocol):
+    """A trusted extension component driven by `ctx.ui.custom`.
 
-    Slice 3 exposes only `notify`; the richer UI surface (dialogs,
-    status, widgets) lands in a later slice. In non-interactive mode the
-    methods still behave deterministically (record/queue, never block).
+    `render(width)` returns the full-screen overlay lines (the component owns
+    its own styling/layout). `handle_input(key)` consumes one decoded key
+    string (e.g. ``"enter"``, ``"up"``, ``"tab"``, ``"esc"``, or a printable
+    character); the component finishes by calling the `done` callback it was
+    built with.
+    """
+
+    def render(self, width: int) -> list[str]: ...
+
+    def handle_input(self, key: str) -> None: ...
+
+
+# A factory that builds a CustomComponent given a `done(result)` callback.
+CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
+# The live driver that takes over the terminal to run a custom component.
+CustomComponentDriver = Callable[[CustomComponentFactory], object]
+
+
+@runtime_checkable
+class ExtensionUi(Protocol):
+    """Mode-aware UI handed to a command handler.
+
+    Exposes `notify` (transient messages) and `custom` (take over the terminal
+    with a custom interactive component). In non-interactive mode the methods
+    behave deterministically: notifications are recorded and `custom` is a
+    no-op returning ``None`` (never blocks).
     """
 
     has_ui: bool
 
     def notify(self, message: str, kind: str = "info") -> None: ...
+
+    def custom(self, factory: CustomComponentFactory) -> object: ...
 
 
 class ExtensionCapabilityError(RuntimeError):
@@ -493,10 +518,23 @@ class _CollectingUi:
         self,
         has_ui: bool,
         notify_sink: "Callable[[str, str], None] | None" = None,
+        custom_driver: "CustomComponentDriver | None" = None,
     ) -> None:
         self.has_ui = has_ui
         self.messages: list[tuple[str, str]] = []
         self._notify_sink = notify_sink
+        self._custom_driver = custom_driver
+
+    def custom(self, factory: "CustomComponentFactory") -> object:
+        """Run a custom interactive component, or no-op deterministically.
+
+        Returns the component's result when a live driver is wired and a UI is
+        available; otherwise returns ``None`` without constructing or driving
+        the component (deterministic non-interactive behavior).
+        """
+        if self._custom_driver is None or not self.has_ui:
+            return None
+        return self._custom_driver(factory)
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"
@@ -576,6 +614,8 @@ def dispatch_extension_command(
     has_ui: bool,
     messages: "Sequence[object]" = (),
     complete_fn: "CompletionFn | None" = None,
+    notify_sink: "Callable[[str, str], None] | None" = None,
+    ui_custom_driver: "CustomComponentDriver | None" = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
 
@@ -598,7 +638,7 @@ def dispatch_extension_command(
     if command is None:
         return None
 
-    ui = _CollectingUi(has_ui)
+    ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver)
     ctx = _CommandContext(cwd, ui, _ConversationView(messages), complete_fn)
     try:
         command.handler(ctx, args)
