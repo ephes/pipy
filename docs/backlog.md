@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 10: golden conformance extension (/pipy-extension-conformance)
+### Extension API slice 11: provider registration through the provider catalog
 
-Slices 1–9 have **landed**:
+Slices 1–10 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1455,29 +1455,35 @@ Slices 1–9 have **landed**:
 - Slice 8 (`tool_result` hooks): after any tool runs, `@api.on("tool_result")`
   may transform the bounded observation; chained, fail-safe, bounded. Gate:
   `scripts/parity_checks/extension_tool_result_conformance.py --json`.
-- Slice 9 (minimal UI notifications): `ctx.ui.notify(message, kind)` from a
-  command or hook handler surfaces to the live UI via a notify sink threaded
-  through the dispatchers / tool adapter / emitter; deterministic
-  (record + sink) in non-interactive mode. Gate:
+- Slice 9 (minimal UI notifications): `ctx.ui.notify(message, kind)` surfaces to
+  the live UI via a notify sink threaded through the dispatchers / tool adapter /
+  emitter; deterministic in non-interactive mode. Gate:
   `scripts/parity_checks/extension_ui_notify_conformance.py --json`.
+- Slice 10 (golden conformance extension): the golden
+  `docs/examples/extensions/pipy-extension-conformance.py` registers a command +
+  tool + all hooks; a single `/pipy-extension-conformance` trigger exercises the
+  whole API and writes safe feature markers to a proof JSONL. The product-path
+  test + gate assert all 12 markers, that the before_agent_start injection and
+  tool_result patch reach the provider/model, and that the proof leaks no
+  prompt/tool/UI bodies. Gates:
+  `tests/test_native_extension_conformance.py`,
+  `scripts/parity_checks/extension_conformance_gate.py --json`.
 
-The selected next implementation slice adds the golden conformance extension
-fixture and a product-path proof test. A single `/pipy-extension-conformance`
-trigger exercises the API end to end (command + tool registration/execution,
-lifecycle, input, before_agent_start, tool_call, tool_result, agent-end, minimal
-UI) and writes safe feature markers to a test proof JSONL file; the test asserts
-all markers are present and the default archive contains no prompt bodies, tool
-arguments, tool results, UI text, provider payloads, or proof-file contents.
+The selected next implementation slice adds provider registration: an extension
+registers a model provider via `api.register_provider(ExtensionProvider(...))`
+(name, default model, models, factory) that composes with the provider catalog
+and can be selected with `/model`; `api.unregister_provider(name)` removes it and
+restores any built-in it overrode. Providers read their own env vars / a future
+auth capability, never the shared auth store wholesale.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_conformance.py
+uv run pytest tests/test_native_extension_providers.py
 just check
 ```
 
-The expected follow-up slice is provider registration through the provider
-catalog.
+The expected follow-up slice is the package install/list/update/config CLI.
 
 ## Near Term
 

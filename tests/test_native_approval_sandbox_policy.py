@@ -774,14 +774,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Extension API slice 10: golden conformance extension "
-        "(/pipy-extension-conformance)" in next_slice
+        "### Extension API slice 11: provider registration through the provider "
+        "catalog" in next_slice
     )
-    assert "Slices 1–9 have" in compact_next_slice
-    assert 'api.on("tool_result")' in next_slice
+    assert "Slices 1–10 have" in compact_next_slice
     assert "ctx.ui.notify" in next_slice
     assert "/pipy-extension-conformance" in next_slice
-    assert "golden conformance extension" in compact_next_slice
+    assert "api.register_provider(ExtensionProvider(...))" in next_slice
+    assert "api.unregister_provider(name)" in next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

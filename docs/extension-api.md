@@ -770,7 +770,7 @@ extension `/commands` dispatch through the live tool-loop REPL
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 10 (the golden conformance extension). Discovery never imports extension code; activation imports
+selected implementation slice is slice 11 (provider registration). Discovery never imports extension code; activation imports
 only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -828,10 +828,12 @@ only loadable descriptors.
    hook handler surfaces to the live UI via a notify sink threaded through the
    dispatchers / tool adapter / `_ExtensionAwareEmitter`; deterministic
    (records + sink) in non-interactive mode.
-10. Golden conformance extension: add the `/pipy-extension-conformance` fixture
-    and product-path proof test after the command, lifecycle, input,
-    before-agent-start, tool registration, tool-call, tool-result, agent-end,
-    and minimal UI slices exist.
+10. Golden conformance extension — **landed**: the golden
+    `docs/examples/extensions/pipy-extension-conformance.py` + product-path proof
+    test (`tests/test_native_extension_conformance.py`) + gate
+    (`scripts/parity_checks/extension_conformance_gate.py --json`). A single
+    `/pipy-extension-conformance` trigger writes all 12 feature markers and the
+    proof leaks no prompt/tool/UI bodies.
 11. Provider registration through the provider catalog after command/tool/hook
     slices have review coverage.
 12. Package installation, package resource filters, update/list/config flows,
