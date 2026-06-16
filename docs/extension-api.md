@@ -11,10 +11,13 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-This is not implemented yet. Current pipy runtime resources are limited to
-bounded Markdown skills, prompt templates, custom slash commands, and chrome
-themes. Those resources should remain supported when the Python extension API
-lands.
+Implementation status: **partially implemented.** Slices 1–11 and slice 12's
+package-management CLI have landed (see "Suggested Implementation Slices"); the
+remaining slice-12 work is **package runtime composition** — wiring installed
+local-path package resources through discovery (extensions/skills/prompts/
+themes), which is not implemented yet. The pre-existing pipy runtime resources
+(bounded Markdown skills, prompt templates, custom slash commands, and chrome
+themes) remain supported alongside the Python extension API.
 
 ## Goals
 
