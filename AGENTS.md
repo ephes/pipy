@@ -1,6 +1,10 @@
 This file is for coding agents working in this repository. It records local project instructions that should be visible to Codex, Claude, Pi, and similar tools.
 
 ## Start Here
+- **Trunk-based development: work directly on `main`.** Do not create
+  `feature/*`, topic, or side branches for routine work. If you start on a
+  non-`main` branch, switch back to `main` first. See **Source Control** below
+  for the full policy.
 - Use `docs/backlog.md` as the current task-slice index. It names the next small, reviewable slice and the main deferred boundaries.
 - Use `docs/harness-spec.md` for harness architecture, native runtime direction, adapter boundaries, privacy constraints, and broader deferred design.
 - Use `docs/session-storage.md` before changing session capture, archive layout, catalog commands, automatic capture, sync behavior, or privacy policy.
@@ -20,9 +24,9 @@ This file is for coding agents working in this repository. It records local proj
 - Implementation and review work is not complete until documentation matches the change when behavior, workflow, or user-facing usage changes.
 - Update release notes in the same change when they apply. Treat missing or stale docs or release notes as incomplete work.
 
-## Source Control
-- This repo uses trunk-based development. Do routine work directly on `main` in
-  small, reviewable, green increments.
+## Source Control (trunk-based development)
+- **This repo uses trunk-based development.** Do routine work directly on `main`
+  in small, reviewable, green increments.
 - Do not create `feature/*`, topic, or other side branches for routine work. If
   you start a session and discover you are on a non-`main` branch, switch back
   to `main` before making changes when the worktree is clean. If the branch
