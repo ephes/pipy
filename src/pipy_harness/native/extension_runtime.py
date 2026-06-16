@@ -266,15 +266,25 @@ def make_extension_context(
     cwd: str,
     has_ui: bool,
     notify_sink: "Callable[[str, str], None] | None" = None,
+    *,
+    messages: "Sequence[object]" = (),
+    complete_fn: "CompletionFn | None" = None,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
     When `notify_sink` is given, `ctx.ui.notify` routes to it (live UI
     output) in addition to recording; otherwise notifications are only
-    recorded (deterministic non-interactive behavior).
+    recorded (deterministic non-interactive behavior). `messages` is a
+    snapshot of the live conversation used to back `ctx.conversation`;
+    `complete_fn`, when given, backs `ctx.complete`.
     """
 
-    return _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+    return _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        _ConversationView(messages),
+        complete_fn,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,18 +399,85 @@ class ExtensionUi(Protocol):
     def notify(self, message: str, kind: str = "info") -> None: ...
 
 
+class ExtensionCapabilityError(RuntimeError):
+    """A capability a handler asked for is not available in this context.
+
+    Raised by e.g. `ctx.complete(...)` when no completion backend is wired
+    (a deterministic / non-interactive dispatch), so a handler degrades
+    predictably instead of crashing on a missing attribute.
+    """
+
+
+# A bounded one-shot completion backend: (system_prompt, user_text) -> text.
+CompletionFn = Callable[[str, str], str]
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantMessageView:
+    """Read-only view of an assistant message handed to a command handler.
+
+    `text` is the assistant message content. `complete` is True when it was a
+    finished text answer — i.e. it carries text and left no tool calls pending
+    (the pipy analog of Pi's `stopReason === "stop"`). A handler that wants the
+    last *complete* answer (e.g. to extract questions from it) checks `complete`
+    before using `text`.
+    """
+
+    text: str
+    complete: bool
+
+
+@runtime_checkable
+class ConversationView(Protocol):
+    """Read-only view of the live conversation handed to a command handler."""
+
+    def last_assistant_message(self) -> "AssistantMessageView | None": ...
+
+
 @runtime_checkable
 class CommandContext(Protocol):
     """Context passed to an extension command handler.
 
-    Slice 3 keeps this small: the workspace root, whether interactive UI
-    is available, and the `ui` capability. It grows (session view, model
-    info, cancellation, system-prompt access) in later slices.
+    Carries the workspace root, whether interactive UI is available, the `ui`
+    capability, and a read-only `conversation` view (the last assistant
+    message). It grows (model info, cancellation, system-prompt access) in
+    later slices.
     """
 
     cwd: str
     has_ui: bool
     ui: ExtensionUi
+    conversation: ConversationView
+
+    def complete(self, system_prompt: str, user_text: str) -> str:
+        """Run one bounded provider completion and return its text.
+
+        Raises `ExtensionCapabilityError` when no completion backend is wired
+        (a non-interactive / deterministic dispatch).
+        """
+        ...
+
+
+class _ConversationView:
+    """Concrete `ConversationView` over a snapshot of the message history.
+
+    The handler receives a snapshot taken at dispatch time; it never mutates
+    the live conversation. Messages without an assistant turn yield `None`.
+    """
+
+    def __init__(self, messages: "Sequence[object]" = ()) -> None:
+        self._messages = tuple(messages)
+
+    def last_assistant_message(self) -> "AssistantMessageView | None":
+        # Import here to avoid a heavy import at module load.
+        from pipy_harness.native.tools.messages import AssistantMessage
+
+        for message in reversed(self._messages):
+            if isinstance(message, AssistantMessage):
+                text = message.content or ""
+                complete = bool(text.strip()) and not message.tool_calls
+                return AssistantMessageView(text=text, complete=complete)
+        return None
 
 
 class _CollectingUi:
@@ -435,10 +512,25 @@ class _CollectingUi:
 class _CommandContext:
     """Concrete `CommandContext` for one command invocation."""
 
-    def __init__(self, cwd: str, ui: _CollectingUi) -> None:
+    def __init__(
+        self,
+        cwd: str,
+        ui: _CollectingUi,
+        conversation: "ConversationView | None" = None,
+        complete_fn: "CompletionFn | None" = None,
+    ) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
         self.ui: ExtensionUi = ui
+        self.conversation: ConversationView = conversation or _ConversationView()
+        self._complete_fn = complete_fn
+
+    def complete(self, system_prompt: str, user_text: str) -> str:
+        if self._complete_fn is None:
+            raise ExtensionCapabilityError(
+                "completion is not available in this context"
+            )
+        return self._complete_fn(str(system_prompt), str(user_text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,6 +574,8 @@ def dispatch_extension_command(
     *,
     cwd: str,
     has_ui: bool,
+    messages: "Sequence[object]" = (),
+    complete_fn: "CompletionFn | None" = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
 
@@ -505,7 +599,7 @@ def dispatch_extension_command(
         return None
 
     ui = _CollectingUi(has_ui)
-    ctx = _CommandContext(cwd, ui)
+    ctx = _CommandContext(cwd, ui, _ConversationView(messages), complete_fn)
     try:
         command.handler(ctx, args)
     except (KeyboardInterrupt, SystemExit):

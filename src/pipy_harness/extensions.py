@@ -19,7 +19,11 @@ from __future__ import annotations
 
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
+    AssistantMessageView,
     CommandContext,
+    CompletionFn,
+    ConversationView,
+    ExtensionCapabilityError,
     ExtensionCommandDispatch,
     ExtensionUi,
     PipyExtensionAPI,
@@ -66,6 +70,10 @@ from pipy_harness.native.extensions import (
 __all__ = [
     "PipyExtensionAPI",
     "CommandContext",
+    "ConversationView",
+    "AssistantMessageView",
+    "CompletionFn",
+    "ExtensionCapabilityError",
     "ExtensionUi",
     "RegisteredCommand",
     "ActivatedExtension",

@@ -138,6 +138,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_TURN_END,
     EVENT_TURN_START,
     LIFECYCLE_EVENTS,
+    ExtensionCapabilityError,
     HookHandler,
     LifecycleEvent,
     QueuedUserMessage,
@@ -894,6 +895,29 @@ class NativeToolReplSession:
         # degrade deterministically in non-interactive mode.
         def _extension_notify(_kind: str, message: str) -> None:
             self._emit_diagnostic(terminal_ui, error_stream, message)
+
+        # A bounded one-shot completion handed to extension command handlers as
+        # `ctx.complete(system_prompt, user_text)`: runs a single provider turn
+        # with the active provider/model and no tools, and returns its text. It
+        # is a normal provider call (subject to the same auth); inputs are
+        # capped so a buggy handler cannot create unbounded provider input.
+        _EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
+
+        def _extension_complete(system_prompt: str, user_text: str) -> str:
+            request = ProviderRequest(
+                system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
+                user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                cwd=cwd,
+                available_tools=(),
+            )
+            result = self.provider.complete(request)
+            if result.status != HarnessStatus.SUCCEEDED:
+                raise ExtensionCapabilityError(
+                    f"completion failed ({result.error_type or result.status})"
+                )
+            return result.final_text or ""
 
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
@@ -2223,6 +2247,8 @@ class NativeToolReplSession:
                         extension_commands,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
+                        messages=messages,
+                        complete_fn=_extension_complete,
                     )
                     if extension_dispatch is not None:
                         for _kind, message in extension_dispatch.messages:
