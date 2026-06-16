@@ -773,15 +773,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
-    assert (
-        "### Extension API slice 12: package install/list/update/config CLI"
-        in next_slice
-    )
-    assert "Slices 1–11 have" in compact_next_slice
+    assert "### Extension API: all 12 slices landed" in next_slice
+    assert "Slices 1–12 have" in compact_next_slice
     assert "/pipy-extension-conformance" in next_slice
     assert "api.register_provider(ExtensionProvider(name, default_model, models, factory))" in next_slice
     assert "build_extension_provider_port" in next_slice
     assert "pipy install/remove/uninstall" in next_slice
+    assert "extension_package_conformance.py" in next_slice
+    assert "Pi judged whole-API completion" in compact_next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

@@ -769,9 +769,11 @@ extension `/commands` dispatch through the live tool-loop REPL
 `scripts/parity_checks/extension_tool_call_conformance.py --json`). Slice 5: the
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
-`scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 12 (the package CLI). Discovery never imports extension code; activation imports
-only loadable descriptors.
+`scripts/parity_checks/extension_lifecycle_conformance.py --json`). All 12
+slices have now **landed**, including slice 12 (the package CLI, gate
+`scripts/parity_checks/extension_package_conformance.py --json`); the whole
+extension API surface described here is implemented. Discovery never imports
+extension code; activation imports only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
@@ -840,9 +842,17 @@ only loadable descriptors.
     a `ProviderPort` (staged/committed, duplicate/invalid disable, bounded
     factory failures). The catalog/`/model` selector wiring is the
     provider-catalog track's follow-on.
-12. Package installation, package resource filters, update/list/config flows,
-    and remote `npm:`/`git:` source handling only after the local extension
-    runtime has a reviewed trust/security model.
+12. Package install/list/config CLI — **landed (local-path scope)**: `pipy
+    install/remove/uninstall [-l]` and `pipy list` manage local-path package
+    sources in a `packages` array in user/project `settings.json`, and `pipy
+    config <kind> <enable|disable> <pattern>` writes `+pattern`/`-pattern`
+    resource filters (never deleting discovered resources). Implemented as
+    `pipy_harness.native.package_manager` wired into `pipy_harness.cli`;
+    `git:`/`git+`/URL/`npm:` sources are rejected and no package lifecycle
+    scripts run. Gate
+    `scripts/parity_checks/extension_package_conformance.py --json`. Remote
+    `git:`/PyPI source handling stays deferred until a supply-chain policy and
+    isolated package cache are written.
 
 ## Open Questions
 

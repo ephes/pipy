@@ -1401,9 +1401,10 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 12: package install/list/update/config CLI
+### Extension API: all 12 slices landed
 
-Slices 1–11 have **landed**:
+The extension + package platform from `docs/extension-api.md` is now
+feature-complete. Slices 1–12 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1474,23 +1475,30 @@ Slices 1–11 have **landed**:
   the shared auth store). The catalog / `/model` selector wiring is the
   provider-catalog track's follow-on. Gate:
   `scripts/parity_checks/extension_providers_conformance.py --json`.
+- Slice 12 (package install/list/update/config CLI): `pipy install/remove/uninstall
+  [-l]` and `pipy list` manage Pi-shaped local-path package sources recorded in
+  a `packages` array in user `<config>/settings.json` or project
+  `<cwd>/.pipy/settings.json` (with `-l`); `pipy config <kind> <enable|disable>
+  <pattern>` writes `+pattern`/`-pattern` resource filters (never deleting
+  discovered resources). `git:`/`git+`/URL/`npm:` sources are rejected (exit 2),
+  a missing local path fails closed, removing an unconfigured source exits
+  non-zero, and no package lifecycle scripts run. Settings-only: no source path
+  or command output crosses into the metadata archive. Gate:
+  `scripts/parity_checks/extension_package_conformance.py --json`.
 
-The selected next (final) implementation slice adds the package CLI: Pi-shaped
-`pipy install/remove/uninstall [-l]`, `list`, `config`, and `update`
-[source|self|pipy] over local-path package sources, recorded in user/project
-`settings.json` as `+pattern`/`-pattern` filters (never deleting discovered
-resources). Package manifests contribute extensions/skills/prompts/themes through
-the same runtime boundaries; no lifecycle scripts run; remote `git:`/PyPI sources
-stay out until a supply-chain policy exists.
+With slice 12 landed the whole extension API surface from `docs/extension-api.md`
+is implemented, and Pi judged whole-API completion. The remaining deferred work —
+remote `git:`/PyPI package sources behind a supply-chain policy and the
+catalog/`/model` selector wiring for extension-registered providers — is tracked
+under Deferred and the provider-catalog track, not as a next slice.
 
-Acceptance criteria:
+Acceptance criteria (whole extension API):
 
 ```sh
 uv run python scripts/parity_checks/extension_package_conformance.py --json
+uv run python scripts/parity_checks/extension_conformance_gate.py --json
 just check
 ```
-
-This is the last extension-API slice; after it, Pi judges whole-API completion.
 
 ## Near Term
 

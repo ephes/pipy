@@ -471,6 +471,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON (for list).",
     )
 
+    # Package manager (local-path sources). `config` above is the resource
+    # enable/disable surface; these manage the `packages` settings array.
+    for _name, _help in (
+        ("install", "Install (record) a local-path extension package source."),
+        ("remove", "Remove a configured package source."),
+        ("uninstall", "Remove a configured package source (alias of remove)."),
+    ):
+        _pkg = subparsers.add_parser(_name, help=_help)
+        _pkg.add_argument("source", help="Local-path package source.")
+        _pkg.add_argument(
+            "-l",
+            "--local",
+            action="store_true",
+            help="Write to project settings (.pipy/settings.json) instead of user.",
+        )
+        _pkg.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
+    _list = subparsers.add_parser("list", help="List configured packages.")
+    _list.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
+
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
 
@@ -543,6 +562,8 @@ def main(argv: list[str] | None = None) -> int:
             return _handle_list_models(args.list_models or None)
         if args.command == "config":
             return _cmd_config(args)
+        if args.command in {"install", "remove", "uninstall", "list"}:
+            return _cmd_package(args)
         if args.command == "auth":
             if args.auth_provider == "openai-codex" and args.auth_action == "login":
                 OpenAICodexAuthManager().login_interactive(
@@ -983,6 +1004,58 @@ _CONFIG_RESOURCE_KEYS = {
     "theme": "themes",
     "extension": "extensions",
 }
+
+
+def _cmd_package(args: Any) -> int:
+    """`pipy install/remove/uninstall/list`: manage local-path packages.
+
+    Sources are recorded in the `packages` array of the user settings
+    (`<config>/settings.json`) or, with `-l/--local`, the project settings
+    (`<cwd>/.pipy/settings.json`). Only local-path sources are supported in
+    this slice; `git:`/`http(s):`/`npm:` sources are rejected.
+    """
+
+    from pipy_harness.native import package_manager as pkg
+    from pipy_harness.native.settings import (
+        global_settings_path,
+        project_settings_path,
+    )
+
+    cwd = args.cwd.expanduser().resolve()
+    if args.command == "list":
+        listing = pkg.list_packages(
+            user_path=global_settings_path(),
+            project_path=project_settings_path(cwd),
+        )
+        print(pkg.format_package_listing(listing))
+        return 0
+
+    source = args.source
+    settings_path = (
+        project_settings_path(cwd) if args.local else global_settings_path()
+    )
+    if args.command == "install":
+        if not pkg.is_local_path_source(source):
+            print(
+                f"pipy: only local-path package sources are supported; got {source!r}",
+                file=sys.stderr,
+            )
+            return 2
+        if pkg.canonical_local_source(source, cwd if args.local else None) is None:
+            print(
+                f"pipy: package source not found: {source}",
+                file=sys.stderr,
+            )
+            return 2
+        print(pkg.install_package(source, settings_path))
+        return 0
+    # remove / uninstall
+    message = pkg.remove_package(source, settings_path)
+    if message is None:
+        print(f"pipy: package source not configured: {source}", file=sys.stderr)
+        return 1
+    print(message)
+    return 0
 
 
 def _cmd_config(args: Any) -> int:
