@@ -141,6 +141,8 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     QueuedUserMessage,
     RegisteredCommand,
+    RegisteredTool,
+    ToolResult,
     activate_extensions,
     dispatch_before_agent_start_hooks,
     dispatch_extension_command,
@@ -151,6 +153,8 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
     extension_event_hooks,
     extension_tool_call_hooks,
+    extension_tools,
+    make_extension_context,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.resources import (
@@ -190,6 +194,7 @@ from pipy_harness.native.tools import (
     LoopMessage,
     ToolArgumentError,
     ToolContext,
+    ToolDefinition,
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
@@ -474,6 +479,73 @@ def _tool_loop_command_descriptions(
     return descriptions
 
 
+class _ExtensionToolPort:
+    """Adapt an extension `RegisteredTool` to the native `ToolPort`.
+
+    The loop validates arguments against `definition.input_schema` before
+    `invoke`, so the handler receives already-validated input. A handler
+    exception becomes a bounded tool error (never a session crash), and
+    the provider-visible output is bounded. `KeyboardInterrupt` /
+    `SystemExit` propagate.
+
+    Trust model (see the extension-api spec "Local trust boundary"):
+    extension tool handlers are trusted local Python that runs in-process
+    with the user's own OS permissions — the same trust level as the
+    extension's `activate()` function. There is no in-process sandbox, so
+    "read-only / pure" is the *documented convention* for this slice, not
+    a runtime guarantee; capability *enforcement* (shell / network / write
+    permission gates derived from the manifest `[permissions]` table) is a
+    later, explicitly-scoped permission-policy slice. What pipy does
+    enforce here is the provider boundary: schema-validated input, bounded
+    output, and bounded errors.
+    """
+
+    def __init__(self, registered: RegisteredTool, *, has_ui: bool) -> None:
+        self._registered = registered
+        self._has_ui = has_ui
+        tool = registered.tool
+        self._definition = ToolDefinition(
+            name=tool.name,
+            description=str(tool.description),
+            input_schema=dict(tool.input_schema),
+        )
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return self._definition
+
+    def invoke(
+        self, request: ToolRequest, context: ToolContext
+    ) -> ToolExecutionResult:
+        ctx = make_extension_context(str(context.workspace_root), self._has_ui)
+        try:
+            result = self._registered.tool.handler(ctx, dict(request.arguments))
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as err:  # noqa: BLE001 - bound a bad tool
+            return ToolExecutionResult(
+                tool_request_id=request.tool_request_id,
+                output_text=f"extension tool error: {type(err).__name__}",
+                is_error=True,
+                provider_correlation_id=request.provider_correlation_id,
+            )
+        if isinstance(result, ToolResult) and isinstance(result.content, str):
+            content = result.content
+        elif isinstance(result, ToolResult):
+            content = str(result.content)
+        else:
+            content = str(result)
+        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+        if len(content) > cap:
+            content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text=content,
+            is_error=False,
+            provider_correlation_id=request.provider_correlation_id,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class _ExtensionRuntime:
     """The activated-extension contributions wired into one session run."""
@@ -486,11 +558,13 @@ class _ExtensionRuntime:
     input_hooks: tuple[HookHandler, ...]
     before_agent_start_hooks: tuple[HookHandler, ...]
     outbox: list[QueuedUserMessage]
+    tools: tuple[RegisteredTool, ...]
 
 
 def _activate_workspace_extensions(
     cwd: Path,
     resources: WorkspaceResources,
+    reserved_tool_names: tuple[str, ...] = (),
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -510,7 +584,10 @@ def _activate_workspace_extensions(
     descriptors = discover_extensions(cwd)
     outbox: list[QueuedUserMessage] = []
     activated = activate_extensions(
-        descriptors, reserved_command_names=reserved, message_outbox=outbox
+        descriptors,
+        reserved_command_names=reserved,
+        reserved_tool_names=reserved_tool_names,
+        message_outbox=outbox,
     )
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
@@ -532,6 +609,7 @@ def _activate_workspace_extensions(
         input_hooks=input_hooks,
         before_agent_start_hooks=before_agent_start_hooks,
         outbox=outbox,
+        tools=extension_tools(activated),
     )
 
 
@@ -767,7 +845,11 @@ class NativeToolReplSession:
         # Discover + activate Python extensions and project their slash
         # commands. Activation runs extension code; a failing extension is
         # disabled without affecting the session.
-        _ext_runtime = _activate_workspace_extensions(cwd, workspace_resources)
+        # Built-in tool names are reserved so an extension tool can never
+        # shadow a built-in tool.
+        _ext_runtime = _activate_workspace_extensions(
+            cwd, workspace_resources, tuple(self.tool_registry.keys())
+        )
         extension_commands = _ext_runtime.commands
         extension_menu_names = _ext_runtime.menu_names
         extension_descriptions = _ext_runtime.descriptions
@@ -788,6 +870,16 @@ class NativeToolReplSession:
             extension_menu_names=extension_menu_names,
             extension_descriptions=extension_descriptions,
         )
+        # Merge activated extension tools into this run's tool registry
+        # (the shared built-in registry is never mutated). Extension tools
+        # join the bounded tool loop with the same schema validation +
+        # output bounds as built-ins.
+        run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
+        for _registered_tool in _ext_runtime.tools:
+            _port = _ExtensionToolPort(
+                _registered_tool, has_ui=terminal_ui is not None
+            )
+            run_tool_registry[_port.definition.name] = _port
         # Image attachments may reference an owner-only clipboard temp dir
         # (Ctrl+V paste); that dir is added to the image reference roots so a
         # pasted ``@image:<temp>`` resolves while the workspace path policy is
@@ -1503,7 +1595,7 @@ class NativeToolReplSession:
                     # /reload also reloads extensions). A failing extension is
                     # disabled without affecting the session.
                     _ext_runtime = _activate_workspace_extensions(
-                        cwd, workspace_resources
+                        cwd, workspace_resources, tuple(self.tool_registry.keys())
                     )
                     extension_commands = _ext_runtime.commands
                     extension_menu_names = _ext_runtime.menu_names
@@ -1515,6 +1607,14 @@ class NativeToolReplSession:
                         _ext_runtime.before_agent_start_hooks
                     )
                     extension_message_outbox = _ext_runtime.outbox
+                    # Rebuild this run's tool registry with the reloaded
+                    # extension tools.
+                    run_tool_registry = dict(self.tool_registry)
+                    for _registered_tool in _ext_runtime.tools:
+                        _port = _ExtensionToolPort(
+                            _registered_tool, has_ui=terminal_ui is not None
+                        )
+                        run_tool_registry[_port.definition.name] = _port
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
                     emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
@@ -2244,7 +2344,7 @@ class NativeToolReplSession:
                 while inner_iterations < inner_iteration_cap:
                     inner_iterations += 1
                     available_tools = tuple(
-                        tool.definition for tool in self.tool_registry.values()
+                        tool.definition for tool in run_tool_registry.values()
                     )
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
@@ -2451,7 +2551,9 @@ class NativeToolReplSession:
                         active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
                         try:
-                            observation = self._invoke(call=call, context=context)
+                            observation = self._invoke(
+                                call=call, context=context, registry=run_tool_registry
+                            )
                         finally:
                             active_tool_call[0] = None
                         tool_ended_at = datetime.now(UTC)
@@ -4027,8 +4129,11 @@ class NativeToolReplSession:
         *,
         call: ProviderToolCall,
         context: ToolContext,
+        registry: dict[str, ToolPort] | None = None,
     ) -> ToolResultMessage:
-        tool = self.tool_registry.get(call.tool_name)
+        tool = (registry if registry is not None else self.tool_registry).get(
+            call.tool_name
+        )
         if tool is None:
             return self._error_observation(
                 call=call,

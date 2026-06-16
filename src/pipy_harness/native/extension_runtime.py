@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
 from pipy_harness.native.extensions import ExtensionDescriptor
+from pipy_harness.native.tools.base import ToolDefinition
 
 CommandHandler = Callable[..., object]
 
@@ -51,6 +52,12 @@ REASON_INVALID_COMMAND_NAME: str = "invalid_command_name"
 REASON_RESERVED_COMMAND: str = "reserved_command"
 REASON_DUPLICATE_COMMAND: str = "duplicate_command"
 REASON_INVALID_HOOK: str = "invalid_hook"
+REASON_INVALID_TOOL: str = "invalid_tool"
+REASON_RESERVED_TOOL: str = "reserved_tool"
+REASON_DUPLICATE_TOOL: str = "duplicate_tool"
+
+# Bound an extension tool's provider-visible output.
+_TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 
 # Event names (the dispatched subset grows per slice).
 EVENT_TOOL_CALL: str = "tool_call"
@@ -130,6 +137,51 @@ class QueuedUserMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolResult:
+    """Returned by an extension tool handler.
+
+    `content` is the provider-visible result text (bounded before it
+    reaches the model). `details` is structured local state/metadata for
+    rendering or later hooks; it is not sent to the provider and not
+    archived by default. (Pi-shaped `content`/`details`; the richer
+    block-content + `terminate` shape arrives in a later slice.)
+    """
+
+    content: str
+    details: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionTool:
+    """A model-visible tool an extension registers via `api.register_tool`.
+
+    `input_schema` is a JSON-schema dict in pipy's supported subset
+    (validated at registration). `handler(ctx, input)` receives a
+    mode-aware context and the validated input mapping and returns a
+    `ToolResult`.
+    """
+
+    name: str
+    description: str
+    input_schema: Mapping[str, object]
+    handler: Callable[..., object]
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredTool:
+    """An extension tool accepted during activation, with its owner."""
+
+    tool: ExtensionTool
+    extension: str
+
+
+def make_extension_context(cwd: str, has_ui: bool) -> CommandContext:
+    """Build a mode-aware context for a tool/command/hook invocation."""
+
+    return _CommandContext(cwd, _CollectingUi(has_ui))
+
+
+@dataclass(frozen=True, slots=True)
 class ToolBlock:
     """Returned by a `tool_call` hook to block a tool call with a reason."""
 
@@ -185,6 +237,8 @@ class PipyExtensionAPI(Protocol):
         options: Mapping[str, object] | None = None,
     ) -> None: ...
 
+    def register_tool(self, tool: "ExtensionTool") -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RegisteredCommand:
@@ -216,6 +270,7 @@ class ActivatedExtension:
     commands: tuple[RegisteredCommand, ...]
     diagnostic: str | None
     hooks: Mapping[str, tuple[HookHandler, ...]] = field(default_factory=dict)
+    tools: tuple[RegisteredTool, ...] = ()
 
 
 @runtime_checkable
@@ -270,7 +325,7 @@ class _CommandContext:
     def __init__(self, cwd: str, ui: _CollectingUi) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
-        self.ui = ui
+        self.ui: ExtensionUi = ui
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,12 +439,17 @@ class _ActivationApi:
         reserved: frozenset[str],
         taken: frozenset[str],
         outbox: list[QueuedUserMessage],
+        reserved_tools: frozenset[str] = frozenset(),
+        taken_tools: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
         self._taken = taken
+        self._reserved_tools = reserved_tools
+        self._taken_tools = taken_tools
         self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
+        self._staged_tools: dict[str, RegisteredTool] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -418,6 +478,45 @@ class _ActivationApi:
         self._activated = True
         self._outbox.extend(self._staged_messages)
         self._staged_messages = []
+
+    def register_tool(self, tool: ExtensionTool) -> None:
+        try:
+            self._validate_and_stage_tool(tool)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def _validate_and_stage_tool(self, tool: ExtensionTool) -> None:
+        if not isinstance(tool, ExtensionTool):
+            raise _ActivationError(REASON_INVALID_TOOL)
+        name = tool.name
+        if not isinstance(name, str) or not name:
+            raise _ActivationError(REASON_INVALID_TOOL)
+        if name in self._reserved_tools:
+            raise _ActivationError(REASON_RESERVED_TOOL)
+        if name in self._taken_tools or name in self._staged_tools:
+            raise _ActivationError(REASON_DUPLICATE_TOOL)
+        if not callable(tool.handler):
+            raise _ActivationError(REASON_INVALID_TOOL)
+        if not isinstance(tool.input_schema, Mapping):
+            raise _ActivationError(REASON_INVALID_TOOL)
+        try:
+            # Construct a ToolDefinition to validate the name + schema in
+            # pipy's supported subset (same validation built-in tools get).
+            ToolDefinition(
+                name=name,
+                description=str(tool.description),
+                input_schema=dict(tool.input_schema),
+            )
+        except (ValueError, TypeError) as exc:
+            raise _ActivationError(REASON_INVALID_TOOL, _safe_diagnostic(exc)) from None
+        self._staged_tools[name] = RegisteredTool(
+            tool=tool, extension=self._extension_name
+        )
+
+    def staged_tools(self) -> tuple[RegisteredTool, ...]:
+        return tuple(self._staged_tools.values())
 
     def register_command(
         self,
@@ -506,6 +605,7 @@ def activate_extensions(
     descriptors: Sequence[ExtensionDescriptor],
     *,
     reserved_command_names: Sequence[str] = (),
+    reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
@@ -522,7 +622,9 @@ def activate_extensions(
     """
 
     reserved = frozenset(reserved_command_names)
+    reserved_tools = frozenset(reserved_tool_names)
     taken: set[str] = set()
+    taken_tools: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
@@ -532,9 +634,29 @@ def activate_extensions(
             results.append(_passthrough_disabled(descriptor))
             continue
         results.append(
-            _activate_one(descriptor, reserved=reserved, taken=taken, outbox=outbox)
+            _activate_one(
+                descriptor,
+                reserved=reserved,
+                taken=taken,
+                reserved_tools=reserved_tools,
+                taken_tools=taken_tools,
+                outbox=outbox,
+            )
         )
     return results
+
+
+def extension_tools(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[RegisteredTool, ...]:
+    """Collect registered tools from activated extensions, in order."""
+
+    tools: list[RegisteredTool] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        tools.extend(extension.tools)
+    return tuple(tools)
 
 
 def drain_user_messages(
@@ -552,6 +674,8 @@ def _activate_one(
     *,
     reserved: frozenset[str],
     taken: set[str],
+    reserved_tools: frozenset[str],
+    taken_tools: set[str],
     outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
@@ -574,7 +698,12 @@ def _activate_one(
         return _disabled(descriptor, REASON_NO_ACTIVATE, None)
 
     api = _ActivationApi(
-        descriptor.name, reserved=reserved, taken=frozenset(taken), outbox=outbox
+        descriptor.name,
+        reserved=reserved,
+        taken=frozenset(taken),
+        reserved_tools=reserved_tools,
+        taken_tools=frozenset(taken_tools),
+        outbox=outbox,
     )
     try:
         result = activate(api)
@@ -596,10 +725,13 @@ def _activate_one(
         return _disabled(descriptor, failure_reason, failure_diagnostic)
 
     commands = api.staged_commands()
-    # Commit the names + staged send_user_message prompts only now that
-    # activation fully succeeded.
+    tools = api.staged_tools()
+    # Commit the command/tool names + staged send_user_message prompts only
+    # now that activation fully succeeded.
     for command in commands:
         taken.add(command.name)
+    for registered in tools:
+        taken_tools.add(registered.tool.name)
     api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
@@ -610,6 +742,7 @@ def _activate_one(
         commands=commands,
         diagnostic=None,
         hooks=api.staged_hooks(),
+        tools=tools,
     )
 
 

@@ -1401,9 +1401,9 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 7: pure/read-only extension tool registration
+### Extension API slice 8: tool_result hooks (content + details, transforms)
 
-Slices 1–6 have **landed**:
+Slices 1–7 have **landed**:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1439,30 +1439,34 @@ Slices 1–6 have **landed**:
   observers via an `_ExtensionAwareEmitter` wrapping the automation emitter
   (`dispatch_lifecycle_hooks`); observe-only, fail-soft. Gate:
   `scripts/parity_checks/extension_lifecycle_conformance.py --json`.
-- Slice 6 (`input`/`before_agent_start` + `send_user_message`): an `input` hook
-  transforms the provider-visible prompt (`dispatch_input_hooks`, fail-safe);
-  a `before_agent_start` hook injects bounded context into the turn's system
-  prompt (`dispatch_before_agent_start_hooks`); `api.send_user_message` enqueues
-  a deterministic provider turn drained by the loop (`drain_user_messages`).
+- Slice 6 (`input`/`before_agent_start` + `send_user_message`): input transform,
+  before_agent_start system-prompt injection, send_user_message-triggered turn.
   Gate: `scripts/parity_checks/extension_input_hooks_conformance.py --json`.
+- Slice 7 (extension tool registration): `api.register_tool(ExtensionTool(...))`
+  joins the bounded tool registry via `_ExtensionToolPort`; the model can call
+  it, its `ToolResult(content, details)` flows back (schema-validated input,
+  bounded output, handler exceptions → bounded tool errors); shadowing a
+  built-in / invalid schema / duplicate disables the extension. Handlers are
+  trusted local code (user OS permissions, no in-process sandbox, per the spec
+  "Local trust boundary"); "read-only / pure" is a convention for this slice —
+  capability enforcement (shell/network/write gates from the manifest
+  `[permissions]`) is a later permission-policy slice. Gate:
+  `scripts/parity_checks/extension_tools_conformance.py --json`.
 
-The selected next implementation slice adds pure / read-only extension tool
-registration: an extension registers a model-visible tool (`api.register_tool`)
-with a JSON-schema input, joined to the bounded tool registry; the model can
-call it and its `ToolResult(content, details)` flows back. First-slice tools are
-read-only / pure transforms — shell/network/write require a later permission
-policy. Tool exceptions become bounded tool errors, and results are bounded
-before returning to the model.
+The selected next implementation slice adds `tool_result` hooks: after a tool
+(built-in or extension) runs, an extension `@api.on("tool_result")` handler may
+observe or transform the bounded result content/metadata before the next model
+turn, with deterministic propagation of the transformed observation. Fail-safe;
+no raw tool results enter the default archive.
 
 Acceptance criteria:
 
 ```sh
-uv run pytest tests/test_native_extension_tools.py
+uv run pytest tests/test_native_extension_tool_result_hooks.py
 just check
 ```
 
-The expected follow-up slice is tool_result hooks (Pi-shaped content + details,
-bounded progress, result transforms).
+The expected follow-up slice is minimal UI notifications (`ctx.ui.notify`).
 
 ## Near Term
 

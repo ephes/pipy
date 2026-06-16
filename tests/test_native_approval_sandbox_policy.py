@@ -774,15 +774,14 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Extension API slice 7: pure/read-only extension tool registration"
-        in next_slice
+        "### Extension API slice 8: tool_result hooks (content + details, "
+        "transforms)" in next_slice
     )
-    assert "Slices 1–6 have" in compact_next_slice
-    assert "dispatch_tool_call_hooks" in next_slice
-    assert "dispatch_input_hooks" in next_slice
-    assert "api.send_user_message" in next_slice
-    assert "api.register_tool" in next_slice
+    assert "Slices 1–7 have" in compact_next_slice
+    assert "_ExtensionToolPort" in next_slice
+    assert "api.register_tool(ExtensionTool(...))" in next_slice
     assert "ToolResult(content, details)" in next_slice
+    assert 'api.on("tool_result")' in next_slice
     assert "Native Pi-Like REPL Startup Chrome" in spec
     assert "Pi Parity Direction" in spec
     assert "Native Terminal-Layer Direction Checkpoint" in spec

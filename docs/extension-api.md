@@ -770,8 +770,7 @@ extension `/commands` dispatch through the live tool-loop REPL
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). The next
-selected implementation slice is slice 7 (pure/read-only extension tool
-registration). Discovery never imports extension code; activation imports
+selected implementation slice is slice 8 (`tool_result` hooks). Discovery never imports extension code; activation imports
 only loadable descriptors.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
@@ -814,8 +813,11 @@ only loadable descriptors.
    `dispatch_input_hooks`/`dispatch_before_agent_start_hooks`,
    `api.send_user_message` + `drain_user_messages`, wired into the
    `tool_loop_session` prompt/turn path.
-7. Pure/read-only tool registration: add extension tools to the bounded tool
-   loop using existing JSON-schema validation and output bounds.
+7. Pure/read-only tool registration — **landed**: add extension tools to the
+   bounded tool loop using existing JSON-schema validation and output bounds.
+   Implemented as `ExtensionTool`/`ToolResult`/`RegisteredTool` +
+   `api.register_tool` + `extension_tools` + the `_ExtensionToolPort` adapter
+   wired into `tool_loop_session`'s per-run tool registry.
 8. Tool result hooks: support Pi-shaped tool `content` plus `details`, bounded
    progress/update events, `tool_result` transforms, and deterministic
    propagation of transformed observations to the model.
