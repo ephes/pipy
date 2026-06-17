@@ -39,7 +39,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.capture import sanitize_text
@@ -163,6 +163,8 @@ from pipy_harness.native.extension_runtime import (
     make_extension_context,
 )
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resources import (
     DISPATCH_LIST,
     WorkspaceResources,
@@ -583,6 +585,9 @@ def _activate_workspace_extensions(
     cwd: Path,
     resources: WorkspaceResources,
     reserved_tool_names: tuple[str, ...] = (),
+    *,
+    package_roots: "Sequence[PackageRoot]" = (),
+    extension_patterns: Sequence[str] = (),
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -599,7 +604,15 @@ def _activate_workspace_extensions(
     reserved = tuple(
         name.lstrip("/") for name in _tool_loop_command_names(resources)
     )
-    descriptors = discover_extensions(cwd)
+    descriptors = discover_extensions(cwd, package_roots=tuple(package_roots))
+    if extension_patterns:
+        from pipy_harness.native.resource_enablement import is_resource_enabled
+
+        descriptors = [
+            descriptor
+            for descriptor in descriptors
+            if is_resource_enabled(descriptor.name, list(extension_patterns))
+        ]
     outbox: list[QueuedUserMessage] = []
     activated = activate_extensions(
         descriptors,
@@ -859,9 +872,16 @@ class NativeToolReplSession:
         effective_model_id = model_id or self.provider.model_id
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        # Compose installed local-path package resources: resolve their
+        # roots and install the package theme registry so package
+        # skills/prompts/extensions/themes flow through discovery at lowest
+        # precedence with the Pi-shaped enablement filters applied.
+        package_roots = compose_package_runtime(settings, cwd)
         # Apply the settings resource enable/disable directives (Pi pi config):
         # disabled skills/prompts are dropped from what is registered.
-        workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
+        workspace_resources = WorkspaceResources.discover(
+            cwd, package_roots=package_roots
+        ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
             enable_skill_commands=settings.get_enable_skill_commands(),
@@ -872,7 +892,11 @@ class NativeToolReplSession:
         # Built-in tool names are reserved so an extension tool can never
         # shadow a built-in tool.
         _ext_runtime = _activate_workspace_extensions(
-            cwd, workspace_resources, tuple(self.tool_registry.keys())
+            cwd,
+            workspace_resources,
+            tuple(self.tool_registry.keys()),
+            package_roots=package_roots.extensions,
+            extension_patterns=settings.get_extensions_patterns(),
         )
         extension_commands = _ext_runtime.commands
         extension_menu_names = _ext_runtime.menu_names
@@ -1691,7 +1715,13 @@ class NativeToolReplSession:
                     # to the built-in defaults. No provider turn, no tool call.
                     settings.reload()
                     keybindings.reload()
-                    workspace_resources = WorkspaceResources.discover(cwd).with_enablement(
+                    # Re-resolve package roots + re-install the theme
+                    # registry so a package added/removed since startup is
+                    # reflected after /reload.
+                    package_roots = compose_package_runtime(settings, cwd)
+                    workspace_resources = WorkspaceResources.discover(
+                        cwd, package_roots=package_roots
+                    ).with_enablement(
                         skills_patterns=settings.get_skills_patterns(),
                         prompts_patterns=settings.get_prompts_patterns(),
                         enable_skill_commands=settings.get_enable_skill_commands(),
@@ -1700,7 +1730,11 @@ class NativeToolReplSession:
                     # /reload also reloads extensions). A failing extension is
                     # disabled without affecting the session.
                     _ext_runtime = _activate_workspace_extensions(
-                        cwd, workspace_resources, tuple(self.tool_registry.keys())
+                        cwd,
+                        workspace_resources,
+                        tuple(self.tool_registry.keys()),
+                        package_roots=package_roots.extensions,
+                        extension_patterns=settings.get_extensions_patterns(),
                     )
                     extension_commands = _ext_runtime.commands
                     extension_menu_names = _ext_runtime.menu_names

@@ -116,6 +116,33 @@ def test_discover_loaded_resource_names_returns_local_and_global(
     assert "~/.pipy/AGENTS.md" in context_names
 
 
+def test_startup_skills_listing_honors_disable_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A globally disabled skill must not be shown as loaded in [Skills]."""
+
+    import json
+
+    workspace = tmp_path / "workspace"
+    skills_dir = workspace / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "visible.md").write_text(
+        "---\nname: visible\ndescription: d\n---\nbody\n", encoding="utf-8"
+    )
+    (skills_dir / "hidden.md").write_text(
+        "---\nname: hidden\ndescription: d\n---\nbody\n", encoding="utf-8"
+    )
+    (workspace / ".pipy" / "settings.json").write_text(
+        json.dumps({"skills": ["-hidden"]}), encoding="utf-8"
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "cfg"))
+
+    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
+
+    assert "visible" in skill_names
+    assert "hidden" not in skill_names
+
+
 def test_discover_does_not_leak_neighbor_tool_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

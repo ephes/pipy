@@ -14,12 +14,17 @@ scope):
    source fails non-zero;
 5. git / PyPI / URL sources are rejected (no supply-chain execution).
 
-Scope note: this gate covers the package-management CLI only. The spec
-"Package conformance gate" items 2 (package manifests contribute an
-extension/skill/prompt/theme with deterministic precedence), 4 (filters affect
-runtime discovery), and 8 (no source path or resource body leaks into the
-metadata archive) require **package runtime composition**, which is the
-remaining slice-12 work; this gate is extended to prove them when that lands.
+It also covers **package runtime composition** (the slice-12 closeout), proving
+the spec "Package conformance gate" items 2, 4, and 8:
+
+6. (item 2) a package manifest contributes an extension, a skill, a
+   prompt/template, and a theme, and resource precedence is deterministic (a
+   workspace resource wins a name collision with a package resource);
+7. (item 4) Pi-shaped `+pattern` / `-pattern` filters affect runtime discovery
+   of package skills, prompts, and themes;
+8. (item 8) no package source path or resource body (skill/prompt body,
+   extension source, theme palette) leaks into the archive-safe metadata
+   projections.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -40,11 +45,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pipy_harness.cli import main as cli_main
+from pipy_harness.native import themes
+from pipy_harness.native.extensions import discover_extensions, safe_extension_metadata
 from pipy_harness.native.package_manager import (
     configure_resource_filter,
+    install_package,
     resource_filters,
 )
-from pipy_harness.native.settings import global_settings_path, project_settings_path
+from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.resources import WorkspaceResources
+from pipy_harness.native.settings import (
+    SettingsManager,
+    global_settings_path,
+    project_settings_path,
+)
 
 
 @dataclass
@@ -162,6 +176,184 @@ def run_checks(base: Path) -> list[Check]:
             "git / PyPI / URL sources are rejected (case- and scheme-robust)",
         )
     )
+
+    checks.extend(_runtime_composition_checks(base))
+    return checks
+
+
+def _make_demo_package(base: Path) -> Path:
+    """Build a package contributing all four resource kinds via a manifest."""
+
+    pkg = base / "demo-pack"
+    (pkg / "skills").mkdir(parents=True)
+    (pkg / "prompts").mkdir(parents=True)
+    (pkg / "themes").mkdir(parents=True)
+    (pkg / "extensions").mkdir(parents=True)
+    (pkg / "pipy-package.toml").write_text(
+        'name = "demo-pack"\n'
+        "[resources]\n"
+        'skills = ["skills"]\n'
+        'prompts = ["prompts"]\n'
+        'themes = ["themes"]\n'
+        'extensions = ["extensions"]\n',
+        encoding="utf-8",
+    )
+    (pkg / "skills" / "pkgskill.md").write_text(
+        "---\nname: pkgskill\ndescription: d\n---\nSECRET-SKILL-BODY\n",
+        encoding="utf-8",
+    )
+    # A skill whose name collides with a workspace skill, to prove precedence.
+    (pkg / "skills" / "dup.md").write_text(
+        "---\nname: dup\ndescription: d\n---\nPACKAGE-DUP-BODY\n", encoding="utf-8"
+    )
+    (pkg / "prompts" / "pkgprompt.md").write_text(
+        "---\nname: pkgprompt\ndescription: d\n---\nSECRET-PROMPT-BODY\n",
+        encoding="utf-8",
+    )
+    (pkg / "themes" / "pkgtheme.toml").write_text(
+        'name = "pkgtheme"\naccent_truecolor = "38;2;5;6;7"\n', encoding="utf-8"
+    )
+    (pkg / "extensions" / "pkgext.py").write_text(
+        "def activate(api):\n    pass  # SECRET-EXTENSION-SOURCE\n", encoding="utf-8"
+    )
+    return pkg
+
+
+def _runtime_composition_checks(base: Path) -> list[Check]:
+    """Items 2/4/8: package manifest composition, filters, archive privacy."""
+
+    checks: list[Check] = []
+    ws = base / "composition-ws"
+    (ws / ".pipy" / "skills").mkdir(parents=True)
+    # A workspace skill named `dup` must win the collision with the package's.
+    (ws / ".pipy" / "skills" / "dup.md").write_text(
+        "---\nname: dup\ndescription: d\n---\nWORKSPACE-DUP-BODY\n", encoding="utf-8"
+    )
+    pkg = _make_demo_package(base)
+    install_package(str(pkg), project_settings_path(ws))
+
+    settings = SettingsManager.for_workspace(ws)
+    try:
+        roots = compose_package_runtime(settings, ws)
+        resources = WorkspaceResources.discover(ws, package_roots=roots)
+        descriptors = discover_extensions(ws, package_roots=roots.extensions)
+        ext_names = {d.name for d in descriptors}
+
+        checks.append(
+            Check(
+                "manifest_contributes_all_kinds",
+                "pkgskill" in resources.skill_names()
+                and "pkgprompt" in resources.template_names()
+                and themes.is_known_theme("pkgtheme")
+                and "pkgext" in ext_names,
+                "manifest contributes an extension, skill, prompt, and theme",
+            )
+        )
+
+        # Deterministic precedence: workspace `dup` wins over the package `dup`.
+        dup_skills = [s for s in resources.skills if s.name == "dup"]
+        first_dup = dup_skills[0] if dup_skills else None
+        checks.append(
+            Check(
+                "deterministic_precedence",
+                first_dup is not None
+                and "WORKSPACE-DUP-BODY" in first_dup.body
+                and not first_dup.path_label.startswith("<package>/"),
+                "a workspace resource wins a name collision with a package one",
+            )
+        )
+
+        # Item 4: filters affect runtime discovery.
+        configure_resource_filter(
+            settings_path=project_settings_path(ws),
+            kind="skills",
+            pattern="pkgskill",
+            enable=False,
+        )
+        configure_resource_filter(
+            settings_path=project_settings_path(ws),
+            kind="prompts",
+            pattern="pkgprompt",
+            enable=False,
+        )
+        configure_resource_filter(
+            settings_path=project_settings_path(ws),
+            kind="themes",
+            pattern="pkgtheme",
+            enable=False,
+        )
+        settings.reload()
+        roots2 = compose_package_runtime(settings, ws)
+        filtered = WorkspaceResources.discover(ws, package_roots=roots2).with_enablement(
+            skills_patterns=settings.get_skills_patterns(),
+            prompts_patterns=settings.get_prompts_patterns(),
+        )
+        checks.append(
+            Check(
+                "filters_affect_discovery",
+                "pkgskill" not in filtered.skill_names()
+                and "pkgprompt" not in filtered.template_names()
+                and not themes.is_known_theme("pkgtheme"),
+                "+/- filters drop package skills, prompts, and themes",
+            )
+        )
+
+        # Item 4 (per-package filters): an object-form package entry's own
+        # `+/-pattern` filter scopes only that package's resources by name.
+        from pipy_harness.native.package_resources import resolve_package_roots
+
+        pp_roots = resolve_package_roots(
+            [{"source": str(pkg), "skills": ["-pkgskill"]}], ws
+        )
+        pp_resources = WorkspaceResources.discover(ws, package_roots=pp_roots)
+        checks.append(
+            Check(
+                "per_package_filter_scopes",
+                "pkgskill" not in pp_resources.skill_names()
+                and "pkgprompt" in pp_resources.template_names(),
+                "an object-form package entry's own filter scopes its resources",
+            )
+        )
+
+        # Item 8: no source path or resource body leaks into safe metadata.
+        skill_meta = resources.safe_skill_metadata_all()
+        template_meta = resources.safe_template_metadata_all()
+        ext_meta = safe_extension_metadata(descriptors)
+        allowed_resource_keys = {"path_label", "sha256", "byte_length", "truncated"}
+        meta_blob = json.dumps(
+            {
+                "skills": skill_meta,
+                "templates": template_meta,
+                "extensions": ext_meta,
+                "packages": [
+                    {"name": p.name, "path_label": p.path_label, "status": p.status}
+                    for p in roots.packages
+                ],
+            }
+        )
+        no_body_leak = not any(
+            secret in meta_blob
+            for secret in (
+                "SECRET-SKILL-BODY",
+                "SECRET-PROMPT-BODY",
+                "SECRET-EXTENSION-SOURCE",
+                "38;2;5;6;7",
+            )
+        )
+        no_path_leak = str(pkg) not in meta_blob
+        keys_safe = all(
+            set(entry).issubset(allowed_resource_keys)
+            for entry in (*skill_meta, *template_meta)
+        )
+        checks.append(
+            Check(
+                "no_archive_leak",
+                no_body_leak and no_path_leak and keys_safe,
+                "no source path or resource body leaks into safe metadata",
+            )
+        )
+    finally:
+        themes.set_active_theme_registry(None)
     return checks
 
 

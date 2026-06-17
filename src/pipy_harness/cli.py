@@ -1088,7 +1088,25 @@ def _cmd_config(args: Any) -> int:
         skills_patterns = manager.get_skills_patterns()
         prompts_patterns = manager.get_prompts_patterns()
         enable_skill_commands = manager.get_enable_skill_commands()
-        resources = WorkspaceResources.discover(cwd)
+        themes_patterns = manager.get_themes_patterns()
+        extensions_patterns = manager.get_extensions_patterns()
+        # Include installed local-path package resources in the listing so
+        # `pipy config` reflects what a session would discover, for all four
+        # resource kinds. Resources are discovered UNFILTERED here; the
+        # enabled/disabled state is computed per kind below, so a disabled
+        # package resource (skill/prompt/theme/extension) still appears with
+        # enabled=false rather than vanishing. No global theme registry is
+        # installed (listing has no lasting effect on session state).
+        from pipy_harness.native.extensions import discover_extensions
+        from pipy_harness.native.package_runtime import compose_package_runtime
+        from pipy_harness.native.theme_files import build_theme_registry
+        from pipy_harness.native.themes import builtin_palettes
+
+        package_roots = compose_package_runtime(manager, cwd, install_theme_registry=False)
+        resources = WorkspaceResources.discover(cwd, package_roots=package_roots)
+        descriptors = discover_extensions(cwd, package_roots=package_roots.extensions)
+        theme_names = build_theme_registry(package_roots.themes).names()
+        builtin_theme_names = set(builtin_palettes())
         skills = [
             {
                 "name": s.name,
@@ -1101,21 +1119,48 @@ def _cmd_config(args: Any) -> int:
             {"name": t.name, "enabled": is_resource_enabled(t.name, prompts_patterns)}
             for t in resources.templates
         ]
+        # Built-in themes are always selectable at runtime (filters apply only
+        # to package themes), so report them as enabled regardless of filters.
+        theme_items = [
+            {
+                "name": name,
+                "enabled": name in builtin_theme_names
+                or is_resource_enabled(name, themes_patterns),
+            }
+            for name in theme_names
+        ]
+        # A descriptor's `disabled` status (unsafe/duplicate/etc.) and the
+        # `+/-pattern` filter both gate whether an extension is active.
+        extension_items = [
+            {
+                "name": d.name,
+                "enabled": d.status == "loadable"
+                and is_resource_enabled(d.name, extensions_patterns),
+            }
+            for d in descriptors
+        ]
         report = {
             "enableSkillCommands": enable_skill_commands,
             "skills": skills,
             "prompts": prompts,
+            "themes": theme_items,
+            "extensions": extension_items,
             "skillsPatterns": skills_patterns,
             "promptsPatterns": prompts_patterns,
-            "themesPatterns": manager.get_themes_patterns(),
-            "extensionsPatterns": manager.get_extensions_patterns(),
+            "themesPatterns": themes_patterns,
+            "extensionsPatterns": extensions_patterns,
         }
         if getattr(args, "config_json", False):
             print(json.dumps(report, sort_keys=True))
         else:
             print("pipy config — resource enablement:")
             print(f"  enableSkillCommands: {enable_skill_commands}")
-            for label, items in (("skills", skills), ("prompts", prompts)):
+            for label, items in (
+                ("skills", skills),
+                ("prompts", prompts),
+                ("themes", theme_items),
+                ("extensions", extension_items),
+            ):
                 print(f"  {label}:")
                 if not items:
                     print("    (none discovered)")

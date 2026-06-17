@@ -6033,6 +6033,47 @@ def test_cli_config_disable_then_enable_skill_writes_patterns(tmp_path, capfd, m
     assert on_disk["skills"] == ["+review"]
 
 
+def test_cli_config_list_shows_disabled_package_theme(tmp_path, capfd, monkeypatch) -> None:
+    # A disabled package-contributed theme must still appear in `config list`
+    # with enabled=false (like skills/prompts/extensions), not vanish.
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    ws = tmp_path / "ws"
+    (ws / ".pipy").mkdir(parents=True)
+    pkg = tmp_path / "pkg"
+    (pkg / "themes").mkdir(parents=True)
+    (pkg / "themes" / "midnight.toml").write_text(
+        'name = "midnight"\naccent_truecolor = "38;2;1;2;3"\n', encoding="utf-8"
+    )
+
+    assert main(["install", str(pkg), "-l", "--cwd", str(ws)]) == 0
+    assert main(["config", "disable", "theme", "midnight", "--cwd", str(ws)]) == 0
+    capfd.readouterr()
+
+    assert main(["config", "list", "--json", "--cwd", str(ws)]) == 0
+    report = json.loads(capfd.readouterr().out)
+    midnight = next(t for t in report["themes"] if t["name"] == "midnight")
+    assert midnight["enabled"] is False
+
+
+def test_cli_config_list_builtin_theme_stays_enabled(tmp_path, capfd, monkeypatch) -> None:
+    # Runtime theme filters apply only to package themes; built-ins remain
+    # selectable. `config list` must report built-ins as enabled even with a
+    # `-builtin` filter present, so the report matches runtime behavior.
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+
+    assert main(["config", "disable", "theme", "ocean", "--cwd", str(tmp_path)]) == 0
+    capfd.readouterr()
+
+    assert main(["config", "list", "--json", "--cwd", str(tmp_path)]) == 0
+    report = json.loads(capfd.readouterr().out)
+    ocean = next(t for t in report["themes"] if t["name"] == "ocean")
+    assert ocean["enabled"] is True
+
+
 def test_cli_config_list_json_reports_enabled_state(tmp_path, capfd, monkeypatch) -> None:
     config_home = tmp_path / "cfg"
     config_home.mkdir()

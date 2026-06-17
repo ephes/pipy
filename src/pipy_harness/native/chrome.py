@@ -23,7 +23,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import Iterable, TextIO
+from typing import TYPE_CHECKING, Iterable, TextIO
+
+if TYPE_CHECKING:
+    from pipy_harness.native.package_resources import PackageRoot
 
 from pipy_harness.native.themes import (
     DEFAULT_PALETTE,
@@ -437,6 +440,34 @@ def print_bottom_status_block(
     print_footer_lines(error_stream, (cwd_label, status_line))
 
 
+def _startup_skill_settings(
+    cwd: Path,
+) -> tuple[tuple["PackageRoot", ...], tuple[str, ...], bool]:
+    """Inputs for the honest `[Skills]` listing: package roots + enablement.
+
+    Returns ``(package_skill_roots, skills_patterns, enable_skill_commands)``
+    so the listing matches what a session actually registers (the same
+    `+/-pattern` filters and `enableSkillCommands` toggle). Self-contained
+    and fail-safe: the startup chrome must never crash on a settings/package
+    error, so any failure yields ``((), (), True)`` (list everything, the
+    prior behavior).
+    """
+
+    try:
+        from pipy_harness.native.package_resources import resolve_package_roots
+        from pipy_harness.native.settings import SettingsManager
+
+        settings = SettingsManager.for_workspace(cwd)
+        roots = resolve_package_roots(settings.get_package_entries(), cwd).skills
+        return (
+            roots,
+            tuple(settings.get_skills_patterns()),
+            settings.get_enable_skill_commands(),
+        )
+    except Exception:
+        return (), (), True
+
+
 def discover_loaded_resource_names(
     cwd: Path,
     category: str = "context",
@@ -494,13 +525,26 @@ def discover_loaded_resource_names(
         # uses (workspace `.pipy/skills/*.md` then global
         # `<config>/skills/*.md`). This supersedes the earlier
         # display-only subdirectory scan.
+        from pipy_harness.native.resource_enablement import is_resource_enabled
         from pipy_harness.native.skills import discover_workspace_skills
 
+        package_roots, skills_patterns, enable_skill_commands = _startup_skill_settings(
+            cwd
+        )
+        # `enableSkillCommands=false` registers no skills, so list none.
+        if not enable_skill_commands:
+            return tuple(names)
         try:
-            skills, _ = discover_workspace_skills(cwd)
+            skills, _ = discover_workspace_skills(cwd, package_roots=package_roots)
         except OSError:
             return tuple(names)
         for skill in skills:
+            # Mirror session registration: a `-pattern`-disabled skill is not
+            # loadable, so it must not appear as loaded in the chrome listing.
+            if skills_patterns and not is_resource_enabled(
+                skill.name, list(skills_patterns)
+            ):
+                continue
             add(skill.name)
             if len(names) >= max_items:
                 break

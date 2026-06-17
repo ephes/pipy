@@ -35,6 +35,7 @@ from pipy_harness.native.changelog import (
     render_changelog,
 )
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
 from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
@@ -936,7 +937,13 @@ class NativeNoToolReplSession:
             self.max_turns,
             extra_safe_metadata=instruction_metadata,
         )
-        workspace_resources = WorkspaceResources.discover(run_input.cwd).with_enablement(
+        # Compose installed local-path package resources (skills/prompts/
+        # themes) and install the package theme registry, mirroring the
+        # tool-loop REPL.
+        package_roots = compose_package_runtime(settings, run_input.cwd)
+        workspace_resources = WorkspaceResources.discover(
+            run_input.cwd, package_roots=package_roots
+        ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
             enable_skill_commands=settings.get_enable_skill_commands(),
@@ -1114,8 +1121,9 @@ class NativeNoToolReplSession:
                     # theme. No provider turn.
                     settings.reload()
                     keybindings.reload()
+                    package_roots = compose_package_runtime(settings, run_input.cwd)
                     workspace_resources = WorkspaceResources.discover(
-                        run_input.cwd
+                        run_input.cwd, package_roots=package_roots
                     ).with_enablement(
                         skills_patterns=settings.get_skills_patterns(),
                         prompts_patterns=settings.get_prompts_patterns(),

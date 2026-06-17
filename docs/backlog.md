@@ -25,12 +25,13 @@ audit for current slice selection. The big-topic specs it indexes are
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
 real providers plus the deterministic fake provider, a bounded model-driven
-tool loop, and a metadata-first session archive. The first local model path is
-`ds4` (`antirez/ds4` DeepSeek V4 Flash) through the OpenAI-compatible Chat
-Completions machinery with tool-loop support. Specific feature coverage and
-parity status live in
-[pi-parity.md](pi-parity.md). Code shape lives in
-[architecture.md](architecture.md).
+tool loop, and a full-transcript native session tree as the product session
+store. The older metadata-first `pipy-session` archive is now an optional
+summary-safe catalog/learning utility, not the product parity surface. The first
+local model path is `ds4` (`antirez/ds4` DeepSeek V4 Flash) through the
+OpenAI-compatible Chat Completions machinery with tool-loop support. Specific
+feature coverage and parity status live in [pi-parity.md](pi-parity.md). Code
+shape lives in [architecture.md](architecture.md).
 
 This page is the forward-planning index:
 
@@ -193,10 +194,11 @@ not a promise to skip review when a smaller, safer slice appears.
    commands, and chrome themes. The Python extension runtime has also landed for
    core local automation (commands/shortcuts, tools, lifecycle/input/prompt
    hooks, `tool_call` gates, `tool_result` transforms, minimal UI notices, and
-   provider-registration mechanics). It is still **Pi-shaped rather than
-   Pi-equivalent**: package runtime composition, rich extension UI/rendering,
-   broader session hooks, dynamic controls, source-loading flags, remote
-   packages, and update flows remain follow-ons.
+   provider-registration mechanics) and local-path package runtime composition
+   (installed packages contribute skills/prompts/themes/extensions through
+   discovery). It is still **Pi-shaped rather than Pi-equivalent**: rich
+   extension UI/rendering, broader session hooks, dynamic controls,
+   source-loading flags, remote packages, and update flows remain follow-ons.
 5. Session workflows — **shipped (2026-06-02)**. The native product session
    tree (`pipy_harness.native.session_tree`) is now pipy's product session
    store, a raw private append-only JSONL tree like Pi's
@@ -286,49 +288,70 @@ Shipped foundations that should no longer be selected as large topics:
 
 The highest-impact remaining gaps are now:
 
-1. **Extension and package platform — selected next big topic, now in
-   closeout.** Pi's most important remaining differentiator is still the
-   breadth and maturity of its extension/package surface. Pipy now has a
-   useful **Pi-shaped but not Pi-equivalent** Python extension runtime:
-   local discovery/activation, extension slash commands and shortcuts,
-   lifecycle/input/before-agent-start hooks, `tool_call` policy gates,
-   extension tools, `tool_result` transforms, minimal `ctx.ui.notify`, a
-   golden conformance extension, provider-registration mechanics, and the
-   local-path package-management CLI. That makes common local workflows
-   (permission gates, simple commands/tools, prompt/input hooks, and basic
-   provider experiments) comparable in concept, but Pi remains ahead on rich
-   TUI extension UI, custom rendering, session/tree/compaction hooks, dynamic
-   tool/model/thinking controls, `user_bash` and provider-payload hooks,
-   hot-reload/source loading flags, and the npm/git package ecosystem.
-   The next slice is therefore package runtime composition: installed local
-   packages must actually contribute extensions/skills/prompts/themes through
-   discovery. The target API and status live in [extension-api.md](extension-api.md).
+1. **Extension and package platform — slice-12 closeout landed.** Pi's most
+   important remaining differentiator is still the breadth and maturity of its
+   extension/package surface. Pipy now has a useful **Pi-shaped but not
+   Pi-equivalent** Python extension runtime: local discovery/activation,
+   extension slash commands and shortcuts, lifecycle/input/before-agent-start
+   hooks, `tool_call` policy gates, extension tools, `tool_result` transforms,
+   minimal `ctx.ui.notify`, a golden conformance extension,
+   provider-registration mechanics, the local-path package-management CLI, and
+   now **package runtime composition**: installed local-path packages
+   contribute extensions/skills/prompts/themes through discovery at lowest
+   precedence with `+/-pattern` filters (file-based themes + an overlay theme
+   registry, example `docs/examples/packages/demo-pack/`, live tmux proof
+   `scripts/tmux_package_verify.sh`, gate items 2/4/8). That makes common local
+   workflows (permission gates, simple commands/tools, prompt/input hooks,
+   basic provider experiments, and installable local packages) comparable in
+   concept, but Pi remains ahead on rich TUI extension UI, custom rendering,
+   session/tree/compaction hooks, dynamic tool/model/thinking controls,
+   `user_bash` and provider-payload hooks, hot-reload/source loading flags, and
+   the npm/git package ecosystem. The next slices are therefore the deferred
+   remote `git:`/PyPI source kinds and `update` (gated on a supply-chain policy
+   and isolated package cache). The target API and status live in
+   [extension-api.md](extension-api.md).
 2. **Export / import / share / distribution.** The native session tree now
    contains full product transcripts, so pipy can add Pi-style full-session
    HTML export, active-branch JSONL export, import-and-resume, private gist
    share, `--export`, and install/update documentation. This is more bounded
    than extensions and is the best alternate next topic if implementation risk
    should be lower. Spec: [export-distribution.md](export-distribution.md).
-3. **User documentation parity.** Pipy still has mostly maintainer/agent specs
+3. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
+   prompt as exactly one physical row: `ToolLoopTerminalUi._input_view(width)`
+   projects the buffer through `_display_input_text(...)`, reserves `width - 1`
+   columns, then horizontally slices/scrolls the visible text; `_live_region_lines`
+   and `_styled_line("input")` render exactly one input `_FrameLine`, and tests
+   such as `test_tui_long_input_renders_one_row_without_wrapping` pin that
+   behavior. That was meant to keep live-region math simple, but it diverges
+   from Pi: long typed text should soft-wrap inside the input frame, with the
+   cursor moving onto wrapped rows instead of the text disappearing/scrolling
+   sideways past the screen edge. Fix by replacing the single-row input view
+   with a soft-wrapped input region, reserving the dynamic input height in the
+   live-region budget, keeping footer/status rows pinned, mapping cursor index
+   to wrapped row/column, preserving literal submitted text (including pasted
+   newlines), and adding real-PTY coverage at 80x24 and 100x40 for long typing,
+   paste, cursor movement, and resize. Update the docs/spec rows that currently
+   describe horizontal scrolling as shipped parity.
+4. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
    keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
    tmux, and platforms. This can run in parallel with implementation tracks.
    Spec: [user-documentation.md](user-documentation.md).
-4. **Provider/model catalog follow-ons.** Remaining provider work is narrower
+5. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
    Anthropic adaptive-thinking shape, Azure URL/api-version parity, the
    deliberate `openai-codex-responses` legacy-factory exception for
    settings-derived retry policy, broader local-provider benchmarking, and
    extension-registered providers after the extension API exists. Spec:
    [provider-catalog.md](provider-catalog.md).
-5. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
+6. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
    harness-shaped `auth|run|repl` layout in places where Pi has a single
    product command, and several pipy-only surfaces remain to remove or realign
    (`--archive-transcript`, no-tool REPL/proposal commands, `/clear`,
    `/status`, `/theme`, `/skill`, `/template`, `/help`, and exposed internal
    flags where they do not map to Pi). This cleanup should be staged alongside
    the topic that owns each surface rather than done as one risky rewrite.
-6. **Verification breadth and policy.** Pipy now relies on the model-visible
+7. **Verification breadth and policy.** Pipy now relies on the model-visible
    `bash` tool for Pi-style verification-like workflows. Richer project policy
    should come through extension-defined permission/tool gates once the
    extension platform exists, not through a revived pipy-only `/verify` command.
@@ -1409,12 +1432,11 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension API slice 12 closeout: package runtime composition
+### Extension API slice 12 closeout: package runtime composition — LANDED
 
-Slices 1–11 and slice 12's package-management CLI have **landed**. The
-remaining slice-12 work is **package runtime composition**: installed
-local-path package resources flowing through discovery (see the closing note
-below). Landed so far:
+Slices 1–12 have **landed**, including **package runtime composition**:
+installed local-path package resources now flow through discovery (see the
+closing note below). Landed so far:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1497,17 +1519,28 @@ below). Landed so far:
   never clobbered, and no package lifecycle scripts run. Gate:
   `scripts/parity_checks/extension_package_conformance.py --json`.
 
-The remaining slice-12 work is **package runtime composition**: installed
-local-path package resources must flow through discovery — extension entry
-points through the activation boundary, skills/templates/commands through
-`pipy_harness.native.resources`, themes through the theme registry — at the
-spec's lowest precedence (after project and user resources), with `+pattern`/
-`-pattern` and per-package filters affecting discovery, and the package gate
-proving manifests contribute an extension/skill/prompt/theme, that filters
-affect discovery, and that no source path or resource body leaks into the
-metadata archive (spec gate items 2, 4, 8 in `docs/extension-api.md`). Until
-that lands, `pipy install` records a source but its resources are not yet
-loaded.
+- Slice 12 package runtime composition: configured local-path sources resolve
+  into per-kind roots (`package_resources.resolve_package_roots`, from an
+  optional `pipy-package.toml` manifest mapping Pi's
+  `pi.{extensions,skills,prompts,themes}`, else convention subdirs), composed
+  once per session by `package_runtime.compose_package_runtime`. Package skills
+  and prompts flow through `WorkspaceResources.discover(package_roots=...)`,
+  extensions through `discover_extensions(package_roots=...)`, and themes
+  through a file-based loader + overlay registry
+  (`theme_files.build_theme_registry` + `themes.set_active_theme_registry`) so
+  `/theme <name>` selects a package theme and re-colors the chrome. All four
+  kinds sit at the spec's lowest precedence (a workspace/global resource wins a
+  name collision) and honor `+/-pattern` filters; package resources appear in
+  `/reload` and `pipy config` discovery. Example
+  `docs/examples/packages/demo-pack/`; live tmux proof
+  `scripts/tmux_package_verify.sh`. Gate items 2/4/8 proven (manifest
+  contributes an extension/skill/prompt/theme with deterministic precedence;
+  filters affect discovery; no source path or resource body leaks into the
+  archive-safe metadata). `pipy install` now both records a source **and**
+  loads its resources.
+
+Remaining package work (deferred): remote `git:`/PyPI source kinds, an isolated
+package cache, and `update`, all gated on a supply-chain policy.
 
 Compatibility assessment for slice selection: treat Pipy's extension support as
 **comparable for core local automation, not comparable to Pi as a mature
@@ -1666,14 +1699,14 @@ Invariants that must hold for any near-term slice:
   extension-owned UI surfaces Pi exposes: dialogs, widgets, editor replacement,
   autocomplete providers, theme controls, custom overlays beyond the narrow
   Python `ctx.ui.custom` path, and custom message/tool rendering.
-- Extension/package platform closeout and follow-ons: package runtime
-  composition for installed local-path packages is the selected next slice.
-  After that, remaining Pi gaps are `--extension`/`--no-extensions`, dynamic
-  extension flags, richer event/session hooks, dynamic active-tool/model/
-  thinking controls, `user_bash` and provider-payload hooks, extension state /
-  session-manager views, richer extension UI/rendering, remote package sources,
-  package `update`, and the corresponding supply-chain/security model. The
-  target specification is [extension-api.md](extension-api.md).
+- Extension/package platform follow-ons: package runtime composition for
+  installed local-path packages has landed. Remaining Pi gaps are
+  `--extension`/`--no-extensions`, dynamic extension flags, richer event/session
+  hooks, dynamic active-tool/model/thinking controls, `user_bash` and
+  provider-payload hooks, extension state/session-manager views, richer
+  extension UI/rendering, remote package sources, package `update`, and the
+  corresponding supply-chain/security model. The target specification is
+  [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
   Anthropic/Copilot login UX and catalog/`/model` wiring for
   extension-registered providers.

@@ -536,6 +536,49 @@ class SettingsManager:
     def get_enable_skill_commands(self) -> bool:
         return self._get_bool("enableSkillCommands", default=True)
 
+    def get_packages(self) -> list[str]:
+        """Configured local-path package sources, project scope first.
+
+        Project sources precede user/global sources so a project package
+        wins resource-resolution precedence over a user package. The
+        `packages` array is read per scope (string sources and
+        `{source, ...}` objects) rather than deep-merged, so both scopes'
+        sources are kept. Duplicate sources collapse to the first
+        occurrence.
+        """
+
+        from pipy_harness.native.package_manager import _package_sources
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for scope in (SCOPE_PROJECT, SCOPE_GLOBAL):
+            for source in _package_sources(self.raw_scope(scope)):
+                if source not in seen:
+                    seen.add(source)
+                    ordered.append(source)
+        return ordered
+
+    def get_package_entries(self) -> list[object]:
+        """Configured `packages` entries (string or object-form), project first.
+
+        Like `get_packages` but preserves object-form `{source, extensions,
+        skills, prompts, themes}` entries verbatim so per-package resource
+        filters survive into runtime composition. Deduplicated by source
+        string (first occurrence — project scope — wins).
+        """
+
+        from pipy_harness.native.package_manager import _raw_packages, _source_of
+
+        ordered: list[object] = []
+        seen: set[str] = set()
+        for scope in (SCOPE_PROJECT, SCOPE_GLOBAL):
+            for entry in _raw_packages(self.raw_scope(scope)):
+                source = _source_of(entry)
+                if source is not None and source not in seen:
+                    seen.add(source)
+                    ordered.append(entry)
+        return ordered
+
     # --- changelog / telemetry --------------------------------------------
 
     def get_last_changelog_version(self) -> str | None:

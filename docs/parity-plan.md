@@ -66,17 +66,17 @@ Pi's built-in slash commands (source:
 | `/import` | Import + resume a session from JSONL | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `/share` | Share session as a secret GitHub gist | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `/copy` | Copy last agent message to clipboard | ✅ shipped | — (no spec needed) |
-| `/name` | Set session display name | ❌ missing | [session-tree.md](session-tree.md) |
-| `/session` | Show session info and stats | 🟡 pipy has `/status` (different shape) | [session-tree.md](session-tree.md) |
+| `/name` | Set session display name | ✅ shipped | [session-tree.md](session-tree.md) |
+| `/session` | Show session info and stats | ✅ shipped | [session-tree.md](session-tree.md) |
 | `/changelog` | Show changelog entries | ✅ command + startup display | [settings-config.md](settings-config.md) |
 | `/hotkeys` | Show all keyboard shortcuts | ✅ rendered from the resolved keybinding manager | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
-| `/fork` | New fork from a previous user message | ❌ missing | [session-tree.md](session-tree.md) |
-| `/clone` | Duplicate current session at current position | ❌ missing | [session-tree.md](session-tree.md) |
-| `/tree` | Navigate session tree (switch branches) | ❌ missing | [session-tree.md](session-tree.md) |
+| `/fork` | New fork from a previous user message | ✅ shipped | [session-tree.md](session-tree.md) |
+| `/clone` | Duplicate current session at current position | ✅ shipped | [session-tree.md](session-tree.md) |
+| `/tree` | Navigate session tree (switch branches) | ✅ shipped | [session-tree.md](session-tree.md) |
 | `/login` | Configure provider authentication | ✅ (openai-codex) | [provider-catalog.md](provider-catalog.md) |
 | `/logout` | Remove provider authentication | ✅ (openai-codex) | [provider-catalog.md](provider-catalog.md) |
-| `/new` | Start a new session | 🟡 pipy has `/clear` (different shape) | [session-tree.md](session-tree.md) |
-| `/compact` | Manually compact session context | ✅ (durable replay pending) | [session-tree.md](session-tree.md) |
+| `/new` | Start a new session | ✅ shipped | [session-tree.md](session-tree.md) |
+| `/compact` | Manually compact session context | ✅ durable replay shipped | [session-tree.md](session-tree.md) |
 | `/resume` | Resume a different session | ✅ interactive picker overlay (search/scope/sort/named/rename/delete) + non-TTY subcommands | [session-tree.md](session-tree.md) |
 | `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
@@ -86,13 +86,12 @@ Pi's built-in slash commands (source:
 `/read` `/ask-file` `/propose-file` `/apply-proposal`, and `/help` (Pi uses
 `/hotkeys`).
 
-> **Update:** the session-tree workflow has since shipped and passes
-> `scripts/parity_checks/session_tree_conformance.py --json`, so `/session`,
-> `/name`, `/new`, `/tree`, `/resume`, `/fork`, `/clone`, and durable `/compact`
-> are now delivered (rows above predate that landing). Remaining work for those
-> is realigning the pipy-only `/status`→`/session`, `/clear`→`/new` naming (§3)
-> and the picker-control / branch-summary polish tracked in
-> [session-tree.md](session-tree.md).
+Session-tree workflow commands (`/session`, `/name`, `/new`, `/tree`,
+`/resume`, `/fork`, `/clone`, and durable `/compact`) now ship and pass
+`scripts/parity_checks/session_tree_conformance.py --json`. Remaining cleanup is
+limited to retiring or aliasing the older pipy-only names (`/status`, `/clear`)
+and the picker-control / branch-summary polish tracked in
+[session-tree.md](session-tree.md).
 
 ## 2. CLI flag / mode parity matrix
 
@@ -103,11 +102,10 @@ Reference note: this matrix is validated against `pi --help` on the installed
 `--exclude-tools/-xt`) exist in the 0.78.0 binary but not yet in that source
 checkout's `packages/coding-agent/src/cli/args.ts`; they are real Pi flags and
 stay parity targets. Everything else is present in both. Source for the rest:
-`packages/coding-agent/src/cli/args.ts`. **Update (2026-06-09):** the full
-session-startup flag set below now ships (`--session-id`/`--session-dir`/
-`--name`/`-n` included), with the Pi mutual-exclusion errors and the
-cross-project `--session` fork prompt; the old metadata-only `--resume RECORD`/
-`--branch LABEL` repl flags are retired.
+`packages/coding-agent/src/cli/args.ts`. The full session-startup flag set below
+now ships (`--session-id`/`--session-dir`/`--name`/`-n` included), with the Pi
+mutual-exclusion errors and the cross-project `--session` fork prompt; the old
+metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 
 | Pi flag / mode | Pipy status | Target spec |
 | --- | --- | --- |
@@ -136,7 +134,7 @@ cross-project `--session` fork prompt; the old metadata-only `--resume RECORD`/
 | `--export <file>` | ❌ missing | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |
-| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path sources (`packages` array in user/project settings, `+pattern`/`-pattern` resource filters); `git:`/PyPI/`npm:` rejected, `update` deferred to a supply-chain policy. **Package runtime composition** (installed package resources flowing through discovery) is the remaining slice-12 work | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
+| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path sources (`packages` array in user/project settings, `+pattern`/`-pattern` resource filters), and installed local-path packages now contribute extensions/skills/prompts/themes through discovery at lowest precedence. Remote `git:`/PyPI/`npm:` sources and `update` remain deferred to a supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | ❌ missing | [extension-api.md](extension-api.md) |
 
 **Pipy-only flags (not in Pi → remove or realign — see §3):**
@@ -144,14 +142,6 @@ cross-project `--session` fork prompt; the old metadata-only `--resume RECORD`/
 `--archive-transcript`, `--input-runtime`, `--read-root(s)`, `--tool-budget`.
 (The pipy-only metadata `--resume RECORD` / `--branch LABEL` repl flags were
 retired on 2026-06-09 in favor of the native session tree.)
-
-> **Update:** the full startup session flag set now ships against the native
-> session tree — `-c`/`--continue`, `-r`/`--resume-session` (interactive
-> picker), `--session`, `--session-id`, `--session-dir`, `-n`/`--name`,
-> `--fork`, and `--no-session`, with the Pi mutual-exclusion errors and the
-> cross-project `--session` fork prompt (conformance gate + Pi comparison
-> passing). pipy's old metadata-only `--resume RECORD` / `--branch LABEL` repl
-> flags are retired in favor of the native tree and Pi's `--fork`/`/fork` (§3).
 
 ## 3. Accidental pipy-specific surfaces (remove or realign)
 
@@ -191,7 +181,7 @@ the product state, not the spec state.
 | --- | --- | --- | --- |
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume` interactive picker, durable compaction, full startup session flag set incl. `--session-id`/`--session-dir`/`--name`, mutual exclusion, cross-project fork prompt) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` + `tui.run_session_picker` pass the conformance gate and the Pi comparison (full-transcript store, branch/fork/clone, interactive picker rows/actions, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` + `scripts/parity_checks/session_tree_pi_comparison.py --json` (passing) |
-| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 core Pi-shaped runtime shipped, but not Pi-equivalent platform parity — discovery/inventory + activation + dispatch + core hooks + tool registration + `tool_result` transforms + `ctx.ui.notify` + shortcuts + golden conformance ext + provider registration mechanism (`api.register_provider`/`ProviderPort` composition); slice 12's package CLI ships for local-path sources (`pipy install/remove/uninstall [-l]`, `list`, `config`), but **package runtime composition** (installed package resources flowing through discovery — spec gate items 2/4/8) is the remaining slice-12 work. Deferred: rich extension UI/rendering/session hooks, dynamic tool/model/thinking controls, `user_bash`/provider payload hooks, remote `git:`/PyPI sources + `update` (supply-chain policy), and catalog/`/model` wiring of extension providers | the `extension_*_conformance.py` gates incl. `extension_providers_conformance.py --json` + `extension_package_conformance.py --json`; golden conformance extension `extension_conformance_gate.py --json` |
+| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 core Pi-shaped runtime shipped, but not Pi-equivalent platform parity — discovery/inventory + activation + dispatch + core hooks + tool registration + `tool_result` transforms + `ctx.ui.notify` + shortcuts + golden conformance ext + provider registration mechanism (`api.register_provider`/`ProviderPort` composition), local-path package CLI, and local-path package runtime composition for extensions/skills/prompts/themes all ship. Deferred: rich extension UI/rendering/session hooks, dynamic tool/model/thinking controls, `user_bash`/provider payload hooks, `--extension` flags, remote `git:`/PyPI sources + `update` (supply-chain policy), and catalog/`/model` wiring of extension providers | the `extension_*_conformance.py` gates incl. `extension_providers_conformance.py --json` + `extension_package_conformance.py --json`; golden conformance extension `extension_conformance_gate.py --json` |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction closeout shipped for implemented catalog-constructed provider families, one-shot, and startup resolution; remaining work is live Anthropic/Copilot login UX, the deliberate `openai-codex-responses` legacy-factory exception, narrow adapter parity follow-ons, and extension-registered providers | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-24, including product construction for Chat Completions, non-completions families, one-shot, and startup resolution) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
@@ -217,28 +207,24 @@ JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
 §4 as conformance gates, but they are no longer the next large implementation
 topics.
 
-1. **Extension / package platform** ([extension-api.md](extension-api.md)) —
-   **core runtime landed; platform parity not complete.** Local Python
-   extension discovery and manifest inventory, activation, command/tool
-   registration, lifecycle/input/tool-call/tool-result hooks, `ctx.ui.notify`,
-   the golden conformance extension, the provider registration mechanism, and
-   slice 12's local-path package CLI (`pipy install/remove/uninstall [-l]`,
-   `list`, `config`) all landed with per-slice conformance gates. This is
-   comparable to Pi for core local automation patterns, but not to Pi's mature
-   extension platform. **Remaining slice-12 work:** package runtime composition
-   — installed package resources flowing through extension/skill/prompt/theme
-   discovery with deterministic precedence and filters, and an archive-privacy
-   proof (spec gate items 2/4/8). Other follow-ons: rich extension UI/rendering,
-   broader session/model/tool hooks, remote `git:`/PyPI package sources behind a
-   supply-chain policy + `update`, the catalog/`/model` selector wiring of
-   extension-registered providers, and the RPC extension-UI channel.
-2. **Export / import / share / distribution**
+1. **Export / import / share / distribution**
    ([export-distribution.md](export-distribution.md)) — now unblocked by the
    native product session tree. Add full-session HTML export, active-branch
    JSONL export, import-and-resume, `/share`, `--export`, and install/update
-   documentation. This is the best lower-risk alternate if the extension
-   platform needs to be paused.
-3. **User documentation parity** ([user-documentation.md](user-documentation.md))
+   documentation.
+2. **Product-TUI long-input wrapping** ([tui-workflow.md](tui-workflow.md)) —
+   replace the current one-row horizontally scrolling input projection with a
+   soft-wrapped input region that keeps footer/status rows pinned and maps the
+   cursor across wrapped rows, matching Pi's long prompt behavior.
+3. **Extension / package platform follow-ons**
+   ([extension-api.md](extension-api.md)) — core local automation plus
+   local-path package runtime composition have landed, but pipy is still not a
+   Pi-equivalent package platform. Remaining work includes rich extension
+   UI/rendering, broader session/model/tool hooks, `--extension` flags, dynamic
+   extension flags, remote `git:`/PyPI package sources behind a supply-chain
+   policy + `update`, the catalog/`/model` selector wiring of extension-
+   registered providers, and the RPC extension-UI channel.
+4. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — run in parallel with implementation. Pipy needs outside-in product docs,
    not only internal specs, and those docs should track shipped behavior rather
    than planned parity.

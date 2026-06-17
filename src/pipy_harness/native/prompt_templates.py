@@ -35,6 +35,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipy_harness.native.package_resources import PackageRoot
 
 from pipy_harness.native._resource_files import (
     DEFAULT_PER_FILE_BYTE_CAP,
@@ -84,6 +88,7 @@ def discover_workspace_prompt_templates(
     home_dir: Path | None = None,
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
+    package_roots: "Sequence[PackageRoot]" = (),
 ) -> tuple[list[PromptTemplate], bool]:
     """Discover prompt-template files in the workspace and global root.
 
@@ -108,6 +113,8 @@ def discover_workspace_prompt_templates(
         home_dir=home_dir,
         per_file_byte_cap=per_file_byte_cap,
         total_byte_cap=total_byte_cap,
+        package_roots=package_roots,
+        dedupe_by_name=True,
     )
     templates = [
         PromptTemplate(

@@ -1,0 +1,20 @@
+# Example pipy package manifest.
+#
+# A package bundles resources that pipy discovers at lowest precedence once
+# the package is installed with `pipy install <path> -l` (project scope) or
+# `pipy install <path>` (user scope). The `[resources]` table maps each
+# resource kind to one or more directories relative to this manifest,
+# mirroring Pi's `package.json` `pi.{extensions,skills,prompts,themes}`.
+#
+# The `[resources]` table is optional: when it is omitted (or there is no
+# manifest at all), pipy falls back to conventional subdirectories of the same
+# names (`skills/`, `prompts/`, `themes/`, `extensions/`). This manifest
+# declares them explicitly for clarity.
+name = "demo-pack"
+version = "0.1.0"
+
+[resources]
+skills = ["skills"]
+prompts = ["prompts"]
+themes = ["themes"]
+extensions = ["extensions"]

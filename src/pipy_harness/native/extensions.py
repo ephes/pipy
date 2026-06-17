@@ -44,11 +44,15 @@ import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from pipy_harness.native.package_resources import PackageRoot
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native._resource_files import (
     GLOBAL_PATH_LABEL_PREFIX,
+    PACKAGE_PATH_LABEL_PREFIX,
     WORKSPACE_PIPY_DIR_NAME,
     _contains_control_character,
     _read_capped_bytes,
@@ -87,7 +91,7 @@ REASON_UNSAFE_NAME: str = "unsafe_name"
 _PER_FILE_BYTE_CAP: int = 256 * 1024
 _NUL_SCAN_CHUNK_SIZE: int = 1024 * 1024
 
-SourceKind = Literal["workspace", "global"]
+SourceKind = Literal["workspace", "global", "package"]
 ExtensionKind = Literal["directory", "single_file"]
 Status = Literal["loadable", "disabled"]
 
@@ -151,15 +155,20 @@ def discover_extensions(
     *,
     config_home_env: Mapping[str, str] | None = None,
     home_dir: Path | None = None,
+    package_roots: "Sequence[PackageRoot]" = (),
 ) -> list[ExtensionDescriptor]:
     """Discover workspace and global Python extension candidates.
 
     The workspace dir is `<workspace>/.pipy/extensions`; the global dir
-    is `<config-root>/extensions`. Candidates are workspace-first, then
-    global, each sorted by name. Within a source, a directory and a
+    is `<config-root>/extensions`. `package_roots` lists concrete
+    extension directories contributed by installed local-path packages;
+    they are searched *after* the workspace and global dirs (lowest
+    precedence). Candidates are workspace-first, then global, then
+    package, each sorted by name. Within a source, a directory and a
     single-file candidate of the same name both appear, but the second
     occurrence of a name (in iteration order) is disabled with
-    `duplicate_name`. Missing directories never raise.
+    `duplicate_name` — so a workspace or global extension wins a name
+    collision with a package extension. Missing directories never raise.
 
     No extension module is imported and no extension code runs. The
     returned descriptors are pure inventory records.
@@ -175,12 +184,27 @@ def discover_extensions(
         (workspace_dir, "workspace", resolved_workspace),
         (global_dir, "global", global_root),
     ]
+    # Package extension dirs are concrete roots; each owns its own label
+    # root + per-package filter, searched after workspace/global so local
+    # extensions win. (dir, kind, label_root, filters).
+    package_sources: list[tuple[Path, SourceKind, Path, tuple[str, ...]]] = [
+        (source_dir, source_kind, label_root, ()) for source_dir, source_kind, label_root in sources
+    ]
+    package_sources.extend(
+        (root.path, "package", root.path, tuple(root.filters)) for root in package_roots
+    )
 
     descriptors: list[ExtensionDescriptor] = []
     seen_names: set[str] = set()
-    for source_dir, source_kind, label_root in sources:
+    for source_dir, source_kind, label_root, package_filters in package_sources:
         for candidate in _iter_candidates(source_dir, source_kind, label_root):
             descriptor = _inventory_candidate(candidate)
+            # A package's object-form `+/-pattern` filter scopes only that
+            # package's own extensions by name.
+            if package_filters and not _extension_name_passes_filter(
+                descriptor.name, package_filters
+            ):
+                continue
             # Deduplicate on the RESOLVED descriptor name (which a
             # manifest `name` may override), not the filesystem
             # candidate name. The name is reserved even when the first
@@ -204,6 +228,14 @@ def discover_extensions(
             seen_names.add(descriptor.name)
             descriptors.append(descriptor)
     return descriptors
+
+
+def _extension_name_passes_filter(name: str, filters: tuple[str, ...]) -> bool:
+    """Apply a package's Pi-shaped `+/-pattern` filter to an extension name."""
+
+    from pipy_harness.native.resource_enablement import is_resource_enabled
+
+    return is_resource_enabled(name, list(filters))
 
 
 def safe_extension_metadata(
@@ -833,6 +865,10 @@ def _path_label_for(
 
     if source_kind == "global":
         return f"{GLOBAL_PATH_LABEL_PREFIX}{EXTENSIONS_SUBDIR}/{entry.name}"
+    if source_kind == "package":
+        # Never leak the absolute package source path; label the candidate
+        # as a package-contributed extension by name only.
+        return f"{PACKAGE_PATH_LABEL_PREFIX}{EXTENSIONS_SUBDIR}/{entry.name}"
     try:
         # Label from the LITERAL path, not the symlink target: a
         # symlinked candidate must still read as `.pipy/extensions/<name>`

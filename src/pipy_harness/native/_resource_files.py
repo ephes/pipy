@@ -41,9 +41,13 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated
+
+if TYPE_CHECKING:
+    from pipy_harness.native.package_resources import PackageRoot
 
 PIPY_CONFIG_HOME_ENV: str = "PIPY_CONFIG_HOME"
 XDG_CONFIG_HOME_ENV: str = "XDG_CONFIG_HOME"
@@ -52,6 +56,7 @@ PIPY_CONFIG_DIR_NAME: str = "pipy"
 WORKSPACE_PIPY_DIR_NAME: str = ".pipy"
 
 GLOBAL_PATH_LABEL_PREFIX: str = "<global>/"
+PACKAGE_PATH_LABEL_PREFIX: str = "<package>/"
 
 PER_FILE_TRUNCATION_MARKER_TEMPLATE: str = (
     "\n\n[pipy: resource file truncated at {cap} bytes]\n"
@@ -114,17 +119,27 @@ def discover_resource_files(
     home_dir: Path | None = None,
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
+    package_roots: "Sequence[PackageRoot]" = (),
+    dedupe_by_name: bool = False,
 ) -> tuple[list[_RawResourceFile], bool]:
     """Discover Markdown files in a workspace and global resource directory.
 
     `workspace_subdir` is the path relative to `<workspace>/.pipy/` (for
     example, `skills` or `templates`). `global_subdir` is the path
-    relative to the global resource root.
+    relative to the global resource root. `package_roots` lists concrete
+    `PackageRoot`s contributed by installed local-path packages; they are
+    searched *after* the workspace and global dirs (lowest precedence) so
+    a workspace or global resource always wins a name/path collision. Each
+    package root may carry per-package `+/-pattern` filters that scope that
+    one package's resources by name. When `dedupe_by_name` is set, a later
+    file whose resolved name was already seen is dropped (first wins),
+    matching Pi's name-deduped skill/prompt loading.
 
     Discovery rules:
 
     - Workspace dir is `<workspace>/.pipy/<workspace_subdir>`.
     - Global dir is `<global-root>/<global_subdir>`.
+    - Package dirs are the explicit `package_roots`, in order.
     - Both dirs are stat-globbed for `*.md` files one level deep; no
       recursion.
     - Workspace files come first in the returned list, then global
@@ -166,16 +181,24 @@ def discover_resource_files(
     global_dir = global_root / global_subdir
 
     seen_paths: set[Path] = set()
+    seen_names: set[str] = set()
     raw_files: list[_RawResourceFile] = []
     total_loaded = 0
     cap_reached = False
 
-    sources: list[tuple[Path, str, Path]] = [
-        (workspace_dir, "workspace", resolved_workspace),
-        (global_dir, "global", global_root),
+    # (dir, kind, ignore_root, per-package filters). Workspace/global carry
+    # no per-package filter; package roots carry their owning package's.
+    sources: list[tuple[Path, str, Path, tuple[str, ...]]] = [
+        (workspace_dir, "workspace", resolved_workspace, ()),
+        (global_dir, "global", global_root, ()),
     ]
+    # Package roots are already concrete resource dirs; each is its own
+    # containment + ignore root, searched after workspace/global.
+    sources.extend(
+        (root.path, "package", root.path, tuple(root.filters)) for root in package_roots
+    )
 
-    for source_dir, source_kind, ignore_root in sources:
+    for source_dir, source_kind, ignore_root, package_filters in sources:
         if cap_reached:
             break
         try:
@@ -197,31 +220,24 @@ def discover_resource_files(
                 continue
             if not _candidate_name_is_safe(candidate.name, ignore_root):
                 continue
+            # Cheap size for cap eligibility — avoids a full read of a file
+            # that will be rejected by the total byte cap.
             try:
                 byte_length = resolved_candidate.stat().st_size
             except OSError:
                 continue
-            if total_loaded + byte_length > total_byte_cap and raw_files:
-                cap_reached = True
-                break
-            if total_loaded + byte_length > total_byte_cap:
-                cap_reached = True
-                break
+            # Bounded head read for the binary check, name/filter/dedup
+            # decisions, and the (possibly truncated) body. The full file is
+            # only hashed once the file is known to be included, so a unique
+            # over-cap or filtered/duplicate file is never fully read/hashed.
             try:
-                head, byte_length, sha256 = _read_capped_bytes(
-                    resolved_candidate,
-                    per_file_byte_cap=per_file_byte_cap,
-                )
+                head = _read_head_bytes(resolved_candidate, per_file_byte_cap)
             except OSError:
                 continue
             if b"\x00" in head:
                 # Binary content: never compose a binary body into a
                 # provider-visible instruction or template.
                 continue
-            if total_loaded + byte_length > total_byte_cap:
-                cap_reached = True
-                break
-            seen_paths.add(resolved_candidate)
             truncated = byte_length > per_file_byte_cap
             if truncated:
                 content = head.decode("utf-8", errors="replace") + (
@@ -230,6 +246,39 @@ def discover_resource_files(
             else:
                 content = head.decode("utf-8", errors="replace")
             name, description, body = _parse_frontmatter(content, fallback_name=candidate.stem)
+            # Filter/dedup skips happen BEFORE the byte-cap accounting so a
+            # skipped (filtered or duplicate) file never counts toward the
+            # total cap nor halts discovery of later distinct resources.
+            #
+            # Per-package filter: a package's object-form `+/-pattern`
+            # filter scopes only that package's own resources by name.
+            if package_filters and not _name_passes_filter(name, package_filters):
+                continue
+            # Name dedup (first wins): matches Pi's name-deduped skill/prompt
+            # loading so a package resource cannot duplicate a local one in
+            # the listing/autocomplete/system surfaces.
+            if dedupe_by_name and name in seen_names:
+                continue
+            # This file is a keeper; now apply the total byte cap. Once a
+            # keeper would exceed the cap, stop (the partial file is not
+            # included), matching the prior cap semantics.
+            if total_loaded + byte_length > total_byte_cap:
+                cap_reached = True
+                break
+            # Included → hash the on-disk file. A non-truncated file's head IS
+            # the whole file, so reuse it; only a truncated keeper needs the
+            # extra streaming pass for its full-file digest.
+            try:
+                sha256 = (
+                    _hash_file(resolved_candidate)
+                    if truncated
+                    else hashlib.sha256(head).hexdigest()
+                )
+            except OSError:
+                continue
+            seen_paths.add(resolved_candidate)
+            if dedupe_by_name:
+                seen_names.add(name)
             path_label = _path_label_for(
                 candidate=candidate,
                 source_kind=source_kind,
@@ -249,6 +298,14 @@ def discover_resource_files(
             total_loaded += byte_length
 
     return raw_files, cap_reached
+
+
+def _name_passes_filter(name: str, filters: tuple[str, ...]) -> bool:
+    """Apply a package's Pi-shaped `+/-pattern` filter to a resource name."""
+
+    from pipy_harness.native.resource_enablement import is_resource_enabled
+
+    return is_resource_enabled(name, list(filters))
 
 
 def _candidate_name_is_safe(filename: str, ignore_root: Path) -> bool:
@@ -287,6 +344,34 @@ def _contains_control_character(value: str) -> bool:
         ord(ch) < 0x20 or ord(ch) == 0x7F or 0x80 <= ord(ch) <= 0x9F
         for ch in value
     )
+
+
+def _read_head_bytes(path: Path, per_file_byte_cap: int) -> bytes:
+    """Read at most `per_file_byte_cap` head bytes (the body/name source).
+
+    Bounded by design: enough to parse frontmatter and run the binary/
+    filter/dedup screens without reading a large file in full.
+    """
+
+    with path.open("rb") as handle:
+        return handle.read(per_file_byte_cap)
+
+
+def _hash_file(path: Path) -> str:
+    """Stream the whole file and return its sha256 hex digest.
+
+    Used only for an *included* truncated resource, so an over-cap or
+    skipped (filtered/duplicate) file is never hashed in full.
+    """
+
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(_HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _read_capped_bytes(
@@ -352,6 +437,14 @@ def _path_label_for(
         # category (`skills` vs `templates`).
         parent_name = candidate.parent.name
         return f"{GLOBAL_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
+    if source_kind == "package":
+        # Label as <package>/<subdir>/<filename> so a package resource is
+        # never recorded with its absolute on-disk source path. The parent
+        # dir name is a manifest-declared package directory, so it is
+        # sanitized (control bytes stripped) before it enters the label —
+        # the filename itself was already screened by `_candidate_name_is_safe`.
+        parent_name = _sanitize_label(candidate.parent.name) or "package"
+        return f"{PACKAGE_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
     try:
         relative = candidate.resolve().relative_to(workspace)
         return relative.as_posix()

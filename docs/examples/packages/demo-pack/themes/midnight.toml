@@ -1,0 +1,20 @@
+# Example package-contributed chrome theme.
+#
+# A theme file declares a `name` plus any subset of the chrome palette's SGR
+# color fields (digits and semicolons only — no escape sequences). Unspecified
+# fields inherit the default palette, so a theme author only writes the colors
+# they want to change. Once the package is installed, this theme becomes
+# selectable with `/theme midnight`.
+name = "midnight"
+
+# A cool, dark, high-contrast scheme: bright cyan title/accent, soft violet
+# section labels, and a vivid magenta input separator.
+title_truecolor = "1;38;2;130;200;255"
+title_fallback = "1;96"
+accent_truecolor = "38;2;130;200;255"
+accent_fallback = "96"
+section_truecolor = "38;2;180;150;240"
+section_fallback = "1;35"
+dim_truecolor = "38;2;120;130;150"
+separator_truecolor = "38;2;200;120;220"
+separator_fallback = "35"

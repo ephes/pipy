@@ -27,6 +27,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipy_harness.native.package_resources import PackageResourceRoots
 
 from pipy_harness.native.custom_commands import (
     CustomSlashCommand,
@@ -151,16 +155,21 @@ class WorkspaceResources:
         *,
         config_home_env: Mapping[str, str] | None = None,
         home_dir: Path | None = None,
+        package_roots: "PackageResourceRoots | None" = None,
     ) -> "WorkspaceResources":
+        skill_pkg_roots = package_roots.skills if package_roots is not None else ()
+        prompt_pkg_roots = package_roots.prompts if package_roots is not None else ()
         skills, skills_cap = discover_workspace_skills(
             workspace_root,
             config_home_env=config_home_env,
             home_dir=home_dir,
+            package_roots=skill_pkg_roots,
         )
         templates, templates_cap = discover_workspace_prompt_templates(
             workspace_root,
             config_home_env=config_home_env,
             home_dir=home_dir,
+            package_roots=prompt_pkg_roots,
         )
         commands, commands_cap = discover_workspace_custom_commands(
             workspace_root,

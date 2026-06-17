@@ -11,13 +11,13 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–11 and slice 12's
-package-management CLI have landed (see "Suggested Implementation Slices"); the
-remaining slice-12 work is **package runtime composition** — wiring installed
-local-path package resources through discovery (extensions/skills/prompts/
-themes), which is not implemented yet. The pre-existing pipy runtime resources
-(bounded Markdown skills, prompt templates, custom slash commands, and chrome
-themes) remain supported alongside the Python extension API.
+Implementation status: **partially implemented.** Slices 1–12 have landed (see
+"Suggested Implementation Slices"), including **package runtime composition** —
+installed local-path package resources (extensions/skills/prompts/themes) now
+flow through discovery at lowest precedence with Pi-shaped enablement filters.
+The pre-existing pipy runtime resources (bounded Markdown skills, prompt
+templates, custom slash commands, and chrome themes) remain supported alongside
+the Python extension API.
 
 Comparability to Pi: Pipy is now **Pi-shaped for core local extension workflows,
 but not Pi-equivalent as an extension platform**. The landed API is enough for
@@ -35,8 +35,8 @@ richer multi-widget TUI and custom message/tool rendering (only single
 `ctx.ui.custom` overlays exist), session switch/fork/tree/compaction
 interception, dynamic active-tool/model/thinking controls, `user_bash` and
 provider-payload hooks, extension state/session-manager helpers, CLI
-`--extension`/`--no-extensions`, package runtime composition, remote npm/git
-package distribution, and `update`.
+`--extension`/`--no-extensions`, remote npm/git package distribution, and
+`update`. (Package runtime composition for local-path packages has landed.)
 
 ## Goals
 
@@ -791,11 +791,11 @@ extension `/commands` dispatch through the live tool-loop REPL
 `scripts/parity_checks/extension_tool_call_conformance.py --json`). Slice 5: the
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
-`scripts/parity_checks/extension_lifecycle_conformance.py --json`). Slices 1–11
-and slice 12's package-management CLI have **landed** (gate
-`scripts/parity_checks/extension_package_conformance.py --json`); the remaining
-slice-12 work is **package runtime composition** — wiring installed local-path
-package resources through discovery (see slice 12 below). Discovery never
+`scripts/parity_checks/extension_lifecycle_conformance.py --json`). Slices 1–12
+have **landed** (gate
+`scripts/parity_checks/extension_package_conformance.py --json`), including
+**package runtime composition** — installed local-path package resources flow
+through discovery at lowest precedence (see slice 12 below). Discovery never
 imports extension code; activation imports only loadable descriptors.
 
 Beyond the numbered slices, an **interactive command-context block** has also
@@ -875,8 +875,8 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     a `ProviderPort` (staged/committed, duplicate/invalid disable, bounded
     factory failures). The catalog/`/model` selector wiring is the
     provider-catalog track's follow-on.
-12. Package install/list/config CLI — **CLI landed (local-path scope); runtime
-    composition pending**. The CLI half is implemented as
+12. Package install/list/config CLI **and runtime composition** — **landed
+    (local-path scope)**. The CLI half is implemented as
     `pipy_harness.native.package_manager` wired into `pipy_harness.cli`: `pipy
     install/remove/uninstall [-l]` and `pipy list` manage local-path package
     sources in a `packages` array in user/project `settings.json` (preserving
@@ -884,15 +884,28 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     <skill|prompt|theme|extension> <name>` writes `+pattern`/`-pattern` resource
     filters (never deleting discovered resources). `git:`/`git+`/`npm:`/any
     `<scheme>://` URL source is rejected (case-insensitive), a corrupt settings
-    file is never clobbered, and no package lifecycle scripts run. **Still to
-    land (slice-12 closeout):** package runtime composition — installed package
-    resources flowing through discovery at lowest precedence with filters, and
-    the package gate proving spec "Package conformance gate" items 2/4/8
-    (manifest contributes an extension/skill/prompt/theme; filters affect
-    discovery; no archive leak). Remote `git:`/PyPI source handling and `update`
-    stay deferred until a supply-chain policy and isolated package cache are
-    written. Gate `scripts/parity_checks/extension_package_conformance.py
-    --json`.
+    file is never clobbered, and no package lifecycle scripts run. **Runtime
+    composition** resolves configured local-path sources into per-kind resource
+    roots (`pipy_harness.native.package_resources.resolve_package_roots`, from an
+    optional `pipy-package.toml` manifest mapping Pi's
+    `pi.{extensions,skills,prompts,themes}`, or convention subdirs), composed
+    once per session via `package_runtime.compose_package_runtime`: package
+    skills/prompts flow through `WorkspaceResources.discover(package_roots=...)`,
+    extensions through `discover_extensions(package_roots=...)`, and themes
+    through a file-based loader + overlay registry
+    (`theme_files.build_theme_registry` + `themes.set_active_theme_registry`) so
+    `/theme <name>` selects a package theme and re-colors the chrome. All four
+    kinds sit at lowest precedence (a workspace/global resource wins a name
+    collision) and honor the `+/-pattern` filters; package resources are
+    included in `/reload` and `pipy config` discovery. The example package lives
+    at `docs/examples/packages/demo-pack/` with a live tmux proof
+    (`scripts/tmux_package_verify.sh`). The package gate proves spec "Package
+    conformance gate" items 2/4/8 (manifest contributes an
+    extension/skill/prompt/theme with deterministic precedence; filters affect
+    discovery; no source path or resource body leaks into safe metadata). Remote
+    `git:`/PyPI source handling and `update` stay deferred until a supply-chain
+    policy and isolated package cache are written. Gate
+    `scripts/parity_checks/extension_package_conformance.py --json`.
 
 ## Open Questions
 

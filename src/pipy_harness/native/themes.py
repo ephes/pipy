@@ -27,6 +27,10 @@ import stat
 from collections.abc import MutableMapping, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipy_harness.native.theme_files import ThemeRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,22 +141,80 @@ THEME_ENV_VAR = "PIPY_THEME"
 DEFAULT_PALETTE = _PI_PALETTE
 
 
-def available_theme_names() -> tuple[str, ...]:
-    """Return the registered theme names in a stable, default-first order."""
+# The session-scoped theme registry overlaying package-contributed
+# palettes onto the built-ins. The ambient theme functions consult it the
+# same way they consult the `PIPY_THEME` env var and the persisted store —
+# as process-global session state — so a package theme becomes selectable
+# and re-colors the chrome without threading a registry through every
+# `chrome_style_for` render. `None` means built-ins only.
+_ACTIVE_REGISTRY: "ThemeRegistry | None" = None
 
+
+def set_active_theme_registry(registry: "ThemeRegistry | None") -> None:
+    """Install (or clear, with ``None``) the active package theme registry."""
+
+    global _ACTIVE_REGISTRY
+    _ACTIVE_REGISTRY = registry
+
+
+def active_theme_registry() -> "ThemeRegistry | None":
+    """Return the active package theme registry, or ``None`` for built-ins."""
+
+    return _ACTIVE_REGISTRY
+
+
+def _effective_registry(
+    registry: "ThemeRegistry | None",
+) -> "ThemeRegistry | None":
+    """An explicit registry wins; otherwise fall back to the active one."""
+
+    return registry if registry is not None else _ACTIVE_REGISTRY
+
+
+def builtin_palettes() -> dict[str, ChromePalette]:
+    """Return a copy of the built-in name→palette mapping.
+
+    The seed for a `ThemeRegistry`. Returned as a fresh dict so callers
+    can overlay package-contributed palettes without mutating the
+    module-global built-in set.
+    """
+
+    return dict(_THEMES)
+
+
+def available_theme_names(
+    *, registry: "ThemeRegistry | None" = None
+) -> tuple[str, ...]:
+    """Return the registered theme names in a stable, default-first order.
+
+    Consults `registry` (or the active package theme registry) so
+    package-contributed themes appear alongside the built-ins.
+    """
+
+    effective = _effective_registry(registry)
+    if effective is not None:
+        return effective.names()
     ordered = [DEFAULT_THEME_NAME] + sorted(
         n for n in _THEMES if n != DEFAULT_THEME_NAME
     )
     return tuple(ordered)
 
 
-def is_known_theme(name: str) -> bool:
+def is_known_theme(name: str, *, registry: "ThemeRegistry | None" = None) -> bool:
+    effective = _effective_registry(registry)
+    if effective is not None:
+        return effective.is_known(name)
     return name in _THEMES
 
 
-def resolve_palette(name: str | None) -> ChromePalette:
+def resolve_palette(
+    name: str | None, *, registry: "ThemeRegistry | None" = None
+) -> ChromePalette:
     """Map a theme name to its palette, failing safe to the default."""
 
+    effective = _effective_registry(registry)
+    if effective is not None:
+        return effective.resolve(name)
     if name is None:
         return DEFAULT_PALETTE
     return _THEMES.get(name, DEFAULT_PALETTE)

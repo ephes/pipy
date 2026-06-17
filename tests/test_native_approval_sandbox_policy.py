@@ -777,7 +777,7 @@ def test_backlog_records_done_completion_and_provider_priority_order():
         "### Extension API slice 12 closeout: package runtime composition"
         in next_slice
     )
-    assert "slice 12's package-management CLI have" in compact_next_slice
+    assert "Slices 1–12 have **landed**" in compact_next_slice
     assert "/pipy-extension-conformance" in next_slice
     assert "api.register_provider(ExtensionProvider(name, default_model, models, factory))" in next_slice
     assert "build_extension_provider_port" in next_slice
