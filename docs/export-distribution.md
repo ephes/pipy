@@ -591,16 +591,16 @@ passing and update this section when behavior changes.
    usage error, and lifecycle event parity. Tests asserting a session file is
    created/opened in the store, the source is untouched, and provider context is
    rebuilt from the imported branch.
-6. **`/share` command.** Privacy confirmation, token resolution
+6. **`/share` command.** Token resolution
    (`GITHUB_TOKEN`/`GH_TOKEN`/`gh auth token`), temp HTML export, cancellable
    `urllib` gist creation (`public:false`), share-URL + `html_url` output, and
    error/cleanup handling. Tests use a fake HTTP boundary; no real network.
 7. **`/changelog`.** Changelog parser, full-list command, and startup
    new-entries banner with last-seen-version tracking and collapse setting.
 8. **Version check + self-update.** `detect_install_method`, stdlib version
-   check with opt-out env vars and non-blocking startup notice, and
-   `pipy update self|pipy [--force]` mapped to `uv tool`/`pipx`/`pip`, with
-   fail-safe behavior for unknown/dev installs.
+   lookup with opt-out env vars, and `pipy update self|pipy [--force]` mapped
+   to `uv tool`/`pipx`/`pip`, with fail-safe behavior for unknown/dev installs.
+   A non-blocking startup notice remains future polish.
 9. **Install docs.** Update `README.md`, quickstart, `docs/session-storage.md`,
    `docs/pi-parity.md`, `docs/backlog.md`, and this spec to match shipped
    behavior. Note the metadata-only `pipy-session export` as superseded for
