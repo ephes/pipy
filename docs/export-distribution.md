@@ -1,6 +1,8 @@
 # Pi-Style Export, Import, Share, and Distribution
 
-Status: target specification researched from local Pi reference on 2026-06-02.
+Status: selected next implementation topic; target specification researched
+from local Pi reference on 2026-06-02 and reselected after extension/package
+slice-12 closeout on 2026-06-17.
 
 This document defines the pipy target for real feature parity with Pi's
 export / import / share / distribution / self-update surfaces. It is based on
@@ -69,8 +71,9 @@ Pipy current state (read for the gap):
 - `docs/session-tree.md` — native session tree spec (source for full export).
 - `docs/session-storage.md` — `--archive-transcript` sidecar, metadata-only
   archive `export`, deferred raw-transcript import policy.
-- `docs/backlog.md` — "Current Largest Pi Feature Gaps" item 6 (settings,
-  distribution, and sharing polish).
+- `docs/backlog.md` — "Next Slice" selects export / import / share /
+  distribution now that the native session tree and extension/package closeout
+  have landed.
 
 ## Target Outcome / Goal
 
@@ -472,7 +475,8 @@ opt-out env vars (`PIPY_SKIP_VERSION_CHECK`, `PIPY_OFFLINE`), and that a
 curl-style one-line installer is optional future polish (Pi's
 `curl -fsSL https://pi.dev/install.sh | sh`) and must remain stdlib/uv-friendly
 if added. Mark the existing "local `uv`-driven project" framing in
-`docs/backlog.md` item 6 as addressed once these land.
+`docs/backlog.md`'s selected export/distribution slice as addressed once these
+land.
 
 ## Invariants
 
@@ -521,8 +525,8 @@ if added. Mark the existing "local `uv`-driven project" framing in
 
 ## Implementation Milestones
 
-The track may land in reviewed slices. Work is complete only when the
-conformance gate below passes.
+The track may land in reviewed slices. Work is complete only when the planned
+conformance gate below has been added and passes.
 
 1. **HTML export core.** Add a packaged `export_html` template/CSS/JS, a
    stdlib `generate_html(session_data, theme)` that base64-embeds
@@ -558,16 +562,17 @@ conformance gate below passes.
    `pipy update self|pipy [--force]` mapped to `uv tool`/`pipx`/`pip`, with
    fail-safe behavior for unknown/dev installs.
 9. **Install docs.** Update `README.md`, quickstart, `docs/session-storage.md`,
-   `docs/pi-parity.md`, `docs/backlog.md` item 6, and this spec to match shipped
+   `docs/pi-parity.md`, `docs/backlog.md`, and this spec to match shipped
    behavior. Note the metadata-only `pipy-session export` as superseded for
    product parity but retained as a catalog utility.
 
 ## Verification Plan
 
-Add one top-level deterministic conformance gate and make it the implementation
-source of truth, in the established `scripts/parity_checks/` style (a `main()`
-that prints a machine-readable `--json` result and exits non-zero on failure,
-matching the other behavior checks):
+The conformance gate does not exist yet. Add one top-level deterministic
+conformance gate in the first export implementation slice and make it the
+implementation source of truth, in the established `scripts/parity_checks/`
+style (a `main()` that prints a machine-readable `--json` result and exits
+non-zero on failure, matching the other behavior checks):
 
 ```sh
 uv run python scripts/parity_checks/export_distribution_conformance.py --json

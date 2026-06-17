@@ -263,13 +263,12 @@ compared at the terminal-layer checkpoint. The current direction is a narrow
 custom terminal layer stay on the table for when the product needs a fuller UI
 surface or lower-level terminal ownership.
 
-### Current Largest Pi Feature Gaps (groomed 2026-06-15)
+### Current Largest Pi Feature Gaps (groomed 2026-06-17)
 
-This snapshot supersedes the 2026-06-03 ranking after the session tree,
-session CLI/pickers, product TUI workflow, settings/keybindings, RPC/JSON
-automation, provider-catalog construction, and active-turn cancellation all
-shipped. It is a slice-selection aid, not a replacement for
-`docs/pi-parity.md` or the per-topic specs.
+This snapshot supersedes the 2026-06-15 ranking after the extension/package
+slice-12 closeout shipped local-path package runtime composition. It is a
+slice-selection aid, not a replacement for `docs/pi-parity.md` or the per-topic
+specs.
 
 Shipped foundations that should no longer be selected as large topics:
 
@@ -284,39 +283,22 @@ Shipped foundations that should no longer be selected as large topics:
   `/changelog`, and `--version`;
 - Pi-shaped `--mode json`, `--print`/`-p`, and `--mode rpc`; and
 - provider/model catalog construction for the implemented adapter families,
-  one-shot runs, and startup resolution.
+  one-shot runs, and startup resolution; and
+- core local extension/package workflows: discovery/activation, commands,
+  shortcuts, lifecycle/input hooks, tool gates/tools/result transforms,
+  provider-registration mechanics, local-path package CLI, and local-path
+  package runtime composition for extensions/skills/prompts/themes.
 
 The highest-impact remaining gaps are now:
 
-1. **Extension and package platform — slice-12 closeout landed.** Pi's most
-   important remaining differentiator is still the breadth and maturity of its
-   extension/package surface. Pipy now has a useful **Pi-shaped but not
-   Pi-equivalent** Python extension runtime: local discovery/activation,
-   extension slash commands and shortcuts, lifecycle/input/before-agent-start
-   hooks, `tool_call` policy gates, extension tools, `tool_result` transforms,
-   minimal `ctx.ui.notify`, a golden conformance extension,
-   provider-registration mechanics, the local-path package-management CLI, and
-   now **package runtime composition**: installed local-path packages
-   contribute extensions/skills/prompts/themes through discovery at lowest
-   precedence with `+/-pattern` filters (file-based themes + an overlay theme
-   registry, example `docs/examples/packages/demo-pack/`, live tmux proof
-   `scripts/tmux_package_verify.sh`, gate items 2/4/8). That makes common local
-   workflows (permission gates, simple commands/tools, prompt/input hooks,
-   basic provider experiments, and installable local packages) comparable in
-   concept, but Pi remains ahead on rich TUI extension UI, custom rendering,
-   session/tree/compaction hooks, dynamic tool/model/thinking controls,
-   `user_bash` and provider-payload hooks, hot-reload/source loading flags, and
-   the npm/git package ecosystem. The next slices are therefore the deferred
-   remote `git:`/PyPI source kinds and `update` (gated on a supply-chain policy
-   and isolated package cache). The target API and status live in
-   [extension-api.md](extension-api.md).
-2. **Export / import / share / distribution.** The native session tree now
+1. **Export / import / share / distribution.** The native session tree now
    contains full product transcripts, so pipy can add Pi-style full-session
    HTML export, active-branch JSONL export, import-and-resume, private gist
-   share, `--export`, and install/update documentation. This is more bounded
-   than extensions and is the best alternate next topic if implementation risk
-   should be lower. Spec: [export-distribution.md](export-distribution.md).
-3. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
+   share, `--export`, and install/update documentation. This is now the
+   selected next implementation topic because the local extension/package
+   closeout landed and the export work is bounded by the native session tree.
+   Spec: [export-distribution.md](export-distribution.md).
+2. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
    prompt as exactly one physical row: `ToolLoopTerminalUi._input_view(width)`
    projects the buffer through `_display_input_text(...)`, reserves `width - 1`
    columns, then horizontally slices/scrolls the visible text; `_live_region_lines`
@@ -332,6 +314,16 @@ The highest-impact remaining gaps are now:
    newlines), and adding real-PTY coverage at 80x24 and 100x40 for long typing,
    paste, cursor movement, and resize. Update the docs/spec rows that currently
    describe horizontal scrolling as shipped parity.
+3. **Extension and package platform follow-ons.** Pipy now has a useful
+   **Pi-shaped but not Pi-equivalent** Python extension runtime and installed
+   local-path package resources flow through discovery at lowest precedence
+   with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
+   rendering, session/tree/compaction hooks, dynamic tool/model/thinking
+   controls, `user_bash` and provider-payload hooks, hot-reload/source-loading
+   flags, remote sources, `update`, and the npm/git package ecosystem. The next
+   extension/package slices are deferred remote `git:`/PyPI source kinds and
+   `update` (gated on a supply-chain policy and isolated package cache), plus
+   the richer API follow-ons tracked in [extension-api.md](extension-api.md).
 4. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
    keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
@@ -1432,6 +1424,34 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
+### Export / import / share / distribution — SELECTED
+
+The selected next implementation topic is Pi-style product session export,
+import, share, and distribution polish. The native session tree now stores full
+product transcripts, so the parity work is no longer blocked on session
+storage. Implement against [export-distribution.md](export-distribution.md).
+
+Initial slice boundaries:
+
+- full native-session HTML export with inlined CSS/JS and embedded base64
+  session data;
+- active-branch JSONL export with linear parent re-chaining;
+- `/export [path]`, product `--export <session.jsonl> [output]`, and
+  `/import <path.jsonl>` against the native session tree;
+- `/share` through a documented `gh` secret-gist boundary, with cancellation
+  and token redaction; and
+- install/update/version documentation and safe self-update planning.
+
+Acceptance criteria:
+
+```sh
+# add this planned gate in the first export implementation slice
+uv run python scripts/parity_checks/export_distribution_conformance.py --json
+just check
+```
+
+## Recent Closeout
+
 ### Extension API slice 12 closeout: package runtime composition — LANDED
 
 Slices 1–12 have **landed**, including **package runtime composition**:
@@ -1679,9 +1699,6 @@ Invariants that must hold for any near-term slice:
 - Codex JSONL event adapter.
 - Claude integration beyond the existing conservative `pipy-session auto`
   metadata capture.
-- Session export/share polish after the native product session tree lands:
-  HTML export, private share/upload flow, and any broader cross-project native
-  session management not covered by the conformance gate.
 - Raw transcript import with explicit opt-in and redaction policy.
 - Indexed archive search or SQLite-backed query layer.
 - Review-cycle metadata shape for summary-safe appended events, including
@@ -1713,9 +1730,6 @@ Invariants that must hold for any near-term slice:
 - RPC and automation follow-ons: the stdin/stdout JSON/RPC mode ships; true
   in-turn steering, native/socket daemon transport, full session fork/switch
   over RPC, and the RPC extension-UI bridge remain follow-ons.
-- Product distribution and sharing polish: documented package install/update
-  path, self-update flow, changelog surface, HTML export, and private
-  share/upload workflow.
 - Project-defined verification policy beyond the Pi-style model-visible `bash`
   and future extension-gate workflow.
 - Multi-agent task delegation.

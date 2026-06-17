@@ -1,9 +1,9 @@
 # Pi-Mono Gap Audit
 
 Status: comparison snapshot and implementation specification, originally
-written 2026-06-02 and groomed 2026-06-15 after session CLI/pickers,
-settings/keybindings, TUI workflow, provider-catalog construction, and
-JSON/RPC automation shipped.
+written 2026-06-02 and groomed 2026-06-17 after session CLI/pickers,
+settings/keybindings, TUI workflow, provider-catalog construction, JSON/RPC
+automation, and extension/package slice-12 runtime composition shipped.
 
 This audit compares pipy's current docs/specs and command help with the local Pi
 reference in `/Users/jochen/src/pi-mono` plus the installed `pi 0.78.0` help.
@@ -46,7 +46,7 @@ Pi reference:
 ## Fresh command-surface deltas from this grooming pass
 
 The direct help comparison remains the fastest sanity check for parity drift.
-After the 2026-06-15 grooming pass, the important command-surface deltas are:
+After the 2026-06-17 grooming pass, the important command-surface deltas are:
 
 - `pi --help` is a single top-level product command with interactive, print,
   JSON, RPC, session, provider/model, settings/resource, package-management,
@@ -54,9 +54,11 @@ After the 2026-06-15 grooming pass, the important command-surface deltas are:
   harness-shaped `auth|run|repl` subcommand layout in places, even though many
   Pi-compatible surfaces now exist under `pipy repl`. Top-level compatibility
   dispatch/help remains a parity cleanup item.
-- Pi top-level package commands (`install`, `remove`/`uninstall`, `update`,
-  `list`, `config`) are absent from pipy's package-platform surface. This is
-  now part of the extension/package platform, not export polish.
+- Pi top-level package commands are partially present in pipy: `install`,
+  `remove`/`uninstall`, `list`, and `config` now manage local-path package
+  sources and resource filters; installed local-path packages contribute
+  extensions/skills/prompts/themes through discovery. `update` plus remote
+  `git:`/PyPI/`npm:` sources remain deferred to a supply-chain policy.
 - Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) now ship in
   pipy under the REPL product path and are backed by the native session tree.
   The remaining automation cleanup is retiring pipy's old metadata-only
@@ -72,67 +74,20 @@ After the 2026-06-15 grooming pass, the important command-surface deltas are:
   open: `--extension`, tool allow/deny flags, `--verbose`, `--offline`, theme
   load flags, and resource-wrapper cleanup (`/skill`/`/template`/`/theme`).
 
-These deltas made extension/package support the next big topic. Since this
-audit snapshot, the core Python extension runtime has landed through reviewed
-slices; the highest-leverage remaining extension/package gap is now package
-runtime composition plus richer Pi extension-platform follow-ons.
+The extension/package closeout changed the next-topic ordering. Core local
+extension workflows and local-path package runtime composition have landed, so
+the selected next implementation topic is now product export/import/share/
+distribution. Extension/package work remains a large follow-on area, but its
+next slices are remote source/update policy and richer platform APIs rather
+than the just-landed local package runtime.
 
 ## Ranked biggest gaps
 
-### 1. Extension and package platform — selected topic, in closeout
+### 1. Export / import / share / distribution — selected next topic
 
-**Why it is first now:** Pi's extension/package story remains the largest
-remaining platform gap and the surface that lets users adapt the agent without
-forking. Pipy now has core local Python extension support, but it is
-Pi-shaped rather than Pi-equivalent: common local automation patterns are
-covered, while Pi's mature package distribution, rich UI/rendering, broader
-session hooks, dynamic controls, and source-loading flags remain ahead.
-
-Pi reference:
-
-- `core/extensions/types.ts`, `loader.ts`, `runner.ts`: extension API, event
-  hooks, tools, UI, providers, keybindings, flags.
-- `core/package-manager.ts`: package source parsing, install/update/resolve,
-  resource discovery, package manifest resources.
-- `package-manager-cli.ts`: `install`, `remove`/`uninstall`, `list`, `config`,
-  and `update` command behavior.
-- `settings-manager.ts`: packages/extensions/skills/prompts/themes settings
-  arrays and resource filters.
-
-Pipy current state:
-
-- `docs/extension-api.md` defines and tracks a Python-only, Pi-shaped API.
-- Runtime resources exist for `.pipy/skills`, `.pipy/templates`,
-  `.pipy/commands`, and themes.
-- Extension slices 1–11 have shipped: local discovery/inventory, activation,
-  command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
-  extension tool registration, `tool_result` transforms, minimal UI
-  notification, golden conformance, shortcuts, and provider-registration
-  mechanics.
-- Slice 12's local-path package CLI ships (`install/remove/uninstall [-l]`,
-  `list`, `config`), but installed package resources are not yet loaded.
-
-Implement next in pipy:
-
-1. Package runtime composition: installed local-path package manifests contribute
-   extensions/skills/prompts/themes through discovery at deterministic lowest
-   precedence, with filters applied and archive-privacy proof.
-2. CLI source-loading flags (`--extension`/`--no-extensions`) and dynamic
-   extension flags after package composition is stable.
-3. Richer Pi extension follow-ons: UI/rendering, session switch/fork/tree/
-   compaction hooks, dynamic active-tool/model/thinking controls, `user_bash`,
-   provider-payload hooks, and extension state/session-manager views.
-4. Remote package sources and `update` only after a supply-chain/update policy.
-
-Complete the closeout when the package conformance gate described in
-[extension-api.md](extension-api.md) proves package resources flow through real
-discovery and no source path/resource body leaks to the metadata archive.
-
-### 2. Export / import / share / distribution
-
-**Why it is second:** the native session tree now stores full product sessions,
-so Pi-style full export/import/share is unblocked and comparatively bounded. It
-is the best alternate next topic if extension-platform risk should be reduced.
+**Why it is first now:** the native session tree now stores full product
+sessions and the extension/package slice-12 closeout has landed, so Pi-style
+full export/import/share is unblocked and comparatively bounded.
 
 Pi reference:
 
@@ -152,7 +107,7 @@ Pipy current state:
 - `/export`, `/import`, `/share`, product `--export`, and self-update/
   distribution docs are incomplete.
 
-Implement in pipy:
+Implement next in pipy:
 
 1. Full native-session HTML export with inlined CSS/JS and embedded base64
    session data.
@@ -163,14 +118,64 @@ Implement in pipy:
    cancellation.
 5. Install/update/version documentation and safe self-update planning.
 
-Complete when:
+Complete when the planned export conformance gate has been added and passes:
 
 ```sh
 uv run python scripts/parity_checks/export_distribution_conformance.py --json
 just check
 ```
 
-### 3. User documentation parity
+### 2. Product-TUI long-input wrapping bug
+
+**Why it is second:** the product TUI still horizontally scrolls a long editable
+prompt in one physical input row. Pi soft-wraps long typed input inside the
+input frame, with the cursor moving across wrapped rows while footer/status rows
+stay pinned.
+
+Implement in pipy:
+
+1. Replace `ToolLoopTerminalUi._input_view(width)` and the one-row input
+   `_FrameLine` projection with a soft-wrapped input region.
+2. Reserve dynamic input height in the live-region budget while keeping footer
+   and status rows pinned.
+3. Map cursor index to wrapped row/column and preserve literal submitted text,
+   including pasted newlines.
+4. Add real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
+   movement, and resize.
+5. Update docs/spec rows that currently describe horizontal scrolling as
+   shipped parity.
+
+### 3. Extension and package platform follow-ons
+
+**Why it remains important:** Pi's extension/package story is still broader and
+more mature. Pipy is now Pi-shaped for core local extension workflows, but not
+Pi-equivalent as a platform.
+
+Pipy current state:
+
+- `docs/extension-api.md` defines and tracks a Python-only, Pi-shaped API.
+- Extension slices 1–12 have shipped: local discovery/inventory, activation,
+  command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
+  extension tool registration, `tool_result` transforms, minimal UI
+  notification, golden conformance, shortcuts, provider-registration mechanics,
+  local-path package CLI, and package runtime composition for installed
+  local-path package resources.
+- Package resources now flow through discovery at deterministic lowest
+  precedence with filters applied, and the package conformance gate proves no
+  source path or resource body leaks to safe metadata.
+
+Follow-ons:
+
+1. CLI source-loading flags (`--extension`/`--no-extensions`) and dynamic
+   extension flags.
+2. Richer Pi extension APIs: UI/rendering, session switch/fork/tree/compaction
+   hooks, dynamic active-tool/model/thinking controls, `user_bash`,
+   provider-payload hooks, and extension state/session-manager views.
+3. Catalog/`/model` wiring for extension-registered providers.
+4. Remote package sources and `update` only after a supply-chain/update policy
+   and isolated package cache.
+
+### 4. User documentation parity
 
 **Why it is needed:** pipy now has enough shipped product surface that internal
 specs are no longer sufficient. Pi has user-facing pages for installation,
@@ -190,7 +195,7 @@ Implement in pipy:
 
 Owning spec: [user-documentation.md](user-documentation.md).
 
-### 4. Provider/model catalog follow-ons
+### 5. Provider/model catalog follow-ons
 
 **Why it is now narrower:** the catalog construction foundation has shipped for
 the implemented adapter families, one-shot runs, and startup resolution.
@@ -207,7 +212,7 @@ Follow-ons:
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
 
-### 5. Top-level CLI compatibility and parity cleanup
+### 6. Top-level CLI compatibility and parity cleanup
 
 Pipy still has a harness-shaped command layout and pipy-only historical surfaces
 that should be removed or realigned as their owning areas are touched:
@@ -216,7 +221,7 @@ that should be removed or realigned as their owning areas are touched:
 and exposed internal flags that do not map to Pi. This should be staged, not
 landed as one large rewrite.
 
-### 6. Verification policy through extensions
+### 7. Verification policy through extensions
 
 The former pipy-only `/verify just-check` command is gone. Richer verification
 or permission policy should arrive as extension-defined tools/hooks once the
@@ -225,17 +230,19 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Extension/package platform, beginning with local Python extension discovery
-   and manifest inventory with no code execution.
-2. Export/import/share/distribution, now unblocked by the native session tree.
-3. User documentation parity in parallel with implementation.
-4. Focused provider/model catalog follow-ons.
-5. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
+1. Export/import/share/distribution, now unblocked by the native session tree
+   and selected after the local extension/package closeout.
+2. Product-TUI long-input wrapping.
+3. Extension/package platform follow-ons: source-loading flags, richer hooks/UI,
+   extension-provider catalog wiring, and remote sources/update after policy.
+4. User documentation parity in parallel with implementation.
+5. Focused provider/model catalog follow-ons.
+6. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
    the owning topics.
-6. Verification/project policy through extension gates, not a revived `/verify`
+7. Verification/project policy through extension gates, not a revived `/verify`
    command.
 
-The extension/package platform is still the largest gap by surface area, but the
-first slice should be deliberately small: inventory and manifests only. Package
-installation, provider registration, custom UI, and model-visible extension tools
-come later after the local runtime boundary is reviewed.
+The extension/package platform remains the largest follow-on by surface area,
+but its first local-runtime slices have already landed. Future extension/package
+work should start from the shipped package-runtime baseline and stay behind the
+supply-chain/update policy boundary for remote sources.

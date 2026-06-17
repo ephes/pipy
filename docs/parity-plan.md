@@ -186,7 +186,7 @@ the product state, not the spec state.
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship; **true active-turn provider-request cancellation shipped** (Escape/Ctrl-C close the in-flight `urllib`/SSE request via `CancelToken` and reap the worker, real-PTY + boundary tests) | real-PTY tests + conformance gate (in spec) |
-| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only | `scripts/parity_checks/export_distribution_conformance.py --json` |
+| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only; selected next topic, and the export conformance gate still needs to be added | planned `scripts/parity_checks/export_distribution_conformance.py --json` |
 | User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ❌ mostly internal specs today | docs parity review checklist in spec |
 
 **Verification / project policy** is intentionally not a separate topic: Pi has
@@ -228,18 +228,18 @@ topics.
    — run in parallel with implementation. Pipy needs outside-in product docs,
    not only internal specs, and those docs should track shipped behavior rather
    than planned parity.
-4. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
+5. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
    parity, broader local-provider maturity, and extension-registered providers
    after the extension API exists.
-5. **Top-level CLI compatibility and parity cleanup** — stage alongside the
+6. **Top-level CLI compatibility and parity cleanup** — stage alongside the
    owning topics. Realign the harness-shaped `auth|run|repl` surfaces where Pi
    has one top-level product command, remove or hide pipy-only internals such as
    `--archive-transcript`, no-tool REPL/proposal commands, `/clear`, `/status`,
    `/theme`, `/skill`, `/template`, `/help`, `--native-output json`, and
    exposed implementation flags unless a real Pi workflow justifies them.
-6. **Verification / project policy through extensions** — do not revive the
+7. **Verification / project policy through extensions** — do not revive the
    removed pipy-only `/verify` command. Richer verification and permission gates
    should be expressed as extension tools/hooks after the extension platform
    exists.
