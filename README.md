@@ -12,6 +12,36 @@ product runtime backends.
 For the design rationale, runtime diagrams, archive layout, and parity
 status, start at [`docs/index.md`](docs/index.md).
 
+## Install And Update
+
+For a local checkout install during development:
+
+```sh
+uv tool install .
+```
+
+For a published package, use the published distribution name:
+
+```sh
+uv tool install <published-pipy-distribution>
+pipx install <published-pipy-distribution>
+pip install --user <published-pipy-distribution>
+```
+
+Update an installed copy with:
+
+```sh
+pipy update self
+pipy update self --dry-run
+```
+
+`pipy update self` plans the command from the detected install method
+(`uv tool`, `pipx`, `pip`, or user `pip`) and refuses to run an automatic
+update for development or unknown installs. It also refuses to guess a package
+name: set `PIPY_SELF_UPDATE_PACKAGE=<published-pipy-distribution>` only after a
+real owned distribution name exists. Version checks and update planning honor
+`PIPY_SKIP_VERSION_CHECK=1` and `PIPY_OFFLINE=1`.
+
 ## Headless Python Embedding
 
 Pipy is intended to be usable without its CLI/TUI from Python programs that need
@@ -357,6 +387,32 @@ boundary records counters and labels alone — never the raw command or output.
   boundary, so a tool result is never orphaned and no raw tool payload leaks.
   `pipy-session list/inspect/export/resume-info` surface the lineage and
   compaction counters read-only.
+
+#### Product export, import, and share
+
+Native product sessions can be exported from the tool-loop REPL:
+
+- `/export` writes a self-contained HTML export of the full native session tree
+  in the current directory.
+- `/export <path.html>` writes HTML to a chosen path.
+- `/export <path.jsonl>` writes the active branch as portable native JSONL with
+  a linear parent chain.
+- `/import <path.jsonl>` copies a portable native JSONL file into the native
+  session store and resumes it after confirmation. Use `/import <path.jsonl>
+  --yes` for noninteractive scripts.
+- `/share` exports the session to HTML and uploads it as a secret GitHub gist
+  through the GitHub REST API. Set `GITHUB_TOKEN`/`GH_TOKEN` or log in with
+  `gh auth login`; tokens are never embedded in exported artifacts.
+
+Non-interactive HTML export is available as:
+
+```sh
+pipy --export ~/.local/state/pipy/native-sessions/.../session.jsonl out.html
+```
+
+These commands operate on the full native product session tree. They are
+separate from `pipy-session export`, which remains a metadata-only catalog
+utility for finalized learning/archive records.
 
 The line-oriented mode also exposes these explicit commands:
 

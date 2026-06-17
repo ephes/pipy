@@ -1,14 +1,10 @@
-"""Version surface and the opt-in, default-off update-check gate.
+"""Version and self-update surface for pipy.
 
-pipy is a local ``uv``-driven project, not a published auto-updating binary, so
-unlike Pi (default-on install telemetry) pipy performs **no network ping by
-default**. The update check is opt-in via the ``enableInstallTelemetry`` setting
-(pipy default ``False``); ``PIPY_TELEMETRY`` overrides the setting, and
-``PIPY_OFFLINE`` / ``PIPY_SKIP_VERSION_CHECK`` force it off. No secrets or
-identifiers are ever sent — only a version string, and only when opted in.
-
-This module deliberately contains no network code: the gate decides whether a
-check *would* run; today there is nothing to send, so a default run is silent.
+Version checks are stdlib-only and fail open: ``PIPY_OFFLINE`` and
+``PIPY_SKIP_VERSION_CHECK`` disable network access, and network errors simply
+return no latest-version result. The legacy ``PIPY_TELEMETRY`` gate is kept for
+existing settings callers, but the product self-update helpers are explicit
+user actions rather than background telemetry.
 """
 
 from __future__ import annotations
@@ -16,6 +12,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pipy_harness.native.chrome import pipy_version_label
+from pipy_harness.native.export_distribution import (
+    UpdatePlan,
+    compare_versions,
+    detect_install_method,
+    fetch_latest_pipy_version,
+    self_update_plan,
+)
 
 PIPY_TELEMETRY_ENV = "PIPY_TELEMETRY"
 PIPY_OFFLINE_ENV = "PIPY_OFFLINE"
@@ -56,3 +59,18 @@ def update_check_enabled(*, setting: bool, env: Mapping[str, str]) -> bool:
     if env.get(PIPY_SKIP_VERSION_CHECK_ENV, "").strip().lower() in _TRUE_VALUES:
         return False
     return resolve_telemetry_enabled(setting=setting, env=env)
+
+
+__all__ = [
+    "PIPY_OFFLINE_ENV",
+    "PIPY_SKIP_VERSION_CHECK_ENV",
+    "PIPY_TELEMETRY_ENV",
+    "UpdatePlan",
+    "compare_versions",
+    "detect_install_method",
+    "fetch_latest_pipy_version",
+    "pipy_version",
+    "resolve_telemetry_enabled",
+    "self_update_plan",
+    "update_check_enabled",
+]

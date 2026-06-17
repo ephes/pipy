@@ -14,6 +14,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native product export/import/share and self-update planning:
+  - `/export` writes a self-contained HTML export of the full native session
+    tree; `/export <path.jsonl>` writes the active branch as a linearly
+    re-chained portable JSONL file.
+  - `/import <path.jsonl>` copies a portable JSONL file into the native session
+    store and resumes it after confirmation; `--yes` is accepted for
+    noninteractive command scripts.
+  - `pipy --export <session.jsonl> [output.html]` exports an existing native
+    session file to HTML and exits.
+  - `/share` uploads the HTML export as a secret GitHub gist through a stdlib
+    GitHub API boundary using `GITHUB_TOKEN`/`GH_TOKEN` or `gh auth token`.
+  - `pipy update self|pipy [--force] [--dry-run]` plans install-method-aware
+    self-update commands for `uv tool`, `pipx`, `pip`, and user `pip`, while
+    unknown/development installs and unconfigured package names fail safe with
+    manual instructions.
+  - New gate:
+    `scripts/parity_checks/export_distribution_conformance.py --json`.
 - Pi-style extension **package manager CLI** for local-path package sources
   ([docs/extension-api.md](docs/extension-api.md)): `pipy install <source>
   [-l]`, `pipy remove`/`pipy uninstall <source> [-l]`, and `pipy list` record

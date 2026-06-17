@@ -287,18 +287,14 @@ Shipped foundations that should no longer be selected as large topics:
 - core local extension/package workflows: discovery/activation, commands,
   shortcuts, lifecycle/input hooks, tool gates/tools/result transforms,
   provider-registration mechanics, local-path package CLI, and local-path
-  package runtime composition for extensions/skills/prompts/themes.
+  package runtime composition for extensions/skills/prompts/themes; and
+- product export/import/share/distribution baseline: `/export` HTML and JSONL,
+  `/import`, `/share`, top-level `--export`, self-update planning, install docs,
+  and `scripts/parity_checks/export_distribution_conformance.py --json`.
 
 The highest-impact remaining gaps are now:
 
-1. **Export / import / share / distribution.** The native session tree now
-   contains full product transcripts, so pipy can add Pi-style full-session
-   HTML export, active-branch JSONL export, import-and-resume, private gist
-   share, `--export`, and install/update documentation. This is now the
-   selected next implementation topic because the local extension/package
-   closeout landed and the export work is bounded by the native session tree.
-   Spec: [export-distribution.md](export-distribution.md).
-2. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
+1. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
    prompt as exactly one physical row: `ToolLoopTerminalUi._input_view(width)`
    projects the buffer through `_display_input_text(...)`, reserves `width - 1`
    columns, then horizontally slices/scrolls the visible text; `_live_region_lines`
@@ -314,7 +310,7 @@ The highest-impact remaining gaps are now:
    newlines), and adding real-PTY coverage at 80x24 and 100x40 for long typing,
    paste, cursor movement, and resize. Update the docs/spec rows that currently
    describe horizontal scrolling as shipped parity.
-3. **Extension and package platform follow-ons.** Pipy now has a useful
+2. **Extension and package platform follow-ons.** Pipy now has a useful
    **Pi-shaped but not Pi-equivalent** Python extension runtime and installed
    local-path package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
@@ -324,19 +320,19 @@ The highest-impact remaining gaps are now:
    extension/package slices are deferred remote `git:`/PyPI source kinds and
    `update` (gated on a supply-chain policy and isolated package cache), plus
    the richer API follow-ons tracked in [extension-api.md](extension-api.md).
-4. **User documentation parity.** Pipy still has mostly maintainer/agent specs
+3. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
    keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
    tmux, and platforms. This can run in parallel with implementation tracks.
    Spec: [user-documentation.md](user-documentation.md).
-5. **Provider/model catalog follow-ons.** Remaining provider work is narrower
+4. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
    Anthropic adaptive-thinking shape, Azure URL/api-version parity, the
    deliberate `openai-codex-responses` legacy-factory exception for
    settings-derived retry policy, broader local-provider benchmarking, and
    extension-registered providers after the extension API exists. Spec:
    [provider-catalog.md](provider-catalog.md).
-6. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
+5. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
    harness-shaped `auth|run|repl` layout in places where Pi has a single
    product command, and several pipy-only surfaces remain to remove or realign
    (`--archive-transcript`, no-tool REPL/proposal commands, `/clear`,
@@ -1424,29 +1420,29 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Export / import / share / distribution — SELECTED
+### Product-TUI long-input wrapping — SELECTED
 
-The selected next implementation topic is Pi-style product session export,
-import, share, and distribution polish. The native session tree now stores full
-product transcripts, so the parity work is no longer blocked on session
-storage. Implement against [export-distribution.md](export-distribution.md).
+The selected next implementation topic is the product TUI long-input wrapping
+bug. Export/import/share/distribution baseline has shipped and is gated by
+`scripts/parity_checks/export_distribution_conformance.py --json`, so the next
+largest user-visible parity gap is the one-row editable prompt.
 
 Initial slice boundaries:
 
-- full native-session HTML export with inlined CSS/JS and embedded base64
-  session data;
-- active-branch JSONL export with linear parent re-chaining;
-- `/export [path]`, product `--export <session.jsonl> [output]`, and
-  `/import <path.jsonl>` against the native session tree;
-- `/share` through a documented `gh` secret-gist boundary, with cancellation
-  and token redaction; and
-- install/update/version documentation and safe self-update planning.
+- replace the horizontally scrolling one-row input projection with soft-wrapped
+  input rows inside the live frame;
+- reserve dynamic input height while keeping footer/status rows pinned;
+- map cursor index to wrapped row/column and preserve literal submitted text,
+  including pasted newlines;
+- add real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
+  movement, and resize; and
+- update docs/spec rows that still describe horizontal scrolling as shipped
+  behavior.
 
 Acceptance criteria:
 
 ```sh
-# add this planned gate in the first export implementation slice
-uv run python scripts/parity_checks/export_distribution_conformance.py --json
+uv run python scripts/parity_checks/tui_workflow_conformance.py --json
 just check
 ```
 

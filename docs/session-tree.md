@@ -51,9 +51,11 @@ Shipped follow-ons (previously deferred, now complete):
   retired (the native tree is the product session source; `pipy-session
   resume-info` stays the separate archive utility).
 
-Deferred follow-ons:
+Shipped related follow-ons:
 
-- `/export` (HTML) and `/share` (gist) remain deferred as noted below.
+- `/export` (HTML/JSONL), `/import`, `/share`, and top-level `--export` now
+  ship through the export/distribution track and operate on this native product
+  session tree.
 
 Original research basis (still accurate as the behavioral target):
 
@@ -111,10 +113,10 @@ The matching command family is:
 - `/resume`: select another session file and switch to it.
 - `/new`: start a new native product session.
 - `/name <name>`: store a human-readable session name.
-- `/export [file]`: Pi's HTML export command; deferred follow-on polish unless
-  promoted later.
-- `/share`: Pi's private gist/share command; deferred follow-on polish unless
-  promoted later.
+- `/export [file]`: Pi's HTML/JSONL export command; shipped through
+  [export-distribution.md](export-distribution.md).
+- `/share`: Pi's private gist/share command; shipped through
+  [export-distribution.md](export-distribution.md).
 
 Startup/session CLI parity maps Pi's surfaces semantically (all shipped):
 
@@ -479,9 +481,9 @@ the conformance gate below passes.
    point or the current active branch, with `parentSession` metadata.
 8. Durable compaction replay: `/compact` appends real `compaction` entries, and
    reload/context reconstruction honors them.
-9. Known Pi-feature deferrals: `/export [file]` HTML export and `/share`
-   private gist/share are follow-on parity surfaces, not prerequisites for the
-   conformance gate unless later promoted into this track.
+9. Export/share follow-on: `/export [file]` HTML/JSONL export, `/import`, and
+   `/share` are implemented in the export/distribution track and gated
+   separately by `scripts/parity_checks/export_distribution_conformance.py`.
 
 ## Verification Plan
 

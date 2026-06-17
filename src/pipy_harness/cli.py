@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -52,7 +53,16 @@ from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
-from pipy_harness.native.version_check import pipy_version
+from pipy_harness.native.export_distribution import (
+    NativeExportError,
+    export_from_file,
+)
+from pipy_harness.native.version_check import (
+    compare_versions,
+    fetch_latest_pipy_version,
+    pipy_version,
+    self_update_plan,
+)
 from pipy_harness.native.settings import (
     SettingsManager,
     local_state_base_defaults,
@@ -88,7 +98,13 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"pipy {pipy_version()}",
         help="Print the pipy version and exit.",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--export",
+        nargs="+",
+        metavar="FILE",
+        help="Export a native session JSONL file to HTML and exit; optional second value is output path.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     auth_parser = subparsers.add_parser("auth", help="Manage provider authentication.")
     auth_subparsers = auth_parser.add_subparsers(dest="auth_provider", required=True)
@@ -490,6 +506,24 @@ def build_parser() -> argparse.ArgumentParser:
     _list = subparsers.add_parser("list", help="List configured packages.")
     _list.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
 
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Update pipy itself (and, later, installed packages).",
+    )
+    update_parser.add_argument(
+        "target",
+        nargs="?",
+        choices=["self", "pipy"],
+        default="self",
+        help="Update target. Bare `pipy update` currently runs the self-update half.",
+    )
+    update_parser.add_argument("--force", action="store_true", help="Run even if already current.")
+    update_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the planned update command without executing it.",
+    )
+
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
 
@@ -558,10 +592,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
 
     try:
+        if getattr(args, "export", None):
+            return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
             return _handle_list_models(args.list_models or None)
         if args.command == "config":
             return _cmd_config(args)
+        if args.command == "update":
+            return _cmd_update(args)
         if args.command in {"install", "remove", "uninstall", "list"}:
             return _cmd_package(args)
         if args.command == "auth":
@@ -803,6 +841,46 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error("unknown command")
     return 2
+
+
+def _cmd_product_export(values: list[str]) -> int:
+    if len(values) not in (1, 2):
+        print(
+            "pipy: --export expects <session.jsonl> and optional <output.html>",
+            file=sys.stderr,
+        )
+        return 2
+    source = Path(values[0])
+    output = Path(values[1]) if len(values) == 2 else None
+    try:
+        exported = export_from_file(source, output)
+    except NativeExportError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 1
+    print(f"Exported to: {exported}")
+    return 0
+
+
+def _cmd_update(args: Any) -> int:
+    current = pipy_version()
+    latest = None if args.force else fetch_latest_pipy_version()
+    if latest is not None and compare_versions(current, latest) >= 0:
+        print(f"pipy is already up to date (v{current})")
+        return 0
+    plan = self_update_plan(force=args.force)
+    if not plan.automatic:
+        print(
+            "pipy: automatic self-update is unavailable for this install "
+            f"({plan.method}); {plan.reason}. Executable: {plan.executable}",
+            file=sys.stderr,
+        )
+        return 0
+    command_text = " ".join(plan.command)
+    if args.dry_run:
+        print(f"pipy update plan ({plan.method}): {command_text}")
+        return 0
+    completed = subprocess.run(plan.command, check=False)
+    return int(completed.returncode)
 
 
 def _validate_native_output(agent: str, native_output: str | None) -> None:

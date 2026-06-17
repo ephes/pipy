@@ -1,6 +1,6 @@
 # Pi-Style Export, Import, Share, and Distribution
 
-Status: selected next implementation topic; target specification researched
+Status: baseline shipped 2026-06-17. The target specification was researched
 from local Pi reference on 2026-06-02 and reselected after extension/package
 slice-12 closeout on 2026-06-17.
 
@@ -18,6 +18,39 @@ Pi.** The existing metadata-only `pipy-session export` is a pipy-specific
 divergence. It is superseded for product parity and is flagged as such below.
 It may remain as a separate summary-safe catalog utility, but it is not the
 product export surface.
+
+## Shipped Baseline
+
+The shipped Python boundary is `pipy_harness.native.export_distribution` and is
+gated by:
+
+```sh
+uv run python scripts/parity_checks/export_distribution_conformance.py --json
+```
+
+Shipped user-facing surfaces:
+
+- `/export`, `/export <path.html>`, and `/export <path.jsonl>` in the native
+  tool-loop REPL. HTML carries the full native session tree; JSONL carries the
+  active branch with a linear parent chain.
+- `/import <path.jsonl>` in the native tool-loop REPL, with confirmation in the
+  REPL layer, `--yes` accepted for noninteractive command scripts, and
+  collision-safe copy-into-store behavior.
+- `/share` in the native tool-loop REPL, using `GITHUB_TOKEN`/`GH_TOKEN` or
+  `gh auth token`, stdlib `urllib`, and a fakeable HTTP boundary in tests.
+- `pipy --export <session.jsonl> [output.html]` for non-interactive HTML export.
+- `pipy update self|pipy [--force] [--dry-run]` self-update planning for
+  `uv tool`, `pipx`, `pip`, and user `pip`, with fail-safe behavior for
+  development/unknown installs and for unconfigured package names.
+- Startup "newer version available" notices remain future polish; explicit
+  `pipy update` version checks and opt-out handling are shipped.
+
+The first HTML template is an inline stdlib template in the Python module rather
+than a separate packaged data directory. It is still a single self-contained
+artifact with inlined CSS/JS and base64 session-data embedding; splitting it
+into `importlib.resources` files remains optional polish, not a parity blocker.
+Remote extension/package source updates remain owned by `extension-api.md` and
+are still deferred pending supply-chain policy.
 
 ## Sources
 
@@ -71,9 +104,8 @@ Pipy current state (read for the gap):
 - `docs/session-tree.md` — native session tree spec (source for full export).
 - `docs/session-storage.md` — `--archive-transcript` sidecar, metadata-only
   archive `export`, deferred raw-transcript import policy.
-- `docs/backlog.md` — "Next Slice" selects export / import / share /
-  distribution now that the native session tree and extension/package closeout
-  have landed.
+- `docs/backlog.md` — export / import / share / distribution is now a shipped
+  baseline; the next selected slice has moved on.
 
 ## Target Outcome / Goal
 
@@ -220,11 +252,11 @@ a new native session, matching Pi's `importFromJsonl`:
    does not prompt. Pipy should keep the same split: confirm in the product TUI
    layer, copy/open/resume in the session runtime.
 3. Copy the JSONL into the native session store directory using the source
-   basename (Pi copies into `getSessionDir()` keyed by basename). This is **not
-   guaranteed to be a new file**: a basename collision with an existing session
-   in the store overwrites it. Pipy should match this behavior (or, if it adds a
-   collision-avoidance scheme, document it as a pipy divergence). The import
-   never mutates the source file.
+   basename when available. Pi copies into `getSessionDir()` keyed by basename
+   and may overwrite a same-named session. Pipy deliberately diverges here to
+   avoid data loss: if the basename already exists in the store, it appends a
+   numeric suffix (`name-1.jsonl`, `name-2.jsonl`, ...). The import never mutates
+   the source file.
 4. Open the copied file as a `NativeSessionTree`, set the active leaf to the
    latest entry, rebuild provider-visible context from the active branch, and
    continue from there.
@@ -325,10 +357,8 @@ file to HTML and exits, matching Pi's `main.ts` `--export` branch and
 4. Print `Exported to: <path>` and exit 0; on error print the message to stderr
    and exit 1.
 
-The pipy CLI surface name may differ from `--export` if the existing argument
-parser requires it, but behavior (export-and-exit on a session file, optional
-output path, exit codes) must match. Document the chosen flag in `--help`,
-mirroring Pi's help lines:
+The shipped pipy CLI surface is top-level `--export`, matching Pi's
+export-and-exit shape on a session file with an optional output path:
 
 ```text
 --export <file>   Export a native session file to HTML and exit
@@ -443,16 +473,22 @@ Provide a Pi-shaped update CLI, mapped to Python tooling:
   set, print "pipy is already up to date (vX)" and do nothing, matching Pi.
 - If the detected method is unsafe to run automatically, print the exact command
   the user can run themselves (matching Pi's `printSelfUpdateFallback`).
-- A bare `pipy update` should match Pi's "update both" semantics by updating
-  extensions/packages and then self. The extension/package half lives in
-  [extension-api.md](extension-api.md); this spec owns the self half.
+- If `PIPY_SELF_UPDATE_PACKAGE` is unset, do not guess the PyPI distribution
+  name. Print a fail-safe manual message instead. This prevents accidentally
+  installing an unrelated package that happens to use the development project
+  name.
+- A bare `pipy update` currently runs the self-update half only. Pi's "update
+  both extensions and self" semantics remain incomplete until the
+  extension/package update half in [extension-api.md](extension-api.md) has a
+  supply-chain policy and isolated package cache.
 
-`pipy update self` (and the self half of bare `pipy update`) is the in-scope
-self-update parity surface. The broader `install`/`remove`/`uninstall`/`list`/
-`config` extension/package management and extension-update flows are the
-extension-platform concern owned by [extension-api.md](extension-api.md); this
-spec only requires self-update and the version-check notice. Document those
-extension/package commands there, not here.
+`pipy update self` / `pipy update pipy` (and today's self-only bare
+`pipy update`) is the in-scope self-update parity surface. The broader
+`install`/`remove`/`uninstall`/`list`/`config` extension/package management and
+extension-update flows are the extension-platform concern owned by
+[extension-api.md](extension-api.md); this spec only requires self-update and
+the version-check notice. Document those extension/package commands there, not
+here.
 
 ### Install documentation
 
@@ -460,19 +496,24 @@ Add install docs to `README.md` and a quickstart, covering stdlib-only,
 dependency-light installs:
 
 ```sh
-# Recommended: isolated tool install
-uv tool install pipy
+# Recommended from a local checkout during development
+uv tool install .
+
+# Published package (replace with the real owned distribution name)
+uv tool install <published-pipy-distribution>
 
 # pipx
-pipx install pipy
+pipx install <published-pipy-distribution>
 
 # pip (user)
-pip install --user pipy
+pip install --user <published-pipy-distribution>
 ```
 
 Document the self-update commands (`pipy update self`), the version-check
-opt-out env vars (`PIPY_SKIP_VERSION_CHECK`, `PIPY_OFFLINE`), and that a
-curl-style one-line installer is optional future polish (Pi's
+opt-out env vars (`PIPY_SKIP_VERSION_CHECK`, `PIPY_OFFLINE`), the explicit
+`PIPY_SELF_UPDATE_PACKAGE=<published-pipy-distribution>` requirement for
+automatic package-manager updates, and that a curl-style one-line installer is
+optional future polish (Pi's
 `curl -fsSL https://pi.dev/install.sh | sh`) and must remain stdlib/uv-friendly
 if added. Mark the existing "local `uv`-driven project" framing in
 `docs/backlog.md`'s selected export/distribution slice as addressed once these
@@ -511,8 +552,7 @@ land.
   minus auth tokens.
 - **Export/import scope.** HTML export carries the full tree; `.jsonl` export
   linearizes the active branch; `/import` copies the file into the native store
-  under its basename (which may overwrite a same-named session) and opens/resumes
-  it.
+  under its basename or a collision-safe suffixed name and opens/resumes it.
 - **Self-update is install-method aware and fails safe.** Unknown/dev installs
   print manual instructions and do not run package managers automatically.
 - **Network calls are optional and non-blocking.** Version check, gist upload,
@@ -525,8 +565,8 @@ land.
 
 ## Implementation Milestones
 
-The track may land in reviewed slices. Work is complete only when the planned
-conformance gate below has been added and passes.
+The baseline below has shipped. Future polish should keep the conformance gate
+passing and update this section when behavior changes.
 
 1. **HTML export core.** Add a packaged `export_html` template/CSS/JS, a
    stdlib `generate_html(session_data, theme)` that base64-embeds
@@ -545,8 +585,8 @@ conformance gate below has been added and passes.
 4. **`--export` CLI.** Non-interactive export-and-exit on a native session file
    with optional output path, `Exported to:`/exit-code behavior, and `--help`
    text.
-5. **`/import` command.** Copy-into-store (basename keyed, may overwrite a
-   same-named session) + open + resume, with the replace confirmation in the
+5. **`/import` command.** Collision-safe copy-into-store + open + resume, with
+   the replace confirmation in the
    product TUI layer (not the runtime), missing-cwd prompt, file-not-found error,
    usage error, and lifecycle event parity. Tests asserting a session file is
    created/opened in the store, the source is untouched, and provider context is
@@ -568,19 +608,18 @@ conformance gate below has been added and passes.
 
 ## Verification Plan
 
-The conformance gate does not exist yet. Add one top-level deterministic
-conformance gate in the first export implementation slice and make it the
-implementation source of truth, in the established `scripts/parity_checks/`
-style (a `main()` that prints a machine-readable `--json` result and exits
-non-zero on failure, matching the other behavior checks):
+The conformance gate is the implementation source of truth, in the established
+`scripts/parity_checks/` style (a `main()` that prints a machine-readable
+`--json` result and exits non-zero on failure, matching the other behavior
+checks):
 
 ```sh
 uv run python scripts/parity_checks/export_distribution_conformance.py --json
 ```
 
-The script drives pipy with the deterministic fake provider in a temporary
-workspace and fails unless the full export/import/share round-trip works. It
-must verify that:
+The script drives deterministic native-session fixtures in a temporary workspace
+with fake/stubbed network boundaries and fails unless the export/import/share
+round-trip works. It verifies that:
 
 1. a native session tree is seeded with the fake provider (user/assistant
    messages plus at least one tool call/result and a `write`/`edit` diff so the
@@ -593,8 +632,8 @@ must verify that:
 3. `/export <path.jsonl>` writes a header line followed by linearly re-chained
    active-branch entries (`parentId` chain is linear; first entry `parentId`
    is null);
-4. `/import <that.jsonl>` opens a session file in the store (created from, or
-   overwriting, the basename), leaves the source file unchanged, rebuilds
+4. `/import <that.jsonl>` opens a session file in the store (using a suffixed
+   name on basename collision), leaves the source file unchanged, rebuilds
    provider context from the imported branch, and the imported session's
    active-branch entries match the exported ones (round-trip equality of message
    content and order);

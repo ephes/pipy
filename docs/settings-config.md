@@ -665,13 +665,16 @@ pipy target (privacy-respecting by default):
 - No secrets/credentials/identifiers in any check; only a version string when
   the user has explicitly opted in.
 
-Shipped: `pipy --version` / `-v` prints the package version.
-`pipy_harness.native.version_check` provides the opt-in gate
-(`update_check_enabled` / `resolve_telemetry_enabled`): default off,
+Shipped: `pipy --version` / `-v` prints the package version. `pipy update
+self|pipy [--force] [--dry-run]` performs explicit install-method-aware
+self-update planning and uses a stdlib PyPI version check unless
+`PIPY_OFFLINE` or `PIPY_SKIP_VERSION_CHECK` is set. Automatic package-manager
+updates require `PIPY_SELF_UPDATE_PACKAGE` so pipy never guesses an unrelated
+published distribution name. The legacy
+`pipy_harness.native.version_check` opt-in telemetry gate
+(`update_check_enabled` / `resolve_telemetry_enabled`) remains default-off:
 `PIPY_TELEMETRY` overrides the `enableInstallTelemetry` setting (pipy default
-`false`), and `PIPY_OFFLINE` / `PIPY_SKIP_VERSION_CHECK` force it off. The module
-contains **no network code** — a default run performs no ping; there is nothing
-to send unless a future opt-in check is added behind this gate.
+`false`), and `PIPY_OFFLINE` / `PIPY_SKIP_VERSION_CHECK` force it off.
 
 ## Settings Migration
 

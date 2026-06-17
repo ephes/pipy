@@ -549,8 +549,13 @@ pipy remove <source> [-l|--local]
 pipy uninstall <source> [-l|--local]
 pipy list
 pipy config
-pipy update [source|self|pipy] [--self] [--extensions] [--extension <source>] [--force]
+pipy update <source>|--extensions|--extension <source> [--force]  # package-update target
 ```
+
+`pipy update self|pipy [--force] [--dry-run]` already ships as the
+install-method-aware self-update surface in
+[export-distribution.md](export-distribution.md). Package/source updates remain
+part of this extension-platform target.
 
 Behavior targets:
 
@@ -903,8 +908,8 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     conformance gate" items 2/4/8 (manifest contributes an
     extension/skill/prompt/theme with deterministic precedence; filters affect
     discovery; no source path or resource body leaks into safe metadata). Remote
-    `git:`/PyPI source handling and `update` stay deferred until a supply-chain
-    policy and isolated package cache are written. Gate
+    `git:`/PyPI source handling and package/source `update` stay deferred until
+    a supply-chain policy and isolated package cache are written. Gate
     `scripts/parity_checks/extension_package_conformance.py --json`.
 
 ## Open Questions

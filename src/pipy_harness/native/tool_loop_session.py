@@ -92,6 +92,18 @@ from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.version_check import pipy_version
+from pipy_harness.native.export_distribution import (
+    NativeExportError,
+    ShareCancelled,
+    ShareResult,
+    default_html_export_path,
+    export_native_branch_to_jsonl,
+    export_native_session_to_html,
+    import_native_session_jsonl,
+    parse_command_path_argument,
+    resolve_github_token,
+    share_native_session,
+)
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
     compact_tool_loop_messages,
@@ -1821,6 +1833,124 @@ class NativeToolReplSession:
                             tool_invocation_count=tool_invocation_count,
                         )
                     continue
+                if command_text == "/export" or command_text.startswith("/export "):
+                    argument = stripped[len("/export") :]
+                    path_arg = parse_command_path_argument(argument)
+                    try:
+                        if path_arg and Path(path_arg).suffix.lower() == ".jsonl":
+                            output_path = Path(path_arg).expanduser()
+                            if not output_path.is_absolute():
+                                output_path = cwd / output_path
+                            exported = export_native_branch_to_jsonl(session_tree, output_path)
+                            diag(f"pipy: exported native session JSONL to {exported}.")
+                        else:
+                            output_path = (
+                                Path(path_arg).expanduser()
+                                if path_arg
+                                else default_html_export_path(session_tree, cwd=cwd)
+                            )
+                            if not output_path.is_absolute():
+                                output_path = cwd / output_path
+                            exported = export_native_session_to_html(
+                                session_tree, output_path, system_prompt=system_prompt
+                            )
+                            diag(f"pipy: exported native session HTML to {exported}.")
+                    except NativeExportError as exc:
+                        diag(f"pipy: {exc}")
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/import" or command_text.startswith("/import "):
+                    argument = stripped[len("/import") :]
+                    path_arg = parse_command_path_argument(argument)
+                    if not path_arg:
+                        diag("pipy: Usage: /import <path.jsonl>")
+                        refresh_legacy_footer()
+                        continue
+                    confirm = "--yes" in argument.split()
+                    source_path = Path(path_arg).expanduser()
+                    if not source_path.is_absolute():
+                        source_path = cwd / source_path
+                    if not confirm:
+                        print(
+                            f"Replace current session with {source_path}? [y/N] ",
+                            end="",
+                            file=error_stream,
+                            flush=True,
+                        )
+                        try:
+                            confirm = input_stream.readline().strip().lower() in ("y", "yes")
+                        except (OSError, ValueError):
+                            confirm = False
+                    if not confirm:
+                        diag("pipy: /import cancelled.")
+                        refresh_legacy_footer()
+                        continue
+                    try:
+                        session_tree = import_native_session_jsonl(
+                            source_path, session_dir=current_session_dir()
+                        )
+                    except NativeExportError as exc:
+                        if "imported session cwd does not exist:" not in str(exc):
+                            diag(f"pipy: {exc}")
+                            refresh_legacy_footer()
+                            continue
+                        print(
+                            f"{exc} Use current workspace {cwd}? [y/N] ",
+                            end="",
+                            file=error_stream,
+                            flush=True,
+                        )
+                        try:
+                            use_current = input_stream.readline().strip().lower() in ("y", "yes")
+                        except (OSError, ValueError):
+                            use_current = False
+                        if not use_current:
+                            diag("pipy: /import cancelled.")
+                            refresh_legacy_footer()
+                            continue
+                        try:
+                            session_tree = import_native_session_jsonl(
+                                source_path,
+                                session_dir=current_session_dir(),
+                                missing_cwd=cwd,
+                            )
+                        except NativeExportError as second_exc:
+                            diag(f"pipy: {second_exc}")
+                            refresh_legacy_footer()
+                            continue
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: imported native session "
+                        f"{sanitize_label_text(session_tree.session_id[:8])}."
+                    )
+                    refresh_legacy_footer()
+                    continue
+                if command_text == "/share":
+                    token = resolve_github_token()
+                    if not token:
+                        diag("pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`.")
+                        refresh_legacy_footer()
+                        continue
+                    try:
+                        result = self._share_native_session_command(
+                            session_tree=session_tree,
+                            token=token,
+                            terminal_ui=terminal_ui,
+                            error_stream=error_stream,
+                        )
+                    except NativeExportError as exc:
+                        diag(f"pipy: {exc}")
+                        refresh_legacy_footer()
+                        continue
+                    if result is None:
+                        refresh_legacy_footer()
+                        continue
+                    if result.viewer_url:
+                        diag(f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}")
+                    else:
+                        diag(f"pipy: gist URL: {result.gist_url}")
+                    refresh_legacy_footer()
+                    continue
                 if command_text == "/settings":
                     if terminal_ui is not None:
                         self._drive_settings_dialog(
@@ -2374,7 +2504,8 @@ class NativeToolReplSession:
                             f"pipy: {stripped!r} is not handled in tool-loop mode; "
                             "supported local commands are /help, /hotkeys, /reload, "
                             "/changelog, /model, /scoped-models, /settings, "
-                            "/login, /logout, /copy, /compact, /session, /name, "
+                            "/login, /logout, /copy, /compact, /export, /import, "
+                            "/share, /session, /name, "
                             "/new, /tree, /resume, /fork, /clone, /skill, /template, "
                             "/exit, /quit "
                             "(plus any workspace custom commands and activated "
@@ -3107,6 +3238,77 @@ class NativeToolReplSession:
         if terminal_ui.has_pending_messages():
             terminal_ui.promote_pending_to_drain()
         return result_holder[0]
+
+    def _share_native_session_command(
+        self,
+        *,
+        session_tree: NativeSessionTree,
+        token: str,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+    ) -> ShareResult | None:
+        """Run ``/share`` with product cancellation when the TUI is active."""
+
+        if terminal_ui is None:
+            return share_native_session(
+                session_tree,
+                token=token,
+                cancelled=(
+                    self.abort_event.is_set if self.abort_event is not None else None
+                ),
+            )
+
+        cancel_token = CancelToken()
+        done_event = threading.Event()
+        result_holder: list[ShareResult] = []
+        error_holder: list[BaseException] = []
+
+        def _run_share() -> None:
+            try:
+                result_holder.append(
+                    share_native_session(
+                        session_tree,
+                        token=token,
+                        cancelled=cancel_token.event.is_set,
+                        cancel_token=cancel_token,
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - re-raised below
+                error_holder.append(exc)
+            finally:
+                done_event.set()
+
+        self._emit_diagnostic(
+            terminal_ui,
+            error_stream,
+            "pipy: sharing native session... press Escape to cancel.",
+        )
+        worker = threading.Thread(target=_run_share, name="pipy-share-gist", daemon=True)
+        worker.start()
+        try:
+            outcome = terminal_ui.wait_for_active_turn_interrupt(
+                done_event, cancel_token.event, accept_queue=False
+            )
+        except KeyboardInterrupt:
+            cancel_token.cancel()
+            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+            self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+            return None
+        if outcome == TURN_ABORTED:
+            cancel_token.cancel()
+            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+            self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+            return None
+        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+        if error_holder:
+            error = error_holder[0]
+            if isinstance(error, ShareCancelled):
+                self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+                return None
+            if isinstance(error, NativeExportError):
+                raise error
+            raise error
+        return result_holder[0] if result_holder else None
 
     # Bound on how long the main thread waits for a cancelled provider worker to
     # unwind after its connection is closed. The worker is a daemon thread, so
@@ -3907,8 +4109,9 @@ class NativeToolReplSession:
     def _help_text() -> str:
         return (
             "pipy: tool-loop mode supports `/help`, `/hotkeys`, `/model`, `/settings`, "
-            "`/login`, `/logout`, `/copy`, `/compact`, `/session`, `/name`, "
-            "`/new`, `/tree`, `/resume`, `/fork`, `/clone`, `/exit`, `/quit` "
+            "`/login`, `/logout`, `/copy`, `/compact`, `/export`, `/import`, "
+            "`/share`, `/session`, `/name`, `/new`, `/tree`, `/resume`, "
+            "`/fork`, `/clone`, `/exit`, `/quit` "
             "locally. `/session` shows the current native session tree status; "
             "`/name <name>` names it; `/new` starts a fresh native session; "
             "`/tree` navigates the session tree in place (select/label/filter); "
@@ -3917,7 +4120,9 @@ class NativeToolReplSession:
             "`/fork` and `/clone` "
             "create new native sessions from an earlier point or the active "
             "branch. `/compact` reduces provider-visible context while keeping "
-            "recent turns plus a safe summary. `/model` "
+            "recent turns plus a safe summary. `/export` writes full-tree HTML "
+            "or active-branch JSONL; `/import <path.jsonl>` resumes a portable "
+            "native session; `/share` uploads a secret gist. `/model` "
             "opens an interactive provider/model selector (or "
             "`/model <provider>/<model>` switches directly); `/settings` opens an "
             "interactive settings dialog (provider/model, openai-codex auth, and "

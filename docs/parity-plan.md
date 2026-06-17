@@ -62,9 +62,9 @@ Pi's built-in slash commands (source:
 | `/settings` | Open settings menu | ✅ interactive dialog | [settings-config.md](settings-config.md) |
 | `/model` | Select model (selector UI) | ✅ | [provider-catalog.md](provider-catalog.md) |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling | ✅ command (view/set/clear/cycle) + Ctrl+P | [settings-config.md](settings-config.md) |
-| `/export` | Export session (HTML default, `.html`/`.jsonl`) | ❌ (only metadata-only `pipy-session export`) | [export-distribution.md](export-distribution.md) |
-| `/import` | Import + resume a session from JSONL | ❌ missing | [export-distribution.md](export-distribution.md) |
-| `/share` | Share session as a secret GitHub gist | ❌ missing | [export-distribution.md](export-distribution.md) |
+| `/export` | Export session (HTML default, `.html`/`.jsonl`) | ✅ native tool-loop `/export` writes full-tree self-contained HTML or active-branch linear JSONL | [export-distribution.md](export-distribution.md) |
+| `/import` | Import + resume a session from JSONL | ✅ `/import <path.jsonl>` copies into the native store and resumes after confirmation (`--yes` for scripts) | [export-distribution.md](export-distribution.md) |
+| `/share` | Share session as a secret GitHub gist | ✅ `/share` exports HTML and uploads a secret gist through stdlib GitHub API with token redaction and fakeable tests | [export-distribution.md](export-distribution.md) |
 | `/copy` | Copy last agent message to clipboard | ✅ shipped | — (no spec needed) |
 | `/name` | Set session display name | ✅ shipped | [session-tree.md](session-tree.md) |
 | `/session` | Show session info and stats | ✅ shipped | [session-tree.md](session-tree.md) |
@@ -131,10 +131,10 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--prompt-template` / `--no-prompt-templates, -np` | 🟡 discovery only | [settings-config.md](settings-config.md) |
 | `--theme` / `--no-themes` | 🟡 `PIPY_THEME` + `/theme` (no flag) | [settings-config.md](settings-config.md) |
 | `--no-context-files, -nc` | ✅ disables AGENTS/CLAUDE discovery | [settings-config.md](settings-config.md) |
-| `--export <file>` | ❌ missing | [export-distribution.md](export-distribution.md) |
+| `--export <file>` | ✅ top-level `pipy --export <session.jsonl> [output.html]` exports native sessions to HTML and exits | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |
-| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path sources (`packages` array in user/project settings, `+pattern`/`-pattern` resource filters), and installed local-path packages now contribute extensions/skills/prompts/themes through discovery at lowest precedence. Remote `git:`/PyPI/`npm:` sources and `update` remain deferred to a supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
+| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path sources, installed local-path packages contribute extensions/skills/prompts/themes, and `pipy update self\|pipy [--force] [--dry-run]` ships for install-method-aware self-update planning. Remote `git:`/PyPI/`npm:` package sources and package updates remain deferred to a supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | ❌ missing | [extension-api.md](extension-api.md) |
 
 **Pipy-only flags (not in Pi → remove or realign — see §3):**
@@ -186,7 +186,7 @@ the product state, not the spec state.
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship; **true active-turn provider-request cancellation shipped** (Escape/Ctrl-C close the in-flight `urllib`/SSE request via `CancelToken` and reap the worker, real-PTY + boundary tests) | real-PTY tests + conformance gate (in spec) |
-| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ❌ metadata-only export only; selected next topic, and the export conformance gate still needs to be added | planned `scripts/parity_checks/export_distribution_conformance.py --json` |
+| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ✅ baseline shipped: product HTML/JSONL export, import, share, top-level `--export`, self-update planning, and install docs; remote package-source update remains a separate extension-platform follow-on | `scripts/parity_checks/export_distribution_conformance.py --json` |
 | User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ❌ mostly internal specs today | docs parity review checklist in spec |
 
 **Verification / project policy** is intentionally not a separate topic: Pi has
@@ -207,16 +207,11 @@ JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
 §4 as conformance gates, but they are no longer the next large implementation
 topics.
 
-1. **Export / import / share / distribution**
-   ([export-distribution.md](export-distribution.md)) — now unblocked by the
-   native product session tree. Add full-session HTML export, active-branch
-   JSONL export, import-and-resume, `/share`, `--export`, and install/update
-   documentation.
-2. **Product-TUI long-input wrapping** ([tui-workflow.md](tui-workflow.md)) —
+1. **Product-TUI long-input wrapping** ([tui-workflow.md](tui-workflow.md)) —
    replace the current one-row horizontally scrolling input projection with a
    soft-wrapped input region that keeps footer/status rows pinned and maps the
    cursor across wrapped rows, matching Pi's long prompt behavior.
-3. **Extension / package platform follow-ons**
+2. **Extension / package platform follow-ons**
    ([extension-api.md](extension-api.md)) — core local automation plus
    local-path package runtime composition have landed, but pipy is still not a
    Pi-equivalent package platform. Remaining work includes rich extension
@@ -224,11 +219,11 @@ topics.
    extension flags, remote `git:`/PyPI package sources behind a supply-chain
    policy + `update`, the catalog/`/model` selector wiring of extension-
    registered providers, and the RPC extension-UI channel.
-4. **User documentation parity** ([user-documentation.md](user-documentation.md))
+3. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — run in parallel with implementation. Pipy needs outside-in product docs,
    not only internal specs, and those docs should track shipped behavior rather
    than planned parity.
-5. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
+4. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
    parity, broader local-provider maturity, and extension-registered providers

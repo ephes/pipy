@@ -74,16 +74,35 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   open: `--extension`, tool allow/deny flags, `--verbose`, `--offline`, theme
   load flags, and resource-wrapper cleanup (`/skill`/`/template`/`/theme`).
 
-The extension/package closeout changed the next-topic ordering. Core local
-extension workflows and local-path package runtime composition have landed, so
-the selected next implementation topic is now product export/import/share/
-distribution. Extension/package work remains a large follow-on area, but its
-next slices are remote source/update policy and richer platform APIs rather
-than the just-landed local package runtime.
+The extension/package closeout changed the next-topic ordering, and the
+export/import/share/distribution baseline has since landed. Core local
+extension workflows, local-path package runtime composition, and product
+export/import/share now ship. Extension/package work remains a large follow-on
+area, but its next slices are remote source/update policy and richer platform
+APIs rather than the just-landed local package runtime.
 
 ## Ranked biggest gaps
 
-### 1. Export / import / share / distribution — selected next topic
+### 1. Product-TUI long-input wrapping — selected next topic
+
+Pipy still horizontally scrolls a long editable prompt in one physical input
+row. Pi soft-wraps long typed input inside the input frame, with the cursor
+moving across wrapped rows while footer/status rows stay pinned.
+
+Implement in pipy:
+
+1. Replace `ToolLoopTerminalUi._input_view(width)` and the one-row input
+   `_FrameLine` projection with a soft-wrapped input region.
+2. Reserve dynamic input height in the live-region budget while keeping footer
+   and status rows pinned.
+3. Map cursor index to wrapped row/column and preserve literal submitted text,
+   including pasted newlines.
+4. Add real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
+   movement, and resize.
+5. Update docs/spec rows that currently describe horizontal scrolling as
+   shipped parity.
+
+### 2. Export / import / share / distribution — baseline shipped
 
 **Why it is first now:** the native session tree now stores full product
 sessions and the extension/package slice-12 closeout has landed, so Pi-style
@@ -102,48 +121,17 @@ Pi reference:
 Pipy current state:
 
 - Product native sessions exist and contain full transcripts.
+- `/export`, `/import`, `/share`, top-level `--export`, and self-update
+  planning now ship through pipy-owned stdlib boundaries.
 - `pipy-session export` remains metadata-only and is not the product parity
-  answer.
-- `/export`, `/import`, `/share`, product `--export`, and self-update/
-  distribution docs are incomplete.
+  export path.
 
-Implement next in pipy:
-
-1. Full native-session HTML export with inlined CSS/JS and embedded base64
-   session data.
-2. JSONL active-branch export with linear parent re-chaining.
-3. `/export [path]`, `--export <session.jsonl> [output]`, and `/import
-   <path.jsonl>` against the native session tree.
-4. `/share` secret gist upload or documented `gh` boundary with redaction and
-   cancellation.
-5. Install/update/version documentation and safe self-update planning.
-
-Complete when the planned export conformance gate has been added and passes:
+The export conformance gate has been added and passes:
 
 ```sh
 uv run python scripts/parity_checks/export_distribution_conformance.py --json
 just check
 ```
-
-### 2. Product-TUI long-input wrapping bug
-
-**Why it is second:** the product TUI still horizontally scrolls a long editable
-prompt in one physical input row. Pi soft-wraps long typed input inside the
-input frame, with the cursor moving across wrapped rows while footer/status rows
-stay pinned.
-
-Implement in pipy:
-
-1. Replace `ToolLoopTerminalUi._input_view(width)` and the one-row input
-   `_FrameLine` projection with a soft-wrapped input region.
-2. Reserve dynamic input height in the live-region budget while keeping footer
-   and status rows pinned.
-3. Map cursor index to wrapped row/column and preserve literal submitted text,
-   including pasted newlines.
-4. Add real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
-   movement, and resize.
-5. Update docs/spec rows that currently describe horizontal scrolling as
-   shipped parity.
 
 ### 3. Extension and package platform follow-ons
 
@@ -230,16 +218,14 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Export/import/share/distribution, now unblocked by the native session tree
-   and selected after the local extension/package closeout.
-2. Product-TUI long-input wrapping.
-3. Extension/package platform follow-ons: source-loading flags, richer hooks/UI,
+1. Product-TUI long-input wrapping.
+2. Extension/package platform follow-ons: source-loading flags, richer hooks/UI,
    extension-provider catalog wiring, and remote sources/update after policy.
-4. User documentation parity in parallel with implementation.
-5. Focused provider/model catalog follow-ons.
-6. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
+3. User documentation parity in parallel with implementation.
+4. Focused provider/model catalog follow-ons.
+5. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
    the owning topics.
-7. Verification/project policy through extension gates, not a revived `/verify`
+6. Verification/project policy through extension gates, not a revived `/verify`
    command.
 
 The extension/package platform remains the largest follow-on by surface area,
