@@ -551,6 +551,23 @@ def _run_editor_pty(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_utf8_prompt_text_renders_and_submits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, "öhm\n".encode("utf-8"))
+        assert _wait_for(chunks, "TURN_1_DONE"), "utf-8 prompt never submitted"
+
+    captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
+    assert "öhm" in captured
+    assert "��hm" not in captured
+    assert prompts == ["öhm"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_prompt_history_recall_edits_and_submits(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):

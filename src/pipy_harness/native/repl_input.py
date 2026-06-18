@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 import select
 import sys
 from collections.abc import Mapping
@@ -13,6 +12,7 @@ from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated, _is_relative_to
+from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
 REPL_INPUT_RUNTIME_AUTO = "auto"
 REPL_INPUT_RUNTIME_PLAIN = "plain"
@@ -485,6 +485,7 @@ class _SlashMenuLineEditor:
     _menu_open: bool = False
     _menu_selection: int = 0
     _last_drawn_rows: int = 0
+    _pending_input_bytes: bytearray = field(default_factory=bytearray)
 
     def run(self) -> str:
         if self.termios_module is None or self.tty_module is None:
@@ -616,18 +617,14 @@ class _SlashMenuLineEditor:
         return ch
 
     def _read_byte(self) -> str:
-        try:
-            data = os.read(self.input_fd, 1)
-        except (OSError, InterruptedError):
-            return ""
-        if not data:
-            return ""
-        try:
-            return data.decode("utf-8", errors="replace")
-        except UnicodeDecodeError:
-            return ""
+        return read_terminal_utf8_char(
+            self.input_fd,
+            pending_bytes=self._pending_input_bytes,
+        )
 
     def _read_byte_with_timeout(self, timeout: float) -> str:
+        if self._pending_input_bytes:
+            return self._read_byte()
         r, _, _ = select.select([self.input_fd], [], [], timeout)
         if self.input_fd not in r:
             return ""

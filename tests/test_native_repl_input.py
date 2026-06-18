@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import types
 from io import StringIO
@@ -919,6 +920,33 @@ def test_slash_menu_runtime_rejects_captured_streams() -> None:
             error_stream=StringIO(),
             input_runtime=REPL_INPUT_RUNTIME_SLASH_MENU,
         )
+
+
+def test_slash_menu_key_decoder_reads_complete_utf8_character() -> None:
+    editor = _make_slash_menu_editor()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, "ö".encode("utf-8"))
+    os.close(write_fd)
+    try:
+        editor.input_fd = read_fd
+
+        assert editor._read_key() == "ö"
+    finally:
+        os.close(read_fd)
+
+
+def test_slash_menu_timeout_reader_reads_pending_byte_without_fd_activity() -> None:
+    editor = _make_slash_menu_editor()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"\xc3(")
+    try:
+        editor.input_fd = read_fd
+
+        assert editor._read_key() == "�"
+        assert editor._read_byte_with_timeout(0.0) == "("
+    finally:
+        os.close(write_fd)
+        os.close(read_fd)
 
 
 def test_slash_menu_typing_slash_opens_menu_with_all_commands() -> None:

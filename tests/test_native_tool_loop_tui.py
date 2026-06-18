@@ -1758,6 +1758,31 @@ def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
         os.close(read_fd)
 
 
+def test_tui_key_decoder_reads_complete_utf8_character(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    assert _decode_key(ui, "ö".encode("utf-8")) == "ö"
+
+
+def test_tui_key_decoder_handles_malformed_utf8_without_crashing(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    assert _decode_key(ui, b"\xff") == "�"
+
+
+def test_tui_key_if_available_reads_pending_byte_without_fd_activity(tmp_path: Path):
+    ui = _ui(tmp_path)
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"\xc3(")
+    try:
+        assert ui._read_key(read_fd) == "�"
+
+        assert ui._read_key_if_available(read_fd, 0.0) == "("
+    finally:
+        os.close(write_fd)
+        os.close(read_fd)
+
+
 def test_tui_prompt_history_up_down_recall(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._record_history("first prompt")

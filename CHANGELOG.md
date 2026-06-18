@@ -6,6 +6,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- Raw terminal input now preserves UTF-8 prompt text in the product TUI and
+  slash-menu editor, so non-ASCII characters such as `ö` no longer render as
+  replacement characters or reach the provider corrupted.
+
 ### Changed
 
 - Product TUI long editable prompts now soft-wrap inside the input frame instead

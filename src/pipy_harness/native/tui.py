@@ -48,6 +48,7 @@ from pipy_harness.native.session_tree_commands import (
     format_session_picker_label,
     sanitize_label_text,
 )
+from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
 
 # Sentinel returned by the session-picker key handler to mean "stay open"
@@ -349,6 +350,7 @@ class ToolLoopTerminalUi:
     _undo_stack: list[tuple[str, int]] = field(default_factory=list)
     _redo_stack: list[tuple[str, int]] = field(default_factory=list)
     _pending_paste: str = ""
+    _pending_input_bytes: bytearray = field(default_factory=bytearray)
     # Editor rehydration: a ``/tree`` user-message selection pre-fills the next
     # prompt with the selected text so the user can edit it into a new branch.
     _pending_initial_text: str | None = None
@@ -2980,6 +2982,8 @@ class ToolLoopTerminalUi:
 
         while True:
             self._poll_resize_repaint()
+            if self._pending_input_bytes:
+                return self._read_key(fd)
             readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
             if fd not in readable:
                 continue
@@ -3024,24 +3028,23 @@ class ToolLoopTerminalUi:
             self._live_input_row = 0
             self._paint_locked()
 
-    @staticmethod
-    def _read_byte(fd: int) -> str:
-        try:
-            data = os.read(fd, 1)
-        except (OSError, InterruptedError):
-            return ""
-        if not data:
-            return ""
-        return data.decode("utf-8", errors="replace")
+    def _read_byte(self, fd: int) -> str:
+        return read_terminal_utf8_char(
+            fd,
+            pending_bytes=self._pending_input_bytes,
+        )
 
-    @staticmethod
-    def _read_byte_with_timeout(fd: int, timeout: float) -> str:
+    def _read_byte_with_timeout(self, fd: int, timeout: float) -> str:
+        if self._pending_input_bytes:
+            return self._read_byte(fd)
         readable, _, _ = select.select([fd], [], [], timeout)
         if fd not in readable:
             return ""
-        return ToolLoopTerminalUi._read_byte(fd)
+        return self._read_byte(fd)
 
     def _read_key_if_available(self, fd: int, timeout: float) -> str | None:
+        if self._pending_input_bytes:
+            return self._read_key(fd)
         readable, _, _ = select.select([fd], [], [], timeout)
         if fd not in readable:
             return None
