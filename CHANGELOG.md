@@ -59,33 +59,41 @@ entries oldest-first, and a version bump shows the new entries at startup.
     manual instructions.
   - New gate:
     `scripts/parity_checks/export_distribution_conformance.py --json`.
-- Pi-style extension **package manager CLI** for local-path package sources
-  ([docs/extension-api.md](docs/extension-api.md)): `pipy install <source>
-  [-l]`, `pipy remove`/`pipy uninstall <source> [-l]`, and `pipy list` record
-  and report package sources in a `packages` array in user `<config>/
-  settings.json` or project `<cwd>/.pipy/settings.json` (with `-l`), preserving
-  object-form `{source, ...}` entries. `pipy config <enable|disable>
+- Pi-style extension **package manager CLI** for local-path and managed git
+  package sources ([docs/extension-api.md](docs/extension-api.md)): `pipy
+  install <source> [-l]`, `pipy remove`/`pipy uninstall <source> [-l]`, and
+  `pipy list` record and report package sources in a `packages` array in user
+  `<config>/settings.json` or project `<cwd>/.pipy/settings.json` (with `-l`),
+  preserving object-form `{source, ...}` entries. Supported git sources clone
+  into pipy's managed package cache (`<config>/git` for user scope,
+  `<cwd>/.pipy/git` for project scope), `pipy update --extensions`, `pipy
+  update --extension <source>`, `pipy update <source>`, and bare `pipy update`
+  refresh managed git packages through bounded fetch/reset, and local-path
+  package updates are skipped as no-ops. `pipy config <enable|disable>
   <skill|prompt|theme|extension> <name>` writes Pi-shaped `+pattern`/`-pattern`
-  resource filters without deleting discovered resources. Only local-path
-  sources are supported: `git:`/`git+`/`npm:`/any `<scheme>://` URL is rejected
-  (case-insensitive), a missing path fails closed, removing an unconfigured
+  resource filters without deleting discovered resources. PyPI/npm,
+  `git+...`, credentialed URL userinfo, and ambiguous unsupported remote
+  schemes fail closed; a missing path fails closed, removing an unconfigured
   source exits non-zero, a corrupt settings file is never overwritten, and no
   package lifecycle scripts run.
-- Pi-style extension **package runtime composition**: installed local-path
-  packages now contribute skills, prompts, themes, and Python extensions to a
-  session through discovery ([docs/extension-api.md](docs/extension-api.md)). A
-  package declares its resources in an optional `pipy-package.toml [resources]`
-  table (mapping Pi's `pi.{extensions,skills,prompts,themes}`) or via convention
-  subdirectories. Contributed resources are discovered at lowest precedence (a
-  workspace/global resource wins a name collision), are name-deduped first-wins,
-  and honor both the global `pipy config` `+pattern`/`-pattern` filters and a
-  package's own object-form `{source, skills, prompts, themes}` filters. This
-  adds file-based chrome themes: a package theme `.toml` becomes selectable with
-  `/theme <name>` and re-colors the chrome. `pipy config` lists package-
-  contributed resources, and `/reload` re-discovers them. Package source paths
-  and resource bodies never enter the default metadata archive. Remote `git:`/
-  PyPI sources and `update` remain deferred pending a supply-chain policy. See
-  the example package `docs/examples/packages/demo-pack/`.
+- Pi-style extension **package runtime composition**: installed local-path and
+  managed git packages now contribute skills, prompts, themes, and Python
+  extensions to a session through discovery
+  ([docs/extension-api.md](docs/extension-api.md)). A package declares its
+  resources in an optional `pipy-package.toml [resources]` table (mapping Pi's
+  `pi.{extensions,skills,prompts,themes}`) or via convention subdirectories.
+  Contributed resources are discovered at lowest precedence (a workspace/global
+  resource wins a name collision), are name-deduped first-wins, and honor both
+  the global `pipy config` `+pattern`/`-pattern` filters and a package's own
+  object-form `{source, skills, prompts, themes}` filters. Runtime startup never
+  clones or fetches git sources; it only reads already installed cache paths and
+  preserves user/project cache scope when resolving configured git packages.
+  This adds file-based chrome themes: a package theme `.toml` becomes
+  selectable with `/theme <name>` and re-colors the chrome. `pipy config` lists
+  package-contributed resources, and `/reload` re-discovers them. Package source
+  paths and resource bodies never enter the default metadata archive. Remote
+  PyPI/npm package installation remains deferred pending a broader supply-chain
+  policy. See the example package `docs/examples/packages/demo-pack/`.
 - Pi-style session startup flags and an interactive session picker for the
   native product session tree ([docs/session-tree.md](docs/session-tree.md)):
   - new startup flags `--session-id <id>` (open the native session with this

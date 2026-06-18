@@ -11,10 +11,11 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–13 have landed (see
-"Suggested Implementation Slices"), including **package runtime composition** —
-installed local-path package resources (extensions/skills/prompts/themes) now
-flow through discovery at lowest precedence with Pi-shaped enablement filters.
+Implementation status: **partially implemented.** Slices 1–13 plus the first
+package-source/update follow-on have landed (see "Suggested Implementation
+Slices"), including **package runtime composition** — installed local-path and
+managed git package resources (extensions/skills/prompts/themes) now flow
+through discovery at lowest precedence with Pi-shaped enablement filters.
 The pre-existing pipy runtime resources (bounded Markdown skills, prompt
 templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
@@ -33,12 +34,13 @@ registration `api.register_shortcut(...)`. It is not source-compatible with
 Pi's TypeScript extensions, and it still lacks several mature Pi surfaces:
 richer multi-widget TUI and custom message/tool rendering (only single
 `ctx.ui.custom` overlays exist), extension state/session-manager helpers,
-remote npm/git package distribution, and `update`. Session switch/fork/tree/
+remote PyPI/npm package distribution, and broader package ecosystem polish.
+Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
 live-session follow-on slice. Per-run source-loading flags for extensions,
 skills, prompt templates, and themes have landed. (Package runtime composition
-for local-path packages has landed.)
+for local-path and managed git packages has landed.)
 
 ## Goals
 
@@ -527,9 +529,15 @@ Pipy package sources should support these stages:
 - **Local path** sources first: directories or files on disk, resolved relative
   to the current workspace for project operations. These are the first trusted
   source kind and require no installer.
-- **Git** sources next: HTTPS/SSH/git URLs cloned into pipy's package cache and
-  updated with `git pull`/fresh clone. Pinning to a ref is required before
-  automatic execution of non-local code is enabled by default.
+- **Git** sources: HTTPS/git/file URLs and SSH scp-style sources behind the
+  `git:` prefix (for example `git:git@host:owner/repo`) are cloned into pipy's
+  managed package cache (`<config>/git` for user scope, `.pipy/git` for project
+  scope) and updated through bounded fetch/reset. Runtime startup never clones
+  or fetches; it only reads an already installed cache path from the configured
+  scope, so a user package is not shadowed by a same-source project cache.
+  Ref-pinned sources are reconciled to the configured ref. Credentialed URL
+  userinfo, including `ssh://git@host/...`, is rejected rather than displayed or
+  stored.
 - **Python package / PyPI-style** sources only after a supply-chain policy is
   written. They must be installed into an isolated package cache or explicitly
   documented environment, never silently into the user's active project.
@@ -574,10 +582,10 @@ pipy config
 pipy update <source>|--extensions|--extension <source> [--force]  # package-update target
 ```
 
-`pipy update self|pipy [--force] [--dry-run]` already ships as the
+`pipy update self|pipy [--force] [--dry-run]` ships as the
 install-method-aware self-update surface in
-[export-distribution.md](export-distribution.md). Package/source updates remain
-part of this extension-platform target.
+[export-distribution.md](export-distribution.md). The package half now supports
+managed git sources plus local-path no-op updates.
 
 Behavior targets:
 
@@ -612,7 +620,9 @@ Package resolution should be explicit and testable:
 - missing sources during normal startup fail closed with a safe diagnostic, but
   the package manager may support an explicit `onMissing` policy for install or
   skip during `resolve()`;
-- update checks are concurrent only within a small stdlib-bound cap;
+- package updates are explicit and scriptable: local paths are skipped, managed
+  git sources fetch/reset in the cache, and unsupported remote sources fail
+  closed;
 - package manifests can contribute extensions, skills, prompts/templates, and
   themes. Pipy's manifest shape should be Python-native but map to Pi's
   `package.json` `pi.{extensions,skills,prompts,themes}` capability.
@@ -647,8 +657,10 @@ real network. It must prove:
 4. `config` writes `+pattern`/`-pattern` filters and those filters affect
    runtime discovery;
 5. `remove`/`uninstall` removes only the selected source/scope;
-6. `update --extensions`, `update <source>`, and bare `update` choose the right
-   package targets without executing network operations under test;
+6. `update --extensions`, `update <source>`, `--extension <source>`, and bare
+   `update` choose the right package targets; dry-run does not execute network
+   operations, and the gate uses a local file-backed git remote for the real
+   update path;
 7. invalid/conflicting options and missing sources fail closed with usage;
 8. no package source path, token, command output, extension code, prompt body,
    tool payload, or UI text leaks into the default metadata archive.
@@ -826,10 +838,10 @@ have **landed** (gate
 `scripts/parity_checks/extension_live_session_conformance.py --json` plus the
 earlier package gate
 `scripts/parity_checks/extension_package_conformance.py --json`), including
-**package runtime composition** — installed local-path package resources flow
-through discovery at lowest precedence (see slice 12 below) — plus the
-follow-on per-run source-loading flags for explicit extensions, skills, prompt
-templates, and themes. Discovery never imports extension code; activation
+**package runtime composition** — installed local-path and managed-git package
+resources flow through discovery at lowest precedence (see slice 12 below) —
+plus the follow-on per-run source-loading flags for explicit extensions, skills,
+prompt templates, and themes. Discovery never imports extension code; activation
 imports only loadable descriptors.
 
 Beyond the numbered slices, an **interactive command-context block** has also
@@ -911,17 +923,20 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     startup resolver, `--list-models`, `/model`, and `/reload` as temporary
     per-run rows, with no extension source paths or provider payloads archived.
 12. Package install/list/config CLI **and runtime composition** — **landed
-    (local-path scope)**. The CLI half is implemented as
+    (local-path + managed git scope)**. The CLI half is implemented as
     `pipy_harness.native.package_manager` wired into `pipy_harness.cli`: `pipy
-    install/remove/uninstall [-l]` and `pipy list` manage local-path package
+    install/remove/uninstall [-l]` and `pipy list` manage package
     sources in a `packages` array in user/project `settings.json` (preserving
     object-form `{source, ...}` entries), and `pipy config <enable|disable>
     <skill|prompt|theme|extension> <name>` writes `+pattern`/`-pattern` resource
-    filters (never deleting discovered resources). `git:`/`git+`/`npm:`/any
-    `<scheme>://` URL source is rejected (case-insensitive), a corrupt settings
-    file is never clobbered, and no package lifecycle scripts run. **Runtime
-    composition** resolves configured local-path sources into per-kind resource
-    roots (`pipy_harness.native.package_resources.resolve_package_roots`, from an
+    filters (never deleting discovered resources). Local paths must exist;
+    supported git URLs clone into the managed package cache and are refreshed by
+    `pipy update --extensions`, `pipy update <source>`, or `pipy update
+    --extension <source>`. `git+`/`npm:`/PyPI/credentialed or ambiguous remote
+    sources are rejected, a corrupt settings file is never clobbered, and no
+    package lifecycle scripts run. **Runtime composition** resolves configured
+    local-path sources and installed git caches into per-kind resource roots
+    (`pipy_harness.native.package_resources.resolve_package_roots`, from an
     optional `pipy-package.toml` manifest mapping Pi's
     `pi.{extensions,skills,prompts,themes}`, or convention subdirs), composed
     once per session via `package_runtime.compose_package_runtime`: package
@@ -939,9 +954,10 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     extension/skill/prompt/theme with deterministic precedence; filters affect
     discovery; no source path or resource body leaks into safe metadata). The
     same gate now also proves per-run source-loading flags for explicit
-    extension, skill, prompt-template, and theme paths. Remote `git:`/PyPI
-    source handling and package/source `update` stay deferred until a
-    supply-chain policy and isolated package cache are written. Gate
+    extension, skill, prompt-template, and theme paths, plus managed git
+    install/update through a local file-backed remote and package-update
+    dry-run target selection. Remote PyPI/npm source handling remains deferred
+    until a broader supply-chain policy exists. Gate
     `scripts/parity_checks/extension_package_conformance.py --json`.
 13. Live-session hooks and dynamic controls — **landed**: Pi-shaped
     `user_bash`, `before_provider_request`, `session_before_switch`,

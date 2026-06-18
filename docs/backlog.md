@@ -80,8 +80,9 @@ The broad parity ladder, applied with small-slice discipline:
   loadable skill names. Chrome color themes also now ship via `/theme`
   (`pipy_harness.native.themes`). Pi-shaped per-run source-loading flags now
   load explicit extension/skill/prompt-template/theme files or directories
-  while the matching `--no-*` flags disable default discovery. A mature
-  remote package/update ecosystem remains later parity work. The `/settings` (interactive control
+  while the matching `--no-*` flags disable default discovery. Managed git
+  package install/update now ships; a mature PyPI/npm package ecosystem remains
+  later parity work. The `/settings` (interactive control
   dialog) and `/model` (interactive selector) surfaces are exposed inside the
   product TUI, and `/login`/`/logout` are executable inside the TUI too
   (through the same auth boundary, with no provider turn).
@@ -197,11 +198,11 @@ not a promise to skip review when a smaller, safer slice appears.
    core local automation (commands/shortcuts, tools, lifecycle/input/prompt
    hooks, `tool_call` gates, `tool_result` transforms, minimal UI notices, and
    provider-registration mechanics wired into the native catalog/model selector)
-   and local-path package runtime composition
+   and local-path/managed-git package runtime composition plus package `update`
    (installed packages contribute skills/prompts/themes/extensions through
    discovery). It is still **Pi-shaped rather than Pi-equivalent**: rich
-   extension UI/rendering, broader session hooks, dynamic controls, remote
-   packages, and update flows remain follow-ons.
+   extension UI/rendering, broader session hooks, dynamic controls, and
+   PyPI/npm package sources remain follow-ons.
 5. Session workflows — **shipped (2026-06-02)**. The native product session
    tree (`pipy_harness.native.session_tree`) is now pipy's product session
    store, a raw private append-only JSONL tree like Pi's
@@ -269,9 +270,9 @@ surface or lower-level terminal ownership.
 ### Current Largest Pi Feature Gaps (groomed 2026-06-17)
 
 This snapshot supersedes the 2026-06-15 ranking after the extension/package
-slice-12 closeout shipped local-path package runtime composition. It is a
-slice-selection aid, not a replacement for `docs/pi-parity.md` or the per-topic
-specs.
+slice-12 closeout shipped package runtime composition and the managed git
+package-source/update follow-on. It is a slice-selection aid, not a replacement
+for `docs/pi-parity.md` or the per-topic specs.
 
 Shipped foundations that should no longer be selected as large topics:
 
@@ -291,8 +292,9 @@ Shipped foundations that should no longer be selected as large topics:
 - core local extension/package workflows: discovery/activation, commands,
   shortcuts, lifecycle/input hooks, tool gates/tools/result transforms,
   provider-registration mechanics wired into `--list-models`, startup
-  resolution, `/model`, and `/reload`, local-path package CLI, and local-path
-  package runtime composition for extensions/skills/prompts/themes; and
+  resolution, `/model`, and `/reload`, local-path/managed-git package CLI,
+  package `update`, and package runtime composition for
+  extensions/skills/prompts/themes; and
 - product export/import/share/distribution baseline: `/export` HTML and JSONL,
   `/import`, `/share`, top-level `--export`, self-update planning, install docs,
   and `scripts/parity_checks/export_distribution_conformance.py --json`.
@@ -301,16 +303,16 @@ The highest-impact remaining gaps are now:
 
 1. **Extension and package platform follow-ons.** Pipy now has a useful
    **Pi-shaped but not Pi-equivalent** Python extension runtime and installed
-   local-path package resources flow through discovery at lowest precedence
+   local-path/managed-git package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Live-session hooks/controls for `user_bash`,
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls now ship. Pi remains ahead on rich TUI extension
    UI, custom rendering, extension state/session-manager helpers, dynamic
-   extension flags/message renderers, OAuth-provider extension registration,
-   remote sources, `update`, and the npm/git package ecosystem. The next
-   extension/package slices are deferred remote `git:`/PyPI source kinds and
-   `update` (gated on a supply-chain policy and isolated package cache), plus
-   the richer API follow-ons tracked in [extension-api.md](extension-api.md).
+  extension flags/message renderers, OAuth-provider extension registration,
+  remote PyPI/npm sources, and the broader package ecosystem. Managed git
+  sources and package `update` now ship behind a pipy-owned cache; the next
+  extension/package slices are richer API follow-ons and any future PyPI/npm
+  source kinds after a broader supply-chain policy.
 2. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
    keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
@@ -1422,10 +1424,10 @@ Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, or remote
-  sources/update after supply-chain policy; and
-- keep remote source/update work behind an isolated package cache and explicit
-  supply-chain policy.
+  richer hooks/UI, OAuth-provider extension registration, dynamic flags/message
+  renderers, or future PyPI/npm package sources after supply-chain policy; and
+- keep any future non-git remote source work behind explicit supply-chain
+  policy and an isolated cache.
 
 Acceptance criteria:
 
@@ -1438,9 +1440,10 @@ just check
 
 ### Extension API slice 12 closeout: package runtime composition — LANDED
 
-Slices 1–12 have **landed**, including **package runtime composition**:
-installed local-path package resources now flow through discovery (see the
-closing note below). Landed so far:
+Slices 1–12 plus the managed git package-source/update follow-on have
+**landed**, including **package runtime composition**: installed local-path and
+managed git package resources now flow through discovery (see the closing note
+below). Landed so far:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1514,20 +1517,23 @@ closing note below). Landed so far:
   `scripts/parity_checks/extension_providers_conformance.py --json` and
   `scripts/parity_checks/provider_catalog_conformance.py --json`.
 - Slice 12 package CLI (settings management): `pipy install/remove/uninstall
-  [-l]` and `pipy list` manage Pi-shaped local-path package sources recorded in
-  a `packages` array in user `<config>/settings.json` or project
-  `<cwd>/.pipy/settings.json` (with `-l`), preserving object-form `{source,
-  ...}` entries; `pipy config <enable|disable> <skill|prompt|theme|extension>
-  <name>` writes `+pattern`/`-pattern` resource filters (never deleting
-  discovered resources). `git:`/`git+`/`npm:`/any `<scheme>://` URL source is
-  rejected (exit 2, case-insensitive), a missing local path fails closed,
-  removing an unconfigured source exits non-zero, a corrupt settings file is
-  never clobbered, and no package lifecycle scripts run. Gate:
+  [-l]` and `pipy list` manage Pi-shaped local-path and managed git package
+  sources recorded in a `packages` array in user `<config>/settings.json` or
+  project `<cwd>/.pipy/settings.json` (with `-l`), preserving object-form
+  `{source, ...}` entries; `pipy config <enable|disable>
+  <skill|prompt|theme|extension> <name>` writes `+pattern`/`-pattern` resource
+  filters (never deleting discovered resources). Supported git sources clone
+  into the configured-scope cache and refresh through `pipy update`; PyPI/npm,
+  `git+...`, credentialed URL userinfo, and ambiguous unsupported remote
+  schemes fail closed, a missing local path fails closed, removing an
+  unconfigured source exits non-zero, a corrupt settings file is never
+  clobbered, and no package lifecycle scripts run. Gate:
   `scripts/parity_checks/extension_package_conformance.py --json`.
 
-- Slice 12 package runtime composition: configured local-path sources resolve
-  into per-kind roots (`package_resources.resolve_package_roots`, from an
-  optional `pipy-package.toml` manifest mapping Pi's
+- Slice 12 package runtime composition: configured local-path sources and
+  installed managed git caches resolve into per-kind roots
+  (`package_resources.resolve_package_roots`, from an optional
+  `pipy-package.toml` manifest mapping Pi's
   `pi.{extensions,skills,prompts,themes}`, else convention subdirs), composed
   once per session by `package_runtime.compose_package_runtime`. Package skills
   and prompts flow through `WorkspaceResources.discover(package_roots=...)`,
@@ -1545,6 +1551,14 @@ closing note below). Landed so far:
   archive-safe metadata). `pipy install` now both records a source **and**
   loads its resources.
 
+- Managed git package-source/update follow-on: supported git sources install
+  into `<config>/git` for user scope or `<cwd>/.pipy/git` for project scope,
+  package `update` refreshes those caches through bounded fetch/reset, local
+  path updates are no-ops, and runtime startup never clones or fetches. Runtime
+  resolution preserves the configured cache scope so a user git package cannot
+  be shadowed by a project cache with the same source. PyPI/npm sources remain
+  deferred to a broader supply-chain policy.
+
 - Source-loading flags: `pipy repl` accepts Pi-shaped `--extension`/`-e`,
   `--no-extensions`/`-ne`, `--skill`, `--no-skills`/`-ns`,
   `--prompt-template`, `--no-prompt-templates`/`-np`, `--theme`, and
@@ -1553,8 +1567,9 @@ closing note below). Landed so far:
   a persisted resource filter disables the same resource name. The package gate
   now includes this check.
 
-Remaining package work (deferred): remote `git:`/PyPI source kinds, an isolated
-package cache, and `update`, all gated on a supply-chain policy.
+Remaining package work (deferred): PyPI/npm source kinds and richer package
+ecosystem policy. Managed git sources, the isolated package cache, and package
+`update` now ship.
 
 Compatibility assessment for slice selection: treat Pipy's extension support as
 **comparable for core local automation, not comparable to Pi as a mature
@@ -1567,8 +1582,8 @@ extension APIs: custom message/tool rendering, full `ctx.ui`
 dialogs/widgets/editor/autocomplete/theme controls, extension state helpers
 equivalent to `appendEntry`/session-manager access, TypeScript source
 compatibility, OAuth-provider extension registration, dynamic extension
-flags/message renderers, or npm/git/update package distribution. Remote
-`git:`/PyPI sources and `update` remain deferred.
+flags/message renderers, or PyPI/npm package distribution. Managed git sources
+and package `update` now ship; broader remote package sources remain deferred.
 
 Acceptance criteria:
 
@@ -1712,13 +1727,13 @@ Invariants that must hold for any near-term slice:
   autocomplete providers, theme controls, custom overlays beyond the narrow
   Python `ctx.ui.custom` path, and custom message/tool rendering.
 - Extension/package platform follow-ons: package runtime composition for
-  installed local-path packages, per-run source-loading flags, live-session
-  operation gates, `user_bash`, provider-request transforms, and dynamic active
-  tool/model/thinking controls have landed. Remaining Pi gaps are dynamic
-  extension flags/message renderers, extension state/session-manager views,
-  richer extension UI/rendering, OAuth-provider extension registration, remote
-  package sources, package `update`, and the corresponding supply-chain/security
-  model. The target specification is
+  installed local-path/managed-git packages, package `update`, per-run
+  source-loading flags, live-session operation gates, `user_bash`,
+  provider-request transforms, and dynamic active tool/model/thinking controls
+  have landed. Remaining Pi gaps are dynamic extension flags/message renderers,
+  extension state/session-manager views, richer extension UI/rendering,
+  OAuth-provider extension registration, PyPI/npm package sources, and the
+  corresponding supply-chain/security model. The target specification is
   [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
   Anthropic/Copilot login UX and adapter parity polish.

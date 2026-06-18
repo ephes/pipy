@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 SCOPE_GLOBAL = "global"
 SCOPE_PROJECT = "project"
+PACKAGE_ENTRY_SCOPE_KEY = "__pipy_scope"
 
 PROJECT_CONFIG_DIR_NAME = ".pipy"
 SETTINGS_FILENAME = "settings.json"
@@ -537,7 +538,7 @@ class SettingsManager:
         return self._get_bool("enableSkillCommands", default=True)
 
     def get_packages(self) -> list[str]:
-        """Configured local-path package sources, project scope first.
+        """Configured package sources, project scope first.
 
         Project sources precede user/global sources so a project package
         wins resource-resolution precedence over a user package. The
@@ -562,8 +563,10 @@ class SettingsManager:
         """Configured `packages` entries (string or object-form), project first.
 
         Like `get_packages` but preserves object-form `{source, extensions,
-        skills, prompts, themes}` entries verbatim so per-package resource
-        filters survive into runtime composition. Deduplicated by source
+        skills, prompts, themes}` filters so per-package resource filters
+        survive into runtime composition. Entries are returned with an internal
+        scope marker so managed git caches resolve from the configured scope,
+        not whichever cache happens to exist first. Deduplicated by source
         string (first occurrence — project scope — wins).
         """
 
@@ -576,7 +579,14 @@ class SettingsManager:
                 source = _source_of(entry)
                 if source is not None and source not in seen:
                     seen.add(source)
-                    ordered.append(entry)
+                    if isinstance(entry, str):
+                        ordered.append({"source": entry, PACKAGE_ENTRY_SCOPE_KEY: scope})
+                    elif isinstance(entry, dict):
+                        scoped = copy.deepcopy(entry)
+                        scoped[PACKAGE_ENTRY_SCOPE_KEY] = scope
+                        ordered.append(scoped)
+                    else:
+                        ordered.append(entry)
         return ordered
 
     # --- changelog / telemetry --------------------------------------------

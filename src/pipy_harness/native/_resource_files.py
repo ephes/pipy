@@ -130,11 +130,12 @@ def discover_resource_files(
     `workspace_subdir` is the path relative to `<workspace>/.pipy/` (for
     example, `skills` or `templates`). `global_subdir` is the path relative to
     the global resource root. `package_roots` lists concrete `PackageRoot`s
-    contributed by installed local-path packages; they are searched after the
-    workspace and global dirs. `explicit_paths` are per-run CLI paths (files or
-    directories) searched before the defaults so an explicit CLI resource wins a
-    name collision. When `include_defaults` is false, workspace/global/package
-    discovery is skipped but explicit paths still load, matching Pi's
+    contributed by installed local-path or managed git packages; they are
+    searched after the workspace and global dirs. `explicit_paths` are per-run
+    CLI paths (files or directories) searched before the defaults so an explicit
+    CLI resource wins a name collision. When `include_defaults` is false,
+    workspace/global/package discovery is skipped but explicit paths still load,
+    matching Pi's
     `--no-skills`/`--no-prompt-templates` behavior. Each package root may carry
     per-package `+/-pattern` filters that scope that one package's resources by
     name. When `dedupe_by_name` is set, a later file whose resolved name was

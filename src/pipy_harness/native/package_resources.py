@@ -1,8 +1,8 @@
-"""Local-path package resource resolution (slice 12 runtime composition).
+"""Package resource resolution (local paths plus managed git cache).
 
 The package-manager CLI (`pipy_harness.native.package_manager`) records
-local-path package sources in the layered settings system. This module
-is the *read* side: it turns those configured sources into per-kind
+local-path and git package sources in the layered settings system. This
+module is the *read* side: it turns those configured sources into per-kind
 resource roots that the existing discovery boundaries
 (`pipy_harness.native._resource_files`, `.extensions`, and the theme
 registry) consume at lowest precedence.
@@ -21,12 +21,14 @@ carried on each resolved `PackageRoot` and applied by the discovery
 boundary in addition to the global `pipy config` filters.
 
 This boundary never imports or executes package code. It only stats
-directories and reads the manifest as data with `tomllib`. Remote,
-missing, or containment-escaping sources fail closed with a safe
-diagnostic and contribute nothing. The only data intended to reach the
-metadata archive is the `PackageInfo` projection: a safe package name,
-a `<package>/...` path label that never embeds the absolute source
-path, a status, and a reason code.
+directories and reads the manifest as data with `tomllib`. Git sources
+resolve only when an install/update command has already populated the
+managed cache; startup never clones. Unsupported remote, missing, or
+containment-escaping sources fail closed with a safe diagnostic and
+contribute nothing. The only data intended to reach the metadata archive
+is the `PackageInfo` projection: a safe package name, a `<package>/...`
+path label that never embeds the absolute source path, a status, and a
+reason code.
 """
 
 from __future__ import annotations
@@ -39,7 +41,15 @@ from pathlib import Path
 from pipy_harness.native._resource_files import _sanitize_label
 from pipy_harness.native.package_manager import (
     _is_remote_source,
+    cached_git_source_path,
     canonical_local_source,
+    parse_git_source,
+)
+from pipy_harness.native.settings import resolve_config_home
+from pipy_harness.native.settings import (
+    PACKAGE_ENTRY_SCOPE_KEY,
+    SCOPE_GLOBAL,
+    SCOPE_PROJECT,
 )
 
 #: Manifest filename a package may use to declare its resource dirs.
@@ -127,6 +137,7 @@ class _PackageSpec:
 
     source: str
     filters: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    scope: str | None = None
 
     def filter_for(self, kind: str) -> tuple[str, ...]:
         return self.filters.get(kind, ())
@@ -150,6 +161,8 @@ def _normalize_entry(entry: object) -> _PackageSpec | None:
         source = entry.get("source")
         if not isinstance(source, str) or not source.strip():
             return None
+        raw_scope = entry.get(PACKAGE_ENTRY_SCOPE_KEY)
+        scope = raw_scope if raw_scope in (SCOPE_PROJECT, SCOPE_GLOBAL) else None
         filters: dict[str, tuple[str, ...]] = {}
         for kind in RESOURCE_KINDS:
             value = entry.get(kind)
@@ -157,7 +170,7 @@ def _normalize_entry(entry: object) -> _PackageSpec | None:
                 filters[kind] = (value,)
             elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
                 filters[kind] = tuple(item for item in value if isinstance(item, str))
-        return _PackageSpec(source=source, filters=filters)
+        return _PackageSpec(source=source, filters=filters, scope=scope)
     return None
 
 
@@ -165,7 +178,7 @@ def resolve_package_roots(
     sources: Sequence[object],
     workspace_root: Path,
 ) -> PackageResourceRoots:
-    """Resolve configured local-path package `sources` into resource roots.
+    """Resolve configured package `sources` into resource roots.
 
     `sources` is the flattened, ordered list of configured package
     entries (project scope first, then user scope). Each entry is a bare
@@ -178,11 +191,12 @@ def resolve_package_roots(
     conventional subdirectories that exist; each contributed `PackageRoot`
     carries that package's per-kind filter.
 
-    Remote sources (`git:` / URLs), missing sources, and an invalid
-    manifest fail closed: the package is recorded as ``disabled`` with a
-    safe reason and contributes no roots. A declared/convention dir that
-    does not exist, is not a directory, or escapes the package directory
-    is silently skipped with a safe diagnostic.
+    Git sources resolve from pipy's managed package cache when an install or
+    update command has already populated it. Unsupported remote sources,
+    missing sources/caches, and an invalid manifest fail closed: the package
+    is recorded as ``disabled`` with a safe reason and contributes no roots.
+    A declared/convention dir that does not exist, is not a directory, or
+    escapes the package directory is silently skipped with a safe diagnostic.
     """
 
     per_kind: dict[str, list[PackageRoot]] = {kind: [] for kind in RESOURCE_KINDS}
@@ -196,22 +210,36 @@ def resolve_package_roots(
             continue
         source = spec.source
 
-        if _is_remote_source(source):
+        git_source = parse_git_source(source)
+        if git_source is not None:
+            resolved = _cached_git_path(source, workspace_root, spec.scope)
+            if resolved is None or not resolved.is_dir():
+                name = _safe_name_from_source(f"{git_source.host}/{git_source.path}")
+                packages.append(
+                    PackageInfo(
+                        name, _label_for(name), "disabled", REASON_MISSING_SOURCE
+                    )
+                )
+                diagnostics.append(f"package git cache not found: {name}")
+                continue
+        elif _is_remote_source(source):
             name = _safe_name_from_source(source)
             packages.append(
                 PackageInfo(name, _label_for(name), "disabled", REASON_REMOTE_SOURCE)
             )
             diagnostics.append(f"package source is not a local path: {name}")
             continue
-
-        resolved = canonical_local_source(source, workspace_root)
-        if resolved is None or not resolved.is_dir():
-            name = _safe_name_from_source(source)
-            packages.append(
-                PackageInfo(name, _label_for(name), "disabled", REASON_MISSING_SOURCE)
-            )
-            diagnostics.append(f"package source not found: {name}")
-            continue
+        else:
+            resolved = canonical_local_source(source, workspace_root)
+            if resolved is None or not resolved.is_dir():
+                name = _safe_name_from_source(source)
+                packages.append(
+                    PackageInfo(
+                        name, _label_for(name), "disabled", REASON_MISSING_SOURCE
+                    )
+                )
+                diagnostics.append(f"package source not found: {name}")
+                continue
 
         if resolved in seen_sources:
             continue
@@ -340,6 +368,46 @@ def _safe_resource_dir(package_dir: Path, relative: str) -> Path | None:
     except OSError:
         return None
     return resolved
+
+
+def _cached_git_path(source: str, workspace_root: Path, scope: str | None) -> Path | None:
+    """Return an installed git cache path for `source`.
+
+    Runtime settings entries carry their originating scope so a user/global git
+    package cannot be shadowed by a same-source project cache. Direct callers
+    that pass plain sources keep the historical project-then-user fallback.
+    Runtime resolution never clones or fetches.
+    """
+
+    config_home = resolve_config_home()
+    if scope == SCOPE_PROJECT:
+        return cached_git_source_path(
+            source,
+            workspace_root=workspace_root,
+            config_home=config_home,
+            local=True,
+        )
+    if scope == SCOPE_GLOBAL:
+        return cached_git_source_path(
+            source,
+            workspace_root=workspace_root,
+            config_home=config_home,
+            local=False,
+        )
+    project = cached_git_source_path(
+        source,
+        workspace_root=workspace_root,
+        config_home=config_home,
+        local=True,
+    )
+    if project is not None:
+        return project
+    return cached_git_source_path(
+        source,
+        workspace_root=workspace_root,
+        config_home=config_home,
+        local=False,
+    )
 
 
 def _safe_label_component(value: str) -> str | None:

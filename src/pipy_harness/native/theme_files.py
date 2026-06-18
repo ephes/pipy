@@ -1,9 +1,9 @@
 """File-based theme loading and the package theme registry.
 
 Built-in chrome themes are code-defined `ChromePalette` objects in
-`pipy_harness.native.themes`. Installed local-path packages contribute
-*additional* themes as `.toml` files in a package `themes/` root. This
-module loads those files and overlays them onto the built-ins through a
+`pipy_harness.native.themes`. Installed local-path and managed git packages
+contribute *additional* themes as `.toml` files in a package `themes/` root.
+This module loads those files and overlays them onto the built-ins through a
 `ThemeRegistry` that the ambient theme functions (`resolve_palette`,
 `available_theme_names`, `select_theme`, ...) consult.
 

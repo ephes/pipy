@@ -1,8 +1,9 @@
-"""Compose installed local-path packages into a session.
+"""Compose installed packages into a session.
 
 A single entry point that turns the configured package sources (recorded
 in the settings system by the package-manager CLI) into per-kind resource
-roots and installs the package theme registry. Callers thread the
+roots and installs the package theme registry. Local-path packages resolve
+directly; managed git packages resolve from the installed cache. Callers thread the
 returned roots into `WorkspaceResources.discover` (skills/prompts) and
 `discover_extensions` (extension entry points) so package resources flow
 through discovery at lowest precedence; the installed theme registry makes
@@ -38,9 +39,9 @@ def compose_package_runtime(
 ) -> PackageResourceRoots:
     """Resolve configured package roots and install the package theme registry.
 
-    Reads `settings.get_packages()` (project scope first), resolves each
-    local-path source into per-kind roots, and — when
-    `install_theme_registry` is true — builds and installs the active
+    Reads `settings.get_package_entries()` (project scope first), resolves each
+    local-path source or installed managed git cache into per-kind roots, and
+    when `install_theme_registry` is true builds and installs the active
     theme registry overlaying package themes (honoring the `themes`
     enablement filters) onto the built-ins. Returns the resolved roots so
     the caller can thread skills/prompts/extensions roots into discovery.

@@ -42,6 +42,19 @@ name: set `PIPY_SELF_UPDATE_PACKAGE=<published-pipy-distribution>` only after a
 real owned distribution name exists. Version checks and update planning honor
 `PIPY_SKIP_VERSION_CHECK=1` and `PIPY_OFFLINE=1`.
 
+Package management uses the same top-level `pipy` command family. Local paths
+and git URLs install into pipy-managed settings/cache locations; PyPI/npm
+package sources remain deferred:
+
+```sh
+pipy install ./docs/examples/packages/demo-pack
+pipy install git:https://github.com/example/pipy-package -l
+pipy list
+pipy update --extensions
+pipy update <source>
+pipy remove <source>
+```
+
 ## Headless Python Embedding
 
 Pipy is intended to be usable without its CLI/TUI from Python programs that need

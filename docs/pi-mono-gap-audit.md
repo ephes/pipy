@@ -55,10 +55,11 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   Pi-compatible surfaces now exist under `pipy repl`. Top-level compatibility
   dispatch/help remains a parity cleanup item.
 - Pi top-level package commands are partially present in pipy: `install`,
-  `remove`/`uninstall`, `list`, and `config` now manage local-path package
-  sources and resource filters; installed local-path packages contribute
-  extensions/skills/prompts/themes through discovery. `update` plus remote
-  `git:`/PyPI/`npm:` sources remain deferred to a supply-chain policy.
+  `remove`/`uninstall`, `list`, and `config` now manage local-path and managed
+  git package sources plus resource filters; installed packages contribute
+  extensions/skills/prompts/themes through discovery. Package `update` refreshes
+  managed git caches. PyPI/`npm:` sources remain deferred to a broader
+  supply-chain policy.
 - Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) now ship in
   pipy under the REPL product path and are backed by the native session tree.
   The remaining automation cleanup is retiring pipy's old metadata-only
@@ -79,10 +80,11 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the
 product-TUI long-input wrapping gap is now closed. Core local extension
-workflows, local-path package runtime composition, product export/import/share,
-and soft-wrapped long editable prompts now ship. Extension/package work remains
-the largest follow-on area, but its next slices are remote source/update policy
-and richer platform APIs rather than the just-landed local package runtime.
+workflows, local-path and managed-git package runtime composition, package
+update, product export/import/share, and soft-wrapped long editable prompts now
+ship. Extension/package work remains the largest follow-on area, but its next
+slices are richer platform APIs and any future PyPI/npm source policy rather
+than the just-landed package cache/update runtime.
 
 ## Ranked biggest gaps
 
@@ -151,10 +153,10 @@ Pipy current state:
   command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
   extension tool registration, `tool_result` transforms, minimal UI
   notification, golden conformance, shortcuts, provider-registration mechanics,
-  catalog/`/model` wiring for extension-registered providers, local-path
-  package CLI, package runtime composition for installed local-path package
-  resources, and per-run source-loading flags for explicit extensions, skills,
-  prompt templates, and themes.
+  catalog/`/model` wiring for extension-registered providers, local-path and
+  managed git package CLI, package runtime composition for installed package
+  resources, package `update`, and per-run source-loading flags for explicit
+  extensions, skills, prompt templates, and themes.
 - Extension slice 13 has shipped: live-session hooks for `user_bash`,
   `before_provider_request`, session switch/fork/tree/compaction gates, and
   dynamic active tool/model/thinking controls through the command/hook context.
@@ -170,8 +172,8 @@ Follow-ons:
    renderers, dynamic extension flags, and extension state/session-manager
    views.
 2. OAuth-provider extension registration and broader provider/auth helpers.
-3. Remote package sources and `update` only after a supply-chain/update policy
-   and isolated package cache.
+3. Future PyPI/npm package sources only after a broader supply-chain/update
+   policy; managed git sources and package `update` now ship.
 
 ### 4. User documentation parity
 
@@ -230,7 +232,7 @@ adding another bespoke slash command.
 
 1. Extension/package platform follow-ons: richer UI/rendering, extension
    state/session-manager helpers, dynamic extension flags/message renderers,
-   OAuth-provider extension registration, and remote sources/update after
+   OAuth-provider extension registration, and future PyPI/npm package source
    policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
@@ -240,6 +242,7 @@ adding another bespoke slash command.
    command.
 
 The extension/package platform remains the largest follow-on by surface area,
-but its first local-runtime slices have already landed. Future extension/package
-work should start from the shipped package-runtime baseline and stay behind the
-supply-chain/update policy boundary for remote sources.
+but its local runtime plus managed git package/update slices have landed.
+Future extension/package work should start from that shipped package-runtime
+baseline and keep PyPI/npm source execution behind a broader supply-chain
+policy.

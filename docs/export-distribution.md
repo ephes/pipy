@@ -49,8 +49,9 @@ The first HTML template is an inline stdlib template in the Python module rather
 than a separate packaged data directory. It is still a single self-contained
 artifact with inlined CSS/JS and base64 session-data embedding; splitting it
 into `importlib.resources` files remains optional polish, not a parity blocker.
-Remote extension/package source updates remain owned by `extension-api.md` and
-are still deferred pending supply-chain policy.
+Extension/package source updates are owned by `extension-api.md`; managed git
+package updates now ship there, while PyPI/npm sources remain deferred pending
+broader supply-chain policy.
 
 ## Sources
 
@@ -477,13 +478,13 @@ Provide a Pi-shaped update CLI, mapped to Python tooling:
   name. Print a fail-safe manual message instead. This prevents accidentally
   installing an unrelated package that happens to use the development project
   name.
-- A bare `pipy update` currently runs the self-update half only. Pi's "update
-  both extensions and self" semantics remain incomplete until the
-  extension/package update half in [extension-api.md](extension-api.md) has a
-  supply-chain policy and isolated package cache.
+- A bare `pipy update` now composes both halves: it updates installed extension
+  packages through [extension-api.md](extension-api.md)'s managed package update
+  path, then runs this self-update half. `--extensions` / `--extension <source>`
+  select package updates only; `self` / `pipy` selects self-update only.
 
-`pipy update self` / `pipy update pipy` (and today's self-only bare
-`pipy update`) is the in-scope self-update parity surface. The broader
+`pipy update self` / `pipy update pipy` is the in-scope self-update parity
+surface. The broader
 `install`/`remove`/`uninstall`/`list`/`config` extension/package management and
 extension-update flows are the extension-platform concern owned by
 [extension-api.md](extension-api.md); this spec only requires self-update and

@@ -947,9 +947,9 @@ class NativeNoToolReplSession:
             self.max_turns,
             extra_safe_metadata=instruction_metadata,
         )
-        # Compose installed local-path package resources (skills/prompts/
-        # themes) and install the package theme registry, mirroring the
-        # tool-loop REPL.
+        # Compose installed package resources (skills/prompts/themes) from
+        # local paths and managed git caches, then install the package theme
+        # registry, mirroring the tool-loop REPL.
         package_roots = compose_package_runtime(
             settings,
             run_input.cwd,

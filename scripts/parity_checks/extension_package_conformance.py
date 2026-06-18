@@ -12,7 +12,7 @@ scope):
    (not deletions);
 4. `remove`/`uninstall` removes only the selected source/scope; a missing
    source fails non-zero;
-5. git / PyPI / URL sources are rejected (no supply-chain execution).
+5. unsupported PyPI/npm/ambiguous URL sources are rejected.
 
 It also covers **package runtime composition** (the slice-12 closeout), proving
 the spec "Package conformance gate" items 2, 4, and 8:
@@ -25,7 +25,9 @@ the spec "Package conformance gate" items 2, 4, and 8:
 8. (item 8) no package source path or resource body (skill/prompt body,
    extension source, theme palette) leaks into the archive-safe metadata
    projections.
-9. Pi-shaped source-loading flags parse and compose with runtime discovery:
+9. managed git package sources clone into the isolated cache, update from a
+   local file-backed remote, and expose scriptable update target selection;
+10. Pi-shaped source-loading flags parse and compose with runtime discovery:
    explicit ``--extension``/``--skill``/``--prompt-template``/``--theme``
    sources load even when matching default discovery is disabled.
 
@@ -42,6 +44,7 @@ import argparse
 import io
 import json
 import os
+import subprocess
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
@@ -168,25 +171,126 @@ def run_checks(base: Path) -> list[Check]:
         )
     )
 
-    remote_sources = (
-        "git:example/repo",
-        "https://example/x.tgz",
+    # Prove `pypi:` is rejected by source policy, not merely because no local
+    # POSIX path with a colon happens to exist.
+    (workspace / "pypi:demo").mkdir()
+    unsupported_sources = (
+        "git+https://example/x.git",
+        "https://user:token@example.com/x.git",  # credentials are refused
         "GIT:example/repo",  # case-insensitive
-        "ssh://git@host/x.git",  # other URL schemes
+        "ssh://git@host/x.git",  # credential-like URL userinfo is refused
         "  https://example/x.tgz",  # leading whitespace
         "npm:left-pad",
+        "pypi:demo",
     )
-    remote_codes = [_run_cli(["install", src])[0] for src in remote_sources]
+    remote_results = [_run_cli(["install", src]) for src in unsupported_sources]
     checks.append(
         Check(
-            "git_pypi_rejected",
-            all(code == 2 for code in remote_codes),
-            "git / PyPI / URL sources are rejected (case- and scheme-robust)",
+            "unsupported_remote_rejected",
+            all(code == 2 for code, _out, _err in remote_results)
+            and any(
+                src == "pypi:demo" and "unsupported package source" in err
+                for src, (_code, _out, err) in zip(unsupported_sources, remote_results)
+            ),
+            "unsupported PyPI/npm/credentialed/ambiguous remote sources are rejected",
         )
     )
 
+    checks.extend(_git_package_update_checks(base, workspace))
     checks.extend(_runtime_composition_checks(base))
     checks.extend(_source_loading_flag_checks(base))
+    return checks
+
+
+def _git(*args: str, cwd: Path) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _commit_all(repo: Path, message: str) -> None:
+    _git("add", ".", cwd=repo)
+    _git(
+        "-c",
+        "user.name=pipy",
+        "-c",
+        "user.email=pipy@example.invalid",
+        "commit",
+        "-m",
+        message,
+        cwd=repo,
+    )
+
+
+def _make_git_package(base: Path) -> Path:
+    repo = base / "git-package-src"
+    (repo / "skills").mkdir(parents=True)
+    (repo / "skills" / "git-one.md").write_text(
+        "---\nname: git-one\ndescription: d\n---\none\n",
+        encoding="utf-8",
+    )
+    _git("init", "-b", "main", cwd=repo)
+    _commit_all(repo, "initial")
+    return repo
+
+
+def _git_package_update_checks(base: Path, workspace: Path) -> list[Check]:
+    checks: list[Check] = []
+    repo = _make_git_package(base)
+    source = repo.as_uri()
+
+    code_install, out_install, err_install = _run_cli(
+        ["install", source, "-l", "--cwd", str(workspace)]
+    )
+    checks.append(
+        Check(
+            "git_install_persists_and_caches",
+            code_install == 0 and f"Installed {source}" in out_install,
+            f"git package install clones into a managed project cache ({err_install.strip()})",
+        )
+    )
+
+    code_dry, out_dry, _ = _run_cli(
+        ["update", "--extensions", "--dry-run", "--cwd", str(workspace)]
+    )
+    checks.append(
+        Check(
+            "update_extensions_dry_run_targets_packages",
+            code_dry == 0 and source in out_dry and "project" in out_dry,
+            "package update dry-run reports configured package targets without network",
+        )
+    )
+
+    (repo / "skills" / "git-two.md").write_text(
+        "---\nname: git-two\ndescription: d\n---\ntwo\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "second")
+    code_update, out_update, err_update = _run_cli(
+        ["update", "--extension", source, "--cwd", str(workspace)]
+    )
+    from pipy_harness.native.package_resources import resolve_package_roots
+
+    roots = resolve_package_roots([source], workspace)
+    skill_files = {
+        path.name
+        for root in roots.skills
+        for path in root.path.iterdir()
+        if path.is_file()
+    }
+    checks.append(
+        Check(
+            "git_update_refreshes_cache",
+            code_update == 0
+            and f"Updated {source}" in out_update
+            and "git-two.md" in skill_files,
+            f"git package update refreshes the managed cache ({err_update.strip()})",
+        )
+    )
     return checks
 
 

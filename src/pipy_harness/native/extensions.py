@@ -164,10 +164,10 @@ def discover_extensions(
 
     The workspace dir is `<workspace>/.pipy/extensions`; the global dir is
     `<config-root>/extensions`. `package_roots` lists concrete extension
-    directories contributed by installed local-path packages. `explicit_paths`
-    are per-run CLI paths (single `.py` files, directory extensions containing
-    `extension.py`/`pipy-extension.toml`, or directories of extension
-    candidates) and are searched first. When `include_defaults` is false,
+    directories contributed by installed local-path or managed git packages.
+    `explicit_paths` are per-run CLI paths (single `.py` files, directory
+    extensions containing `extension.py`/`pipy-extension.toml`, or directories
+    of extension candidates) and are searched first. When `include_defaults` is false,
     workspace/global/package discovery is skipped but explicit paths still
     load, matching Pi's `--no-extensions` behavior. Within a source, a
     directory and a single-file candidate of the same name both appear, but the

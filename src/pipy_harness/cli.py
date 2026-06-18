@@ -573,15 +573,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON (for list).",
     )
 
-    # Package manager (local-path sources). `config` above is the resource
+    # Package manager. `config` above is the resource
     # enable/disable surface; these manage the `packages` settings array.
     for _name, _help in (
-        ("install", "Install (record) a local-path extension package source."),
+        ("install", "Install an extension package source."),
         ("remove", "Remove a configured package source."),
         ("uninstall", "Remove a configured package source (alias of remove)."),
     ):
         _pkg = subparsers.add_parser(_name, help=_help)
-        _pkg.add_argument("source", help="Local-path package source.")
+        _pkg.add_argument("source", help="Local-path or git package source.")
         _pkg.add_argument(
             "-l",
             "--local",
@@ -594,21 +594,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     update_parser = subparsers.add_parser(
         "update",
-        help="Update pipy itself (and, later, installed packages).",
+        help="Update pipy itself and installed extension packages.",
     )
     update_parser.add_argument(
         "target",
         nargs="?",
-        choices=["self", "pipy"],
-        default="self",
-        help="Update target. Bare `pipy update` currently runs the self-update half.",
+        default=None,
+        help=(
+            "Update target. Bare `pipy update` updates packages and pipy; "
+            "`self`/`pipy` updates pipy only; any other value updates one package."
+        ),
+    )
+    update_parser.add_argument(
+        "--extensions",
+        action="store_true",
+        help="Update installed extension packages only.",
+    )
+    update_parser.add_argument(
+        "--extension",
+        dest="extension_source",
+        help="Update one installed extension package source.",
     )
     update_parser.add_argument("--force", action="store_true", help="Run even if already current.")
     update_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the planned update command without executing it.",
+        help="Print the planned update command/targets without executing them.",
     )
+    update_parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
 
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
@@ -1000,6 +1013,43 @@ def _cmd_product_export(values: list[str]) -> int:
 
 
 def _cmd_update(args: Any) -> int:
+    target = getattr(args, "target", None)
+    extension_source = getattr(args, "extension_source", None)
+    extensions_only = bool(getattr(args, "extensions", False))
+    self_target = target in {"self", "pipy"}
+    package_target = extension_source or (None if self_target else target)
+
+    selected = sum(
+        1
+        for value in (
+            self_target,
+            extensions_only,
+            extension_source is not None,
+            bool(target and not self_target),
+        )
+        if value
+    )
+    if selected > 1:
+        print(
+            "pipy: update accepts only one of self/pipy, --extensions, "
+            "--extension <source>, or a package source",
+            file=sys.stderr,
+        )
+        return 2
+
+    if extensions_only or package_target is not None:
+        return _cmd_package_update(args, target=package_target)
+
+    if target is None:
+        package_code = _cmd_package_update(args, target=None)
+        if package_code != 0:
+            return package_code
+        return _cmd_self_update(args)
+
+    return _cmd_self_update(args)
+
+
+def _cmd_self_update(args: Any) -> int:
     current = pipy_version()
     latest = None if args.force else fetch_latest_pipy_version()
     if latest is not None and compare_versions(current, latest) >= 0:
@@ -1019,6 +1069,65 @@ def _cmd_update(args: Any) -> int:
         return 0
     completed = subprocess.run(plan.command, check=False)
     return int(completed.returncode)
+
+
+def _cmd_package_update(args: Any, *, target: str | None) -> int:
+    from pipy_harness.native import package_manager as pkg
+    from pipy_harness.native.settings import (
+        global_settings_path,
+        project_settings_path,
+        resolve_config_home,
+    )
+
+    cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
+    listing = pkg.list_packages(
+        user_path=global_settings_path(),
+        project_path=project_settings_path(cwd),
+    )
+    sources = [(source, "project") for source in listing.project]
+    sources.extend((source, "user") for source in listing.user)
+    planned = pkg.select_update_sources(
+        sources=sources,
+        workspace_root=cwd,
+        target=target,
+    )
+    if target is not None and not planned:
+        print(f"pipy: No matching package found for {target}", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        if not planned:
+            print("pipy update packages plan: no installed packages")
+        else:
+            for source, scope in planned:
+                print(f"pipy update packages plan: {scope} {source}")
+        return 0
+    try:
+        results = pkg.update_configured_packages(
+            sources=sources,
+            workspace_root=cwd,
+            config_home=resolve_config_home(),
+            target=target,
+        )
+    except pkg.PackageSourceError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 1
+    failed = False
+    if not results:
+        print("No packages installed.")
+        return 0
+    for result in results:
+        if result.status == "failed":
+            failed = True
+            print(
+                f"pipy: package update failed ({result.scope} {result.source}): "
+                f"{result.detail}",
+                file=sys.stderr,
+            )
+        elif result.status == "updated":
+            print(f"Updated {result.source}")
+        else:
+            print(f"Skipped {result.source} ({result.detail})")
+    return 1 if failed else 0
 
 
 def _validate_native_output(agent: str, native_output: str | None) -> None:
@@ -1234,18 +1343,19 @@ _CONFIG_RESOURCE_KEYS = {
 
 
 def _cmd_package(args: Any) -> int:
-    """`pipy install/remove/uninstall/list`: manage local-path packages.
+    """`pipy install/remove/uninstall/list`: manage extension packages.
 
     Sources are recorded in the `packages` array of the user settings
     (`<config>/settings.json`) or, with `-l/--local`, the project settings
-    (`<cwd>/.pipy/settings.json`). Only local-path sources are supported in
-    this slice; `git:`/`http(s):`/`npm:` sources are rejected.
+    (`<cwd>/.pipy/settings.json`). Local-path and git sources are supported;
+    npm / PyPI sources are rejected until a broader supply-chain policy exists.
     """
 
     from pipy_harness.native import package_manager as pkg
     from pipy_harness.native.settings import (
         global_settings_path,
         project_settings_path,
+        resolve_config_home,
     )
 
     cwd = args.cwd.expanduser().resolve()
@@ -1263,24 +1373,28 @@ def _cmd_package(args: Any) -> int:
     )
     try:
         if args.command == "install":
-            if not pkg.is_local_path_source(source):
-                print(
-                    f"pipy: only local-path package sources are supported; "
-                    f"got {source!r}",
-                    file=sys.stderr,
+            print(
+                pkg.install_package_source(
+                    source,
+                    settings_path,
+                    workspace_root=cwd,
+                    config_home=resolve_config_home(),
+                    local=bool(args.local),
                 )
-                return 2
-            if pkg.canonical_local_source(source, cwd if args.local else None) is None:
-                print(
-                    f"pipy: package source not found: {source}",
-                    file=sys.stderr,
-                )
-                return 2
-            print(pkg.install_package(source, settings_path))
+            )
             return 0
         # remove / uninstall
-        message = pkg.remove_package(source, settings_path)
-    except pkg.PackageSettingsError as exc:
+        message = pkg.remove_package_source(
+            source,
+            settings_path,
+            workspace_root=cwd,
+            config_home=resolve_config_home(),
+            local=bool(args.local),
+        )
+    except pkg.PackageSourceError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 2
+    except (pkg.PackageSettingsError, pkg.PackageCommandError) as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 1
     if message is None:

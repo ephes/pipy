@@ -981,8 +981,8 @@ class NativeToolReplSession:
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         resource_options = self.resource_options
-        # Compose installed local-path package resources: resolve their
-        # roots and install the package theme registry so package
+        # Compose installed package resources: resolve local paths and managed
+        # git caches, then install the package theme registry so package
         # skills/prompts/extensions/themes flow through discovery at lowest
         # precedence with the Pi-shaped enablement filters applied.
         package_roots = compose_package_runtime(
