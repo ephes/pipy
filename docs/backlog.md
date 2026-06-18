@@ -278,7 +278,8 @@ Shipped foundations that should no longer be selected as large topics:
 - product TUI/editor workflow depth, including `@` picker, path completion,
   `!`/`!!`, thinking/model hotkeys, folding, queued steering/follow-up,
   clipboard/drag image references, overlays, mouse-selection invariant, and
-  true provider-request cancellation;
+  true provider-request cancellation, plus soft-wrapped long editable prompts
+  with cursor mapping and resize-safe footer pinning;
 - layered settings/keybindings, scoped models, resource toggles, `/reload`,
   `/changelog`, and `--version`;
 - Pi-shaped `--mode json`, `--print`/`-p`, and `--mode rpc`; and
@@ -294,23 +295,7 @@ Shipped foundations that should no longer be selected as large topics:
 
 The highest-impact remaining gaps are now:
 
-1. **Product-TUI long-input wrapping bug.** Pipy currently treats the editable
-   prompt as exactly one physical row: `ToolLoopTerminalUi._input_view(width)`
-   projects the buffer through `_display_input_text(...)`, reserves `width - 1`
-   columns, then horizontally slices/scrolls the visible text; `_live_region_lines`
-   and `_styled_line("input")` render exactly one input `_FrameLine`, and tests
-   such as `test_tui_long_input_renders_one_row_without_wrapping` pin that
-   behavior. That was meant to keep live-region math simple, but it diverges
-   from Pi: long typed text should soft-wrap inside the input frame, with the
-   cursor moving onto wrapped rows instead of the text disappearing/scrolling
-   sideways past the screen edge. Fix by replacing the single-row input view
-   with a soft-wrapped input region, reserving the dynamic input height in the
-   live-region budget, keeping footer/status rows pinned, mapping cursor index
-   to wrapped row/column, preserving literal submitted text (including pasted
-   newlines), and adding real-PTY coverage at 80x24 and 100x40 for long typing,
-   paste, cursor movement, and resize. Update the docs/spec rows that currently
-   describe horizontal scrolling as shipped parity.
-2. **Extension and package platform follow-ons.** Pipy now has a useful
+1. **Extension and package platform follow-ons.** Pipy now has a useful
    **Pi-shaped but not Pi-equivalent** Python extension runtime and installed
    local-path package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
@@ -320,19 +305,19 @@ The highest-impact remaining gaps are now:
    extension/package slices are deferred remote `git:`/PyPI source kinds and
    `update` (gated on a supply-chain policy and isolated package cache), plus
    the richer API follow-ons tracked in [extension-api.md](extension-api.md).
-3. **User documentation parity.** Pipy still has mostly maintainer/agent specs
+2. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
    keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
    tmux, and platforms. This can run in parallel with implementation tracks.
    Spec: [user-documentation.md](user-documentation.md).
-4. **Provider/model catalog follow-ons.** Remaining provider work is narrower
+3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
    Anthropic adaptive-thinking shape, Azure URL/api-version parity, the
    deliberate `openai-codex-responses` legacy-factory exception for
    settings-derived retry policy, broader local-provider benchmarking, and
    extension-registered providers after the extension API exists. Spec:
    [provider-catalog.md](provider-catalog.md).
-5. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
+4. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
    harness-shaped `auth|run|repl` layout in places where Pi has a single
    product command, and several pipy-only surfaces remain to remove or realign
    (`--archive-transcript`, no-tool REPL/proposal commands, `/clear`,
@@ -1420,29 +1405,27 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Product-TUI long-input wrapping — SELECTED
+### Extension and package platform follow-ons — SELECTED
 
-The selected next implementation topic is the product TUI long-input wrapping
-bug. Export/import/share/distribution baseline has shipped and is gated by
-`scripts/parity_checks/export_distribution_conformance.py --json`, so the next
-largest user-visible parity gap is the one-row editable prompt.
+The product TUI long-input wrapping slice has shipped: long editable prompts now
+soft-wrap inside the input frame, cursor parking maps to the wrapped row/column,
+footer/status rows stay pinned, and real-PTY tests cover long typing, long paste,
+cursor insertion, and resize at 80x24 and 100x40. The next largest remaining
+parity topic is the extension/package platform follow-on area.
 
-Initial slice boundaries:
+Initial slice boundaries for the next topic:
 
-- replace the horizontally scrolling one-row input projection with soft-wrapped
-  input rows inside the live frame;
-- reserve dynamic input height while keeping footer/status rows pinned;
-- map cursor index to wrapped row/column and preserve literal submitted text,
-  including pasted newlines;
-- add real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
-  movement, and resize; and
-- update docs/spec rows that still describe horizontal scrolling as shipped
-  behavior.
+- start from the shipped local extension/package runtime baseline;
+- choose a narrow follow-on from [extension-api.md](extension-api.md), such as
+  source-loading flags, richer hooks/UI, extension-provider catalog wiring, or
+  remote sources/update after supply-chain policy; and
+- keep remote source/update work behind an isolated package cache and explicit
+  supply-chain policy.
 
 Acceptance criteria:
 
 ```sh
-uv run python scripts/parity_checks/tui_workflow_conformance.py --json
+uv run python scripts/parity_checks/extension_package_conformance.py --json
 just check
 ```
 

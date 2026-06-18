@@ -698,6 +698,69 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("columns", "rows", "label"),
+    [(100, 40, "ghostty"), (80, 24, "zellij")],
+)
+def test_pty_long_input_soft_wraps_typing_paste_and_cursor_insert(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    columns: int,
+    rows: int,
+    label: str,
+):
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+
+    typed = "typed-wrap-" * 13
+    pasted = "paste-wrap-" * 12
+
+    def assert_wrapped_editor(chunks: list[bytes], needle: str) -> None:
+        snapshot = parse_ansi_screen(
+            b"".join(chunks).decode("utf-8", errors="replace"),
+            columns=columns,
+            rows=rows,
+        )
+        separators = _separator_rows(snapshot.viewport)
+        assert len(separators) >= 2, f"{label}: input separators missing"
+        top, bottom = separators[-2], separators[-1]
+        input_lines = snapshot.viewport[top + 1 : bottom]
+        assert len(input_lines) >= 2, f"{label}: long input did not soft-wrap"
+        joined = "".join(line.rstrip() for line in input_lines)
+        assert needle in joined, f"{label}: wrapped input text missing"
+        assert any(line.strip() for line in snapshot.viewport[bottom + 1 :]), (
+            f"{label}: footer rows missing below wrapped input"
+        )
+
+    def drive(in_master: int, chunks: list[bytes]) -> None:
+        os.write(in_master, typed.encode("utf-8"))
+        assert _wait_for(chunks, typed[-24:]), f"{label}: typed long input never rendered"
+        assert_wrapped_editor(chunks, typed[:40])
+        # Move left inside the wrapped prompt, insert a marker, then submit. The
+        # provider receiving that exact prompt proves cursor movement still maps
+        # to the logical buffer rather than the visual rows.
+        os.write(in_master, b"\x1b[D" * 5)
+        os.write(in_master, b"X\n")
+        assert _wait_for(chunks, "TURN_1_DONE"), f"{label}: typed prompt never submitted"
+        os.write(in_master, f"\x1b[200~{pasted}\x1b[201~".encode("utf-8"))
+        assert _wait_for(chunks, pasted[-24:]), f"{label}: pasted long input never rendered"
+        assert_wrapped_editor(chunks, pasted[:40])
+        os.write(in_master, b"\n")
+        assert _wait_for(chunks, "TURN_2_DONE"), f"{label}: pasted prompt never submitted"
+
+    captured = _run_editor_pty(
+        monkeypatch,
+        tmp_path,
+        provider,
+        drive,
+        columns=columns,
+        rows=rows,
+    )
+    assert "\x1b[?1049h" not in captured
+    assert prompts == [f"{typed[:-5]}X{typed[-5:]}", pasted]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_undo_redo_restores_line_before_submit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
@@ -1119,6 +1182,99 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
     assert "\x1b[?1049h" not in captured
     assert prompts == ["line one\nline two!"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [((100, 40), (80, 24)), ((80, 24), (100, 40))],
+)
+def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    start: tuple[int, int],
+    end: tuple[int, int],
+):
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    start_cols, start_rows = start
+    end_cols, end_rows = end
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+    long_prompt = "resize-wrap-" * 16
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    _set_winsize(err_slave, start_rows, start_cols)
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, long_prompt.encode("utf-8"))
+        assert _wait_for(err_chunks, long_prompt[-24:]), "long input never rendered"
+        _set_winsize(err_slave, end_rows, end_cols)
+        assert _wait_for(err_chunks, "\x1b[2J"), "resize did not trigger a redraw"
+        snapshot = parse_ansi_screen(
+            b"".join(err_chunks).decode("utf-8", errors="replace"),
+            columns=end_cols,
+            rows=end_rows,
+        )
+        separators = _separator_rows(snapshot.viewport)
+        assert len(separators) >= 2, f"stale/missing separators: {separators}"
+        top, bottom = separators[-2], separators[-1]
+        input_lines = snapshot.viewport[top + 1 : bottom]
+        assert len(input_lines) >= 2, "long input did not stay wrapped after resize"
+        assert "".join(line.rstrip() for line in input_lines).startswith("resize-wrap-")
+        assert any(line.strip() for line in snapshot.viewport[bottom + 1 :]), (
+            "footer rows missing below resized wrapped input"
+        )
+        os.write(in_master, b"\n")
+        assert _wait_for(err_chunks, "TURN_1_DONE"), "resized prompt never submitted"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "resize/long-input session did not exit"
+    captured = b"".join(err_chunks).decode("utf-8", errors="replace")
+    assert "\x1b[?1049h" not in captured
+    assert prompts == [long_prompt]
 
 
 def _start_pty_repl_session(

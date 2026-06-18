@@ -185,7 +185,7 @@ the product state, not the spec state.
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction closeout shipped for implemented catalog-constructed provider families, one-shot, and startup resolution; remaining work is live Anthropic/Copilot login UX, the deliberate `openai-codex-responses` legacy-factory exception, narrow adapter parity follow-ons, and extension-registered providers | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-24, including product construction for Chat Completions, non-completions families, one-shot, and startup resolution) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`; the 17-check gate passes (a few unsurfaced display/transport keys are accept+round-trip+report by design) | `scripts/parity_checks/settings_config_conformance.py --json` |
 | JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
-| TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship; **true active-turn provider-request cancellation shipped** (Escape/Ctrl-C close the in-flight `urllib`/SSE request via `CancelToken` and reap the worker, real-PTY + boundary tests) | real-PTY tests + conformance gate (in spec) |
+| TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | 🟡 daily-driver basics ship; long editable prompts now soft-wrap with cursor mapping and pinned footer/status, and **true active-turn provider-request cancellation shipped** (Escape/Ctrl-C close the in-flight `urllib`/SSE request via `CancelToken` and reap the worker, real-PTY + boundary tests) | real-PTY tests + conformance gate (in spec) |
 | Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ✅ baseline shipped: product HTML/JSONL export, import, share, top-level `--export`, self-update planning, and install docs; remote package-source update remains a separate extension-platform follow-on | `scripts/parity_checks/export_distribution_conformance.py --json` |
 | User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ❌ mostly internal specs today | docs parity review checklist in spec |
 
@@ -207,11 +207,7 @@ JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
 §4 as conformance gates, but they are no longer the next large implementation
 topics.
 
-1. **Product-TUI long-input wrapping** ([tui-workflow.md](tui-workflow.md)) —
-   replace the current one-row horizontally scrolling input projection with a
-   soft-wrapped input region that keeps footer/status rows pinned and maps the
-   cursor across wrapped rows, matching Pi's long prompt behavior.
-2. **Extension / package platform follow-ons**
+1. **Extension / package platform follow-ons**
    ([extension-api.md](extension-api.md)) — core local automation plus
    local-path package runtime composition have landed, but pipy is still not a
    Pi-equivalent package platform. Remaining work includes rich extension
@@ -219,16 +215,16 @@ topics.
    extension flags, remote `git:`/PyPI package sources behind a supply-chain
    policy + `update`, the catalog/`/model` selector wiring of extension-
    registered providers, and the RPC extension-UI channel.
-3. **User documentation parity** ([user-documentation.md](user-documentation.md))
+2. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — run in parallel with implementation. Pipy needs outside-in product docs,
    not only internal specs, and those docs should track shipped behavior rather
    than planned parity.
-4. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
+3. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
    parity, broader local-provider maturity, and extension-registered providers
    after the extension API exists.
-6. **Top-level CLI compatibility and parity cleanup** — stage alongside the
+4. **Top-level CLI compatibility and parity cleanup** — stage alongside the
    owning topics. Realign the harness-shaped `auth|run|repl` surfaces where Pi
    has one top-level product command, remove or hide pipy-only internals such as
    `--archive-transcript`, no-tool REPL/proposal commands, `/clear`, `/status`,

@@ -8,6 +8,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Product TUI long editable prompts now soft-wrap inside the input frame instead
+  of horizontally scrolling in one row. Cursor movement maps across wrapped
+  rows, footer/status rows stay pinned, and long typed/pasted input plus resize
+  are covered by real-PTY tests at 80x24 and 100x40.
 - The pipy-only metadata-only `--resume RECORD` / `--branch LABEL` repl flags
   are retired: the native session tree is the product session source. The
   separate `pipy-session resume-info` archive utility is unchanged.

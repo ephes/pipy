@@ -107,10 +107,10 @@ _BRACKETED_PASTE_ENABLE = "\x1b[?2004h"
 _BRACKETED_PASTE_DISABLE = "\x1b[?2004l"
 _BRACKETED_PASTE_START = "200~"
 _BRACKETED_PASTE_END = "\x1b[201~"
-# Single-width glyph shown in the one-row input cell for a newline carried by a
+# Single-width glyph shown in the input cell for a newline carried by a
 # multi-line paste. The buffer keeps the literal "\n" (so the exact multi-line
 # prompt is submitted on Enter); only the rendered cell substitutes the glyph,
-# which keeps the live input row exactly one physical row tall. U+23CE has
+# which keeps raw newlines from spilling into the terminal frame. U+23CE has
 # East-Asian-width "Narrow", so it occupies one terminal cell.
 _INPUT_NEWLINE_GLYPH = "⏎"
 
@@ -1937,7 +1937,14 @@ class ToolLoopTerminalUi:
             kind in {"tool", "tool_read", "tool_result"}
             for kind, _block_lines in self._history_blocks
         )
-        max_history_lines = max(0, height - 5 - len(menu_lines) - len(pending_lines))
+        input_lines = self._input_frame_lines(
+            width,
+            max_rows=max(1, height - len(menu_lines) - len(pending_lines) - 4),
+        )
+        max_history_lines = max(
+            0,
+            height - len(input_lines) - 4 - len(menu_lines) - len(pending_lines),
+        )
         if has_tool_panel:
             max_history_lines = min(
                 max_history_lines, _TOOL_PANEL_HISTORY_VIEW_LINES
@@ -1959,7 +1966,6 @@ class ToolLoopTerminalUi:
                 for _ in range(min_history_lines - len(history_lines))
             )
 
-        input_line = self._clip(self._input_view(width)[0] + " ", width)
         top_separator = self._input_frame_separator(width, label=False)
         bottom_separator = self._input_frame_separator(width, label=True)
         # ``pending_lines`` was computed above (reserved in the history budget).
@@ -1968,7 +1974,7 @@ class ToolLoopTerminalUi:
                 *history_lines,
                 *pending_lines,
                 top_separator,
-                _FrameLine(input_line, "input"),
+                *input_lines,
                 bottom_separator,
                 *menu_lines,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
@@ -1979,7 +1985,7 @@ class ToolLoopTerminalUi:
                 *history_lines,
                 *pending_lines,
                 top_separator,
-                _FrameLine(input_line, "input"),
+                *input_lines,
                 bottom_separator,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
@@ -2038,8 +2044,20 @@ class ToolLoopTerminalUi:
         # 4. Park the visible cursor on the input cell with relative moves; an
         #    absolute row would be wrong once the buffer has scrolled.
         input_index = next(
-            (index for index, frame_line in enumerate(live) if frame_line.kind == "input"),
-            last_index,
+            (
+                index
+                for index, frame_line in enumerate(live)
+                if frame_line.kind == "input"
+                and isinstance((frame_line.meta or {}).get("cursor_col"), int)
+            ),
+            next(
+                (
+                    index
+                    for index, frame_line in enumerate(live)
+                    if frame_line.kind == "input"
+                ),
+                last_index,
+            ),
         )
         lines_up = last_index - input_index
         if lines_up > 0:
@@ -2056,10 +2074,12 @@ class ToolLoopTerminalUi:
             or self.session_picker_open
             or self.custom_overlay_open
         ):
-            # Park on the cursor's column *within the visible (possibly
-            # horizontally scrolled) input slice*, so the hardware cursor and
-            # the drawn cursor cell agree for over-wide input.
-            cursor_col = min(max(0, width - 1), self._input_view(width)[1])
+            # Park on the cursor's wrapped input row/column, so the hardware
+            # cursor and the drawn cursor cell agree for over-wide input.
+            input_meta = live[input_index].meta or {}
+            raw_cursor_col = input_meta.get("cursor_col")
+            cursor_col = raw_cursor_col if isinstance(raw_cursor_col, int) else 0
+            cursor_col = min(max(0, width - 1), cursor_col)
             if cursor_col > 0:
                 output.append(f"\x1b[{cursor_col}C")
             output.append("\x1b[?25h")
@@ -2103,19 +2123,22 @@ class ToolLoopTerminalUi:
             max_rows=max(1, height - 7),
         )
         pending_lines = self._pending_region_lines(width)
+        input_lines = self._input_frame_lines(
+            width,
+            max_rows=max(1, height - len(menu_lines) - len(pending_lines) - 4),
+        )
         # Chrome below the transient tail: pending region + two separators +
-        # input + menu rows + two footer rows.
-        chrome_height = 3 + len(menu_lines) + len(pending_lines) + 2
+        # wrapped input rows + menu rows + two footer rows.
+        chrome_height = len(input_lines) + 2 + len(menu_lines) + len(pending_lines) + 2
         transient_budget = max(0, height - chrome_height - 1)
         transient = self._transient_tail_lines(width)
         if len(transient) > transient_budget:
             transient = transient[len(transient) - transient_budget :]
-        input_line = self._clip(self._input_view(width)[0] + " ", width)
         lines: list[_FrameLine] = [
             *transient,
             *pending_lines,
             self._input_frame_separator(width, label=False),
-            _FrameLine(input_line, "input"),
+            *input_lines,
             self._input_frame_separator(width, label=True),
             *menu_lines,
             _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
@@ -2330,7 +2353,8 @@ class ToolLoopTerminalUi:
         return lines
 
     def _styled_line(self, line: _FrameLine, *, style: Any, width: int) -> str:
-        text = line.text.rstrip()
+        raw_text = line.text
+        text = raw_text.rstrip()
         if line.kind == "title":
             if not style.enabled:
                 return text
@@ -2388,14 +2412,13 @@ class ToolLoopTerminalUi:
         if line.kind == "slash_menu_scroll":
             return style.secondary_dim(text)
         if line.kind == "input":
-            # Render from a width-bounded single-line view (see _input_view):
-            # embedded newlines show as one glyph and over-wide input is
-            # horizontally scrolled to keep the cursor visible, so the input
-            # cell is always exactly one physical row and never wraps.
-            visible, col = self._input_view(width)
-            before = visible[:col]
-            cursor_char = visible[col] if col < len(visible) else " "
-            after = visible[col + 1 :] if col < len(visible) else ""
+            cursor_col = (line.meta or {}).get("cursor_col")
+            if not isinstance(cursor_col, int):
+                return raw_text
+            col = min(max(0, cursor_col), max(0, width - 1))
+            before = raw_text[:col]
+            cursor_char = raw_text[col] if col < len(raw_text) else " "
+            after = raw_text[col + 1 :] if col < len(raw_text) else ""
             return style.cursor_cell(before, cursor_char, after)
         if line.kind == "user":
             return style.user_message(text, width=width)
@@ -2765,29 +2788,47 @@ class ToolLoopTerminalUi:
                 rendered.append(ch)
         return "".join(rendered)
 
-    def _input_view(self, width: int) -> tuple[str, int]:
-        """Return the visible input slice and the cursor's column within it.
+    def _input_frame_lines(
+        self, width: int, *, max_rows: int | None = None
+    ) -> list[_FrameLine]:
+        """Return soft-wrapped input rows with cursor metadata on one row.
 
-        The buffer is first projected to a single display row
-        (:meth:`_display_input_text`), then horizontally scrolled so the cursor
-        stays visible within ``width - 1`` columns (one trailing column is
-        reserved so the end-of-text cursor never lands in the terminal's last
-        column, which would arm autowrap). The returned column is the cursor's
-        position *within the slice*; both the input renderer and the paint
-        cursor-parking use this so the drawn text and the hardware cursor agree
-        and the input cell is always exactly one physical row.
+        The literal buffer is first projected to display-safe single-cell
+        characters, so pasted newlines remain visible as ``⏎`` while the
+        submitted prompt keeps its exact text. Rows are hard-wrapped at
+        ``width - 1`` cells to leave the same trailing safety column the old
+        single-row renderer used. When the input is taller than the available
+        live region, the visible window follows the cursor so the footer remains
+        pinned.
         """
 
+        rows, cursor_row, cursor_col = self._wrapped_input_rows(width)
+        if max_rows is not None and max_rows > 0 and len(rows) > max_rows:
+            start = min(
+                max(0, cursor_row - max_rows + 1),
+                max(0, len(rows) - max_rows),
+            )
+            rows = rows[start : start + max_rows]
+            cursor_row -= start
+        rendered: list[_FrameLine] = []
+        for index, row in enumerate(rows):
+            meta = {"cursor_col": cursor_col} if index == cursor_row else None
+            rendered.append(_FrameLine(self._clip(row or " ", width), "input", meta))
+        return rendered or [_FrameLine("", "input", {"cursor_col": 0})]
+
+    def _wrapped_input_rows(self, width: int) -> tuple[list[str], int, int]:
         display = self._display_input_text(self.input_text)
         cursor = self._effective_input_cursor()
         capacity = max(1, width - 1)
-        if len(display) <= capacity:
-            return display, cursor
-        start = 0
-        if cursor > capacity - 1:
-            start = cursor - (capacity - 1)
-        start = min(start, len(display) - capacity)
-        return display[start : start + capacity], cursor - start
+        rows = [
+            display[start : start + capacity]
+            for start in range(0, len(display), capacity)
+        ] or [""]
+        cursor_row = cursor // capacity
+        cursor_col = cursor % capacity
+        if cursor_row >= len(rows):
+            rows.append("")
+        return rows, cursor_row, cursor_col
 
     @staticmethod
     def _clip(text: str, width: int) -> str:

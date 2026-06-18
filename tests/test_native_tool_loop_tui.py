@@ -1881,10 +1881,31 @@ def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     assert all("\n" not in line.text for line in undo_frame)
 
 
-def test_tui_long_input_renders_one_row_without_wrapping(tmp_path: Path):
+def test_tui_long_multiline_input_wraps_with_literal_newline_projection(
+    tmp_path: Path,
+):
+    ui = _ui(tmp_path)
+    pasted = "abc\ndefghijklmnopqrstuvwxyz"
+    ui._insert_paste(pasted)
+
+    width = 20
+    input_rows = ui._input_frame_lines(width)
+    rendered = "".join(row.text.strip() for row in input_rows)
+
+    assert len(input_rows) >= 2
+    assert "⏎" in rendered
+    assert "\n" not in rendered
+    assert rendered == ui._display_input_text(pasted)
+    assert ui.input_text == pasted
+
+    cursor_rows = [row for row in input_rows if row.meta is not None]
+    assert len(cursor_rows) == 1
+    assert cursor_rows[0].meta == {"cursor_col": len(pasted) % (width - 1)}
+
+
+def test_tui_long_input_soft_wraps_inside_input_frame(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.footer_lines = ("~/projects/pipy (main)", "$0.000 status")
-    # 120 characters in an 88-column frame would wrap if rendered verbatim.
     ui.input_text = "".join(str(i % 10) for i in range(120))
     ui.input_cursor = len(ui.input_text)
 
@@ -1892,32 +1913,44 @@ def test_tui_long_input_renders_one_row_without_wrapping(tmp_path: Path):
     frame = ui._frame_lines(width=width, height=16, pad=False)
     texts = [line.text for line in frame]
 
-    # Exactly one input row, and no frame line exceeds the width (no wrap).
     input_rows = [i for i, line in enumerate(frame) if line.kind == "input"]
-    assert len(input_rows) == 1
+    assert len(input_rows) == 2
     assert all(len(text) <= width for text in texts)
+    assert texts[input_rows[0]] == ui.input_text[: width - 1]
+    assert texts[input_rows[1]] == ui.input_text[width - 1 :]
+    assert set(texts[input_rows[0] - 1].strip()) == {"─"}
+    assert set(texts[input_rows[-1] + 1].strip()) == {"─"}
+    assert "~/projects/pipy" in texts[input_rows[-1] + 2]
 
-    # The view is horizontally scrolled to keep the cursor (at end) visible.
-    visible, col = ui._input_view(width)
-    assert len(visible) <= width - 1
-    assert 0 <= col <= width - 1
-    # The tail of the input (near the cursor) is what's shown.
-    assert ui.input_text.endswith(visible)
+    cursor_rows = [
+        line for line in frame if line.kind == "input" and line.meta is not None
+    ]
+    assert len(cursor_rows) == 1
+    assert cursor_rows[0].meta == {"cursor_col": len(ui.input_text) % (width - 1)}
 
 
-def test_tui_input_view_keeps_cursor_visible_when_scrolled(tmp_path: Path):
+def test_tui_wrapped_input_window_keeps_cursor_visible(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.input_text = "x" * 200
     width = 80
-    # Cursor in the middle: the window must contain that column.
+
     ui.input_cursor = 50
-    visible, col = ui._input_view(width)
-    assert len(visible) <= width - 1
-    assert 0 <= col < len(visible)
-    # Cursor at the very start: window anchored at the start.
+    rows = ui._input_frame_lines(width, max_rows=2)
+    assert len(rows) == 2
+    assert rows[0].meta == {"cursor_col": 50}
+    assert rows[1].meta is None
+
     ui.input_cursor = 0
-    visible, col = ui._input_view(width)
-    assert col == 0
+    rows = ui._input_frame_lines(width, max_rows=2)
+    assert rows[0].meta == {"cursor_col": 0}
+
+    ui.input_cursor = len(ui.input_text)
+    rows = ui._input_frame_lines(width, max_rows=2)
+    assert len(rows) == 2
+    cursor_rows = [line for line in rows if line.meta is not None]
+    assert len(cursor_rows) == 1
+    assert cursor_rows[0].meta == {"cursor_col": len(ui.input_text) % (width - 1)}
+    assert rows[-1].meta == cursor_rows[0].meta
 
 
 def test_tui_display_input_text_projects_control_chars_one_to_one(tmp_path: Path):

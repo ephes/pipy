@@ -642,17 +642,15 @@ paste is enabled in raw mode (`ESC[?2004h`); a paste is read whole between the
 single literal edit, so multi-line pastes never submit on an embedded newline and
 a leading `/` with whitespace never opens the slash menu. The input buffer keeps
 the literal text (so Enter submits the exact multi-line prompt), but the input
-cell renders through a single-line projection (`_display_input_text`) that maps
+cell renders through a display-safe projection (`_display_input_text`) that maps
 each embedded newline to a single-width `⏎` glyph (and any other control
-character to a space), one display character per buffer character. This keeps the
-live input row exactly one physical row tall regardless of pasted newlines, so
-the separator/input/footer frame, the live-height/erase math, and the cursor
-column all stay coherent (the projection is 1:1, so the logical cursor index maps
-directly onto the displayed column). Input wider than the cell is horizontally
-scrolled through one shared `_input_view(width)` helper (used by both the
-renderer and the cursor parking) so the cursor stays visible within `width - 1`
-columns and the input never wraps onto a second physical row; the buffer is still
-submitted in full. Ctrl-Z/Ctrl-Y provide
+character to a space), one display character per buffer character. Long editable
+prompts soft-wrap inside the separator-framed input region through
+`_input_frame_lines(...)`: the live-region budget reserves the dynamic input
+height, footer/status rows stay pinned, and the hardware cursor parks on the
+wrapped row/column matching the logical cursor index. If the input grows taller
+than the available live region, the visible wrapped-input window follows the
+cursor while the full buffer is still submitted. Ctrl-Z/Ctrl-Y provide
 per-edit undo/redo over `(text, cursor)` snapshots (a whole paste is one step),
 reset per line. Resize handling is poll-based: the read/selector/active-turn
 loops compare the live output terminal's `winsize` against the last painted size
