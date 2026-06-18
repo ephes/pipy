@@ -150,6 +150,12 @@ EVENT_TURN_END: str = "turn_end"
 EVENT_INPUT: str = "input"
 EVENT_BEFORE_AGENT_START: str = "before_agent_start"
 EVENT_TOOL_RESULT: str = "tool_result"
+EVENT_USER_BASH: str = "user_bash"
+EVENT_BEFORE_PROVIDER_REQUEST: str = "before_provider_request"
+EVENT_SESSION_BEFORE_SWITCH: str = "session_before_switch"
+EVENT_SESSION_BEFORE_FORK: str = "session_before_fork"
+EVENT_SESSION_BEFORE_COMPACT: str = "session_before_compact"
+EVENT_SESSION_BEFORE_TREE: str = "session_before_tree"
 
 # Bound a transformed tool-result observation before it reaches the model.
 _TOOL_RESULT_MAX_CHARS: int = 60 * 1024
@@ -374,6 +380,9 @@ def make_extension_context(
     *,
     messages: "Sequence[object]" = (),
     complete_fn: "CompletionFn | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
@@ -389,6 +398,9 @@ def make_extension_context(
         _CollectingUi(has_ui, notify_sink),
         _ConversationView(messages),
         complete_fn,
+        set_active_tools_fn,
+        set_model_fn,
+        set_thinking_level_fn,
     )
 
 
@@ -412,12 +424,115 @@ class ToolCallEvent:
     tool_name: str
     input: Mapping[str, object]
 
+
+@dataclass(frozen=True, slots=True)
+class UserBashEvent:
+    """A local ``!``/``!!`` shell shortcut before execution.
+
+    `command` is the live shell command string, and `exclude_from_context`
+    mirrors Pi's ``!!`` form. Trusted local hooks may inspect the command
+    and either observe, transform, block, or provide a complete synthetic
+    result; raw command text is never written to the default archive by this
+    dispatcher.
+    """
+
+    command: str
+    exclude_from_context: bool
+    cwd: str
+
+
+@dataclass(frozen=True, slots=True)
+class UserBashDecision:
+    """Return value for `user_bash` hooks.
+
+    `allow=False` blocks execution with `reason`. `command` replaces the
+    shell command for later hooks / execution. `exclude_from_context`
+    overrides whether the final result is recorded into provider-visible
+    context. `result` supplies a synthetic output and skips shell execution.
+    """
+
+    allow: bool = True
+    reason: str | None = None
+    command: str | None = None
+    exclude_from_context: bool | None = None
+    result: str | None = None
+    exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class UserBashDispatch:
+    """Final decision after all `user_bash` hooks ran."""
+
+    allowed: bool
+    command: str
+    exclude_from_context: bool
+    reason: str | None = None
+    result: str | None = None
+    exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeProviderRequestEvent:
+    """The live in-memory provider request before `ProviderPort.complete`.
+
+    The event carries bounded request fields and safe metadata. Extensions
+    that need the full message objects can inspect `messages` live, but the
+    default archive still stores no provider payloads.
+    """
+
+    system_prompt: str
+    user_prompt: str
+    provider_name: str
+    model_id: str
+    available_tools: tuple[str, ...]
+    messages: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRequestTransform:
+    """Return value for `before_provider_request` hooks.
+
+    `system_prompt` and `user_prompt` replace those request fields for later
+    hooks and the provider call. `available_tools` narrows the active tool set
+    for this request.
+    """
+
+    system_prompt: str | None = None
+    user_prompt: str | None = None
+    available_tools: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionBeforeEvent:
+    """Session operation gate event.
+
+    `operation` is one of `switch`, `fork`, `compact`, or `tree`.
+    `target` is a safe label when the operation has one; it may be None.
+    """
+
+    operation: str
+    target: str | None = None
+    trigger: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDecision:
+    """Return value for session-before hooks."""
+
+    allow: bool = True
+    reason: str | None = None
+
 _COMMAND_START_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _COMMAND_BODY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 _DIAGNOSTIC_MAX_LENGTH: int = 200
 # Cap the total `before_agent_start` system-prompt injection so a buggy or
 # malicious extension cannot create unbounded provider input.
 _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
+_PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
+
+ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
+ControlSetModelFn = Callable[[str], bool]
+ControlSetThinkingLevelFn = Callable[[str], bool]
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -607,6 +722,18 @@ class CommandContext(Protocol):
         """
         ...
 
+    def set_active_tools(self, tool_names: Sequence[str]) -> bool:
+        """Restrict the active model-visible tools for later provider turns."""
+        ...
+
+    def set_model(self, reference: str) -> bool:
+        """Switch the active model/provider selection by reference."""
+        ...
+
+    def set_thinking_level(self, level: str) -> bool:
+        """Set the active thinking level for later provider turns."""
+        ...
+
 
 class _ConversationView:
     """Concrete `ConversationView` over a snapshot of the message history.
@@ -681,12 +808,18 @@ class _CommandContext:
         ui: _CollectingUi,
         conversation: "ConversationView | None" = None,
         complete_fn: "CompletionFn | None" = None,
+        set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+        set_model_fn: "ControlSetModelFn | None" = None,
+        set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     ) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
         self.ui: ExtensionUi = ui
         self.conversation: ConversationView = conversation or _ConversationView()
         self._complete_fn = complete_fn
+        self._set_active_tools_fn = set_active_tools_fn
+        self._set_model_fn = set_model_fn
+        self._set_thinking_level_fn = set_thinking_level_fn
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         if self._complete_fn is None:
@@ -694,6 +827,27 @@ class _CommandContext:
                 "completion is not available in this context"
             )
         return self._complete_fn(str(system_prompt), str(user_text))
+
+    def set_active_tools(self, tool_names: Sequence[str]) -> bool:
+        if self._set_active_tools_fn is None:
+            raise ExtensionCapabilityError(
+                "active-tool control is not available in this context"
+            )
+        return self._set_active_tools_fn(tuple(str(name) for name in tool_names))
+
+    def set_model(self, reference: str) -> bool:
+        if self._set_model_fn is None:
+            raise ExtensionCapabilityError(
+                "model control is not available in this context"
+            )
+        return self._set_model_fn(str(reference))
+
+    def set_thinking_level(self, level: str) -> bool:
+        if self._set_thinking_level_fn is None:
+            raise ExtensionCapabilityError(
+                "thinking-level control is not available in this context"
+            )
+        return self._set_thinking_level_fn(str(level))
 
 
 @dataclass(frozen=True, slots=True)
@@ -760,6 +914,9 @@ def dispatch_extension_command(
     complete_fn: "CompletionFn | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
 
@@ -792,6 +949,9 @@ def dispatch_extension_command(
         complete_fn=complete_fn,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
     )
 
 
@@ -805,6 +965,9 @@ def dispatch_extension_shortcut(
     complete_fn: "CompletionFn | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch a registered extension shortcut `key`, or return None.
 
@@ -828,6 +991,9 @@ def dispatch_extension_shortcut(
         complete_fn=complete_fn,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
     )
 
 
@@ -842,11 +1008,22 @@ def _run_extension_handler(
     complete_fn: "CompletionFn | None",
     notify_sink: "Callable[[str, str], None] | None",
     ui_custom_driver: "CustomComponentDriver | None",
+    set_active_tools_fn: "ControlSetActiveToolsFn | None",
+    set_model_fn: "ControlSetModelFn | None",
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
 
     ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver)
-    ctx = _CommandContext(cwd, ui, _ConversationView(messages), complete_fn)
+    ctx = _CommandContext(
+        cwd,
+        ui,
+        _ConversationView(messages),
+        complete_fn,
+        set_active_tools_fn,
+        set_model_fn,
+        set_thinking_level_fn,
+    )
     try:
         handler(ctx, args)
     except (KeyboardInterrupt, SystemExit):
@@ -1381,6 +1558,9 @@ def dispatch_input_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> str:
     """Run `input` hooks over a submitted prompt; return the final text.
 
@@ -1395,7 +1575,13 @@ def dispatch_input_hooks(
     current = text
     if not hooks:
         return current
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+    )
     for hook in hooks:
         try:
             result = hook(InputEvent(text=current), ctx)
@@ -1419,6 +1605,9 @@ def dispatch_before_agent_start_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     system_prompt: str = "",
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
 
@@ -1430,7 +1619,13 @@ def dispatch_before_agent_start_hooks(
 
     appended: list[str] = []
     if hooks:
-        ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+        ctx = _CommandContext(
+            cwd,
+            _CollectingUi(has_ui, notify_sink),
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+        )
         current_prompt = system_prompt
         for hook in hooks:
             try:
@@ -1470,6 +1665,9 @@ def dispatch_tool_result_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> str:
     """Run `tool_result` hooks over a finalized tool result; return content.
 
@@ -1483,7 +1681,13 @@ def dispatch_tool_result_hooks(
 
     current = content
     if hooks:
-        ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+        ctx = _CommandContext(
+            cwd,
+            _CollectingUi(has_ui, notify_sink),
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+        )
         for hook in hooks:
             try:
                 result = hook(
@@ -1517,6 +1721,9 @@ def dispatch_lifecycle_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> None:
     """Run observe-only lifecycle hooks for one event, in order.
 
@@ -1530,7 +1737,13 @@ def dispatch_lifecycle_hooks(
 
     if not hooks:
         return
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+    )
     for hook in hooks:
         try:
             result = hook(event, ctx)
@@ -1550,6 +1763,9 @@ def dispatch_tool_call_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
@@ -1562,7 +1778,13 @@ def dispatch_tool_call_hooks(
     """
 
     event = ToolCallEvent(tool_name=tool_name, input=tool_input)
-    ctx = _CommandContext(cwd, _CollectingUi(has_ui, notify_sink))
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+    )
     for hook in hooks:
         try:
             result = hook(event, ctx)
@@ -1575,6 +1797,211 @@ def dispatch_tool_call_hooks(
         if isinstance(result, ToolBlock):
             return result
     return None
+
+
+def dispatch_user_bash_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    command: str,
+    exclude_from_context: bool,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+) -> UserBashDispatch:
+    """Run `user_bash` hooks for one local shell shortcut.
+
+    Hooks run in registration order. A `UserBashDecision` may block,
+    replace the command, flip context recording, or provide a synthetic
+    result that skips shell execution. A crashing hook fails closed and
+    blocks the shell command. `KeyboardInterrupt` / `SystemExit` propagate.
+    """
+
+    current_command = command
+    current_exclude = bool(exclude_from_context)
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+    )
+    for hook in hooks:
+        event = UserBashEvent(
+            command=current_command,
+            exclude_from_context=current_exclude,
+            cwd=cwd,
+        )
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail closed on a shell gate
+            return UserBashDispatch(
+                allowed=False,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                reason="extension user_bash hook error",
+            )
+        if not isinstance(result, UserBashDecision):
+            continue
+        if not result.allow:
+            return UserBashDispatch(
+                allowed=False,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                reason=result.reason or "blocked by extension",
+            )
+        if isinstance(result.command, str) and result.command.strip():
+            current_command = result.command.strip()
+        if isinstance(result.exclude_from_context, bool):
+            current_exclude = result.exclude_from_context
+        if isinstance(result.result, str):
+            return UserBashDispatch(
+                allowed=True,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                result=result.result,
+                exit_code=int(result.exit_code) if isinstance(result.exit_code, int) else 0,
+            )
+    return UserBashDispatch(
+        allowed=True,
+        command=current_command,
+        exclude_from_context=current_exclude,
+    )
+
+
+def dispatch_before_provider_request_hooks(
+    hooks: Sequence[HookHandler],
+    request: object,
+    *,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+) -> ProviderRequestTransform:
+    """Run `before_provider_request` hooks and return the final transform.
+
+    The dispatcher deliberately avoids importing `ProviderRequest` here to
+    keep the public extension runtime lightweight. It reads the expected
+    request attributes structurally. Crashing hooks are fail-safe: the
+    current request fields are preserved.
+    """
+
+    current_system = str(getattr(request, "system_prompt", ""))
+    current_user = str(getattr(request, "user_prompt", ""))
+    tools = tuple(
+        str(getattr(tool, "name", ""))
+        for tool in getattr(request, "available_tools", ())
+        if str(getattr(tool, "name", ""))
+    )
+    current_tools: tuple[str, ...] | None = None
+    if hooks:
+        ctx = _CommandContext(
+            cwd,
+            _CollectingUi(has_ui, notify_sink),
+            _ConversationView(getattr(request, "messages", ())),
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+        )
+        for hook in hooks:
+            event = BeforeProviderRequestEvent(
+                system_prompt=current_system,
+                user_prompt=current_user,
+                provider_name=str(getattr(request, "provider_name", "")),
+                model_id=str(getattr(request, "model_id", "")),
+                available_tools=tools if current_tools is None else current_tools,
+                messages=tuple(getattr(request, "messages", ())),
+            )
+            try:
+                result = hook(event, ctx)
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - fail-safe: preserve request
+                continue
+            if not isinstance(result, ProviderRequestTransform):
+                continue
+            if isinstance(result.system_prompt, str):
+                current_system = _bounded_provider_field(result.system_prompt)
+            if isinstance(result.user_prompt, str):
+                current_user = _bounded_provider_field(result.user_prompt)
+            if result.available_tools is not None:
+                current_tools = tuple(
+                    str(name)
+                    for name in result.available_tools
+                    if isinstance(name, str) and name
+                )
+    return ProviderRequestTransform(
+        system_prompt=current_system,
+        user_prompt=current_user,
+        available_tools=current_tools,
+    )
+
+
+def dispatch_session_before_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    operation: str,
+    cwd: str,
+    has_ui: bool,
+    target: str | None = None,
+    trigger: str | None = None,
+    notify_sink: Callable[[str, str], None] | None = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+) -> SessionDecision:
+    """Run session-operation gates and return the first blocking decision.
+
+    A crashing hook fails closed, because session switching/forking/tree
+    navigation/compaction are stateful operations. Observe-only or
+    `SessionDecision(allow=True)` returns allow the operation.
+    """
+
+    if not hooks:
+        return SessionDecision()
+    event = SessionBeforeEvent(operation=operation, target=target, trigger=trigger)
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+    )
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail closed on a session gate
+            return SessionDecision(
+                allow=False, reason=f"extension {operation} hook error"
+            )
+        if isinstance(result, SessionDecision) and not result.allow:
+            return SessionDecision(
+                allow=False, reason=result.reason or "blocked by extension"
+            )
+    return SessionDecision()
+
+
+def _bounded_provider_field(value: str) -> str:
+    if len(value) <= _PROVIDER_REQUEST_FIELD_MAX_CHARS:
+        return value
+    return (
+        value[:_PROVIDER_REQUEST_FIELD_MAX_CHARS]
+        + "\n[pipy: before_provider_request field truncated]"
+    )
 
 
 def _import_entry_module(descriptor: ExtensionDescriptor) -> object:

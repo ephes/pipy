@@ -24,6 +24,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now participate in live product-session operations:
+  `user_bash` hooks may block, rewrite, exclude, or synthesize `!`/`!!` shell
+  shortcut results; `before_provider_request` hooks may transform bounded
+  provider request fields and narrow model-visible tools for the current
+  request; `session_before_switch`, `session_before_fork`,
+  `session_before_compact`, and `session_before_tree` hooks may gate stateful
+  session operations; and safe command/shortcut/pre-turn contexts expose
+  `ctx.set_active_tools(...)`, `ctx.set_model(...)`, and
+  `ctx.set_thinking_level(...)` through the native provider/session/tool
+  boundaries. The new live-session parity gate is
+  `scripts/parity_checks/extension_live_session_conformance.py --json`.
 - Pi-shaped per-run source-loading flags for `pipy repl`: `--extension`/`-e`,
   `--no-extensions`/`-ne`, `--skill`, `--no-skills`/`-ns`,
   `--prompt-template`, `--no-prompt-templates`/`-np`, `--theme`, and

@@ -145,12 +145,18 @@ from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
     EVENT_AGENT_START,
     EVENT_BEFORE_AGENT_START,
+    EVENT_BEFORE_PROVIDER_REQUEST,
     EVENT_INPUT,
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
+    EVENT_SESSION_BEFORE_COMPACT,
+    EVENT_SESSION_BEFORE_FORK,
+    EVENT_SESSION_BEFORE_SWITCH,
+    EVENT_SESSION_BEFORE_TREE,
     EVENT_TOOL_RESULT,
     EVENT_TURN_END,
     EVENT_TURN_START,
+    EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
     HookHandler,
@@ -163,12 +169,15 @@ from pipy_harness.native.extension_runtime import (
     ToolResult,
     activate_extensions,
     dispatch_before_agent_start_hooks,
+    dispatch_before_provider_request_hooks,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
+    dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
     dispatch_tool_result_hooks,
+    dispatch_user_bash_hooks,
     drain_user_messages,
     extension_command_map,
     extension_event_hooks,
@@ -624,6 +633,12 @@ class _ExtensionRuntime:
     input_hooks: tuple[HookHandler, ...]
     before_agent_start_hooks: tuple[HookHandler, ...]
     tool_result_hooks: tuple[HookHandler, ...]
+    user_bash_hooks: tuple[HookHandler, ...]
+    before_provider_request_hooks: tuple[HookHandler, ...]
+    session_before_switch_hooks: tuple[HookHandler, ...]
+    session_before_fork_hooks: tuple[HookHandler, ...]
+    session_before_compact_hooks: tuple[HookHandler, ...]
+    session_before_tree_hooks: tuple[HookHandler, ...]
     outbox: list[QueuedUserMessage]
     tools: tuple[RegisteredTool, ...]
     shortcuts: dict[str, RegisteredShortcut]
@@ -690,6 +705,22 @@ def _activate_workspace_extensions(
     input_hooks = extension_event_hooks(activated, EVENT_INPUT)
     before_agent_start_hooks = extension_event_hooks(activated, EVENT_BEFORE_AGENT_START)
     tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
+    user_bash_hooks = extension_event_hooks(activated, EVENT_USER_BASH)
+    before_provider_request_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_PROVIDER_REQUEST
+    )
+    session_before_switch_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_SWITCH
+    )
+    session_before_fork_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_FORK
+    )
+    session_before_compact_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_COMPACT
+    )
+    session_before_tree_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_TREE
+    )
     return _ExtensionRuntime(
         commands=command_map,
         menu_names=menu_names,
@@ -699,6 +730,12 @@ def _activate_workspace_extensions(
         input_hooks=input_hooks,
         before_agent_start_hooks=before_agent_start_hooks,
         tool_result_hooks=tool_result_hooks,
+        user_bash_hooks=user_bash_hooks,
+        before_provider_request_hooks=before_provider_request_hooks,
+        session_before_switch_hooks=session_before_switch_hooks,
+        session_before_fork_hooks=session_before_fork_hooks,
+        session_before_compact_hooks=session_before_compact_hooks,
+        session_before_tree_hooks=session_before_tree_hooks,
         outbox=outbox,
         tools=extension_tools(activated),
         shortcuts=extension_shortcuts(activated),
@@ -992,6 +1029,16 @@ class NativeToolReplSession:
         extension_input_hooks = _ext_runtime.input_hooks
         extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
         extension_tool_result_hooks = _ext_runtime.tool_result_hooks
+        extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+        extension_before_provider_request_hooks = (
+            _ext_runtime.before_provider_request_hooks
+        )
+        extension_session_before_switch_hooks = _ext_runtime.session_before_switch_hooks
+        extension_session_before_fork_hooks = _ext_runtime.session_before_fork_hooks
+        extension_session_before_compact_hooks = (
+            _ext_runtime.session_before_compact_hooks
+        )
+        extension_session_before_tree_hooks = _ext_runtime.session_before_tree_hooks
         extension_message_outbox = _ext_runtime.outbox
         if isinstance(self.provider_state, NativeReplProviderState):
             catalog_state = self.provider_state.catalog_state
@@ -1090,6 +1137,7 @@ class NativeToolReplSession:
                 notify_sink=_extension_notify,
             )
             run_tool_registry[_port.definition.name] = _port
+        active_tool_names: set[str] | None = None
         # Image attachments may reference an owner-only clipboard temp dir
         # (Ctrl+V paste); that dir is added to the image reference roots so a
         # pasted ``@image:<temp>`` resolves while the workspace path policy is
@@ -1215,6 +1263,74 @@ class NativeToolReplSession:
         compaction_summary = ""
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
+
+        def refresh_footer_text() -> None:
+            if terminal_ui is not None:
+                terminal_ui.set_footer_text(
+                    self._footer_text(
+                        cwd=cwd,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        error_stream=error_stream,
+                        usage_accumulator=usage_accumulator,
+                    )
+                )
+
+        def extension_set_active_tools(tool_names: Sequence[str]) -> bool:
+            """Restrict model-visible tools for future provider requests."""
+
+            nonlocal active_tool_names
+            normalized = {str(name) for name in tool_names if str(name)}
+            if not normalized:
+                active_tool_names = set()
+                return True
+            if any(name not in run_tool_registry for name in normalized):
+                return False
+            active_tool_names = normalized
+            return True
+
+        def extension_set_model(reference: str) -> bool:
+            ok, _message = apply_model_selection(reference)
+            return ok
+
+        def extension_set_thinking_level(level: str) -> bool:
+            """Set the active reasoning level through the provider state."""
+
+            state = self.provider_state
+            if not isinstance(state, NativeReplProviderState):
+                return False
+            normalized = str(level).strip().lower()
+            if normalized not in {"off", "minimal", "low", "medium", "high", "xhigh"}:
+                return False
+            current = state.current_selection()
+            supports_thinking = any(
+                option.selection.provider_name == current.provider_name
+                and option.selection.model_id == current.model_id
+                and bool(option.reasoning)
+                for option in state.model_options()
+            )
+            if normalized != "off" and not supports_thinking:
+                return False
+            state.thinking_level = normalized
+            session_tree.append_thinking_level_change(normalized)
+            refresh_footer_text()
+            return True
+
+        def available_tool_definitions(
+            override_names: Sequence[str] | None = None,
+        ) -> tuple[ToolDefinition, ...]:
+            allowed = (
+                set(str(name) for name in override_names)
+                if override_names is not None
+                else active_tool_names
+            )
+            return tuple(
+                port.definition
+                for name, port in run_tool_registry.items()
+                if allowed is None or name in allowed
+            )
 
         def apply_model_selection(reference: str) -> tuple[bool, str]:
             """Select ``reference`` through the provider-state boundary.
@@ -1354,6 +1470,20 @@ class NativeToolReplSession:
 
             nonlocal messages, compaction_summary, compaction_count
             nonlocal compaction_dropped_group_count_total
+            decision = dispatch_session_before_hooks(
+                extension_session_before_compact_hooks,
+                operation="compact",
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                trigger=trigger,
+                notify_sink=_extension_notify,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+            )
+            if not decision.allow:
+                reason = decision.reason or "blocked by extension"
+                return f"pipy: compact blocked by extension: {reason}"
             result = compact_tool_loop_messages(messages)
             if not result.changed:
                 return "pipy: nothing to compact yet."
@@ -1483,6 +1613,31 @@ class NativeToolReplSession:
 
         def diag(message: str) -> None:
             self._emit_diagnostic(terminal_ui, error_stream, message)
+
+        def extension_session_allows(
+            hooks: Sequence[HookHandler],
+            *,
+            operation: str,
+            target: str | None = None,
+            trigger: str | None = None,
+        ) -> bool:
+            decision = dispatch_session_before_hooks(
+                hooks,
+                operation=operation,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                target=target,
+                trigger=trigger,
+                notify_sink=_extension_notify,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+            )
+            if decision.allow:
+                return True
+            reason = decision.reason or "blocked by extension"
+            diag(f"pipy: {operation} blocked by extension: {reason}")
+            return False
 
         def rebuild_messages_from_tree() -> None:
             """Rebuild the live provider-visible list from the active branch.
@@ -1712,6 +1867,9 @@ class NativeToolReplSession:
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
+                        set_active_tools_fn=extension_set_active_tools,
+                        set_model_fn=extension_set_model,
+                        set_thinking_level_fn=extension_set_thinking_level,
                     )
                     if (
                         shortcut_dispatch is not None
@@ -1756,6 +1914,10 @@ class NativeToolReplSession:
                         terminal_ui=terminal_ui,
                         error_stream=error_stream,
                         cwd=cwd,
+                        user_bash_hooks=extension_user_bash_hooks,
+                        set_active_tools_fn=extension_set_active_tools,
+                        set_model_fn=extension_set_model,
+                        set_thinking_level_fn=extension_set_thinking_level,
                     )
                     if shell_context_text is not None:
                         shell_message = UserMessage(content=shell_context_text)
@@ -1880,6 +2042,22 @@ class NativeToolReplSession:
                         _ext_runtime.before_agent_start_hooks
                     )
                     extension_tool_result_hooks = _ext_runtime.tool_result_hooks
+                    extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+                    extension_before_provider_request_hooks = (
+                        _ext_runtime.before_provider_request_hooks
+                    )
+                    extension_session_before_switch_hooks = (
+                        _ext_runtime.session_before_switch_hooks
+                    )
+                    extension_session_before_fork_hooks = (
+                        _ext_runtime.session_before_fork_hooks
+                    )
+                    extension_session_before_compact_hooks = (
+                        _ext_runtime.session_before_compact_hooks
+                    )
+                    extension_session_before_tree_hooks = (
+                        _ext_runtime.session_before_tree_hooks
+                    )
                     extension_message_outbox = _ext_runtime.outbox
                     state = self.provider_state
                     if isinstance(state, NativeReplProviderState):
@@ -1986,6 +2164,12 @@ class NativeToolReplSession:
                             notify_sink=_extension_notify,
                         )
                         run_tool_registry[_port.definition.name] = _port
+                    if active_tool_names is not None:
+                        active_tool_names = {
+                            name
+                            for name in active_tool_names
+                            if name in run_tool_registry
+                        }
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
                     emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
@@ -2100,6 +2284,13 @@ class NativeToolReplSession:
                             confirm = False
                     if not confirm:
                         diag("pipy: /import cancelled.")
+                        refresh_legacy_footer()
+                        continue
+                    if not extension_session_allows(
+                        extension_session_before_switch_hooks,
+                        operation="switch",
+                        target=str(source_path),
+                    ):
                         refresh_legacy_footer()
                         continue
                     try:
@@ -2252,6 +2443,13 @@ class NativeToolReplSession:
                     continue
                 if command_text == "/new":
                     # Start a fresh native product session in the same store.
+                    if not extension_session_allows(
+                        extension_session_before_switch_hooks,
+                        operation="switch",
+                        target="new",
+                    ):
+                        refresh_legacy_footer()
+                        continue
                     session_dir = (
                         session_tree.path.parent
                         if session_tree.path is not None
@@ -2271,6 +2469,19 @@ class NativeToolReplSession:
                     continue
                 if command_text == "/tree" or command_text.startswith("/tree "):
                     argument = stripped[len("/tree") :].strip()
+                    tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
+                    tree_may_change = (
+                        (not argument and terminal_ui is not None)
+                        or tree_sub in {"select", "label", "filter"}
+                    )
+                    if tree_may_change:
+                        if not extension_session_allows(
+                            extension_session_before_tree_hooks,
+                            operation="tree",
+                            target=argument or None,
+                        ):
+                            refresh_legacy_footer()
+                            continue
                     outcome = self._handle_tree_command(
                         argument,
                         session_tree=session_tree,
@@ -2331,6 +2542,13 @@ class NativeToolReplSession:
                         ):
                             diag("pipy: already on the selected native session.")
                         else:
+                            if not extension_session_allows(
+                                extension_session_before_switch_hooks,
+                                operation="switch",
+                                target=str(picked_session),
+                            ):
+                                refresh_legacy_footer()
+                                continue
                             session_tree = NativeSessionTree.open(picked_session)
                             rebuild_messages_from_tree()
                             diag(
@@ -2383,6 +2601,13 @@ class NativeToolReplSession:
                         if target is None:
                             diag(f"pipy: no native session matched {argument!r}.")
                         else:
+                            if not extension_session_allows(
+                                extension_session_before_switch_hooks,
+                                operation="switch",
+                                target=str(target),
+                            ):
+                                refresh_legacy_footer()
+                                continue
                             session_tree = NativeSessionTree.open(target)
                             rebuild_messages_from_tree()
                             diag(
@@ -2409,6 +2634,13 @@ class NativeToolReplSession:
                         fork_leaf: str | None = target_entry.id
                     else:
                         fork_leaf = session_tree.get_leaf_id()
+                    if not extension_session_allows(
+                        extension_session_before_fork_hooks,
+                        operation="fork",
+                        target=fork_leaf,
+                    ):
+                        refresh_legacy_footer()
+                        continue
                     session_tree = NativeSessionTree.fork_from(
                         session_tree.path,
                         cwd,
@@ -2425,6 +2657,13 @@ class NativeToolReplSession:
                 if command_text == "/clone":
                     if session_tree.path is None:
                         diag("pipy: /clone requires a persistent native session.")
+                        refresh_legacy_footer()
+                        continue
+                    if not extension_session_allows(
+                        extension_session_before_fork_hooks,
+                        operation="fork",
+                        target=session_tree.get_leaf_id(),
+                    ):
                         refresh_legacy_footer()
                         continue
                     session_tree = NativeSessionTree.fork_from(
@@ -2688,6 +2927,9 @@ class NativeToolReplSession:
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
+                        set_active_tools_fn=extension_set_active_tools,
+                        set_model_fn=extension_set_model,
+                        set_thinking_level_fn=extension_set_thinking_level,
                     )
                     if extension_dispatch is not None:
                         # Notifications already surfaced live via the sink while
@@ -2764,6 +3006,9 @@ class NativeToolReplSession:
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
                         notify_sink=_extension_notify,
+                        set_active_tools_fn=extension_set_active_tools,
+                        set_model_fn=extension_set_model,
+                        set_thinking_level_fn=extension_set_thinking_level,
                     )
                     provider_user_input = transformed_input
                     file_references = resolve_file_references(
@@ -2808,6 +3053,9 @@ class NativeToolReplSession:
                     has_ui=terminal_ui is not None,
                     system_prompt=base_system_prompt,
                     notify_sink=_extension_notify,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=extension_set_model,
+                    set_thinking_level_fn=extension_set_thinking_level,
                 )
                 agent_system_prompt = base_system_prompt
                 if before_agent_result.append_system_prompt:
@@ -2842,9 +3090,7 @@ class NativeToolReplSession:
 
                 while inner_iterations < inner_iteration_cap:
                     inner_iterations += 1
-                    available_tools = tuple(
-                        tool.definition for tool in run_tool_registry.values()
-                    )
+                    available_tools = available_tool_definitions()
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
                     # building the next request. The cut is at a UserMessage
@@ -2869,6 +3115,42 @@ class NativeToolReplSession:
                         # and re-sending would mis-attach the image to those.
                         attachments=turn_attachments if inner_iterations == 1 else (),
                     )
+                    if extension_before_provider_request_hooks:
+                        provider_transform = dispatch_before_provider_request_hooks(
+                            extension_before_provider_request_hooks,
+                            provider_request,
+                            cwd=str(cwd),
+                            has_ui=terminal_ui is not None,
+                            notify_sink=_extension_notify,
+                            set_active_tools_fn=extension_set_active_tools,
+                            set_model_fn=lambda _reference: False,
+                            set_thinking_level_fn=extension_set_thinking_level,
+                        )
+                        filtered_tools = available_tool_definitions(
+                            provider_transform.available_tools
+                        )
+                        final_user_prompt = (
+                            provider_transform.user_prompt
+                            if provider_transform.user_prompt is not None
+                            else provider_request.user_prompt
+                        )
+                        provider_messages = self._provider_messages_with_prompt(
+                            tuple(messages),
+                            original_prompt=provider_request.user_prompt,
+                            provider_prompt=final_user_prompt,
+                        )
+                        provider_request = ProviderRequest(
+                            system_prompt=provider_transform.system_prompt
+                            if provider_transform.system_prompt is not None
+                            else provider_request.system_prompt,
+                            user_prompt=final_user_prompt,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            cwd=cwd,
+                            messages=provider_messages,
+                            available_tools=filtered_tools,
+                            attachments=provider_request.attachments,
+                        )
                     emitter.turn_start()
                     if inner_iterations == 1:
                         # Pi emits the user message_start/message_end pair after
@@ -3020,6 +3302,9 @@ class NativeToolReplSession:
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
+                            set_active_tools_fn=extension_set_active_tools,
+                            set_model_fn=lambda _reference: False,
+                            set_thinking_level_fn=extension_set_thinking_level,
                         )
                         if tool_block is not None:
                             blocked_observation = self._error_observation(
@@ -3069,6 +3354,9 @@ class NativeToolReplSession:
                                 cwd=str(cwd),
                                 has_ui=terminal_ui is not None,
                                 notify_sink=_extension_notify,
+                                set_active_tools_fn=extension_set_active_tools,
+                                set_model_fn=lambda _reference: False,
+                                set_thinking_level_fn=extension_set_thinking_level,
                             )
                             if _transformed != observation.output_text:
                                 observation = ToolResultMessage(
@@ -3250,6 +3538,32 @@ class NativeToolReplSession:
             autocomplete_max_visible=autocomplete_max_visible,
             extension_shortcut_keys=extension_shortcut_keys,
         )
+
+    @staticmethod
+    def _provider_messages_with_prompt(
+        messages: tuple[LoopMessage, ...],
+        *,
+        original_prompt: str,
+        provider_prompt: str,
+    ) -> tuple[LoopMessage, ...]:
+        """Return provider-visible messages with the current prompt transformed.
+
+        `before_provider_request` transforms are provider-payload changes. The
+        durable native session tree and prompt history keep the user's literal
+        prompt, but providers that serialize `request.messages` must still see
+        the transformed current user message. Replace only the most recent
+        matching `UserMessage` in this request-local tuple.
+        """
+
+        if provider_prompt == original_prompt or not messages:
+            return messages
+        replaced = list(messages)
+        for index in range(len(replaced) - 1, -1, -1):
+            message = replaced[index]
+            if isinstance(message, UserMessage) and message.content == original_prompt:
+                replaced[index] = UserMessage(content=provider_prompt)
+                return tuple(replaced)
+        return messages
 
     @staticmethod
     def _tee_stream_sink(
@@ -3547,6 +3861,10 @@ class NativeToolReplSession:
         terminal_ui: ToolLoopTerminalUi | None,
         error_stream: TextIO,
         cwd: Path,
+        user_bash_hooks: Sequence[HookHandler] = (),
+        set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
+        set_model_fn: Callable[[str], bool] | None = None,
+        set_thinking_level_fn: Callable[[str], bool] | None = None,
     ) -> str | None:
         """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
 
@@ -3569,6 +3887,29 @@ class NativeToolReplSession:
             )
             return None
 
+        decision = dispatch_user_bash_hooks(
+            user_bash_hooks,
+            command=command,
+            exclude_from_context=exclude_from_context,
+            cwd=str(cwd),
+            has_ui=terminal_ui is not None,
+            notify_sink=lambda kind, message: self._emit_diagnostic(
+                terminal_ui, error_stream, message
+            ),
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+        )
+        if not decision.allowed:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                f"pipy: shell command blocked by extension: {decision.reason}",
+            )
+            return None
+        command = decision.command
+        exclude_from_context = decision.exclude_from_context
+
         if terminal_ui is not None:
             terminal_ui.add_tool_call(f"$ {command}")
             sink: Callable[[str], None] = terminal_ui.append_tool_output
@@ -3578,9 +3919,20 @@ class NativeToolReplSession:
             def sink(chunk: str) -> None:
                 print(chunk, end="", file=error_stream, flush=True)
 
-        result = self._execute_local_shell(
-            command, sink=sink, terminal_ui=terminal_ui, cwd=cwd
-        )
+        if decision.result is not None:
+            result = LocalShellResult(
+                output=decision.result,
+                exit_code=decision.exit_code,
+                truncated=False,
+                timed_out=False,
+                cancelled=False,
+                started=True,
+            )
+            sink(decision.result)
+        else:
+            result = self._execute_local_shell(
+                command, sink=sink, terminal_ui=terminal_ui, cwd=cwd
+            )
 
         output_text = result.output or "(no output)"
         # Status line mirrors the bash tool's _shape: a timeout, the exit code,

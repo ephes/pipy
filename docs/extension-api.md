@@ -11,7 +11,7 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–12 have landed (see
+Implementation status: **partially implemented.** Slices 1–13 have landed (see
 "Suggested Implementation Slices"), including **package runtime composition** —
 installed local-path package resources (extensions/skills/prompts/themes) now
 flow through discovery at lowest precedence with Pi-shaped enablement filters.
@@ -32,12 +32,13 @@ custom interactive overlay `ctx.ui.custom(...)`, and keyboard-shortcut
 registration `api.register_shortcut(...)`. It is not source-compatible with
 Pi's TypeScript extensions, and it still lacks several mature Pi surfaces:
 richer multi-widget TUI and custom message/tool rendering (only single
-`ctx.ui.custom` overlays exist), session switch/fork/tree/compaction
-interception, dynamic active-tool/model/thinking controls, `user_bash` and
-provider-payload hooks, extension state/session-manager helpers, remote npm/git
-package distribution, and `update`. Per-run source-loading flags for
-extensions, skills, prompt templates, and themes have landed. (Package runtime
-composition for local-path packages has landed.)
+`ctx.ui.custom` overlays exist), extension state/session-manager helpers,
+remote npm/git package distribution, and `update`. Session switch/fork/tree/
+compaction interception, dynamic active-tool/model/thinking controls,
+`user_bash`, and `before_provider_request` provider-payload hooks now ship as a
+live-session follow-on slice. Per-run source-loading flags for extensions,
+skills, prompt templates, and themes have landed. (Package runtime composition
+for local-path packages has landed.)
 
 ## Goals
 
@@ -269,9 +270,19 @@ class PipyExtensionAPI(Protocol):
 
     def get_commands(self) -> Sequence["CommandInfo"]: ...
     def get_all_tools(self) -> Sequence["ToolInfo"]: ...
-    def set_active_tools(self, tool_names: Sequence[str]) -> None: ...
-    def set_model(self, provider: str, model: str) -> bool: ...
     def on(self, event: str, handler: Callable[..., object] | None = None) -> object: ...
+
+
+class CommandContext(Protocol):
+    cwd: str
+    has_ui: bool
+    ui: "ExtensionUi"
+    conversation: "ConversationView"
+
+    def complete(self, system_prompt: str, user_text: str) -> str: ...
+    def set_active_tools(self, tool_names: Sequence[str]) -> bool: ...
+    def set_model(self, reference: str) -> bool: ...
+    def set_thinking_level(self, level: str) -> bool: ...
 ```
 
 Actual implementation should reuse existing native tool contracts where
@@ -312,11 +323,11 @@ target vocabulary includes:
 | `after_provider_response` | Observe safe provider response metadata after the provider call. | None |
 | `model_select` | Observe model/provider changes. | None |
 | `thinking_level_select` | Observe thinking/reasoning level changes where the selected provider supports them. | None |
-| `session_before_switch` | Observe or block a session switch before the current session is replaced. | None or `SessionSwitchDecision` |
-| `session_before_fork` | Observe or block a fork/branch operation before it starts. | None or `SessionForkDecision` |
-| `session_before_compact` | Observe or alter compaction settings before compaction. | None or `CompactionRequestTransform` |
+| `session_before_switch` | Observe or block a session switch before the current session is replaced. | None or `SessionDecision` |
+| `session_before_fork` | Observe or block a fork/branch operation before it starts. | None or `SessionDecision` |
+| `session_before_compact` | Observe or block compaction before it starts. | None or `SessionDecision` |
 | `session_compact` | Observe completed compaction metadata. | None |
-| `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionTreeDecision` |
+| `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionDecision` |
 | `session_tree` | Observe completed tree/session-history navigation metadata. | None |
 
 The first implementation should still start small. `tool_call` should be the
@@ -810,8 +821,10 @@ extension `/commands` dispatch through the live tool-loop REPL
 `scripts/parity_checks/extension_tool_call_conformance.py --json`). Slice 5: the
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 `turn_end`/`agent_end`/`session_shutdown`, gate
-`scripts/parity_checks/extension_lifecycle_conformance.py --json`). Slices 1–12
+`scripts/parity_checks/extension_lifecycle_conformance.py --json`). Slices 1–13
 have **landed** (gate
+`scripts/parity_checks/extension_live_session_conformance.py --json` plus the
+earlier package gate
 `scripts/parity_checks/extension_package_conformance.py --json`), including
 **package runtime composition** — installed local-path package resources flow
 through discovery at lowest precedence (see slice 12 below) — plus the
@@ -930,6 +943,22 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     source handling and package/source `update` stay deferred until a
     supply-chain policy and isolated package cache are written. Gate
     `scripts/parity_checks/extension_package_conformance.py --json`.
+13. Live-session hooks and dynamic controls — **landed**: Pi-shaped
+    `user_bash`, `before_provider_request`, `session_before_switch`,
+    `session_before_fork`, `session_before_compact`, and `session_before_tree`
+    hooks now dispatch from the product tool loop. Command/shortcut and safe
+    pre-turn hook contexts expose `ctx.set_active_tools(...)`,
+    `ctx.set_model(...)`, and `ctx.set_thinking_level(...)` through the
+    existing provider-state, session-tree, and tool-registry boundaries; in-turn
+    provider/tool hooks reject `ctx.set_model(...)` by returning `False` so they
+    cannot clear conversation state mid-turn. `ctx.set_active_tools([])` is a
+    real empty active-tool set, disabling model-visible tools until a later
+    context selects known tool names again. `user_bash` hooks can block,
+    rewrite, exclude, or synthesize a local `!`/`!!` shell result;
+    `before_provider_request` hooks can transform bounded prompt fields and
+    narrow tools for the current request; session-before hooks fail closed for
+    stateful session operations. Gate
+    `scripts/parity_checks/extension_live_session_conformance.py --json`.
 
 ## Open Questions
 

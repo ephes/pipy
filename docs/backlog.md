@@ -302,10 +302,12 @@ The highest-impact remaining gaps are now:
 1. **Extension and package platform follow-ons.** Pipy now has a useful
    **Pi-shaped but not Pi-equivalent** Python extension runtime and installed
    local-path package resources flow through discovery at lowest precedence
-   with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
-   rendering, session/tree/compaction hooks, dynamic tool/model/thinking
-   controls, `user_bash` and provider-payload hooks, remote
-   sources, `update`, and the npm/git package ecosystem. The next
+   with `+/-pattern` filters. Live-session hooks/controls for `user_bash`,
+   `before_provider_request`, session-operation gates, and active
+   tool/model/thinking controls now ship. Pi remains ahead on rich TUI extension
+   UI, custom rendering, extension state/session-manager helpers, dynamic
+   extension flags/message renderers, OAuth-provider extension registration,
+   remote sources, `update`, and the npm/git package ecosystem. The next
    extension/package slices are deferred remote `git:`/PyPI source kinds and
    `update` (gated on a supply-chain policy and isolated package cache), plus
    the richer API follow-ons tracked in [extension-api.md](extension-api.md).
@@ -1558,20 +1560,22 @@ Compatibility assessment for slice selection: treat Pipy's extension support as
 **comparable for core local automation, not comparable to Pi as a mature
 extension platform**. The landed slices cover the high-value Python equivalents
 of Pi permission gates, custom slash commands, simple model-visible tools,
-input/system-prompt hooks, lifecycle observation, and minimal UI notices. They
-do not yet cover Pi's richer extension APIs: custom message/tool rendering,
-full `ctx.ui` dialogs/widgets/editor/autocomplete/theme controls, session
-switch/fork/tree/compaction interception, dynamic active-tool/model/thinking
-control, shell/user-bash operation adapters, provider-payload hooks, extension
-state helpers equivalent to `appendEntry`/session-manager access, TypeScript
-source compatibility, OAuth-provider extension registration, or npm/git/update
-package distribution. Remote `git:`/PyPI sources and `update` remain deferred.
+input/system-prompt hooks, lifecycle observation, minimal UI notices,
+live-session operation gates, user-bash adapters, provider-request transforms,
+and active tool/model/thinking controls. They do not yet cover Pi's richer
+extension APIs: custom message/tool rendering, full `ctx.ui`
+dialogs/widgets/editor/autocomplete/theme controls, extension state helpers
+equivalent to `appendEntry`/session-manager access, TypeScript source
+compatibility, OAuth-provider extension registration, dynamic extension
+flags/message renderers, or npm/git/update package distribution. Remote
+`git:`/PyPI sources and `update` remain deferred.
 
 Acceptance criteria:
 
 ```sh
 uv run python scripts/parity_checks/extension_package_conformance.py --json
 uv run python scripts/parity_checks/extension_conformance_gate.py --json
+uv run python scripts/parity_checks/extension_live_session_conformance.py --json
 just check
 ```
 
@@ -1708,12 +1712,13 @@ Invariants that must hold for any near-term slice:
   autocomplete providers, theme controls, custom overlays beyond the narrow
   Python `ctx.ui.custom` path, and custom message/tool rendering.
 - Extension/package platform follow-ons: package runtime composition for
-  installed local-path packages and per-run source-loading flags have landed.
-  Remaining Pi gaps are dynamic extension flags, richer event/session hooks,
-  dynamic active-tool/model/thinking controls, `user_bash` and provider-payload
-  hooks, extension state/session-manager views, richer extension UI/rendering,
-  remote package sources, package `update`, and the corresponding
-  supply-chain/security model. The target specification is
+  installed local-path packages, per-run source-loading flags, live-session
+  operation gates, `user_bash`, provider-request transforms, and dynamic active
+  tool/model/thinking controls have landed. Remaining Pi gaps are dynamic
+  extension flags/message renderers, extension state/session-manager views,
+  richer extension UI/rendering, OAuth-provider extension registration, remote
+  package sources, package `update`, and the corresponding supply-chain/security
+  model. The target specification is
   [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
   Anthropic/Copilot login UX and adapter parity polish.

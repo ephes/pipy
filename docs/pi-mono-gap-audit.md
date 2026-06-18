@@ -155,6 +155,9 @@ Pipy current state:
   package CLI, package runtime composition for installed local-path package
   resources, and per-run source-loading flags for explicit extensions, skills,
   prompt templates, and themes.
+- Extension slice 13 has shipped: live-session hooks for `user_bash`,
+  `before_provider_request`, session switch/fork/tree/compaction gates, and
+  dynamic active tool/model/thinking controls through the command/hook context.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -163,10 +166,10 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: UI/rendering, session switch/fork/tree/compaction
-   hooks, dynamic active-tool/model/thinking controls, `user_bash`,
-   provider-payload hooks, and extension state/session-manager views.
-2. OAuth-provider extension registration and dynamic active model/tool controls.
+1. Richer Pi extension APIs: multi-widget UI/rendering, custom message/tool
+   renderers, dynamic extension flags, and extension state/session-manager
+   views.
+2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Remote package sources and `update` only after a supply-chain/update policy
    and isolated package cache.
 
@@ -225,8 +228,9 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Extension/package platform follow-ons: richer hooks/UI, OAuth-provider
-   extension registration, dynamic controls, and remote sources/update after
+1. Extension/package platform follow-ons: richer UI/rendering, extension
+   state/session-manager helpers, dynamic extension flags/message renderers,
+   OAuth-provider extension registration, and remote sources/update after
    policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
