@@ -34,9 +34,10 @@ Pi's TypeScript extensions, and it still lacks several mature Pi surfaces:
 richer multi-widget TUI and custom message/tool rendering (only single
 `ctx.ui.custom` overlays exist), session switch/fork/tree/compaction
 interception, dynamic active-tool/model/thinking controls, `user_bash` and
-provider-payload hooks, extension state/session-manager helpers, CLI
-`--extension`/`--no-extensions`, remote npm/git package distribution, and
-`update`. (Package runtime composition for local-path packages has landed.)
+provider-payload hooks, extension state/session-manager helpers, remote npm/git
+package distribution, and `update`. Per-run source-loading flags for
+extensions, skills, prompt templates, and themes have landed. (Package runtime
+composition for local-path packages has landed.)
 
 ## Goals
 
@@ -109,7 +110,12 @@ Initial discovery should support:
   `<config>/extensions/<name>/extension.py` and `<config>/extensions/<name>.py`,
   where `<config>` follows the existing pipy config root resolution:
   `PIPY_CONFIG_HOME` -> `${XDG_CONFIG_HOME}/pipy` -> `~/.config/pipy`
-- Explicit CLI paths later, probably repeated `--extension <PATH>`
+- Explicit CLI paths: repeated `--extension <PATH>` accepts a Python file, a
+  direct extension directory, or a directory of extension candidates. Matching
+  `--no-extensions` disables workspace/global/package discovery but still
+  honors explicit paths, and explicit paths also override persisted resource
+  filters for the same resource name. The same per-run pattern exists for
+  `--skill`, `--prompt-template`, and `--theme`.
 
 The first implementation should not install dependencies or run package-manager
 commands. If an extension needs dependencies, the user is responsible for
@@ -630,6 +636,9 @@ real network. It must prove:
 7. invalid/conflicting options and missing sources fail closed with usage;
 8. no package source path, token, command output, extension code, prompt body,
    tool payload, or UI text leaks into the default metadata archive.
+9. explicit CLI source-loading paths for extensions, skills, prompt templates,
+   and themes still load when matching default discovery or persisted filters
+   are disabled.
 
 ## Archive And Privacy Rules
 
@@ -800,8 +809,10 @@ lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
 have **landed** (gate
 `scripts/parity_checks/extension_package_conformance.py --json`), including
 **package runtime composition** — installed local-path package resources flow
-through discovery at lowest precedence (see slice 12 below). Discovery never
-imports extension code; activation imports only loadable descriptors.
+through discovery at lowest precedence (see slice 12 below) — plus the
+follow-on per-run source-loading flags for explicit extensions, skills, prompt
+templates, and themes. Discovery never imports extension code; activation
+imports only loadable descriptors.
 
 Beyond the numbered slices, an **interactive command-context block** has also
 landed to support porting Pi's `answer.ts`
@@ -907,9 +918,11 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     (`scripts/tmux_package_verify.sh`). The package gate proves spec "Package
     conformance gate" items 2/4/8 (manifest contributes an
     extension/skill/prompt/theme with deterministic precedence; filters affect
-    discovery; no source path or resource body leaks into safe metadata). Remote
-    `git:`/PyPI source handling and package/source `update` stay deferred until
-    a supply-chain policy and isolated package cache are written. Gate
+    discovery; no source path or resource body leaks into safe metadata). The
+    same gate now also proves per-run source-loading flags for explicit
+    extension, skill, prompt-template, and theme paths. Remote `git:`/PyPI
+    source handling and package/source `update` stay deferred until a
+    supply-chain policy and isolated package cache are written. Gate
     `scripts/parity_checks/extension_package_conformance.py --json`.
 
 ## Open Questions

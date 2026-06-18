@@ -50,6 +50,7 @@ from pipy_harness.native.provider_registry import (
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
@@ -311,6 +312,90 @@ def build_parser() -> argparse.ArgumentParser:
             "tools may resolve absolute paths against. May be repeated. The "
             "PIPY_READ_ROOTS environment variable (':'-separated) acts as the "
             "default. Mutation tools always stay inside the workspace."
+        ),
+    )
+    repl_parser.add_argument(
+        "--extension",
+        "-e",
+        dest="extensions",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load an extension file, extension directory, or directory of "
+            "extensions for this run. May be repeated. Explicit extensions "
+            "still load with --no-extensions."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-extensions",
+        "-ne",
+        action="store_true",
+        help=(
+            "Disable default workspace/global/package extension discovery for "
+            "this run. Explicit --extension paths still load."
+        ),
+    )
+    repl_parser.add_argument(
+        "--skill",
+        dest="skills",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load a skill Markdown file or directory for this run. May be "
+            "repeated. Explicit skills still load with --no-skills."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-skills",
+        "-ns",
+        action="store_true",
+        help=(
+            "Disable default workspace/global/package skill discovery for this "
+            "run. Explicit --skill paths still load."
+        ),
+    )
+    repl_parser.add_argument(
+        "--prompt-template",
+        dest="prompt_templates",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load a prompt-template Markdown file or directory for this run. "
+            "May be repeated. Explicit templates still load with "
+            "--no-prompt-templates."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-prompt-templates",
+        "-np",
+        action="store_true",
+        help=(
+            "Disable default workspace/global/package prompt-template "
+            "discovery for this run. Explicit --prompt-template paths still "
+            "load."
+        ),
+    )
+    repl_parser.add_argument(
+        "--theme",
+        dest="themes",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Load a theme TOML file or directory for this run. This makes the "
+            "theme selectable by settings, PIPY_THEME, or /theme; it does not "
+            "select the active theme by itself."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-themes",
+        action="store_true",
+        help=(
+            "Disable package theme discovery for this run. Explicit --theme "
+            "paths and built-in themes remain available."
         ),
     )
     # Retired metadata-only session flags. They are still *recognized* (hidden)
@@ -711,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.cwd.expanduser().resolve(),
                 scoped_models=_parse_models_flag(getattr(args, "scoped_models", None)),
             )
+            resource_options = _resource_options_from_args(args)
             file_settings = settings_manager.merged_file_settings()
             _apply_settings_theme_env(file_settings)
             eff_native_provider = args.native_provider or _settings_str(
@@ -754,6 +840,7 @@ def main(argv: list[str] | None = None) -> int:
                     system_prompt_source=args.system_prompt,
                     append_system_prompt_sources=args.append_system_prompt,
                     no_context_files=args.no_context_files,
+                    resource_options=resource_options,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
@@ -768,6 +855,7 @@ def main(argv: list[str] | None = None) -> int:
                     system_prompt_source=args.system_prompt,
                     append_system_prompt_sources=args.append_system_prompt,
                     no_context_files=args.no_context_files,
+                    resource_options=resource_options,
                 )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1364,6 +1452,7 @@ def _repl_adapter_for(
     system_prompt_source: str | None = None,
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
+    resource_options: RuntimeResourceOptions | None = None,
 ) -> PipyNativeReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     catalog_state = _build_catalog_state(runtime_api_key=api_key)
@@ -1398,6 +1487,7 @@ def _repl_adapter_for(
         settings_manager=settings_manager,
         system_prompt_source=system_prompt_source,
         append_system_prompt_sources=append_system_prompt_sources,
+        resource_options=resource_options,
     )
 
 
@@ -1534,6 +1624,7 @@ def _tool_repl_adapter_for(
     system_prompt_source: str | None = None,
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
+    resource_options: RuntimeResourceOptions | None = None,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     catalog_state = _build_catalog_state(runtime_api_key=api_key)
@@ -1581,6 +1672,7 @@ def _tool_repl_adapter_for(
         settings_manager=settings_manager,
         system_prompt_source=system_prompt_source,
         append_system_prompt_sources=append_system_prompt_sources,
+        resource_options=resource_options,
     )
 
 
@@ -1849,6 +1941,45 @@ _AUTO_REFERENCE_ROOT_DOCS = (
     Path("docs") / "pi-parity.md",
     Path("AGENTS.md"),
 )
+
+
+def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
+    """Resolve Pi-shaped source-loading flags for one REPL run."""
+
+    cwd = args.cwd.expanduser().resolve()
+    return RuntimeResourceOptions(
+        extension_paths=_resolve_cli_resource_paths(
+            cwd, getattr(args, "extensions", None)
+        ),
+        skill_paths=_resolve_cli_resource_paths(cwd, getattr(args, "skills", None)),
+        prompt_template_paths=_resolve_cli_resource_paths(
+            cwd, getattr(args, "prompt_templates", None)
+        ),
+        theme_paths=_resolve_cli_resource_paths(cwd, getattr(args, "themes", None)),
+        no_extensions=bool(getattr(args, "no_extensions", False)),
+        no_skills=bool(getattr(args, "no_skills", False)),
+        no_prompt_templates=bool(getattr(args, "no_prompt_templates", False)),
+        no_themes=bool(getattr(args, "no_themes", False)),
+    )
+
+
+def _resolve_cli_resource_paths(
+    cwd: Path,
+    values: list[str] | None,
+) -> tuple[Path, ...]:
+    """Resolve repeated source-loading path flags relative to ``cwd``."""
+
+    resolved: list[Path] = []
+    for value in values or []:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = cwd / path
+        try:
+            path = path.resolve(strict=False)
+        except OSError:
+            continue
+        resolved.append(path)
+    return tuple(resolved)
 
 
 def _resolve_reference_roots(

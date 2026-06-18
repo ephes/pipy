@@ -57,6 +57,7 @@ WORKSPACE_PIPY_DIR_NAME: str = ".pipy"
 
 GLOBAL_PATH_LABEL_PREFIX: str = "<global>/"
 PACKAGE_PATH_LABEL_PREFIX: str = "<package>/"
+CLI_PATH_LABEL_PREFIX: str = "<cli>/"
 
 PER_FILE_TRUNCATION_MARKER_TEMPLATE: str = (
     "\n\n[pipy: resource file truncated at {cap} bytes]\n"
@@ -120,20 +121,25 @@ def discover_resource_files(
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
     package_roots: "Sequence[PackageRoot]" = (),
+    explicit_paths: Sequence[Path] = (),
+    include_defaults: bool = True,
     dedupe_by_name: bool = False,
 ) -> tuple[list[_RawResourceFile], bool]:
     """Discover Markdown files in a workspace and global resource directory.
 
     `workspace_subdir` is the path relative to `<workspace>/.pipy/` (for
-    example, `skills` or `templates`). `global_subdir` is the path
-    relative to the global resource root. `package_roots` lists concrete
-    `PackageRoot`s contributed by installed local-path packages; they are
-    searched *after* the workspace and global dirs (lowest precedence) so
-    a workspace or global resource always wins a name/path collision. Each
-    package root may carry per-package `+/-pattern` filters that scope that
-    one package's resources by name. When `dedupe_by_name` is set, a later
-    file whose resolved name was already seen is dropped (first wins),
-    matching Pi's name-deduped skill/prompt loading.
+    example, `skills` or `templates`). `global_subdir` is the path relative to
+    the global resource root. `package_roots` lists concrete `PackageRoot`s
+    contributed by installed local-path packages; they are searched after the
+    workspace and global dirs. `explicit_paths` are per-run CLI paths (files or
+    directories) searched before the defaults so an explicit CLI resource wins a
+    name collision. When `include_defaults` is false, workspace/global/package
+    discovery is skipped but explicit paths still load, matching Pi's
+    `--no-skills`/`--no-prompt-templates` behavior. Each package root may carry
+    per-package `+/-pattern` filters that scope that one package's resources by
+    name. When `dedupe_by_name` is set, a later file whose resolved name was
+    already seen is dropped (first wins), matching Pi's name-deduped
+    skill/prompt loading.
 
     Discovery rules:
 
@@ -186,28 +192,46 @@ def discover_resource_files(
     total_loaded = 0
     cap_reached = False
 
-    # (dir, kind, ignore_root, per-package filters). Workspace/global carry
-    # no per-package filter; package roots carry their owning package's.
-    sources: list[tuple[Path, str, Path, tuple[str, ...]]] = [
-        (workspace_dir, "workspace", resolved_workspace, ()),
-        (global_dir, "global", global_root, ()),
-    ]
-    # Package roots are already concrete resource dirs; each is its own
-    # containment + ignore root, searched after workspace/global.
-    sources.extend(
-        (root.path, "package", root.path, tuple(root.filters)) for root in package_roots
-    )
+    # (dir/file, kind, ignore_root, per-package filters, explicit_file_only).
+    # CLI paths carry no per-package filter and are searched first.
+    sources: list[tuple[Path, str, Path, tuple[str, ...], bool]] = []
+    for explicit in explicit_paths:
+        path = explicit.expanduser()
+        if not path.is_absolute():
+            path = (resolved_workspace / path).resolve()
+        if path.suffix == ".md":
+            sources.append((path, "cli", path.parent, (), True))
+        else:
+            sources.append((path, "cli", path, (), False))
+    if include_defaults:
+        sources.extend(
+            [
+                (workspace_dir, "workspace", resolved_workspace, (), False),
+                (global_dir, "global", global_root, (), False),
+            ]
+        )
+        # Package roots are already concrete resource dirs; each is its own
+        # containment + ignore root, searched after workspace/global.
+        sources.extend(
+            (root.path, "package", root.path, tuple(root.filters), False)
+            for root in package_roots
+        )
 
-    for source_dir, source_kind, ignore_root, package_filters in sources:
+    for source_dir, source_kind, ignore_root, package_filters, explicit_file in sources:
         if cap_reached:
             break
         try:
-            if source_dir.is_symlink():
+            if source_dir.is_symlink() and not explicit_file:
                 continue
-            containment_root = source_dir.expanduser().resolve()
+            containment_root = (
+                source_dir.parent.expanduser().resolve()
+                if explicit_file
+                else source_dir.expanduser().resolve()
+            )
         except OSError:
             continue
-        for candidate in _iter_md_files(source_dir):
+        candidates = [source_dir] if explicit_file else _iter_md_files(source_dir)
+        for candidate in candidates:
             try:
                 resolved_candidate = candidate.resolve()
             except OSError:
@@ -445,6 +469,9 @@ def _path_label_for(
         # the filename itself was already screened by `_candidate_name_is_safe`.
         parent_name = _sanitize_label(candidate.parent.name) or "package"
         return f"{PACKAGE_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
+    if source_kind == "cli":
+        parent_name = _sanitize_label(candidate.parent.name) or "resource"
+        return f"{CLI_PATH_LABEL_PREFIX}{parent_name}/{candidate.name}"
     try:
         relative = candidate.resolve().relative_to(workspace)
         return relative.as_posix()

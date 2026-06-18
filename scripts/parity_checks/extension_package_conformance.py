@@ -25,6 +25,9 @@ the spec "Package conformance gate" items 2, 4, and 8:
 8. (item 8) no package source path or resource body (skill/prompt body,
    extension source, theme palette) leaks into the archive-safe metadata
    projections.
+9. Pi-shaped source-loading flags parse and compose with runtime discovery:
+   explicit ``--extension``/``--skill``/``--prompt-template``/``--theme``
+   sources load even when matching default discovery is disabled.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -44,7 +47,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.cli import main as cli_main
+from pipy_harness.cli import (
+    _resource_options_from_args,
+    build_parser,
+    main as cli_main,
+)
 from pipy_harness.native import themes
 from pipy_harness.native.extensions import discover_extensions, safe_extension_metadata
 from pipy_harness.native.package_manager import (
@@ -59,6 +66,7 @@ from pipy_harness.native.settings import (
     global_settings_path,
     project_settings_path,
 )
+from pipy_harness.native.theme_files import build_theme_registry
 
 
 @dataclass
@@ -178,6 +186,7 @@ def run_checks(base: Path) -> list[Check]:
     )
 
     checks.extend(_runtime_composition_checks(base))
+    checks.extend(_source_loading_flag_checks(base))
     return checks
 
 
@@ -354,6 +363,106 @@ def _runtime_composition_checks(base: Path) -> list[Check]:
         )
     finally:
         themes.set_active_theme_registry(None)
+    return checks
+
+
+def _source_loading_flag_checks(base: Path) -> list[Check]:
+    """Per-run source flags: explicit paths survive matching ``--no-*``."""
+
+    from pipy_harness.native.package_resources import PackageRoot
+
+    checks: list[Check] = []
+    ws = base / "source-flags-ws"
+    (ws / ".pipy" / "skills").mkdir(parents=True)
+    (ws / ".pipy" / "templates").mkdir(parents=True)
+    (ws / ".pipy" / "extensions").mkdir(parents=True)
+    (ws / ".pipy" / "skills" / "default.md").write_text(
+        "---\nname: default-skill\n---\ndefault\n", encoding="utf-8"
+    )
+    (ws / ".pipy" / "templates" / "default.md").write_text(
+        "---\nname: default-template\n---\ndefault\n", encoding="utf-8"
+    )
+    (ws / ".pipy" / "extensions" / "default.py").write_text(
+        "def activate(api):\n    pass\n", encoding="utf-8"
+    )
+
+    explicit_dir = base / "explicit-sources"
+    explicit_dir.mkdir()
+    skill_path = explicit_dir / "skill.md"
+    prompt_dir = explicit_dir / "prompts"
+    prompt_dir.mkdir()
+    extension_path = explicit_dir / "runtime_ext.py"
+    theme_path = explicit_dir / "runtime_theme.toml"
+    skill_path.write_text("---\nname: runtime-skill\n---\nbody\n", encoding="utf-8")
+    (prompt_dir / "template.md").write_text(
+        "---\nname: runtime-template\n---\nbody\n", encoding="utf-8"
+    )
+    extension_path.write_text("def activate(api):\n    pass\n", encoding="utf-8")
+    theme_path.write_text(
+        'name = "runtime-theme"\naccent_truecolor = "38;2;9;9;9"\n',
+        encoding="utf-8",
+    )
+
+    parser = build_parser()
+    parsed = parser.parse_args(
+        [
+            "repl",
+            "--cwd",
+            str(ws),
+            "--extension",
+            str(extension_path),
+            "--no-extensions",
+            "--skill",
+            str(skill_path),
+            "--no-skills",
+            "--prompt-template",
+            str(prompt_dir),
+            "--no-prompt-templates",
+            "--theme",
+            str(theme_path),
+            "--no-themes",
+        ]
+    )
+    options = _resource_options_from_args(parsed)
+    resources = WorkspaceResources.discover(
+        ws,
+        explicit_skill_paths=options.skill_paths,
+        explicit_prompt_template_paths=options.prompt_template_paths,
+        include_skills_defaults=not options.no_skills,
+        include_prompt_template_defaults=not options.no_prompt_templates,
+    ).with_enablement(
+        skills_patterns=["-runtime-skill"],
+        prompts_patterns=["-runtime-template"],
+    )
+    descriptors = discover_extensions(
+        ws,
+        explicit_paths=options.extension_paths,
+        include_defaults=not options.no_extensions,
+    )
+    package_theme_dir = base / "source-theme-package"
+    package_theme_dir.mkdir()
+    (package_theme_dir / "package_theme.toml").write_text(
+        'name = "package-theme"\naccent_truecolor = "38;2;1;1;1"\n',
+        encoding="utf-8",
+    )
+    registry = build_theme_registry(
+        () if options.no_themes else (PackageRoot(package_theme_dir),),
+        filters=["-runtime-theme"],
+        explicit_theme_paths=options.theme_paths,
+    )
+
+    checks.append(
+        Check(
+            "source_loading_flags",
+            resources.skill_names() == ("runtime-skill",)
+            and resources.template_names() == ("runtime-template",)
+            and [d.name for d in descriptors] == ["runtime_ext"]
+            and descriptors[0].source_kind == "cli"
+            and registry.is_known("runtime-theme")
+            and not registry.is_known("package-theme"),
+            "explicit CLI sources load while matching default discovery and persisted filters are disabled",
+        )
+    )
     return checks
 
 

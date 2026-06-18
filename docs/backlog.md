@@ -78,8 +78,10 @@ The broad parity ladder, applied with small-slice discipline:
   custom `/<name>` commands run through `pipy_harness.native.resources` in
   both REPL product paths, and the `[Skills]` chrome section lists the
   loadable skill names. Chrome color themes also now ship via `/theme`
-  (`pipy_harness.native.themes`). A general extension/package/plugin loader
-  remains later parity work. The `/settings` (interactive control
+  (`pipy_harness.native.themes`). Pi-shaped per-run source-loading flags now
+  load explicit extension/skill/prompt-template/theme files or directories
+  while the matching `--no-*` flags disable default discovery. A mature
+  remote package/update ecosystem remains later parity work. The `/settings` (interactive control
   dialog) and `/model` (interactive selector) surfaces are exposed inside the
   product TUI, and `/login`/`/logout` are executable inside the TUI too
   (through the same auth boundary, with no provider turn).
@@ -197,8 +199,8 @@ not a promise to skip review when a smaller, safer slice appears.
    provider-registration mechanics) and local-path package runtime composition
    (installed packages contribute skills/prompts/themes/extensions through
    discovery). It is still **Pi-shaped rather than Pi-equivalent**: rich
-   extension UI/rendering, broader session hooks, dynamic controls,
-   source-loading flags, remote packages, and update flows remain follow-ons.
+   extension UI/rendering, broader session hooks, dynamic controls, remote
+   packages, and update flows remain follow-ons.
 5. Session workflows — **shipped (2026-06-02)**. The native product session
    tree (`pipy_harness.native.session_tree`) is now pipy's product session
    store, a raw private append-only JSONL tree like Pi's
@@ -300,8 +302,8 @@ The highest-impact remaining gaps are now:
    local-path package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
    rendering, session/tree/compaction hooks, dynamic tool/model/thinking
-   controls, `user_bash` and provider-payload hooks, hot-reload/source-loading
-   flags, remote sources, `update`, and the npm/git package ecosystem. The next
+   controls, `user_bash` and provider-payload hooks, hot-reload, remote
+   sources, `update`, and the npm/git package ecosystem. The next
    extension/package slices are deferred remote `git:`/PyPI source kinds and
    `update` (gated on a supply-chain policy and isolated package cache), plus
    the richer API follow-ons tracked in [extension-api.md](extension-api.md).
@@ -1417,8 +1419,8 @@ Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  source-loading flags, richer hooks/UI, extension-provider catalog wiring, or
-  remote sources/update after supply-chain policy; and
+  richer hooks/UI, extension-provider catalog wiring, or remote sources/update
+  after supply-chain policy; and
 - keep remote source/update work behind an isolated package cache and explicit
   supply-chain policy.
 
@@ -1537,6 +1539,14 @@ closing note below). Landed so far:
   filters affect discovery; no source path or resource body leaks into the
   archive-safe metadata). `pipy install` now both records a source **and**
   loads its resources.
+
+- Source-loading flags: `pipy repl` accepts Pi-shaped `--extension`/`-e`,
+  `--no-extensions`/`-ne`, `--skill`, `--no-skills`/`-ns`,
+  `--prompt-template`, `--no-prompt-templates`/`-np`, `--theme`, and
+  `--no-themes`. Explicit paths are per-run additive and still load when the
+  matching `--no-*` flag disables default workspace/global/package discovery or
+  a persisted resource filter disables the same resource name. The package gate
+  now includes this check.
 
 Remaining package work (deferred): remote `git:`/PyPI source kinds, an isolated
 package cache, and `update`, all gated on a supply-chain policy.
@@ -1696,12 +1706,12 @@ Invariants that must hold for any near-term slice:
   autocomplete providers, theme controls, custom overlays beyond the narrow
   Python `ctx.ui.custom` path, and custom message/tool rendering.
 - Extension/package platform follow-ons: package runtime composition for
-  installed local-path packages has landed. Remaining Pi gaps are
-  `--extension`/`--no-extensions`, dynamic extension flags, richer event/session
-  hooks, dynamic active-tool/model/thinking controls, `user_bash` and
-  provider-payload hooks, extension state/session-manager views, richer
-  extension UI/rendering, remote package sources, package `update`, and the
-  corresponding supply-chain/security model. The target specification is
+  installed local-path packages and per-run source-loading flags have landed.
+  Remaining Pi gaps are dynamic extension flags, richer event/session hooks,
+  dynamic active-tool/model/thinking controls, `user_bash` and provider-payload
+  hooks, extension state/session-manager views, richer extension UI/rendering,
+  remote package sources, package `update`, and the corresponding
+  supply-chain/security model. The target specification is
   [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
   Anthropic/Copilot login UX and catalog/`/model` wiring for

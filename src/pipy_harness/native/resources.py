@@ -49,7 +49,10 @@ from pipy_harness.native.skills import (
     discover_workspace_skills,
     find_skill_by_name,
 )
-from pipy_harness.native._resource_files import safe_resource_metadata
+from pipy_harness.native._resource_files import (
+    CLI_PATH_LABEL_PREFIX,
+    safe_resource_metadata,
+)
 
 SKILL_RESOURCE_COMMAND = "/skill"
 TEMPLATE_RESOURCE_COMMAND = "/template"
@@ -156,6 +159,10 @@ class WorkspaceResources:
         config_home_env: Mapping[str, str] | None = None,
         home_dir: Path | None = None,
         package_roots: "PackageResourceRoots | None" = None,
+        explicit_skill_paths: Sequence[Path] = (),
+        explicit_prompt_template_paths: Sequence[Path] = (),
+        include_skills_defaults: bool = True,
+        include_prompt_template_defaults: bool = True,
     ) -> "WorkspaceResources":
         skill_pkg_roots = package_roots.skills if package_roots is not None else ()
         prompt_pkg_roots = package_roots.prompts if package_roots is not None else ()
@@ -164,12 +171,16 @@ class WorkspaceResources:
             config_home_env=config_home_env,
             home_dir=home_dir,
             package_roots=skill_pkg_roots,
+            explicit_paths=explicit_skill_paths,
+            include_defaults=include_skills_defaults,
         )
         templates, templates_cap = discover_workspace_prompt_templates(
             workspace_root,
             config_home_env=config_home_env,
             home_dir=home_dir,
             package_roots=prompt_pkg_roots,
+            explicit_paths=explicit_prompt_template_paths,
+            include_defaults=include_prompt_template_defaults,
         )
         commands, commands_cap = discover_workspace_custom_commands(
             workspace_root,
@@ -197,8 +208,11 @@ class WorkspaceResources:
         `skills_patterns` / `prompts_patterns` are the settings `-pattern`/
         `+pattern` directive arrays; a discovered skill/template whose name is
         disabled by them is dropped from what is registered (its file is left on
-        disk). When `enable_skill_commands` is False, skills are dropped entirely
-        (Pi's `enableSkillCommands=false` stops skill command registration).
+        disk). Explicit per-run CLI resources (`--skill` /
+        `--prompt-template`) are session overrides for `+/-pattern` filters and
+        remain enabled even when a persisted pattern disables the same resource
+        name. `enable_skill_commands=False` is still a hard command-surface
+        disable for skills.
         """
 
         from pipy_harness.native.resource_enablement import is_resource_enabled
@@ -207,7 +221,10 @@ class WorkspaceResources:
             kept_skills: tuple[SkillFile, ...] = ()
         elif skills_patterns:
             kept_skills = tuple(
-                s for s in self.skills if is_resource_enabled(s.name, skills_patterns)
+                s
+                for s in self.skills
+                if _is_cli_resource_label(s.path_label)
+                or is_resource_enabled(s.name, skills_patterns)
             )
         else:
             kept_skills = self.skills
@@ -215,7 +232,8 @@ class WorkspaceResources:
             kept_templates = tuple(
                 t
                 for t in self.templates
-                if is_resource_enabled(t.name, prompts_patterns)
+                if _is_cli_resource_label(t.path_label)
+                or is_resource_enabled(t.name, prompts_patterns)
             )
         else:
             kept_templates = self.templates
@@ -278,6 +296,12 @@ class WorkspaceResources:
 
     def safe_template_metadata_all(self) -> list[dict[str, object]]:
         return safe_resource_metadata(self.templates)
+
+
+def _is_cli_resource_label(path_label: str) -> bool:
+    """Return True for resources loaded from explicit per-run CLI paths."""
+
+    return path_label.startswith(CLI_PATH_LABEL_PREFIX)
 
 
 def format_skills_listing(skills: Sequence[SkillFile]) -> str:

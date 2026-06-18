@@ -82,6 +82,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.changelog import (
     changelog_startup,
     read_changelog_entries,
@@ -600,6 +601,8 @@ def _activate_workspace_extensions(
     *,
     package_roots: "Sequence[PackageRoot]" = (),
     extension_patterns: Sequence[str] = (),
+    explicit_extension_paths: Sequence[Path] = (),
+    include_default_extensions: bool = True,
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -616,14 +619,20 @@ def _activate_workspace_extensions(
     reserved = tuple(
         name.lstrip("/") for name in _tool_loop_command_names(resources)
     )
-    descriptors = discover_extensions(cwd, package_roots=tuple(package_roots))
+    descriptors = discover_extensions(
+        cwd,
+        package_roots=tuple(package_roots),
+        explicit_paths=explicit_extension_paths,
+        include_defaults=include_default_extensions,
+    )
     if extension_patterns:
         from pipy_harness.native.resource_enablement import is_resource_enabled
 
         descriptors = [
             descriptor
             for descriptor in descriptors
-            if is_resource_enabled(descriptor.name, list(extension_patterns))
+            if descriptor.source_kind == "cli"
+            or is_resource_enabled(descriptor.name, list(extension_patterns))
         ]
     outbox: list[QueuedUserMessage] = []
     activated = activate_extensions(
@@ -835,6 +844,9 @@ class NativeToolReplSession:
     # provider boundary. ``None`` (CLI/TUI/one-shot) keeps the simple blocking
     # provider call.
     abort_event: "threading.Event | None" = None
+    resource_options: RuntimeResourceOptions = field(
+        default_factory=RuntimeResourceOptions.empty
+    )
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -884,15 +896,26 @@ class NativeToolReplSession:
         effective_model_id = model_id or self.provider.model_id
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        resource_options = self.resource_options
         # Compose installed local-path package resources: resolve their
         # roots and install the package theme registry so package
         # skills/prompts/extensions/themes flow through discovery at lowest
         # precedence with the Pi-shaped enablement filters applied.
-        package_roots = compose_package_runtime(settings, cwd)
+        package_roots = compose_package_runtime(
+            settings,
+            cwd,
+            include_package_themes=not resource_options.no_themes,
+            explicit_theme_paths=resource_options.theme_paths,
+        )
         # Apply the settings resource enable/disable directives (Pi pi config):
         # disabled skills/prompts are dropped from what is registered.
         workspace_resources = WorkspaceResources.discover(
-            cwd, package_roots=package_roots
+            cwd,
+            package_roots=package_roots,
+            explicit_skill_paths=resource_options.skill_paths,
+            explicit_prompt_template_paths=resource_options.prompt_template_paths,
+            include_skills_defaults=not resource_options.no_skills,
+            include_prompt_template_defaults=not resource_options.no_prompt_templates,
         ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
@@ -907,8 +930,12 @@ class NativeToolReplSession:
             cwd,
             workspace_resources,
             tuple(self.tool_registry.keys()),
-            package_roots=package_roots.extensions,
+            package_roots=()
+            if resource_options.no_extensions
+            else package_roots.extensions,
             extension_patterns=settings.get_extensions_patterns(),
+            explicit_extension_paths=resource_options.extension_paths,
+            include_default_extensions=not resource_options.no_extensions,
         )
         extension_commands = _ext_runtime.commands
         extension_menu_names = _ext_runtime.menu_names
@@ -1730,9 +1757,19 @@ class NativeToolReplSession:
                     # Re-resolve package roots + re-install the theme
                     # registry so a package added/removed since startup is
                     # reflected after /reload.
-                    package_roots = compose_package_runtime(settings, cwd)
+                    package_roots = compose_package_runtime(
+                        settings,
+                        cwd,
+                        include_package_themes=not resource_options.no_themes,
+                        explicit_theme_paths=resource_options.theme_paths,
+                    )
                     workspace_resources = WorkspaceResources.discover(
-                        cwd, package_roots=package_roots
+                        cwd,
+                        package_roots=package_roots,
+                        explicit_skill_paths=resource_options.skill_paths,
+                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                        include_skills_defaults=not resource_options.no_skills,
+                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
                     ).with_enablement(
                         skills_patterns=settings.get_skills_patterns(),
                         prompts_patterns=settings.get_prompts_patterns(),
@@ -1745,8 +1782,12 @@ class NativeToolReplSession:
                         cwd,
                         workspace_resources,
                         tuple(self.tool_registry.keys()),
-                        package_roots=package_roots.extensions,
+                        package_roots=()
+                        if resource_options.no_extensions
+                        else package_roots.extensions,
                         extension_patterns=settings.get_extensions_patterns(),
+                        explicit_extension_paths=resource_options.extension_paths,
+                        include_default_extensions=not resource_options.no_extensions,
                     )
                     extension_commands = _ext_runtime.commands
                     extension_menu_names = _ext_runtime.menu_names

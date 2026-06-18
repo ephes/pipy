@@ -107,6 +107,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
     settings_overlay_lines,
 )
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
@@ -879,6 +880,9 @@ class NativeNoToolReplSession:
     # auto-discovery applies.
     system_prompt_source: str | None = None
     append_system_prompt_sources: list[str] | None = None
+    resource_options: RuntimeResourceOptions = field(
+        default_factory=RuntimeResourceOptions.empty
+    )
 
     def __post_init__(self) -> None:
         if self.provider_state is None:
@@ -901,6 +905,7 @@ class NativeNoToolReplSession:
             raise ValueError("NativeNoToolReplSession requires provider state")
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(run_input.cwd)
+        resource_options = self.resource_options
         discovery = self.instruction_loader(run_input.cwd)
         # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
         # auto-discovery) to the base prompt before workspace context is added.
@@ -940,9 +945,19 @@ class NativeNoToolReplSession:
         # Compose installed local-path package resources (skills/prompts/
         # themes) and install the package theme registry, mirroring the
         # tool-loop REPL.
-        package_roots = compose_package_runtime(settings, run_input.cwd)
+        package_roots = compose_package_runtime(
+            settings,
+            run_input.cwd,
+            include_package_themes=not resource_options.no_themes,
+            explicit_theme_paths=resource_options.theme_paths,
+        )
         workspace_resources = WorkspaceResources.discover(
-            run_input.cwd, package_roots=package_roots
+            run_input.cwd,
+            package_roots=package_roots,
+            explicit_skill_paths=resource_options.skill_paths,
+            explicit_prompt_template_paths=resource_options.prompt_template_paths,
+            include_skills_defaults=not resource_options.no_skills,
+            include_prompt_template_defaults=not resource_options.no_prompt_templates,
         ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
@@ -1121,9 +1136,19 @@ class NativeNoToolReplSession:
                     # theme. No provider turn.
                     settings.reload()
                     keybindings.reload()
-                    package_roots = compose_package_runtime(settings, run_input.cwd)
+                    package_roots = compose_package_runtime(
+                        settings,
+                        run_input.cwd,
+                        include_package_themes=not resource_options.no_themes,
+                        explicit_theme_paths=resource_options.theme_paths,
+                    )
                     workspace_resources = WorkspaceResources.discover(
-                        run_input.cwd, package_roots=package_roots
+                        run_input.cwd,
+                        package_roots=package_roots,
+                        explicit_skill_paths=resource_options.skill_paths,
+                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                        include_skills_defaults=not resource_options.no_skills,
+                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
                     ).with_enablement(
                         skills_patterns=settings.get_skills_patterns(),
                         prompts_patterns=settings.get_prompts_patterns(),

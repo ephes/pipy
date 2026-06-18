@@ -87,6 +87,8 @@ def discover_workspace_skills(
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
     package_roots: "Sequence[PackageRoot]" = (),
+    explicit_paths: Sequence[Path] = (),
+    include_defaults: bool = True,
 ) -> tuple[list[SkillFile], bool]:
     """Discover skill files in the workspace and global root.
 
@@ -111,6 +113,8 @@ def discover_workspace_skills(
         per_file_byte_cap=per_file_byte_cap,
         total_byte_cap=total_byte_cap,
         package_roots=package_roots,
+        explicit_paths=explicit_paths,
+        include_defaults=include_defaults,
         dedupe_by_name=True,
     )
     skills = [

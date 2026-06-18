@@ -33,6 +33,8 @@ def compose_package_runtime(
     cwd: Path,
     *,
     install_theme_registry: bool = True,
+    include_package_themes: bool = True,
+    explicit_theme_paths: tuple[Path, ...] = (),
 ) -> PackageResourceRoots:
     """Resolve configured package roots and install the package theme registry.
 
@@ -47,7 +49,9 @@ def compose_package_runtime(
     roots = resolve_package_roots(settings.get_package_entries(), cwd)
     if install_theme_registry:
         registry = build_theme_registry(
-            roots.themes, filters=settings.get_themes_patterns()
+            roots.themes if include_package_themes else (),
+            filters=settings.get_themes_patterns(),
+            explicit_theme_paths=explicit_theme_paths,
         )
         set_active_theme_registry(registry)
     return roots

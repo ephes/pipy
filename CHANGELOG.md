@@ -24,6 +24,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Pi-shaped per-run source-loading flags for `pipy repl`: `--extension`/`-e`,
+  `--no-extensions`/`-ne`, `--skill`, `--no-skills`/`-ns`,
+  `--prompt-template`, `--no-prompt-templates`/`-np`, `--theme`, and
+  `--no-themes`. Explicit CLI paths are temporary session sources that load
+  before workspace/global/package defaults, survive matching `--no-*`
+  discovery cutoffs, and override persisted `+/-pattern` resource filters while
+  keeping `enable_skill_commands=false` as a hard skill-command disable.
 - Native product export/import/share and self-update planning:
   - `/export` writes a self-contained HTML export of the full native session
     tree; `/export <path.jsonl>` writes the active branch as a linearly

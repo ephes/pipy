@@ -15,6 +15,7 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
@@ -158,6 +159,7 @@ class PipyNativeReplAdapter:
         settings_manager: "SettingsManager | None" = None,
         system_prompt_source: str | None = None,
         append_system_prompt_sources: list[str] | None = None,
+        resource_options: RuntimeResourceOptions | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
@@ -173,6 +175,7 @@ class PipyNativeReplAdapter:
         self.settings_manager = settings_manager
         self.system_prompt_source = system_prompt_source
         self.append_system_prompt_sources = append_system_prompt_sources
+        self.resource_options = resource_options or RuntimeResourceOptions.empty()
 
     def prepare(self, request: RunRequest) -> PreparedRun:
         cwd = request.cwd.expanduser().resolve()
@@ -212,6 +215,7 @@ class PipyNativeReplAdapter:
             settings_manager=self.settings_manager,
             system_prompt_source=self.system_prompt_source,
             append_system_prompt_sources=self.append_system_prompt_sources,
+            resource_options=self.resource_options,
         ).run(
             NativeRunInput(
                 goal=prepared.goal or "Native REPL",
@@ -289,6 +293,7 @@ class PipyNativeToolReplAdapter:
         append_system_prompt_sources: list[str] | None = None,
         automation_observer: "AutomationEventSink | None" = None,
         abort_event: "threading.Event | None" = None,
+        resource_options: RuntimeResourceOptions | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -304,6 +309,7 @@ class PipyNativeToolReplAdapter:
         # interactive path unchanged.
         self.automation_observer = automation_observer
         self.abort_event = abort_event
+        self.resource_options = resource_options or RuntimeResourceOptions.empty()
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -423,6 +429,7 @@ class PipyNativeToolReplAdapter:
             settings_manager=self.settings_manager,
             automation_observer=self.automation_observer,
             abort_event=self.abort_event,
+            resource_options=self.resource_options,
         )
         try:
             run_output = session.run(

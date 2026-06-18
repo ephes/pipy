@@ -144,6 +144,48 @@ def discover_package_themes(
     return palettes, diagnostics
 
 
+def discover_theme_paths(
+    paths: Sequence[Path],
+    *,
+    filters: Sequence[str] = (),
+) -> tuple[dict[str, ChromePalette], list[str]]:
+    """Load themes from explicit CLI file or directory paths.
+
+    These are temporary, per-run sources from ``--theme``. Built-in themes
+    still win collisions, and among explicit paths the first theme wins.
+    Missing paths fail closed with a safe diagnostic; no absolute path is
+    surfaced through the returned palette data.
+    """
+
+    from pipy_harness.native.resource_enablement import is_resource_enabled
+
+    builtins = builtin_palettes()
+    palettes: dict[str, ChromePalette] = {}
+    diagnostics: list[str] = []
+    for source in paths:
+        path = source.expanduser()
+        candidates = [path] if path.suffix == ".toml" else _iter_toml_files(path)
+        if not candidates:
+            diagnostics.append(f"theme path skipped: {path.name}")
+        for candidate in candidates:
+            palette = load_theme_file(candidate)
+            if palette is None:
+                diagnostics.append(f"theme file skipped: {candidate.name}")
+                continue
+            name = palette.name
+            if name in builtins:
+                diagnostics.append(f"theme {name!r} shadows a built-in; ignored")
+                continue
+            if name in palettes:
+                diagnostics.append(f"theme {name!r} already provided; ignored")
+                continue
+            if filters and not is_resource_enabled(name, list(filters)):
+                diagnostics.append(f"theme {name!r} disabled by filter")
+                continue
+            palettes[name] = palette
+    return palettes, diagnostics
+
+
 def _iter_toml_files(directory: Path) -> list[Path]:
     """Return the `*.toml` files directly under `directory`, sorted.
 
@@ -208,10 +250,13 @@ def build_theme_registry(
     theme_roots: "Sequence[PackageRoot]",
     *,
     filters: Sequence[str] = (),
+    explicit_theme_paths: Sequence[Path] = (),
 ) -> ThemeRegistry:
     """Overlay package theme files from `theme_roots` onto the built-ins."""
 
+    explicit, _explicit_diagnostics = discover_theme_paths(explicit_theme_paths)
     package, _diagnostics = discover_package_themes(theme_roots, filters=filters)
     merged = builtin_palettes()
     merged.update(package)
+    merged.update(explicit)
     return ThemeRegistry(merged)
