@@ -1174,11 +1174,20 @@ class NativeNoToolReplSession:
                             reserved_tool_names=extension_reserved_tool_names(),
                         )
                         if provider_state.catalog_state is not None:
+                            was_extension_selection = (
+                                provider_state.current_selection_uses_extension_provider()
+                            )
                             provider_state.catalog_state.refresh()  # type: ignore[attr-defined]
                             provider_state.catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
                                 providers, unregistered
                             )
-                            if not provider_state.current_selection_supported():
+                            if (
+                                not provider_state.current_selection_supported()
+                                or (
+                                    was_extension_selection
+                                    and not provider_state.current_selection_uses_extension_provider()
+                                )
+                            ):
                                 fallback = provider_state.reset_to_first_available_model()
                                 if fallback is not None:
                                     print(

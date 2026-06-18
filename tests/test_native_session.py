@@ -50,6 +50,12 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+    load_extension_provider_contributions,
+)
 from pipy_harness.native.session import (
     NativeAgentSession,
     NativeNoToolReplSession,
@@ -917,6 +923,75 @@ def test_native_no_tool_repl_clears_history_on_model_change(tmp_path):
     # After /model the turn counter should reset its context window.
     assert "turns 0/4" in stderr
     assert "turns 1/4" in stderr
+
+
+def test_native_no_tool_reload_falls_back_when_shadowing_extension_provider_removed(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    extension_file = extension_dir / "shadow_openai.py"
+    extension_file.write_text(
+        "from datetime import datetime, timezone\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        "class _Port:\n"
+        "    name = 'openai'\n"
+        "    model_id = 'ext'\n"
+        "    supports_tool_calls = False\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now,\n"
+        "            final_text='removed extension provider was used', tool_calls=())\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='openai',\n"
+        "        default_model='ext', models=('ext',), factory=lambda ctx: _Port()))\n",
+        encoding="utf-8",
+    )
+    providers, unregistered = load_extension_provider_contributions(
+        tmp_path,
+        reserved_command_names=extension_reserved_command_names(),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
+    catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
+    catalog_state.set_extension_provider_contributions(providers, unregistered)
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("openai", "ext"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("selection should be built from the catalog")
+        ),
+        env={"OPENAI_API_KEY": "sk-test"},
+        openai_codex_auth_path=tmp_path / "missing-codex.json",
+        catalog_state=catalog_state,
+        persist_defaults=False,
+    )
+    extension_file.unlink()
+    error_stream = StringIO()
+    output_stream = StringIO()
+
+    NativeNoToolReplSession(provider_state=provider_state, max_turns=4).run(
+        NativeRunInput(
+            goal="Native no-tool REPL",
+            cwd=tmp_path,
+            provider_name="openai",
+            model_id="ext",
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+        input_stream=StringIO("/reload\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert provider_state.current_selection().reference != "openai/ext"
+    assert "active model disappeared on reload" in error_stream.getvalue()
+    assert "removed extension provider was used" not in output_stream.getvalue()
 
 
 def test_native_no_tool_repl_clears_history_on_login_and_logout(tmp_path):

@@ -967,6 +967,77 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     assert "before" not in output_stream.getvalue()
 
 
+def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    extension_file = extension_dir / "shadow_openai.py"
+    extension_file.write_text(
+        "from datetime import datetime, timezone\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        f"EXTENSION_FILE = Path({str(extension_file)!r})\n"
+        "class _Port:\n"
+        "    name = 'openai'\n"
+        "    model_id = 'ext'\n"
+        "    supports_tool_calls = True\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now,\n"
+        "            final_text='removed extension provider was used', tool_calls=())\n"
+        "def _remove(ctx, args):\n"
+        "    EXTENSION_FILE.unlink()\n"
+        "def activate(api):\n"
+        "    api.register_command('remove-shadow', 'remove shadow provider', _remove)\n"
+        "    api.register_provider(ExtensionProvider(name='openai',\n"
+        "        default_model='ext', models=('ext',), factory=lambda ctx: _Port()))\n",
+        encoding="utf-8",
+    )
+    providers, unregistered = load_extension_provider_contributions(
+        tmp_path,
+        reserved_command_names=extension_reserved_command_names(),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
+    catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
+    catalog_state.set_extension_provider_contributions(providers, unregistered)
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("openai", "ext"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("selection should be built from the catalog")
+        ),
+        env={"OPENAI_API_KEY": "sk-test"},
+        openai_codex_auth_path=tmp_path / "missing-codex.json",
+        catalog_state=catalog_state,
+        persist_defaults=False,
+    )
+    session = NativeToolReplSession(
+        provider=state.current_provider(),
+        provider_state=state,
+    )
+    error_stream = io.StringIO()
+    output_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/remove-shadow\n/reload\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert state.current_selection().reference != "openai/ext"
+    assert session.provider.name == state.current_selection().provider_name
+    assert "active model disappeared on reload" in error_stream.getvalue()
+    assert "removed extension provider was used" not in output_stream.getvalue()
+
+
 def test_changelog_command_renders_without_provider_turn(tmp_path):
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
     session = NativeToolReplSession(provider=provider)

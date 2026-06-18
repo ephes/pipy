@@ -960,11 +960,20 @@ class NativeToolReplSession:
         if isinstance(self.provider_state, NativeReplProviderState):
             catalog_state = self.provider_state.catalog_state
             if catalog_state is not None:
+                was_extension_selection = (
+                    self.provider_state.current_selection_uses_extension_provider()
+                )
                 catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
                     _ext_runtime.providers,
                     _ext_runtime.unregistered_providers,
                 )
-                if not self.provider_state.current_selection_supported():
+                if (
+                    not self.provider_state.current_selection_supported()
+                    or (
+                        was_extension_selection
+                        and not self.provider_state.current_selection_uses_extension_provider()
+                    )
+                ):
                     fallback = self.provider_state.reset_to_first_available_model(
                         require_tool_calls=True
                     )
@@ -1840,12 +1849,22 @@ class NativeToolReplSession:
                     if isinstance(state, NativeReplProviderState):
                         catalog_state = state.catalog_state
                         if catalog_state is not None:
+                            was_extension_selection = (
+                                state.current_selection_uses_extension_provider()
+                            )
                             catalog_state.refresh()  # type: ignore[attr-defined]
                             catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
                                 _ext_runtime.providers,
                                 _ext_runtime.unregistered_providers,
                             )
-                            if state.current_selection_supported():
+                            selection_disappeared = (
+                                not state.current_selection_supported()
+                                or (
+                                    was_extension_selection
+                                    and not state.current_selection_uses_extension_provider()
+                                )
+                            )
+                            if not selection_disappeared:
                                 if state.current_selection_uses_extension_provider():
                                     refreshed_provider = state.current_provider()
                                     if getattr(
