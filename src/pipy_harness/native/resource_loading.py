@@ -25,6 +25,7 @@ class RuntimeResourceOptions:
     no_skills: bool = False
     no_prompt_templates: bool = False
     no_themes: bool = False
+    extension_flag_tokens: tuple[str, ...] = ()
 
     @classmethod
     def empty(cls) -> "RuntimeResourceOptions":

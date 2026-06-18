@@ -163,6 +163,7 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     QueuedUserMessage,
     RegisteredCommand,
+    RegisteredFlag,
     RegisteredProvider,
     RegisteredShortcut,
     RegisteredTool,
@@ -181,12 +182,14 @@ from pipy_harness.native.extension_runtime import (
     drain_user_messages,
     extension_command_map,
     extension_event_hooks,
+    extension_flags,
     extension_providers,
     extension_shortcuts,
     extension_tool_call_hooks,
     extension_tools,
     extension_unregistered_providers,
     make_extension_context,
+    parse_extension_flag_tokens,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.extension_provider_catalog import (
@@ -572,10 +575,12 @@ class _ExtensionToolPort:
         *,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
+        flags: Mapping[str, object] | None = None,
     ) -> None:
         self._registered = registered
         self._has_ui = has_ui
         self._notify_sink = notify_sink
+        self._flags = dict(flags or {})
         tool = registered.tool
         self._definition = ToolDefinition(
             name=tool.name,
@@ -591,7 +596,10 @@ class _ExtensionToolPort:
         self, request: ToolRequest, context: ToolContext
     ) -> ToolExecutionResult:
         ctx = make_extension_context(
-            str(context.workspace_root), self._has_ui, self._notify_sink
+            str(context.workspace_root),
+            self._has_ui,
+            self._notify_sink,
+            flags=self._flags,
         )
         try:
             result = self._registered.tool.handler(ctx, dict(request.arguments))
@@ -642,6 +650,7 @@ class _ExtensionRuntime:
     outbox: list[QueuedUserMessage]
     tools: tuple[RegisteredTool, ...]
     shortcuts: dict[str, RegisteredShortcut]
+    flags: tuple[RegisteredFlag, ...]
     providers: tuple[RegisteredProvider, ...]
     unregistered_providers: tuple[str, ...]
 
@@ -739,6 +748,7 @@ def _activate_workspace_extensions(
         outbox=outbox,
         tools=extension_tools(activated),
         shortcuts=extension_shortcuts(activated),
+        flags=extension_flags(activated),
         providers=extension_providers(activated),
         unregistered_providers=extension_unregistered_providers(activated),
     )
@@ -763,17 +773,22 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         cwd: Path,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
+        flags: Mapping[str, object] | None = None,
     ) -> None:
         super().__init__(sink)  # type: ignore[arg-type]
         self._lifecycle_hooks = lifecycle_hooks
         self._lifecycle_cwd = str(cwd)
         self._lifecycle_has_ui = has_ui
         self._lifecycle_notify_sink = notify_sink
+        self._lifecycle_flags = dict(flags or {})
 
     def set_lifecycle_hooks(
         self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
     ) -> None:
         self._lifecycle_hooks = lifecycle_hooks
+
+    def set_flags(self, flags: Mapping[str, object]) -> None:
+        self._lifecycle_flags = dict(flags)
 
     def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
         hooks = self._lifecycle_hooks.get(name)
@@ -785,6 +800,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
             cwd=self._lifecycle_cwd,
             has_ui=self._lifecycle_has_ui,
             notify_sink=self._lifecycle_notify_sink,
+            flags=self._lifecycle_flags,
         )
 
     def agent_start(self) -> None:
@@ -1040,6 +1056,23 @@ class NativeToolReplSession:
         )
         extension_session_before_tree_hooks = _ext_runtime.session_before_tree_hooks
         extension_message_outbox = _ext_runtime.outbox
+        extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
+            _ext_runtime.flags,
+            tuple(resource_options.extension_flag_tokens),
+        )
+        if extension_flag_error is not None:
+            print(f"pipy: {extension_flag_error}", file=error_stream)
+            now = datetime.now(UTC)
+            return NativeToolReplResult(
+                status=HarnessStatus.FAILED,
+                exit_code=2,
+                started_at=now,
+                ended_at=now,
+                provider_name=effective_provider_name,
+                model_id=effective_model_id,
+                error_type="ExtensionFlagError",
+                error_message=extension_flag_error,
+            )
         if isinstance(self.provider_state, NativeReplProviderState):
             catalog_state = self.provider_state.catalog_state
             if catalog_state is not None:
@@ -1135,6 +1168,7 @@ class NativeToolReplSession:
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
+                flags=extension_flag_values,
             )
             run_tool_registry[_port.definition.name] = _port
         active_tool_names: set[str] | None = None
@@ -1186,6 +1220,7 @@ class NativeToolReplSession:
             cwd=cwd,
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
+            flags=extension_flag_values,
         )
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
@@ -1480,6 +1515,7 @@ class NativeToolReplSession:
                 set_active_tools_fn=extension_set_active_tools,
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
+                flags=extension_flag_values,
             )
             if not decision.allow:
                 reason = decision.reason or "blocked by extension"
@@ -1632,6 +1668,7 @@ class NativeToolReplSession:
                 set_active_tools_fn=extension_set_active_tools,
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
+                flags=extension_flag_values,
             )
             if decision.allow:
                 return True
@@ -1870,6 +1907,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        flags=extension_flag_values,
                     )
                     if (
                         shortcut_dispatch is not None
@@ -1918,6 +1956,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        flags=extension_flag_values,
                     )
                     if shell_context_text is not None:
                         shell_message = UserMessage(content=shell_context_text)
@@ -2059,6 +2098,21 @@ class NativeToolReplSession:
                         _ext_runtime.session_before_tree_hooks
                     )
                     extension_message_outbox = _ext_runtime.outbox
+                    reloaded_flag_values, reloaded_flag_error = (
+                        parse_extension_flag_tokens(
+                            _ext_runtime.flags,
+                            tuple(resource_options.extension_flag_tokens),
+                        )
+                    )
+                    if reloaded_flag_error is not None:
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            f"pipy: {reloaded_flag_error}",
+                        )
+                    else:
+                        extension_flag_values = reloaded_flag_values
+                        emitter.set_flags(extension_flag_values)
                     state = self.provider_state
                     if isinstance(state, NativeReplProviderState):
                         catalog_state = state.catalog_state
@@ -2162,6 +2216,7 @@ class NativeToolReplSession:
                             _registered_tool,
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
+                            flags=extension_flag_values,
                         )
                         run_tool_registry[_port.definition.name] = _port
                     if active_tool_names is not None:
@@ -2930,6 +2985,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        flags=extension_flag_values,
                     )
                     if extension_dispatch is not None:
                         # Notifications already surfaced live via the sink while
@@ -3056,6 +3112,7 @@ class NativeToolReplSession:
                     set_active_tools_fn=extension_set_active_tools,
                     set_model_fn=extension_set_model,
                     set_thinking_level_fn=extension_set_thinking_level,
+                    flags=extension_flag_values,
                 )
                 agent_system_prompt = base_system_prompt
                 if before_agent_result.append_system_prompt:
@@ -3125,6 +3182,7 @@ class NativeToolReplSession:
                             set_active_tools_fn=extension_set_active_tools,
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
+                            flags=extension_flag_values,
                         )
                         filtered_tools = available_tool_definitions(
                             provider_transform.available_tools
@@ -3305,6 +3363,7 @@ class NativeToolReplSession:
                             set_active_tools_fn=extension_set_active_tools,
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
+                            flags=extension_flag_values,
                         )
                         if tool_block is not None:
                             blocked_observation = self._error_observation(
@@ -3357,6 +3416,7 @@ class NativeToolReplSession:
                                 set_active_tools_fn=extension_set_active_tools,
                                 set_model_fn=lambda _reference: False,
                                 set_thinking_level_fn=extension_set_thinking_level,
+                                flags=extension_flag_values,
                             )
                             if _transformed != observation.output_text:
                                 observation = ToolResultMessage(
@@ -3865,6 +3925,7 @@ class NativeToolReplSession:
         set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
         set_model_fn: Callable[[str], bool] | None = None,
         set_thinking_level_fn: Callable[[str], bool] | None = None,
+        flags: Mapping[str, object] | None = None,
     ) -> str | None:
         """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
 
@@ -3899,6 +3960,7 @@ class NativeToolReplSession:
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
         )
         if not decision.allowed:
             self._emit_diagnostic(

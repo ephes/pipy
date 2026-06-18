@@ -65,6 +65,8 @@ REASON_DUPLICATE_PROVIDER: str = "duplicate_provider"
 REASON_INVALID_SHORTCUT: str = "invalid_shortcut"
 REASON_RESERVED_SHORTCUT: str = "reserved_shortcut"
 REASON_DUPLICATE_SHORTCUT: str = "duplicate_shortcut"
+REASON_INVALID_FLAG: str = "invalid_flag"
+REASON_DUPLICATE_FLAG: str = "duplicate_flag"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
@@ -383,6 +385,7 @@ def make_extension_context(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
@@ -401,6 +404,7 @@ def make_extension_context(
         set_active_tools_fn,
         set_model_fn,
         set_thinking_level_fn,
+        flags,
     )
 
 
@@ -574,6 +578,8 @@ class PipyExtensionAPI(Protocol):
 
     def unregister_provider(self, name: str) -> None: ...
 
+    def register_flag(self, flag: "ExtensionFlag") -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RegisteredCommand:
@@ -596,6 +602,24 @@ class RegisteredShortcut:
 
     key: str
     handler: CommandHandler
+    extension: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionFlag:
+    """A Pi-shaped CLI flag an extension registers at activation time."""
+
+    name: str
+    flag_type: Literal["boolean", "string"]
+    description: str | None = None
+    default: bool | str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredFlag:
+    """One extension CLI flag accepted during activation, with its owner."""
+
+    flag: ExtensionFlag
     extension: str
 
 
@@ -623,6 +647,7 @@ class ActivatedExtension:
     providers: tuple[RegisteredProvider, ...] = ()
     unregistered_providers: tuple[str, ...] = ()
     shortcuts: tuple[RegisteredShortcut, ...] = ()
+    flags: tuple[RegisteredFlag, ...] = ()
 
 
 @runtime_checkable
@@ -713,6 +738,7 @@ class CommandContext(Protocol):
     has_ui: bool
     ui: ExtensionUi
     conversation: ConversationView
+    flags: Mapping[str, object]
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         """Run one bounded provider completion and return its text.
@@ -811,11 +837,13 @@ class _CommandContext:
         set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
         set_model_fn: "ControlSetModelFn | None" = None,
         set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+        flags: Mapping[str, object] | None = None,
     ) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
         self.ui: ExtensionUi = ui
         self.conversation: ConversationView = conversation or _ConversationView()
+        self.flags: Mapping[str, object] = dict(flags or {})
         self._complete_fn = complete_fn
         self._set_active_tools_fn = set_active_tools_fn
         self._set_model_fn = set_model_fn
@@ -917,6 +945,7 @@ def dispatch_extension_command(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
 
@@ -952,6 +981,7 @@ def dispatch_extension_command(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
 
 
@@ -968,6 +998,7 @@ def dispatch_extension_shortcut(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch a registered extension shortcut `key`, or return None.
 
@@ -994,6 +1025,7 @@ def dispatch_extension_shortcut(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
 
 
@@ -1011,6 +1043,7 @@ def _run_extension_handler(
     set_active_tools_fn: "ControlSetActiveToolsFn | None",
     set_model_fn: "ControlSetModelFn | None",
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
+    flags: Mapping[str, object] | None,
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
 
@@ -1023,6 +1056,7 @@ def _run_extension_handler(
         set_active_tools_fn,
         set_model_fn,
         set_thinking_level_fn,
+        flags,
     )
     try:
         handler(ctx, args)
@@ -1074,6 +1108,7 @@ class _ActivationApi:
         taken_tools: frozenset[str] = frozenset(),
         taken_providers: frozenset[str] = frozenset(),
         taken_shortcuts: frozenset[str] = frozenset(),
+        taken_flags: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
@@ -1082,12 +1117,14 @@ class _ActivationApi:
         self._taken_tools = taken_tools
         self._taken_providers = taken_providers
         self._taken_shortcuts = taken_shortcuts
+        self._taken_flags = taken_flags
         self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
         self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
         self._staged_providers: dict[str, RegisteredProvider] = {}
         self._staged_unregistered: list[str] = []
+        self._staged_flags: dict[str, RegisteredFlag] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -1220,6 +1257,46 @@ class _ActivationApi:
 
     def staged_unregistered(self) -> tuple[str, ...]:
         return tuple(self._staged_unregistered)
+
+    def register_flag(self, flag: ExtensionFlag) -> None:
+        try:
+            self._validate_and_stage_flag(flag)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def _validate_and_stage_flag(self, flag: ExtensionFlag) -> None:
+        if not isinstance(flag, ExtensionFlag):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        raw_name = flag.name
+        if not isinstance(raw_name, str):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        name = raw_name.strip()
+        if not _is_valid_command_name(name):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        if name in self._taken_flags or name in self._staged_flags:
+            raise _ActivationError(REASON_DUPLICATE_FLAG)
+        flag_type = flag.flag_type
+        if flag_type not in ("boolean", "string"):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        default = flag.default
+        if flag_type == "boolean" and default is not None and not isinstance(default, bool):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        if flag_type == "string" and default is not None and not isinstance(default, str):
+            raise _ActivationError(REASON_INVALID_FLAG)
+        self._staged_flags[name] = RegisteredFlag(
+            flag=ExtensionFlag(
+                name=name,
+                flag_type=flag_type,
+                description=flag.description,
+                default=default,
+            ),
+            extension=self._extension_name,
+        )
+
+    def staged_flags(self) -> tuple[RegisteredFlag, ...]:
+        return tuple(self._staged_flags.values())
 
     def register_command(
         self,
@@ -1365,6 +1442,7 @@ def activate_extensions(
     taken_tools: set[str] = set()
     taken_providers: set[str] = set()
     taken_shortcuts: set[str] = set()
+    taken_flags: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
@@ -1382,6 +1460,7 @@ def activate_extensions(
                 taken_tools=taken_tools,
                 taken_providers=taken_providers,
                 taken_shortcuts=taken_shortcuts,
+                taken_flags=taken_flags,
                 outbox=outbox,
             )
         )
@@ -1429,6 +1508,65 @@ def extension_tools(
     return tuple(tools)
 
 
+def extension_flags(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[RegisteredFlag, ...]:
+    """Collect registered CLI flags from activated extensions, in order."""
+
+    flags: list[RegisteredFlag] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        flags.extend(extension.flags)
+    return tuple(flags)
+
+
+def parse_extension_flag_tokens(
+    registered_flags: Sequence[RegisteredFlag],
+    tokens: Sequence[str],
+) -> tuple[dict[str, object], str | None]:
+    """Parse unknown CLI tokens against activated extension flags."""
+
+    definitions = {registered.flag.name: registered.flag for registered in registered_flags}
+    values: dict[str, object] = {
+        flag.name: flag.default
+        for flag in definitions.values()
+        if flag.default is not None
+    }
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if not token.startswith("--") or token == "--":
+            return {}, f"unexpected extension flag token: {token!r}"
+        name_value = token[2:]
+        name, sep, inline_value = name_value.partition("=")
+        flag = definitions.get(name)
+        if flag is None:
+            return {}, f"unknown extension flag: --{name}"
+        if flag.flag_type == "boolean":
+            if sep:
+                lowered = inline_value.strip().lower()
+                if lowered in {"1", "true", "yes", "on"}:
+                    values[name] = True
+                elif lowered in {"0", "false", "no", "off"}:
+                    values[name] = False
+                else:
+                    return {}, f"invalid boolean value for --{name}"
+            else:
+                values[name] = True
+            index += 1
+            continue
+        if sep:
+            values[name] = inline_value
+            index += 1
+            continue
+        if index + 1 >= len(tokens) or tokens[index + 1].startswith("--"):
+            return {}, f"missing value for --{name}"
+        values[name] = tokens[index + 1]
+        index += 2
+    return values, None
+
+
 def drain_user_messages(
     outbox: list[QueuedUserMessage],
 ) -> list[QueuedUserMessage]:
@@ -1448,6 +1586,7 @@ def _activate_one(
     taken_tools: set[str],
     taken_providers: set[str],
     taken_shortcuts: set[str],
+    taken_flags: set[str],
     outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
@@ -1477,6 +1616,7 @@ def _activate_one(
         taken_tools=frozenset(taken_tools),
         taken_providers=frozenset(taken_providers),
         taken_shortcuts=frozenset(taken_shortcuts),
+        taken_flags=frozenset(taken_flags),
         outbox=outbox,
     )
     try:
@@ -1502,6 +1642,7 @@ def _activate_one(
     tools = api.staged_tools()
     providers = api.staged_providers()
     shortcuts = api.staged_shortcuts()
+    flags = api.staged_flags()
     # Commit the command/tool/provider/shortcut names + staged
     # send_user_message prompts only now that activation fully succeeded.
     for command in commands:
@@ -1512,6 +1653,8 @@ def _activate_one(
         taken_providers.add(registered_provider.provider.name)
     for shortcut in shortcuts:
         taken_shortcuts.add(shortcut.key)
+    for flag in flags:
+        taken_flags.add(flag.flag.name)
     api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
@@ -1526,6 +1669,7 @@ def _activate_one(
         providers=providers,
         unregistered_providers=api.staged_unregistered(),
         shortcuts=shortcuts,
+        flags=flags,
     )
 
 
@@ -1561,6 +1705,7 @@ def dispatch_input_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> str:
     """Run `input` hooks over a submitted prompt; return the final text.
 
@@ -1581,6 +1726,7 @@ def dispatch_input_hooks(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
     for hook in hooks:
         try:
@@ -1608,6 +1754,7 @@ def dispatch_before_agent_start_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
 
@@ -1625,6 +1772,7 @@ def dispatch_before_agent_start_hooks(
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
         )
         current_prompt = system_prompt
         for hook in hooks:
@@ -1668,6 +1816,7 @@ def dispatch_tool_result_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> str:
     """Run `tool_result` hooks over a finalized tool result; return content.
 
@@ -1687,6 +1836,7 @@ def dispatch_tool_result_hooks(
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
         )
         for hook in hooks:
             try:
@@ -1724,6 +1874,7 @@ def dispatch_lifecycle_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> None:
     """Run observe-only lifecycle hooks for one event, in order.
 
@@ -1743,6 +1894,7 @@ def dispatch_lifecycle_hooks(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
     for hook in hooks:
         try:
@@ -1766,6 +1918,7 @@ def dispatch_tool_call_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
@@ -1784,6 +1937,7 @@ def dispatch_tool_call_hooks(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
     for hook in hooks:
         try:
@@ -1810,6 +1964,7 @@ def dispatch_user_bash_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> UserBashDispatch:
     """Run `user_bash` hooks for one local shell shortcut.
 
@@ -1827,6 +1982,7 @@ def dispatch_user_bash_hooks(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
     for hook in hooks:
         event = UserBashEvent(
@@ -1885,6 +2041,7 @@ def dispatch_before_provider_request_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> ProviderRequestTransform:
     """Run `before_provider_request` hooks and return the final transform.
 
@@ -1910,6 +2067,7 @@ def dispatch_before_provider_request_hooks(
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
         )
         for hook in hooks:
             event = BeforeProviderRequestEvent(
@@ -1959,6 +2117,7 @@ def dispatch_session_before_hooks(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
 ) -> SessionDecision:
     """Run session-operation gates and return the first blocking decision.
 
@@ -1976,6 +2135,7 @@ def dispatch_session_before_hooks(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
     )
     for hook in hooks:
         try:

@@ -5940,6 +5940,87 @@ def test_cli_native_repl_honors_settings_json_quiet_startup_and_theme(
     assert "transport: sse" in captured.err
 
 
+def test_cli_repl_accepts_extension_registered_flags(
+    tmp_path, capfd, monkeypatch
+) -> None:
+    ext = tmp_path / "flagger.py"
+    ext.write_text(
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=False))\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string'))\n"
+        "    def show(ctx, args):\n"
+        "        ctx.ui.notify(str(ctx.flags.get('plan')) + ':' + ctx.flags.get('ticket', ''))\n"
+        "    api.register_command('show-flags', 'show flags', show)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(sys, "stdin", StringIO("/show-flags\n/exit\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "PIPY-123",
+            "--root",
+            str(tmp_path / "sessions"),
+            "--cwd",
+            str(tmp_path),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--repl-mode",
+            "tool-loop",
+            "--no-session",
+            "--extension",
+            str(ext),
+            "--ticket",
+            "PIPY-123",
+            "--plan",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 0
+    assert "True:PIPY-123" in captured.err
+
+
+def test_cli_unknown_extension_flag_fails_before_provider_turn(
+    tmp_path, capfd, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setattr(sys, "stdin", StringIO("should not run\n"))
+
+    exit_code = main(
+        [
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "native-repl-extension-flag-error",
+            "--root",
+            str(tmp_path / "sessions"),
+            "--cwd",
+            str(tmp_path),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--repl-mode",
+            "tool-loop",
+            "--no-session",
+            "--unknown-ext-flag",
+        ]
+    )
+
+    captured = capfd.readouterr()
+    assert exit_code == 2
+    assert "unknown extension flag: --unknown-ext-flag" in captured.err
+
+
 def _capturing_repl_provider(captured: list) -> type:
     class _Provider:
         name = "fake"

@@ -133,6 +133,31 @@ def test_dispatch_passes_raw_args(tmp_path: Path) -> None:
     assert spaced.messages == (("info", "got: keep  spaces "),)
 
 
+def test_dispatch_exposes_extension_flags_to_command(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "flagcmd",
+        "def activate(api):\n"
+        "    def show(ctx, args):\n"
+        "        ctx.ui.notify(str(ctx.flags.get('plan')) + ':' + ctx.flags.get('ticket', ''))\n"
+        "    api.register_command('show-flags', 'show flags', show)\n",
+    )
+    command_map = _command_map(workspace)
+
+    dispatch = dispatch_extension_command(
+        "/show-flags",
+        command_map,
+        cwd=str(workspace),
+        has_ui=True,
+        flags={"plan": True, "ticket": "PIPY-123"},
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "True:PIPY-123"),)
+
+
 def test_unknown_command_is_not_dispatched(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(

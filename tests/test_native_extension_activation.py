@@ -16,6 +16,8 @@ from pipy_harness.extensions import PipyExtensionAPI
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     activate_extensions,
+    extension_flags,
+    parse_extension_flag_tokens,
     safe_activation_metadata,
 )
 from pipy_harness.native.extensions import discover_extensions
@@ -82,6 +84,83 @@ def test_async_activate_is_awaited(tmp_path: Path) -> None:
 
     assert activated.status == "activated"
     assert [c.name for c in activated.commands] == ["ah"]
+
+
+def test_activate_registers_extension_flags_and_parses_tokens(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "flagger",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=False))\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string'))\n",
+    )
+
+    registered = extension_flags(_activate(workspace))
+    values, error = parse_extension_flag_tokens(
+        registered,
+        ("--plan", "--ticket", "PIPY-123"),
+    )
+
+    assert error is None
+    assert values == {"plan": True, "ticket": "PIPY-123"}
+
+
+def test_invalid_extension_flag_disables_only_that_extension(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "badflag",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('bad/name', 'boolean'))\n",
+    )
+
+    activated = _by_name(_activate(workspace), "badflag")
+
+    assert activated.status == "disabled"
+    assert activated.reason == "invalid_flag"
+    assert not activated.flags
+
+
+def test_unknown_extension_flag_token_fails_closed(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "flagger",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('known', 'boolean'))\n",
+    )
+
+    values, error = parse_extension_flag_tokens(
+        extension_flags(_activate(workspace)),
+        ("--unknown",),
+    )
+
+    assert values == {}
+    assert error == "unknown extension flag: --unknown"
+
+
+def test_extension_flag_parser_accepts_inline_values(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "flagger",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=True))\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string'))\n",
+    )
+
+    values, error = parse_extension_flag_tokens(
+        extension_flags(_activate(workspace)),
+        ("--plan=false", "--ticket=PIPY-456"),
+    )
+
+    assert error is None
+    assert values == {"plan": False, "ticket": "PIPY-456"}
 
 
 def test_async_activate_within_running_event_loop(tmp_path: Path) -> None:

@@ -683,12 +683,71 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _ordered_repl_extension_flag_tokens(
+    raw_argv: list[str],
+    args: Any,
+    unknown_args: list[str],
+) -> list[str]:
+    """Return extension flag tokens in original argv order.
+
+    ``argparse.parse_known_args`` leaves unknown option tokens in ``unknown_args``
+    but can still bind a following bare value to the REPL's optional ``prompt``
+    positional. For interactive text mode, that bare value belongs to the
+    extension-flag tail, so reconstruct the tail from the original argv instead
+    of appending the stolen prompt value at the end.
+    """
+
+    if (
+        not unknown_args
+        or getattr(args, "prompt", None) is None
+        or getattr(args, "print_mode", False)
+        or getattr(args, "mode", "text") != "text"
+    ):
+        return list(unknown_args)
+    prompt = str(args.prompt)
+    prompt_reclaimed = False
+    remaining_unknown = list(unknown_args)
+    ordered: list[str] = []
+    index = 0
+    while index < len(raw_argv):
+        token = raw_argv[index]
+        if remaining_unknown and token == remaining_unknown[0]:
+            ordered.append(token)
+            remaining_unknown.pop(0)
+            if (
+                not prompt_reclaimed
+                and index + 1 < len(raw_argv)
+                and raw_argv[index + 1] == prompt
+            ):
+                ordered.append(raw_argv[index + 1])
+                prompt_reclaimed = True
+                index += 2
+                continue
+            index += 1
+            continue
+        index += 1
+    if prompt_reclaimed:
+        args.prompt = None
+        ordered.extend(remaining_unknown)
+        return ordered
+    return list(unknown_args)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     raw_argv = sys.argv[1:] if argv is None else argv
     if not raw_argv:
         raw_argv = ["repl"]
-    args = parser.parse_args(raw_argv)
+    args, unknown_args = parser.parse_known_args(raw_argv)
+    if unknown_args and getattr(args, "command", None) != "repl":
+        parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
+    if unknown_args and getattr(args, "command", None) == "repl":
+        unknown_args = _ordered_repl_extension_flag_tokens(
+            raw_argv,
+            args,
+            unknown_args,
+        )
+    setattr(args, "extension_flag_tokens", tuple(unknown_args))
 
     try:
         if getattr(args, "export", None):
@@ -869,6 +928,12 @@ def main(argv: list[str] | None = None) -> int:
                 native_model=eff_native_model,
                 catalog_state=startup_catalog_state,
             )
+            if resource_options.extension_flag_tokens and resolved_repl_mode != "tool-loop":
+                print(
+                    "pipy: extension flags require tool-loop mode",
+                    file=sys.stderr,
+                )
+                return 2
             # Resolve the Pi-style native product session for this run from the
             # startup flags. ``pipy-session`` is a separate metadata archive and
             # is never the product session source.
@@ -2162,6 +2227,7 @@ def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
         no_skills=bool(getattr(args, "no_skills", False)),
         no_prompt_templates=bool(getattr(args, "no_prompt_templates", False)),
         no_themes=bool(getattr(args, "no_themes", False)),
+        extension_flag_tokens=tuple(getattr(args, "extension_flag_tokens", ())),
     )
 
 

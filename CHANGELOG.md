@@ -24,6 +24,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now register dynamic `pipy repl` tool-loop CLI flags
+  with `ExtensionFlag`; parsed values are available to extension commands,
+  shortcuts, hooks, and tools through `ctx.flags`.
 - Python extensions can now participate in live product-session operations:
   `user_bash` hooks may block, rewrite, exclude, or synthesize `!`/`!!` shell
   shortcut results; `before_provider_request` hooks may transform bounded

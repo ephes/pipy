@@ -308,7 +308,7 @@ The highest-impact remaining gaps are now:
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls now ship. Pi remains ahead on rich TUI extension
    UI, custom rendering, extension state/session-manager helpers, dynamic
-  extension flags/message renderers, OAuth-provider extension registration,
+  broader dynamic-flag integration/message renderers, OAuth-provider extension registration,
   remote PyPI/npm sources, and the broader package ecosystem. Managed git
   sources and package `update` now ship behind a pipy-owned cache; the next
   extension/package slices are richer API follow-ons and any future PyPI/npm
@@ -1424,7 +1424,7 @@ Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, dynamic flags/message
+  richer hooks/UI, OAuth-provider extension registration, broader dynamic-flag integration/message
   renderers, or future PyPI/npm package sources after supply-chain policy; and
 - keep any future non-git remote source work behind explicit supply-chain
   policy and an isolated cache.
@@ -1440,10 +1440,10 @@ just check
 
 ### Extension API slice 12 closeout: package runtime composition — LANDED
 
-Slices 1–12 plus the managed git package-source/update follow-on have
-**landed**, including **package runtime composition**: installed local-path and
-managed git package resources now flow through discovery (see the closing note
-below). Landed so far:
+Slices 1–12 have **landed**. The managed git package-source/update follow-on
+has also landed, including **package runtime composition**: installed local-path
+and managed git package resources now flow through discovery (see the closing
+note below). Landed so far:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1730,7 +1730,7 @@ Invariants that must hold for any near-term slice:
   installed local-path/managed-git packages, package `update`, per-run
   source-loading flags, live-session operation gates, `user_bash`,
   provider-request transforms, and dynamic active tool/model/thinking controls
-  have landed. Remaining Pi gaps are dynamic extension flags/message renderers,
+  have landed. Remaining Pi gaps are broader dynamic-flag integration/message renderers,
   extension state/session-manager views, richer extension UI/rendering,
   OAuth-provider extension registration, PyPI/npm package sources, and the
   corresponding supply-chain/security model. The target specification is

@@ -169,8 +169,8 @@ Pipy current state:
 Follow-ons:
 
 1. Richer Pi extension APIs: multi-widget UI/rendering, custom message/tool
-   renderers, dynamic extension flags, and extension state/session-manager
-   views.
+   renderers, broader dynamic-flag integration beyond the landed tool-loop
+   `ctx.flags` slice, and extension state/session-manager views.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.
@@ -231,7 +231,7 @@ adding another bespoke slash command.
 ## Recommended implementation order
 
 1. Extension/package platform follow-ons: richer UI/rendering, extension
-   state/session-manager helpers, dynamic extension flags/message renderers,
+   state/session-manager helpers, broader dynamic-flag integration/message renderers,
    OAuth-provider extension registration, and future PyPI/npm package source
    policy.
 2. User documentation parity in parallel with implementation.

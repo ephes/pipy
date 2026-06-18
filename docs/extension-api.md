@@ -39,8 +39,12 @@ Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
 live-session follow-on slice. Per-run source-loading flags for extensions,
-skills, prompt templates, and themes have landed. (Package runtime composition
-for local-path and managed git packages has landed.)
+skills, prompt templates, and themes have landed. A first dynamic extension flag
+slice also ships for `pipy repl` tool-loop runs: extensions register
+boolean/string `ExtensionFlag` objects, matching unknown CLI tokens are parsed
+after activation, and commands/tools/hooks read the run-local values from
+`ctx.flags`. (Package runtime composition for local-path and managed git
+packages has landed.)
 
 ## Goals
 
@@ -215,6 +219,14 @@ class ToolResult:
     terminate: bool = False
 
 
+@dataclass(frozen=True)
+class ExtensionFlag:
+    name: str
+    flag_type: Literal["boolean", "string"]
+    description: str | None = None
+    default: bool | str | None = None
+
+
 class PipyExtensionAPI(Protocol):
     def register_tool(self, tool: ExtensionTool) -> None: ...
 
@@ -232,15 +244,7 @@ class PipyExtensionAPI(Protocol):
         description: str | None = None,
     ) -> None: ...
 
-    def register_flag(
-        self,
-        name: str,
-        flag_type: Literal["boolean", "string"],
-        description: str | None = None,
-        default: bool | str | None = None,
-    ) -> None: ...
-
-    def get_flag(self, name: str) -> bool | str | None: ...
+    def register_flag(self, flag: "ExtensionFlag") -> None: ...
 
     def register_message_renderer(
         self,
@@ -280,6 +284,7 @@ class CommandContext(Protocol):
     has_ui: bool
     ui: "ExtensionUi"
     conversation: "ConversationView"
+    flags: Mapping[str, object]
 
     def complete(self, system_prompt: str, user_text: str) -> str: ...
     def set_active_tools(self, tool_names: Sequence[str]) -> bool: ...
@@ -513,6 +518,44 @@ factory. `/reload` recomputes those contributions from current extension
 discovery, so removed/disabled extension providers disappear. Unregister hides
 the extension contribution and restores any built-in rows it overrode without
 mutating the built-in catalog or `models.json`.
+
+## Dynamic CLI Flags
+
+Dynamic extension flags now ship for the tool-loop `pipy repl` product path.
+An extension registers boolean or string flags with `ExtensionFlag`:
+
+```python
+from pipy_harness.extensions import ExtensionFlag
+
+
+def activate(api):
+    api.register_flag(ExtensionFlag("plan", "boolean", default=False))
+    api.register_flag(ExtensionFlag("ticket", "string"))
+```
+
+Flag names use the same simple name syntax as extension commands and must be
+unique across active extensions. Bad flag declarations or duplicate flag names
+disable the registering extension without committing partial registrations.
+Defaults must match the flag type: `bool` for boolean flags and `str` for string
+flags.
+
+At startup, pipy keeps normal argparse handling for built-in flags, passes only
+the remaining unknown tokens into the activated extension runtime, validates
+them against registered extension flags, and fails before the provider turn on
+unknown or malformed tokens. Parsed values are available as `ctx.flags` in
+extension commands, keyboard shortcuts, model-visible tools, and hook contexts.
+
+Supported forms are `--flag`, `--flag=true|false`, `--name value`, and
+`--name=value`. For one-shot `--print`/`--mode json` runs that also need a
+positional prompt, prefer `--name=value`; the space-separated string form is
+ambiguous with the prompt positional. Dynamic flags currently apply only to
+`pipy repl` tool-loop runs; top-level `run`, package-manager commands, and the
+legacy no-tool REPL remain strict and do not consume extension flags.
+
+`/reload` reactivates extensions and reparses the original per-run extension
+flag tokens. If the reloaded extension set no longer accepts those tokens, pipy
+reports the flag error and keeps the last valid flag values for the existing
+session instead of clearing them mid-run.
 
 ## Packages And Package-Manager CLI
 
@@ -975,6 +1018,14 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     narrow tools for the current request; session-before hooks fail closed for
     stateful session operations. Gate
     `scripts/parity_checks/extension_live_session_conformance.py --json`.
+14. Dynamic extension CLI flags — **landed for `pipy repl` tool-loop runs**:
+    `ExtensionFlag`/`RegisteredFlag`, `api.register_flag(...)`,
+    `extension_flags(...)`, and `parse_extension_flag_tokens(...)` collect
+    boolean/string flags from activated extensions, parse only the leftover
+    unknown CLI tokens after built-in argparse handling, fail closed before a
+    provider turn on unknown/malformed tokens, and expose values as `ctx.flags`
+    to commands, shortcuts, extension tools, and hook contexts. Product-path
+    tests cover `pipy repl --extension <file> --plan --ticket PIPY-123`.
 
 ## Open Questions
 
