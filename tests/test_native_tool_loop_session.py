@@ -1038,6 +1038,81 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     assert "removed extension provider was used" not in output_stream.getvalue()
 
 
+def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
+    tmp_path,
+):
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    extension_file = extension_dir / "unique_provider.py"
+    extension_file.write_text(
+        "from datetime import datetime, timezone\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        f"EXTENSION_FILE = Path({str(extension_file)!r})\n"
+        "class _Port:\n"
+        "    name = 'uniqueext'\n"
+        "    model_id = 'm'\n"
+        "    supports_tool_calls = True\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now,\n"
+        "            final_text='removed unique extension provider was used',\n"
+        "            tool_calls=())\n"
+        "def _remove(ctx, args):\n"
+        "    EXTENSION_FILE.unlink()\n"
+        "def activate(api):\n"
+        "    api.register_command('remove-unique-provider', 'remove provider', _remove)\n"
+        "    api.register_provider(ExtensionProvider(name='uniqueext',\n"
+        "        default_model='m', models=('m',), factory=lambda ctx: _Port()))\n",
+        encoding="utf-8",
+    )
+    providers, unregistered = load_extension_provider_contributions(
+        tmp_path,
+        reserved_command_names=extension_reserved_command_names(),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
+    catalog_state = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-codex.json",
+    )
+    catalog_state.set_extension_provider_contributions(providers, unregistered)
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("uniqueext", "m"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("selection should be built from the catalog")
+        ),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-codex.json",
+        catalog_state=catalog_state,
+        persist_defaults=False,
+    )
+    session = NativeToolReplSession(
+        provider=state.current_provider(),
+        provider_state=state,
+    )
+    error_stream = io.StringIO()
+    output_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/remove-unique-provider\n/reload\nhi\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    stderr = error_stream.getvalue()
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert state.current_selection().reference == "uniqueext/m"
+    assert "no available tool-capable fallback was found" in stderr
+    assert "ProviderUnavailableAfterReload" in stderr
+    assert "removed unique extension provider was used" not in output_stream.getvalue()
+
+
 def test_changelog_command_renders_without_provider_turn(tmp_path):
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
     session = NativeToolReplSession(provider=provider)

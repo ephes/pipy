@@ -69,6 +69,7 @@ from pipy_harness.native.automation.events import (
 )
 from pipy_harness.native.automation.serialize import parse_tool_arguments
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native._provider_helpers import failed_provider_result
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
@@ -273,6 +274,33 @@ def _pricing_for(provider_name: str, model_id: str) -> _PricingEntry | None:
         if model_id.startswith(entry_model):
             return price
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class _UnavailableAfterReloadProvider:
+    """Fail-closed provider bound when reload removes the active provider."""
+
+    name: str
+    model_id: str
+    error_message: str
+    supports_tool_calls: bool = True
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del stream_sink, reasoning_sink, cancel_token
+        return failed_provider_result(
+            request,
+            provider_name=self.name,
+            started_at=datetime.now(UTC),
+            error_type="ProviderUnavailableAfterReload",
+            error_message=self.error_message,
+        )
 
 
 class _UsageAccumulator:
@@ -905,6 +933,14 @@ class NativeToolReplSession:
 
         effective_provider_name = provider_name or self.provider.name
         effective_model_id = model_id or self.provider.model_id
+
+        def _bind_unavailable_after_reload(message: str) -> None:
+            self.provider = _UnavailableAfterReloadProvider(
+                name=effective_provider_name,
+                model_id=effective_model_id,
+                error_message=message,
+            )
+
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         resource_options = self.resource_options
@@ -1895,13 +1931,17 @@ class NativeToolReplSession:
                                                 f"selected {fallback.reference}.",
                                             )
                                         else:
+                                            message = (
+                                                "active model no longer supports "
+                                                "tool calls after reload and no "
+                                                "available tool-capable fallback "
+                                                "was found"
+                                            )
+                                            _bind_unavailable_after_reload(message)
                                             self._emit_diagnostic(
                                                 terminal_ui,
                                                 error_stream,
-                                                "pipy: active model no longer "
-                                                "supports tool calls after reload "
-                                                "and no available tool-capable "
-                                                "fallback was found.",
+                                                f"pipy: {message}.",
                                             )
                             else:
                                 fallback = state.reset_to_first_available_model(
@@ -1925,12 +1965,16 @@ class NativeToolReplSession:
                                         f"{fallback.reference}.",
                                     )
                                 else:
+                                    message = (
+                                        "active model disappeared on reload and "
+                                        "no available tool-capable fallback was "
+                                        "found"
+                                    )
+                                    _bind_unavailable_after_reload(message)
                                     self._emit_diagnostic(
                                         terminal_ui,
                                         error_stream,
-                                        "pipy: active model disappeared on "
-                                        "reload and no available tool-capable "
-                                        "fallback was found.",
+                                        f"pipy: {message}.",
                                     )
                     # Rebuild this run's tool registry with the reloaded
                     # extension tools.
