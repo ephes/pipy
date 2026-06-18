@@ -1845,7 +1845,46 @@ class NativeToolReplSession:
                                 _ext_runtime.providers,
                                 _ext_runtime.unregistered_providers,
                             )
-                            if not state.current_selection_supported():
+                            if state.current_selection_supported():
+                                if state.current_selection_uses_extension_provider():
+                                    refreshed_provider = state.current_provider()
+                                    if getattr(
+                                        refreshed_provider, "supports_tool_calls", False
+                                    ):
+                                        self.provider = refreshed_provider
+                                    else:
+                                        fallback = state.reset_to_first_available_model(
+                                            require_tool_calls=True
+                                        )
+                                        if fallback is not None:
+                                            self.provider = state.current_provider()
+                                            effective_provider_name = (
+                                                fallback.provider_name
+                                            )
+                                            effective_model_id = fallback.model_id
+                                            messages = []
+                                            usage_accumulator = _UsageAccumulator()
+                                            usage_accumulator.bind(
+                                                effective_provider_name,
+                                                effective_model_id,
+                                            )
+                                            self._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                "pipy: active model no longer "
+                                                "supports tool calls after reload; "
+                                                f"selected {fallback.reference}.",
+                                            )
+                                        else:
+                                            self._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                "pipy: active model no longer "
+                                                "supports tool calls after reload "
+                                                "and no available tool-capable "
+                                                "fallback was found.",
+                                            )
+                            else:
                                 fallback = state.reset_to_first_available_model(
                                     require_tool_calls=True
                                 )

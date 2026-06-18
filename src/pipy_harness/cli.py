@@ -710,6 +710,32 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if args.command == "run":
             _validate_native_output(args.agent, args.native_output)
+            cwd = args.cwd.expanduser().resolve()
+            run_settings_manager = (
+                _build_runtime_settings(
+                    cwd,
+                    scoped_models=_parse_models_flag(
+                        getattr(args, "scoped_models", None)
+                    ),
+                )
+                if args.agent == "pipy-native"
+                else None
+            )
+            run_resource_options = (
+                _resource_options_from_args(args)
+                if args.agent == "pipy-native"
+                else None
+            )
+            run_catalog_state = (
+                _build_catalog_state(
+                    runtime_api_key=getattr(args, "api_key", None),
+                    cwd=cwd,
+                    settings_manager=run_settings_manager,
+                    resource_options=run_resource_options,
+                )
+                if args.agent == "pipy-native"
+                else None
+            )
             # Resolve the native selection once (catalog-aware) so stream
             # validation and adapter construction agree on the EFFECTIVE provider
             # (a bare --native-model can resolve to a real provider, not fake).
@@ -718,6 +744,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.native_provider,
                     args.native_model,
                     api_key=getattr(args, "api_key", None),
+                    catalog_state=run_catalog_state,
                 )
                 if args.agent == "pipy-native"
                 else None
@@ -746,7 +773,9 @@ def main(argv: list[str] | None = None) -> int:
                 stream_sink=stream_sink,
                 thinking=getattr(args, "thinking", None),
                 api_key=getattr(args, "api_key", None),
+                settings_manager=run_settings_manager,
                 selection=run_selection,
+                catalog_state=run_catalog_state,
             )
             request = RunRequest(
                 agent=args.agent,
@@ -1097,11 +1126,15 @@ def _adapter_for(
     api_key: str | None = None,
     settings_manager: SettingsManager | None = None,
     selection: "NativeModelSelection | None" = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> SubprocessAdapter | PipyNativeAdapter:
     if agent == "pipy-native":
         if selection is None:
             selection = _resolve_run_selection(
-                native_provider, native_model, api_key=api_key
+                native_provider,
+                native_model,
+                api_key=api_key,
+                catalog_state=catalog_state,
             )
         return PipyNativeAdapter(
             provider=_run_provider_for_selection(
@@ -1109,6 +1142,7 @@ def _adapter_for(
                 thinking=thinking,
                 api_key=api_key,
                 settings_manager=settings_manager,
+                catalog_state=catalog_state,
             ),
             instruction_loader=default_workspace_instruction_loader,
             stream_sink=stream_sink,
@@ -1125,6 +1159,7 @@ def _resolve_run_selection(
     native_model: str | None,
     *,
     api_key: str | None = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> NativeModelSelection:
     """Resolve the one-shot ``pipy run`` selection (catalog-aware).
 
@@ -1140,10 +1175,12 @@ def _resolve_run_selection(
         return NativeModelSelection("fake", "fake-native-bootstrap")
     if native_provider == "fake":
         return NativeModelSelection("fake", native_model or "fake-native-bootstrap")
+    if catalog_state is None:
+        catalog_state = _build_catalog_state(runtime_api_key=api_key)
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
-        rows=_build_catalog_state(runtime_api_key=api_key).get_all(),
+        rows=catalog_state.get_all(),
     )
     if native_model is None:
         spec = native_provider_spec(selection.provider_name)
@@ -1161,6 +1198,7 @@ def _run_provider_for_selection(
     thinking: str | None = None,
     api_key: str | None = None,
     settings_manager: SettingsManager | None = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> ProviderPort:
     """Construct the one-shot ``pipy run`` provider via catalog construction.
 
@@ -1173,12 +1211,14 @@ def _run_provider_for_selection(
     settings-derived ``RetryPolicy``).
     """
 
+    if catalog_state is None:
+        catalog_state = _build_catalog_state(runtime_api_key=api_key)
     provider_state = NativeReplProviderState(
         selection=selection,
         provider_factory=_provider_factory_for(settings_manager),
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=_build_catalog_state(runtime_api_key=api_key),
+        catalog_state=catalog_state,
         thinking_level=_validated_thinking_level(thinking),
         persist_defaults=False,
     )

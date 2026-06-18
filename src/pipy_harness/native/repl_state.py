@@ -275,6 +275,17 @@ class NativeReplProviderState:
         # fallback row cloned from that provider's catalog defaults.
         return bool(state.models_for(self.selection.provider_name))  # type: ignore[attr-defined]
 
+    def current_selection_uses_extension_provider(self) -> bool:
+        """Return whether the current selection is backed by an extension row."""
+
+        if self.catalog_state is None:
+            return False
+        spec = self.catalog_state.find(  # type: ignore[attr-defined]
+            self.selection.provider_name,
+            self.selection.model_id,
+        )
+        return spec is not None and spec.api == "extension-provider"
+
     def reset_to_first_available_model(
         self,
         *,

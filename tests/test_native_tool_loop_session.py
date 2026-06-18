@@ -32,7 +32,14 @@ from pipy_harness.native import (
     ProviderToolCall,
     production_tool_registry,
 )
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+    load_extension_provider_contributions,
+)
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
 from pipy_harness.native.tools import (
     ToolContext,
@@ -895,6 +902,69 @@ def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
     assert "kept prior global settings" in out
     # Prior good theme survives the malformed reload.
     assert "theme: ocean" in out
+
+
+def test_reload_rebinds_active_extension_provider_factory(tmp_path):
+    marker = tmp_path / "marker.txt"
+    marker.write_text("before", encoding="utf-8")
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "reload_provider.py").write_text(
+        "from datetime import datetime, timezone\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        f"MARKER = Path({str(marker)!r})\n"
+        "class _Port:\n"
+        "    name = 'reloadext'\n"
+        "    supports_tool_calls = True\n"
+        "    def __init__(self, ctx):\n"
+        "        self.model_id = ctx.model_id\n"
+        "        self.final_text = MARKER.read_text(encoding='utf-8')\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now,\n"
+        "            final_text=self.final_text, tool_calls=())\n"
+        "def _flip(ctx, args):\n"
+        "    MARKER.write_text('after', encoding='utf-8')\n"
+        "def activate(api):\n"
+        "    api.register_command('flip-provider', 'flip provider marker', _flip)\n"
+        "    api.register_provider(ExtensionProvider(name='reloadext',\n"
+        "        default_model='m', models=('m',), factory=lambda ctx: _Port(ctx)))\n",
+        encoding="utf-8",
+    )
+    providers, unregistered = load_extension_provider_contributions(
+        tmp_path,
+        reserved_command_names=extension_reserved_command_names(),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
+    catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
+    catalog_state.set_extension_provider_contributions(providers, unregistered)
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("reloadext", "m"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("extension provider should be built from the catalog")
+        ),
+        catalog_state=catalog_state,
+        persist_defaults=False,
+    )
+    provider = state.current_provider()
+    session = NativeToolReplSession(provider=provider, provider_state=state)
+    output_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/flip-provider\n/reload\nhi\n/exit\n"),
+        output_stream=output_stream,
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert "after" in output_stream.getvalue()
+    assert "before" not in output_stream.getvalue()
 
 
 def test_changelog_command_renders_without_provider_turn(tmp_path):

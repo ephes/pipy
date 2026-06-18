@@ -5806,6 +5806,58 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
     assert captured.out == "BUFFERED_TEXT\n"
 
 
+def test_cli_run_selects_workspace_extension_provider(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    extension_dir = workspace / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "one_shot_provider.py").write_text(
+        "from datetime import datetime, timezone\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        "class _Port:\n"
+        "    name = 'oneshot'\n"
+        "    supports_tool_calls = False\n"
+        "    def __init__(self, ctx): self.model_id = ctx.model_id\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now,\n"
+        "            final_text='one-shot:' + self.model_id, tool_calls=())\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='oneshot',\n"
+        "        default_model='default', models=('default',),\n"
+        "        factory=lambda ctx: _Port(ctx)))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+
+    exit_code = main(
+        [
+            "run",
+            "--agent",
+            "pipy-native",
+            "--native-provider",
+            "oneshot",
+            "--goal",
+            "Use extension provider",
+            "--slug",
+            "extension-one-shot",
+            "--root",
+            str(tmp_path / "sessions"),
+            "--cwd",
+            str(workspace),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out == "one-shot:default\n"
+
+
 def test_cli_list_models_prints_table_and_exits(tmp_path, capsys, monkeypatch):
     # Isolate auth + config so only the env-keyed provider is available.
     monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "auth"))
