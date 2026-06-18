@@ -51,6 +51,7 @@ from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
@@ -680,7 +681,15 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "export", None):
             return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
-            return _handle_list_models(args.list_models or None)
+            cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
+            settings_manager = _build_runtime_settings(cwd)
+            return _handle_list_models(
+                args.list_models or None,
+                cwd=cwd,
+                settings_manager=settings_manager,
+                resource_options=_resource_options_from_args(args),
+                api_key=getattr(args, "api_key", None),
+            )
         if args.command == "config":
             return _cmd_config(args)
         if args.command == "update":
@@ -805,10 +814,18 @@ def main(argv: list[str] | None = None) -> int:
             eff_native_model = args.native_model or _settings_str(
                 file_settings, "defaultModel"
             )
+            cwd = args.cwd.expanduser().resolve()
+            startup_catalog_state = _build_catalog_state(
+                runtime_api_key=args.api_key,
+                cwd=cwd,
+                settings_manager=settings_manager,
+                resource_options=resource_options,
+            )
             resolved_repl_mode = _resolve_repl_mode(
                 args.repl_mode,
                 native_provider=eff_native_provider,
                 native_model=eff_native_model,
+                catalog_state=startup_catalog_state,
             )
             # Resolve the Pi-style native product session for this run from the
             # startup flags. ``pipy-session`` is a separate metadata archive and
@@ -822,11 +839,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 reference_roots = _resolve_reference_roots(
                     args.read_root,
-                    cwd=args.cwd.expanduser().resolve(),
+                    cwd=cwd,
                 )
                 repl_adapter = _tool_repl_adapter_for(
                     eff_native_provider,
                     eff_native_model,
+                    cwd=cwd,
                     tool_budget=args.tool_budget,
                     archive_transcript=args.archive_transcript,
                     input_runtime=args.input_runtime,
@@ -841,11 +859,13 @@ def main(argv: list[str] | None = None) -> int:
                     append_system_prompt_sources=args.append_system_prompt,
                     no_context_files=args.no_context_files,
                     resource_options=resource_options,
+                    catalog_state=startup_catalog_state,
                 )
             else:
                 repl_adapter = _repl_adapter_for(
                     eff_native_provider,
                     eff_native_model,
+                    cwd=cwd,
                     input_runtime=args.input_runtime,
                     resume_context=resume_context,
                     resume_branch_label=resume_branch_label,
@@ -856,6 +876,7 @@ def main(argv: list[str] | None = None) -> int:
                     append_system_prompt_sources=args.append_system_prompt,
                     no_context_files=args.no_context_files,
                     resource_options=resource_options,
+                    catalog_state=startup_catalog_state,
                 )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1443,6 +1464,7 @@ def _repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
     *,
+    cwd: Path,
     input_runtime: str = "auto",
     resume_context: Any = None,
     resume_branch_label: str | None = None,
@@ -1453,9 +1475,16 @@ def _repl_adapter_for(
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
     resource_options: RuntimeResourceOptions | None = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> PipyNativeReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
-    catalog_state = _build_catalog_state(runtime_api_key=api_key)
+    if catalog_state is None:
+        catalog_state = _build_catalog_state(
+            runtime_api_key=api_key,
+            cwd=cwd,
+            settings_manager=settings_manager,
+            resource_options=resource_options,
+        )
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
@@ -1567,6 +1596,11 @@ def _resolve_repl_mode(
     *,
     native_provider: str | None,
     native_model: str | None,
+    cwd: Path | None = None,
+    settings_manager: SettingsManager | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+    api_key: str | None = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> str:
     """Resolve the effective REPL mode for slice 12 of the parity track.
 
@@ -1577,7 +1611,13 @@ def _resolve_repl_mode(
 
     if requested != "auto":
         return requested
-    catalog_state = _build_catalog_state()
+    if catalog_state is None:
+        catalog_state = _build_catalog_state(
+            runtime_api_key=api_key,
+            cwd=cwd,
+            settings_manager=settings_manager,
+            resource_options=resource_options,
+        )
     try:
         selection = default_selection_for(
             native_provider=native_provider,
@@ -1611,6 +1651,7 @@ def _tool_repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
     *,
+    cwd: Path,
     tool_budget: int,
     archive_transcript: bool = False,
     input_runtime: str = "auto",
@@ -1625,9 +1666,16 @@ def _tool_repl_adapter_for(
     append_system_prompt_sources: list[str] | None = None,
     no_context_files: bool = False,
     resource_options: RuntimeResourceOptions | None = None,
+    catalog_state: ProviderCatalogState | None = None,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
-    catalog_state = _build_catalog_state(runtime_api_key=api_key)
+    if catalog_state is None:
+        catalog_state = _build_catalog_state(
+            runtime_api_key=api_key,
+            cwd=cwd,
+            settings_manager=settings_manager,
+            resource_options=resource_options,
+        )
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
@@ -2094,7 +2142,13 @@ def _scan_workspace_reference_roots(cwd: Path) -> list[str]:
     return references
 
 
-def _build_catalog_state(runtime_api_key: str | None = None) -> ProviderCatalogState:
+def _build_catalog_state(
+    runtime_api_key: str | None = None,
+    *,
+    cwd: Path | None = None,
+    settings_manager: SettingsManager | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+) -> ProviderCatalogState:
     """Build the shared provider/model catalog state for the REPL.
 
     Backs both ``/model`` selection and availability over the full catalog
@@ -2103,11 +2157,19 @@ def _build_catalog_state(runtime_api_key: str | None = None) -> ProviderCatalogS
     (highest auth priority; never archived).
     """
 
-    return ProviderCatalogState(
+    state = ProviderCatalogState(
         auth_store=AuthStore(),
         openai_codex_auth_path=default_openai_codex_auth_path(),
         runtime_api_key=runtime_api_key,
     )
+    if cwd is not None and settings_manager is not None:
+        providers, unregistered = _extension_provider_contributions(
+            cwd,
+            settings_manager=settings_manager,
+            resource_options=resource_options,
+        )
+        state.set_extension_provider_contributions(providers, unregistered)
+    return state
 
 
 def _validated_thinking_level(thinking: str | None) -> str | None:
@@ -2123,15 +2185,74 @@ def _validated_thinking_level(thinking: str | None) -> str | None:
     return level
 
 
-def _handle_list_models(search: str | None) -> int:
+def _handle_list_models(
+    search: str | None,
+    *,
+    cwd: Path | None = None,
+    settings_manager: SettingsManager | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+    api_key: str | None = None,
+) -> int:
     """Print the available provider/models table and exit (Pi `--list-models`)."""
 
-    state = ProviderCatalogState(auth_store=AuthStore())
+    state = _build_catalog_state(
+        runtime_api_key=api_key,
+        cwd=cwd,
+        settings_manager=settings_manager,
+        resource_options=resource_options,
+    )
     output = format_list_models(
         state.get_available(), search=search, load_error=state.error
     )
     print(output)
     return 0
+
+
+def _extension_provider_contributions(
+    cwd: Path,
+    *,
+    settings_manager: SettingsManager,
+    resource_options: RuntimeResourceOptions | None,
+):
+    options = resource_options or RuntimeResourceOptions.empty()
+    package_roots = compose_package_runtime(
+        settings_manager,
+        cwd,
+        install_theme_registry=False,
+    )
+    from pipy_harness.native.extension_provider_catalog import (
+        extension_reserved_command_names,
+        extension_reserved_tool_names,
+        load_extension_provider_contributions,
+    )
+    from pipy_harness.native.resources import WorkspaceResources
+
+    workspace_resources = WorkspaceResources.discover(
+        cwd,
+        package_roots=package_roots,
+        explicit_skill_paths=options.skill_paths,
+        explicit_prompt_template_paths=options.prompt_template_paths,
+        include_skills_defaults=not options.no_skills,
+        include_prompt_template_defaults=not options.no_prompt_templates,
+    ).with_enablement(
+        skills_patterns=settings_manager.get_skills_patterns(),
+        prompts_patterns=settings_manager.get_prompts_patterns(),
+        enable_skill_commands=settings_manager.get_enable_skill_commands(),
+    )
+
+    return load_extension_provider_contributions(
+        cwd,
+        package_roots=()
+        if options.no_extensions
+        else package_roots.extensions,
+        extension_patterns=settings_manager.get_extensions_patterns(),
+        explicit_extension_paths=options.extension_paths,
+        include_default_extensions=not options.no_extensions,
+        reserved_command_names=extension_reserved_command_names(
+            workspace_resources.custom_command_slash_names()
+        ),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
 
 
 def _provider_factory_for(

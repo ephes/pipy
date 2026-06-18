@@ -475,9 +475,9 @@ local diagnostic without blocking forever.
 
 ## Providers And Models
 
-Provider registration should be a later phase. The Pythonic target is not
-Pi's `models.json` shape copied verbatim, but a registration object that can
-compose with `ProviderPort`:
+Provider registration now ships through pipy's native catalog. The Pythonic
+surface is not Pi's `models.json` shape copied verbatim, but a registration
+object that composes with `ProviderPort`:
 
 ```python
 @dataclass(frozen=True)
@@ -492,9 +492,14 @@ Provider extensions must not receive existing auth stores wholesale. They
 should either read their own environment variables or use a small future auth
 capability with explicit provider labels.
 
-Mirroring Pi, the provider surface should support both registration and
-`unregister_provider(name)`, which removes a previously registered provider's
-models and restores any built-in models it overrode.
+Mirroring Pi, the provider surface supports both registration and
+`unregister_provider(name)`. Registered providers contribute temporary per-run
+catalog rows, appear in `--list-models` and `/model`, resolve at startup when
+their extension is loaded, and construct through the registered `ProviderPort`
+factory. `/reload` recomputes those contributions from current extension
+discovery, so removed/disabled extension providers disappear. Unregister hides
+the extension contribution and restores any built-in rows it overrode without
+mutating the built-in catalog or `models.json`.
 
 ## Packages And Package-Manager CLI
 
@@ -885,12 +890,13 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     (`scripts/parity_checks/extension_conformance_gate.py --json`). A single
     `/pipy-extension-conformance` trigger writes all 12 feature markers and the
     proof leaks no prompt/tool/UI bodies.
-11. Provider registration — **landed (mechanism)**: `api.register_provider`/
+11. Provider registration — **landed**: `api.register_provider`/
     `api.unregister_provider` + `ExtensionProvider`/`ProviderContext`/
     `RegisteredProvider` + `build_extension_provider_port` compose a factory into
     a `ProviderPort` (staged/committed, duplicate/invalid disable, bounded
-    factory failures). The catalog/`/model` selector wiring is the
-    provider-catalog track's follow-on.
+    factory failures). Registered providers now wire into the native catalog,
+    startup resolver, `--list-models`, `/model`, and `/reload` as temporary
+    per-run rows, with no extension source paths or provider payloads archived.
 12. Package install/list/config CLI **and runtime composition** — **landed
     (local-path scope)**. The CLI half is implemented as
     `pipy_harness.native.package_manager` wired into `pipy_harness.cli`: `pipy

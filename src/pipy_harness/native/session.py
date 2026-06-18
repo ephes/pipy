@@ -40,6 +40,11 @@ from pipy_harness.native.settings import SettingsManager, resolve_config_home
 from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.file_references import resolve_file_references
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+    load_extension_provider_contributions,
+)
 from pipy_harness.native.image_attachment import (
     ProviderImageAttachment,
     resolve_image_attachments,
@@ -1154,6 +1159,33 @@ class NativeNoToolReplSession:
                         prompts_patterns=settings.get_prompts_patterns(),
                         enable_skill_commands=settings.get_enable_skill_commands(),
                     )
+                    if isinstance(provider_state, NativeReplProviderState):
+                        providers, unregistered = load_extension_provider_contributions(
+                            run_input.cwd,
+                            package_roots=()
+                            if resource_options.no_extensions
+                            else package_roots.extensions,
+                            extension_patterns=settings.get_extensions_patterns(),
+                            explicit_extension_paths=resource_options.extension_paths,
+                            include_default_extensions=not resource_options.no_extensions,
+                            reserved_command_names=extension_reserved_command_names(
+                                workspace_resources.custom_command_slash_names()
+                            ),
+                            reserved_tool_names=extension_reserved_tool_names(),
+                        )
+                        if provider_state.catalog_state is not None:
+                            provider_state.catalog_state.refresh()  # type: ignore[attr-defined]
+                            provider_state.catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                                providers, unregistered
+                            )
+                            if not provider_state.current_selection_supported():
+                                fallback = provider_state.reset_to_first_available_model()
+                                if fallback is not None:
+                                    print(
+                                        "pipy: active model disappeared on reload; "
+                                        f"selected {fallback.reference}.",
+                                        file=error_stream,
+                                    )
                     # Refresh the slash-menu completion set so newly enabled/
                     # disabled resources are reflected (the slash-menu adapter
                     # exposes settable command_names/descriptions; the plain

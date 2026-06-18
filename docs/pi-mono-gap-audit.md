@@ -69,10 +69,12 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   prompt.
 - Pi resource/settings flags mostly ship on pipy's current product surface:
   system-prompt replace/append, `--no-context-files`, `--version`, resource
-  enablement through `pipy config`, `/reload`, `/hotkeys`, `/scoped-models`,
-  `/changelog`, settings/keybindings files, and scoped model cycling. Still
-  open: `--extension`, tool allow/deny flags, `--verbose`, `--offline`, theme
-  load flags, and resource-wrapper cleanup (`/skill`/`/template`/`/theme`).
+  enablement through `pipy config`, per-run source-loading flags
+  (`--extension`, `--skill`, `--prompt-template`, `--theme`, and matching
+  `--no-*` cutoffs), `/reload`, `/hotkeys`, `/scoped-models`, `/changelog`,
+  settings/keybindings files, and scoped model cycling. Still open: tool
+  allow/deny flags, `--verbose`, `--offline`, and resource-wrapper cleanup
+  (`/skill`/`/template`/`/theme`).
 
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the
@@ -149,21 +151,23 @@ Pipy current state:
   command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
   extension tool registration, `tool_result` transforms, minimal UI
   notification, golden conformance, shortcuts, provider-registration mechanics,
-  local-path package CLI, and package runtime composition for installed
-  local-path package resources.
+  catalog/`/model` wiring for extension-registered providers, local-path
+  package CLI, package runtime composition for installed local-path package
+  resources, and per-run source-loading flags for explicit extensions, skills,
+  prompt templates, and themes.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
-  source path or resource body leaks to safe metadata.
+  source path or resource body leaks to safe metadata. The same gate now covers
+  explicit source-loading paths with matching default discovery and persisted
+  filters disabled.
 
 Follow-ons:
 
-1. CLI source-loading flags (`--extension`/`--no-extensions`) and dynamic
-   extension flags.
-2. Richer Pi extension APIs: UI/rendering, session switch/fork/tree/compaction
+1. Richer Pi extension APIs: UI/rendering, session switch/fork/tree/compaction
    hooks, dynamic active-tool/model/thinking controls, `user_bash`,
    provider-payload hooks, and extension state/session-manager views.
-3. Catalog/`/model` wiring for extension-registered providers.
-4. Remote package sources and `update` only after a supply-chain/update policy
+2. OAuth-provider extension registration and dynamic active model/tool controls.
+3. Remote package sources and `update` only after a supply-chain/update policy
    and isolated package cache.
 
 ### 4. User documentation parity
@@ -199,7 +203,7 @@ Follow-ons:
 - Anthropic adaptive-thinking request shape;
 - Azure URL/api-version parity;
 - broader local-provider maturity and benchmarking; and
-- extension-registered providers after the extension API exists.
+- broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
 
@@ -221,8 +225,9 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Extension/package platform follow-ons: source-loading flags, richer hooks/UI,
-   extension-provider catalog wiring, and remote sources/update after policy.
+1. Extension/package platform follow-ons: richer hooks/UI, OAuth-provider
+   extension registration, dynamic controls, and remote sources/update after
+   policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
 4. Top-level CLI compatibility and pipy-only surface cleanup staged alongside

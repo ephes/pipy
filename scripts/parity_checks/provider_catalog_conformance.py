@@ -7,8 +7,8 @@ and fails unless the catalog behaves to spec: the built-in catalog, the matcher,
 resolution/status, the OAuth provider shape, availability, the ds4 reframe,
 refresh/dynamic registration, secret non-leakage, product construction for the
 ``openai-completions`` API family, catalog-constructed non-completions families,
-``pipy run`` one-shot construction, and startup provider/model resolution. The
-product-path checks are driven through the actual
+``pipy run`` one-shot construction, startup provider/model resolution, and
+extension-provider catalog wiring. The product-path checks are driven through the actual
 ``NativeReplProviderState.current_provider``/``provider_for`` boundary and use
 capturing fake HTTP clients; no real network or AI call is made.
 
@@ -16,12 +16,13 @@ Run:
 
     uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 
-Verifies the docs/provider-catalog.md "Verification Plan" items 1-24: catalog
+Verifies the docs/provider-catalog.md "Verification Plan" items 1-25: catalog
 foundation items 1-17, Chat-Completions product construction item 18, archive
 secret checks item 19, non-completions product construction items 20-22,
 ``pipy run`` one-shot construction item 23, and startup provider/model
-resolution item 24. The interactive direct-``/model`` resolver and product-TUI
-surfaces are exercised by the focused pytest suites.
+resolution item 24, plus extension-provider catalog wiring item 25. The
+interactive direct-``/model`` resolver and product-TUI surfaces are exercised by
+the focused pytest suites.
 
  1. built-in catalog: multiple rows per implemented provider + real metadata;
  2. exact provider/id matching, ambiguity rejection, bare-id matching;
@@ -70,6 +71,12 @@ from pipy_harness.native.auth_store import (
 )
 from pipy_harness.native.catalog import build_builtin_catalog, default_model_per_provider
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
+from pipy_harness.native.extension_runtime import (
+    RegisteredProvider,
+    activate_extensions,
+    extension_providers,
+)
+from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
 from pipy_harness.native.model_resolver import (
     find_exact_model_reference,
@@ -87,6 +94,7 @@ from pipy_harness.native.provider_construction import (
     build_provider,
     resolve_construction,
 )
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.oauth_providers import (
     AnthropicOAuthProvider,
     GitHubCopilotOAuthProvider,
@@ -1369,6 +1377,83 @@ def _check_no_secret_leak(checks, tmp: Path):
     )
 
 
+def _write_extension(workspace: Path, name: str, body: str) -> None:
+    directory = workspace / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.py").write_text(body, encoding="utf-8")
+
+
+def _check_extension_provider_catalog_wiring(checks, tmp: Path):
+    workspace = tmp / "extension-provider-catalog"
+    workspace.mkdir()
+    _write_extension(
+        workspace,
+        "provider_ext",
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        "from datetime import datetime, timezone\n"
+        "class _Port:\n"
+        "    def __init__(self, ctx): self._ctx = ctx\n"
+        "    @property\n"
+        "    def name(self): return self._ctx.provider_name\n"
+        "    @property\n"
+        "    def model_id(self): return self._ctx.model_id\n"
+        "    @property\n"
+        "    def supports_tool_calls(self): return True\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 6, 15, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now, final_text='ok', tool_calls=())\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='extcat',\n"
+        "        default_model='pro', models=('mini','pro'), factory=lambda ctx: _Port(ctx)))\n",
+    )
+    activated = activate_extensions(
+        discover_extensions(
+            workspace,
+            config_home_env={"PIPY_CONFIG_HOME": str(tmp / "nocfg")},
+            home_dir=workspace,
+        )
+    )
+    providers: tuple[RegisteredProvider, ...] = extension_providers(activated)
+    state = ProviderCatalogState(
+        models_json_path=tmp / "absent-models.json",
+        auth_store=AuthStore(path=tmp / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp / "no-codex.json",
+    )
+    state.set_extension_provider_contributions(providers, ())
+    repl = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda _selection: None,
+        catalog_state=state,
+        persist_defaults=False,
+    )
+    list_output = format_list_models(
+        state.get_available(), search="extcat", load_error=state.error
+    )
+    ok_select, _message = repl.select_model("extcat/mini")
+    port = repl.current_provider() if ok_select else None
+    ok = (
+        any(row.reference == "extcat/pro" for row in state.get_all())
+        and "extcat" in list_output
+        and str(workspace) not in list_output
+        and ok_select
+        and port is not None
+        and port.name == "extcat"
+        and port.model_id == "mini"
+    )
+    checks.append(
+        Check(
+            "25_extension_provider_catalog_wiring",
+            ok,
+            "extension-registered providers appear in catalog and construct via ProviderPort",
+        )
+    )
+
+
 def run_checks() -> list[Check]:
     checks: list[Check] = []
     with tempfile.TemporaryDirectory() as raw:
@@ -1397,6 +1482,7 @@ def run_checks() -> list[Check]:
         _check_run_path_construction(checks, tmp)
         _check_startup_cli_resolution(checks, tmp)
         _check_no_secret_leak(checks, tmp)
+        _check_extension_provider_catalog_wiring(checks, tmp)
     return checks
 
 

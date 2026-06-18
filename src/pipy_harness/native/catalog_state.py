@@ -23,6 +23,7 @@ from pipy_harness.native.auth_store import (
     provider_auth_status,
 )
 from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.extension_runtime import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
     default_models_json_path,
@@ -57,6 +58,12 @@ def _fuzzy_match(haystack: str, needle: str) -> bool:
     return True
 
 
+def _default_first(models: tuple[str, ...], default_model: str | None) -> tuple[str, ...]:
+    if default_model is None or default_model not in models:
+        return tuple(models)
+    return (default_model, *(model for model in models if model != default_model))
+
+
 @dataclass
 class ProviderCatalogState:
     """Merged catalog + auth availability gate."""
@@ -66,8 +73,13 @@ class ProviderCatalogState:
     env: Mapping[str, str] | None = None
     openai_codex_auth_path: Path | None = None
     runtime_api_key: str | None = None
+    extension_providers: tuple[RegisteredProvider, ...] = ()
+    extension_unregistered_providers: tuple[str, ...] = ()
 
     catalog: ModelCatalog = field(init=False)
+    _extension_provider_map: dict[str, RegisteredProvider] = field(
+        init=False, default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         if self.models_json_path is None:
@@ -78,6 +90,7 @@ class ProviderCatalogState:
             models_json_path=self.models_json_path,
             extra_providers=self._extra_providers(),
         )
+        self._rebuild_extension_provider_map()
         self._apply_oauth_modifiers()
 
     def _apply_oauth_modifiers(self) -> None:
@@ -123,18 +136,94 @@ class ProviderCatalogState:
         return self.catalog.error
 
     def get_all(self) -> list[NativeModelSpec]:
-        return self.catalog.get_all()
+        return self._rows_with_extension_providers()
 
     def find(self, provider: str, model_id: str) -> NativeModelSpec | None:
-        return self.catalog.find(provider, model_id)
+        lowered_provider = provider.lower()
+        lowered_id = model_id.lower()
+        for row in self.get_all():
+            if (
+                row.provider_name.lower() == lowered_provider
+                and row.model_id.lower() == lowered_id
+            ):
+                return row
+        return None
 
     def models_for(self, provider: str) -> list[NativeModelSpec]:
-        return self.catalog.models_for(provider)
+        lowered = provider.lower()
+        return [row for row in self.get_all() if row.provider_name.lower() == lowered]
 
     def refresh(self) -> None:
         self.catalog.refresh()
         if self.auth_store is not None:
             self.auth_store.reload()
+        self._rebuild_extension_provider_map()
+
+    def set_extension_provider_contributions(
+        self,
+        providers: tuple[RegisteredProvider, ...],
+        unregistered: tuple[str, ...],
+    ) -> None:
+        """Replace the transient extension-provider overlay for this runtime.
+
+        Extension providers are per-run contributions. They are applied over the
+        built-in/models.json catalog when read, and never written into
+        ``models.json`` or package state.
+        """
+
+        self.extension_providers = tuple(providers)
+        self.extension_unregistered_providers = tuple(unregistered)
+        self._rebuild_extension_provider_map()
+
+    def extension_provider_for(self, provider: str) -> RegisteredProvider | None:
+        return self._extension_provider_map.get(provider.lower())
+
+    def extension_default_model(self, provider: str) -> str | None:
+        registered = self.extension_provider_for(provider)
+        if registered is None:
+            return None
+        return registered.provider.default_model or registered.provider.models[0]
+
+    def _rebuild_extension_provider_map(self) -> None:
+        hidden = {name.lower() for name in self.extension_unregistered_providers}
+        provider_map: dict[str, RegisteredProvider] = {}
+        for registered in self.extension_providers:
+            name = registered.provider.name
+            if name.lower() in hidden:
+                continue
+            provider_map.setdefault(name.lower(), registered)
+        self._extension_provider_map = provider_map
+
+    def _rows_with_extension_providers(self) -> list[NativeModelSpec]:
+        rows = self.catalog.get_all()
+        if not self._extension_provider_map:
+            return rows
+        hidden_names = set(self._extension_provider_map)
+        base_rows = [
+            row for row in rows if row.provider_name.lower() not in hidden_names
+        ]
+        extension_rows: list[NativeModelSpec] = []
+        for registered in self._extension_provider_map.values():
+            provider = registered.provider
+            model_ids = _default_first(provider.models, provider.default_model)
+            for model_id in model_ids:
+                # ExtensionProvider exposes only safe identity/model metadata in
+                # this slice. These are catalog placeholder defaults until a
+                # future provider-capabilities API can carry model-specific
+                # context/output limits.
+                extension_rows.append(
+                    NativeModelSpec(
+                        provider_name=provider.name,
+                        model_id=model_id,
+                        display_name=model_id,
+                        api="extension-provider",
+                        reasoning=False,
+                        input=("text",),
+                        context_window=128_000,
+                        max_tokens=16_384,
+                    )
+                )
+        return [*base_rows, *extension_rows]
 
     # -- availability --------------------------------------------------------
 
@@ -152,6 +241,8 @@ class ProviderCatalogState:
         )
 
     def provider_available(self, provider: str) -> bool:
+        if self.extension_provider_for(provider) is not None:
+            return True
         if provider == "fake":
             return True
         if provider == "openai-codex":

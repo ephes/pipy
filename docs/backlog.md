@@ -196,7 +196,8 @@ not a promise to skip review when a smaller, safer slice appears.
    commands, and chrome themes. The Python extension runtime has also landed for
    core local automation (commands/shortcuts, tools, lifecycle/input/prompt
    hooks, `tool_call` gates, `tool_result` transforms, minimal UI notices, and
-   provider-registration mechanics) and local-path package runtime composition
+   provider-registration mechanics wired into the native catalog/model selector)
+   and local-path package runtime composition
    (installed packages contribute skills/prompts/themes/extensions through
    discovery). It is still **Pi-shaped rather than Pi-equivalent**: rich
    extension UI/rendering, broader session hooks, dynamic controls, remote
@@ -286,10 +287,11 @@ Shipped foundations that should no longer be selected as large topics:
   `/changelog`, and `--version`;
 - Pi-shaped `--mode json`, `--print`/`-p`, and `--mode rpc`; and
 - provider/model catalog construction for the implemented adapter families,
-  one-shot runs, and startup resolution; and
+  one-shot runs, startup resolution, and extension-registered provider rows; and
 - core local extension/package workflows: discovery/activation, commands,
   shortcuts, lifecycle/input hooks, tool gates/tools/result transforms,
-  provider-registration mechanics, local-path package CLI, and local-path
+  provider-registration mechanics wired into `--list-models`, startup
+  resolution, `/model`, and `/reload`, local-path package CLI, and local-path
   package runtime composition for extensions/skills/prompts/themes; and
 - product export/import/share/distribution baseline: `/export` HTML and JSONL,
   `/import`, `/share`, top-level `--export`, self-update planning, install docs,
@@ -302,7 +304,7 @@ The highest-impact remaining gaps are now:
    local-path package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Pi remains ahead on rich TUI extension UI, custom
    rendering, session/tree/compaction hooks, dynamic tool/model/thinking
-   controls, `user_bash` and provider-payload hooks, hot-reload, remote
+   controls, `user_bash` and provider-payload hooks, remote
    sources, `update`, and the npm/git package ecosystem. The next
    extension/package slices are deferred remote `git:`/PyPI source kinds and
    `update` (gated on a supply-chain policy and isolated package cache), plus
@@ -316,8 +318,7 @@ The highest-impact remaining gaps are now:
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
    Anthropic adaptive-thinking shape, Azure URL/api-version parity, the
    deliberate `openai-codex-responses` legacy-factory exception for
-   settings-derived retry policy, broader local-provider benchmarking, and
-   extension-registered providers after the extension API exists. Spec:
+   settings-derived retry policy, and broader local-provider benchmarking. Spec:
    [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
    harness-shaped `auth|run|repl` layout in places where Pi has a single
@@ -1409,18 +1410,18 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ### Extension and package platform follow-ons — SELECTED
 
-The product TUI long-input wrapping slice has shipped: long editable prompts now
-soft-wrap inside the input frame, cursor parking maps to the wrapped row/column,
-footer/status rows stay pinned, and real-PTY tests cover long typing, long paste,
-cursor insertion, and resize at 80x24 and 100x40. The next largest remaining
-parity topic is the extension/package platform follow-on area.
+The extension-provider catalog wiring slice has shipped: providers registered
+through `api.register_provider(ExtensionProvider(...))` now appear in
+`--list-models`, startup resolution, `/model`, and `/reload`, and construct
+through the extension `ProviderPort` factory. The next largest remaining parity
+topic is still the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, extension-provider catalog wiring, or remote sources/update
-  after supply-chain policy; and
+  richer hooks/UI, OAuth-provider extension registration, or remote
+  sources/update after supply-chain policy; and
 - keep remote source/update work behind an isolated package cache and explicit
   supply-chain policy.
 
@@ -1499,15 +1500,17 @@ closing note below). Landed so far:
   API (12 markers) with no body leaks to proof/archive/result. Gates:
   `tests/test_native_extension_conformance.py`,
   `scripts/parity_checks/extension_conformance_gate.py --json`.
-- Slice 11 (provider registration mechanism):
+- Slice 11 (provider registration and catalog wiring):
   `api.register_provider(ExtensionProvider(name, default_model, models, factory))`
   + `api.unregister_provider(name)` (staged, committed on success, duplicate
   across extensions disables the later one, invalid disables, factory failures
   bounded); `build_extension_provider_port` composes the factory into a
   `ProviderPort`; `ProviderContext` carries only safe selection metadata (never
-  the shared auth store). The catalog / `/model` selector wiring is the
-  provider-catalog track's follow-on. Gate:
-  `scripts/parity_checks/extension_providers_conformance.py --json`.
+  the shared auth store). Registered providers now contribute temporary per-run
+  native catalog rows, appear in `--list-models`, resolve at startup, switch via
+  `/model`, and are recomputed by `/reload`. Gates:
+  `scripts/parity_checks/extension_providers_conformance.py --json` and
+  `scripts/parity_checks/provider_catalog_conformance.py --json`.
 - Slice 12 package CLI (settings management): `pipy install/remove/uninstall
   [-l]` and `pipy list` manage Pi-shaped local-path package sources recorded in
   a `packages` array in user `<config>/settings.json` or project
@@ -1561,9 +1564,8 @@ full `ctx.ui` dialogs/widgets/editor/autocomplete/theme controls, session
 switch/fork/tree/compaction interception, dynamic active-tool/model/thinking
 control, shell/user-bash operation adapters, provider-payload hooks, extension
 state helpers equivalent to `appendEntry`/session-manager access, TypeScript
-source compatibility, or npm/git/update package distribution. Remote `git:`/
-PyPI sources, `update`, and catalog/`/model` wiring of extension-registered
-providers remain deferred.
+source compatibility, OAuth-provider extension registration, or npm/git/update
+package distribution. Remote `git:`/PyPI sources and `update` remain deferred.
 
 Acceptance criteria:
 
@@ -1714,8 +1716,7 @@ Invariants that must hold for any near-term slice:
   supply-chain/security model. The target specification is
   [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
-  Anthropic/Copilot login UX and catalog/`/model` wiring for
-  extension-registered providers.
+  Anthropic/Copilot login UX and adapter parity polish.
 - RPC and automation follow-ons: the stdin/stdout JSON/RPC mode ships; true
   in-turn steering, native/socket daemon transport, full session fork/switch
   over RPC, and the RPC extension-UI bridge remain follow-ons.

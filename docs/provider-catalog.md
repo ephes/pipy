@@ -11,18 +11,22 @@ for its settings-derived `RetryPolicy`) and the deterministic `fake` bootstrap.
 A models.json custom provider/model now runs a real turn using the catalog
 baseUrl/model/auth/headers/routing/thinking, in both the REPL and the one-shot
 `pipy run` path. Startup `--native-provider`/`--native-model` resolution now
-also routes through the catalog, so the provider/model catalog construction
-track is fully wired (only the deliberate `openai-codex` legacy-factory
-exception and documented adapter follow-ons remain — see below).
+also routes through the catalog. Extension-registered providers now contribute
+temporary per-run catalog rows and construct through their registered
+`ProviderPort` factories. The provider/model catalog construction track is
+fully wired for current provider sources (only the deliberate
+`openai-codex` legacy-factory exception and documented adapter follow-ons remain
+— see below).
 
 ## Implemented (foundation + product construction)
 
 The catalog is implemented through pipy-owned Python modules and gated by
 `scripts/parity_checks/provider_catalog_conformance.py`, which now covers all of
-Verification-Plan items 1-24 — including product provider-construction paths
+Verification-Plan items 1-25 — including product provider-construction paths
 for Chat Completions, non-completions families, `pipy run`, and startup
-resolution — at the construction/request layer with capturing fake HTTP clients,
-all passing with no network. Product turns for the
+resolution plus extension-provider catalog wiring — at the construction/request
+layer with capturing fake HTTP clients, all passing with no network. Product
+turns for the
 `openai-completions` API family (custom models.json providers, ds4, OpenRouter,
 openai-completions) construct from the catalog via `native/provider_construction.py`
 (`resolve_construction` + `build_provider`), invoked through
@@ -68,6 +72,17 @@ openai-completions) construct from the catalog via `native/provider_construction
   direct `/model <ref>` resolved through the shared `resolve_cli_model`
   (exact/bare/fuzzy/`:level`/colon-in-id/invalid-suffix fallback) gated by
   availability.
+- **Extension providers** (`native/extension_provider_catalog.py`,
+  `native/catalog_state.py`, `native/repl_state.py`): activated Python
+  extensions that call `api.register_provider(ExtensionProvider(...))`
+  contribute safe transient provider/model rows to the active catalog. Rows
+  appear in `--list-models`, `/model`, startup selection, and scoped model
+  matching for that run; selecting one constructs the registered `ProviderPort`
+  with the selected model in `ProviderContext.model_id`. `/reload` recomputes
+  contributions from current extension discovery and settings filters, and
+  `unregister_provider(name)` hides extension rows while restoring any built-in
+  provider rows it overrode. Absolute extension paths, factories, provider
+  payloads, prompts, and source bodies are not catalog/listing metadata.
 
 Tier 1 catalog construction (shipped 2026-06-03):
 
@@ -175,9 +190,9 @@ Current closeout sequence (all shipped 2026-06-03):
    rejects custom providers at launch.
 
 Other product follow-ons: live OAuth login orchestration for Anthropic/Copilot
-(callback server / device-code prompting) and extension-registered providers
-once the extension platform exists. `/scoped-models` and `--models` Ctrl+P live
-cycling ship through the settings/keybindings track.
+(callback server / device-code prompting), adapter parity polish listed above,
+and broader local-provider benchmarking. `/scoped-models` and `--models` Ctrl+P
+live cycling ship through the settings/keybindings track.
 
 This document defines the pipy target and partial shipped behavior for full
 feature parity with Pi's provider/model catalog system. Before this track, pipy shipped
@@ -711,8 +726,7 @@ Pipy target:
 Pi's `ModelRegistry.refresh()` clears request configs, resets dynamic
 API/OAuth registrations, reloads `models.json` + built-ins, and reapplies
 dynamically registered providers; `registerProvider`/`unregisterProvider`
-support extension-registered providers (full replacement, override-only, or
-OAuth registration) and trigger a refresh.
+support extension-registered providers and trigger a refresh.
 
 Pipy target:
 
@@ -722,17 +736,11 @@ Pipy target:
   `models.json` reload command, so a mid-session credential or config change
   updates `/model`, `--list-models`-equivalent surfaces, and availability
   without restarting.
-- Dynamic provider registration is real Pi catalog behavior, not merely a
-  follow-on: `ModelRegistry.registerProvider`/`unregisterProvider`/`refresh`
-  (model-registry.ts) let registered providers do full model replacement,
-  override-only changes (baseUrl/headers), or OAuth-provider registration for
-  `/login`, then rebuild dynamic API/OAuth registrations on refresh. Pipy should
-  provide an equivalent register/unregister/refresh boundary on the catalog so
-  the same mid-session add/replace/override/OAuth-registration semantics work.
-  The *public extension-facing API* for this (who may call it, the
-  `ExtensionProvider` shape) is specified in `docs/extension-api.md` ("Providers
-  And Models"); this catalog track owns the underlying registry capability that
-  surface composes with.
+- Dynamic extension-provider registration now has the first product wiring:
+  Python `ExtensionProvider` rows are applied over the active catalog for the
+  current run, construct through the registered factory, and are recomputed on
+  `/reload`. OAuth-provider registration and richer override-only extension
+  controls remain future extension/API work.
 
 ## Invariants
 
@@ -819,6 +827,8 @@ request paths.
     replacement, override-only, OAuth registration). The extension-facing API
     that drives this boundary is specified in `docs/extension-api.md`; the
     underlying registry capability ships here.
+    **Shipped for Python extension provider rows; OAuth-provider registration
+    and richer extension override controls remain follow-ons.**
 13. Product provider-construction wiring for the OpenAI-compatible Chat
     Completions family: construct real provider adapters from the selected
     `NativeModelSpec` and resolved request config, including custom
@@ -866,9 +876,10 @@ uv run python scripts/parity_checks/provider_catalog_conformance.py --json
 The conformance script drives the catalog and product provider-construction
 paths with deterministic fixtures (a temp config root, a temp `models.json`, a
 fake auth store, fake HTTP transports, no network) and fails unless the covered
-capability set works. The current landed gate covers items 1-24, including the
+capability set works. The current landed gate covers items 1-25, including the
 Chat-Completions product path, non-completions product paths, one-shot
-construction, startup resolution, and archive secret checks. It must verify:
+construction, startup resolution, extension-provider catalog wiring, and
+archive secret checks. It must verify:
 
 1. the built-in catalog loads with multiple rows per implemented provider and
    real capability metadata (context window, max out, reasoning, image input,

@@ -244,7 +244,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
     Completions family, implemented catalog-constructed non-completions
     families, `pipy run` one-shot construction, and startup
     `--native-provider`/`--native-model` resolution through the shared resolver.
-  - The provider catalog conformance gate covers Verification-Plan items 1-24
+  - Extension-registered providers now contribute temporary per-run catalog
+    rows: they appear in `--list-models`, resolve at startup when the extension
+    is loaded, switch via `/model`, recompute on `/reload`, and construct
+    through the extension `ProviderPort` factory without persisting package or
+    catalog state.
+  - The provider catalog conformance gate covers Verification-Plan items 1-25
     with deterministic fake HTTP/product-path checks and no network access.
 - True active-turn provider-request cancellation for the native tool loop:
   Escape and Ctrl-C each thread a per-turn `CancelToken`

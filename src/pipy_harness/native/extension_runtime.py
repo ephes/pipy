@@ -284,13 +284,16 @@ class RegisteredTool:
 class ProviderContext:
     """Context passed to an extension provider `factory`.
 
-    Carries only safe selection metadata: the provider name and its
-    default model. A provider extension must read its own environment /
-    a future auth capability — it never receives the shared auth store.
+    Carries only safe selection metadata: the provider name, its default
+    model, and the currently selected model when the factory is built for a
+    concrete catalog selection. A provider extension must read its own
+    environment / a future auth capability — it never receives the shared
+    auth store.
     """
 
     provider_name: str
     default_model: str | None
+    model_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,7 +321,19 @@ class RegisteredProvider:
     extension: str
 
 
-def build_extension_provider_port(registered: RegisteredProvider) -> object | None:
+@dataclass(frozen=True, slots=True)
+class ExtensionProviderBuildResult:
+    """Bounded result from constructing an extension provider factory."""
+
+    port: object | None
+    diagnostic: str | None = None
+
+
+def build_extension_provider_port(
+    registered: RegisteredProvider,
+    *,
+    model_id: str | None = None,
+) -> object | None:
     """Build a `ProviderPort` from a registered extension provider.
 
     Calls the provider's `factory(ProviderContext)`. A factory that raises
@@ -327,17 +342,29 @@ def build_extension_provider_port(registered: RegisteredProvider) -> object | No
     propagate.
     """
 
+    return try_build_extension_provider_port(registered, model_id=model_id).port
+
+
+def try_build_extension_provider_port(
+    registered: RegisteredProvider,
+    *,
+    model_id: str | None = None,
+) -> ExtensionProviderBuildResult:
+    """Build a provider and keep a safe diagnostic when its factory fails."""
+
     provider = registered.provider
     context = ProviderContext(
-        provider_name=provider.name, default_model=provider.default_model
+        provider_name=provider.name,
+        default_model=provider.default_model,
+        model_id=model_id or provider.default_model or provider.models[0],
     )
     try:
         port = provider.factory(context)
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException:  # noqa: BLE001 - bound a bad provider factory
-        return None
-    return port
+    except BaseException as exc:  # noqa: BLE001 - bound a bad provider factory
+        return ExtensionProviderBuildResult(port=None, diagnostic=_safe_diagnostic(exc))
+    return ExtensionProviderBuildResult(port=port)
 
 
 def make_extension_context(
@@ -963,20 +990,48 @@ class _ActivationApi:
     def _validate_and_stage_provider(self, provider: ExtensionProvider) -> None:
         if not isinstance(provider, ExtensionProvider):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        name = provider.name
-        if not isinstance(name, str) or not name:
+        raw_name = provider.name
+        if not isinstance(raw_name, str):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        name = raw_name.strip()
+        if not name or "/" in name:
             raise _ActivationError(REASON_INVALID_PROVIDER)
         if not callable(provider.factory):
             raise _ActivationError(REASON_INVALID_PROVIDER)
         if not isinstance(provider.models, tuple):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        if not provider.models:
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        model_ids: list[str] = []
+        for model in provider.models:
+            if not isinstance(model, str):
+                raise _ActivationError(REASON_INVALID_PROVIDER)
+            model_id = model.strip()
+            if not model_id:
+                raise _ActivationError(REASON_INVALID_PROVIDER)
+            model_ids.append(model_id)
+        default_model = provider.default_model
+        if isinstance(default_model, str):
+            default_model = default_model.strip()
+        if default_model is not None and (
+            not isinstance(default_model, str)
+            or not default_model
+            or default_model not in model_ids
+        ):
             raise _ActivationError(REASON_INVALID_PROVIDER)
         # Providers MAY override a built-in of the same name (Pi behavior;
         # unregister restores it), so there is no reserved-name check; only
         # a duplicate registration across extensions is rejected.
         if name in self._staged_providers or name in self._taken_providers:
             raise _ActivationError(REASON_DUPLICATE_PROVIDER)
+        normalized = ExtensionProvider(
+            name=name,
+            default_model=default_model,
+            models=tuple(model_ids),
+            factory=provider.factory,
+        )
         self._staged_providers[name] = RegisteredProvider(
-            provider=provider, extension=self._extension_name
+            provider=normalized, extension=self._extension_name
         )
 
     def unregister_provider(self, name: str) -> None:

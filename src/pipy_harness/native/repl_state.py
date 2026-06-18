@@ -8,7 +8,7 @@ import stat
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Protocol, TextIO, cast
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.openai_codex_provider import (
@@ -171,6 +171,29 @@ class NativeReplProviderState:
             )
         if spec is None:
             return None
+        if spec.api == "extension-provider":
+            registered = state.extension_provider_for(spec.provider_name)  # type: ignore[attr-defined]
+            if registered is None:
+                return None
+            from pipy_harness.native.extension_runtime import (
+                try_build_extension_provider_port,
+            )
+
+            build_result = try_build_extension_provider_port(
+                registered, model_id=spec.model_id
+            )
+            if build_result.port is None:
+                diagnostic = (
+                    f"extension provider factory failed: {build_result.diagnostic}"
+                    if build_result.diagnostic
+                    else "extension provider factory failed"
+                )
+                return _FailedExtensionProvider(
+                    provider_name=spec.provider_name,
+                    model_id=spec.model_id,
+                    error=diagnostic,
+                )
+            return cast(ProviderPort, build_result.port)
         resolved = resolve_construction(
             spec,
             store=state.auth_store,  # type: ignore[attr-defined]
@@ -239,6 +262,40 @@ class NativeReplProviderState:
         self.selection = selection
         self._save_default(selection)
         return True, f"pipy: selected model {selection.reference}."
+
+    def current_selection_supported(self) -> bool:
+        """Return whether the current selection is still backed by catalog rows."""
+
+        if self.catalog_state is None:
+            return True
+        state = self.catalog_state
+        if state.find(self.selection.provider_name, self.selection.model_id):  # type: ignore[attr-defined]
+            return True
+        # A user-selected custom model id on a known provider is supported via a
+        # fallback row cloned from that provider's catalog defaults.
+        return bool(state.models_for(self.selection.provider_name))  # type: ignore[attr-defined]
+
+    def reset_to_first_available_model(
+        self,
+        *,
+        require_tool_calls: bool = False,
+    ) -> NativeModelSelection | None:
+        """Reset to the first available catalog option, optionally tool-capable."""
+
+        for option in self.model_options():
+            if not option.available:
+                continue
+            if require_tool_calls:
+                try:
+                    provider = self.provider_for(option.selection)
+                except Exception:
+                    continue
+                if not getattr(provider, "supports_tool_calls", False):
+                    continue
+            self.selection = option.selection
+            self._save_default(self.selection)
+            return self.selection
+        return None
 
     def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
         """Resolve direct ``/model <ref>`` through the shared catalog resolver.
@@ -524,7 +581,6 @@ def resolve_cli_selection(
     falls back to stored/auto/fake defaults).
     """
 
-    from pipy_harness.native.catalog import default_model_per_provider
     from pipy_harness.native.model_resolver import resolve_cli_model
 
     if native_model is not None:
@@ -552,7 +608,7 @@ def resolve_cli_selection(
                 "Use --list-models to see available providers/models."
             )
         provider_rows = [r for r in rows if r.provider_name == canonical]
-        default_id = default_model_per_provider.get(canonical)
+        default_id = _default_model_for_provider(canonical)
         model_id = (
             default_id
             if default_id and any(r.model_id == default_id for r in provider_rows)
@@ -602,9 +658,48 @@ def default_selection_for(
     return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
 
 
+def _default_model_for_provider(
+    provider: str,
+) -> str | None:
+    from pipy_harness.native.catalog import default_model_per_provider
+
+    return default_model_per_provider.get(provider)
+
+
 def _availability_reason(availability: str) -> str:
     if availability == "openai-codex-login":
         return "login-required"
     if availability.startswith("env"):
         return "env-missing"
     return "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class _FailedExtensionProvider:
+    """Fail-closed provider for an extension factory that could not build."""
+
+    provider_name: str
+    model_id: str
+    error: str
+    supports_tool_calls: bool = False
+
+    @property
+    def name(self) -> str:
+        return self.provider_name
+
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
+        from pipy_harness.native._provider_helpers import (
+            failed_provider_result,
+            utc_now,
+        )
+
+        del stream_sink, reasoning_sink, cancel_token
+        return failed_provider_result(
+            request,
+            provider_name=self.provider_name,
+            started_at=utc_now(),
+            error_type="ExtensionProviderFactoryError",
+            error_message=self.error,
+        )

@@ -156,6 +156,7 @@ from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     QueuedUserMessage,
     RegisteredCommand,
+    RegisteredProvider,
     RegisteredShortcut,
     RegisteredTool,
     ToolResult,
@@ -170,12 +171,18 @@ from pipy_harness.native.extension_runtime import (
     drain_user_messages,
     extension_command_map,
     extension_event_hooks,
+    extension_providers,
     extension_shortcuts,
     extension_tool_call_hooks,
     extension_tools,
+    extension_unregistered_providers,
     make_extension_context,
 )
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+)
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resources import (
@@ -592,6 +599,8 @@ class _ExtensionRuntime:
     outbox: list[QueuedUserMessage]
     tools: tuple[RegisteredTool, ...]
     shortcuts: dict[str, RegisteredShortcut]
+    providers: tuple[RegisteredProvider, ...]
+    unregistered_providers: tuple[str, ...]
 
 
 def _activate_workspace_extensions(
@@ -616,8 +625,8 @@ def _activate_workspace_extensions(
     ``activate_extensions`` without affecting the session.
     """
 
-    reserved = tuple(
-        name.lstrip("/") for name in _tool_loop_command_names(resources)
+    reserved = extension_reserved_command_names(
+        resources.custom_command_slash_names()
     )
     descriptors = discover_extensions(
         cwd,
@@ -638,7 +647,7 @@ def _activate_workspace_extensions(
     activated = activate_extensions(
         descriptors,
         reserved_command_names=reserved,
-        reserved_tool_names=reserved_tool_names,
+        reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
         message_outbox=outbox,
     )
     command_map = extension_command_map(activated)
@@ -665,6 +674,8 @@ def _activate_workspace_extensions(
         outbox=outbox,
         tools=extension_tools(activated),
         shortcuts=extension_shortcuts(activated),
+        providers=extension_providers(activated),
+        unregistered_providers=extension_unregistered_providers(activated),
     )
 
 
@@ -946,6 +957,31 @@ class NativeToolReplSession:
         extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
         extension_tool_result_hooks = _ext_runtime.tool_result_hooks
         extension_message_outbox = _ext_runtime.outbox
+        if isinstance(self.provider_state, NativeReplProviderState):
+            catalog_state = self.provider_state.catalog_state
+            if catalog_state is not None:
+                catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                    _ext_runtime.providers,
+                    _ext_runtime.unregistered_providers,
+                )
+                if not self.provider_state.current_selection_supported():
+                    fallback = self.provider_state.reset_to_first_available_model(
+                        require_tool_calls=True
+                    )
+                    if fallback is None:
+                        raise ValueError(
+                            "selected provider is unavailable after extension "
+                            "activation, and no available tool-capable fallback "
+                            "was found"
+                        )
+                    self.provider = self.provider_state.current_provider()
+                    effective_provider_name = fallback.provider_name
+                    effective_model_id = fallback.model_id
+                    print(
+                        "pipy: active model disappeared on startup; selected "
+                        f"{fallback.reference}.",
+                        file=error_stream,
+                    )
         # Prompts an extension enqueues via send_user_message become the
         # next prompts processed by the loop (deterministic turns).
         extension_pending_messages: list[str] = []
@@ -1800,6 +1836,44 @@ class NativeToolReplSession:
                     )
                     extension_tool_result_hooks = _ext_runtime.tool_result_hooks
                     extension_message_outbox = _ext_runtime.outbox
+                    state = self.provider_state
+                    if isinstance(state, NativeReplProviderState):
+                        catalog_state = state.catalog_state
+                        if catalog_state is not None:
+                            catalog_state.refresh()  # type: ignore[attr-defined]
+                            catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                                _ext_runtime.providers,
+                                _ext_runtime.unregistered_providers,
+                            )
+                            if not state.current_selection_supported():
+                                fallback = state.reset_to_first_available_model(
+                                    require_tool_calls=True
+                                )
+                                if fallback is not None:
+                                    self.provider = state.current_provider()
+                                    effective_provider_name = fallback.provider_name
+                                    effective_model_id = fallback.model_id
+                                    messages = []
+                                    usage_accumulator = _UsageAccumulator()
+                                    usage_accumulator.bind(
+                                        effective_provider_name,
+                                        effective_model_id,
+                                    )
+                                    self._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        "pipy: active model disappeared on "
+                                        "reload; selected "
+                                        f"{fallback.reference}.",
+                                    )
+                                else:
+                                    self._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        "pipy: active model disappeared on "
+                                        "reload and no available tool-capable "
+                                        "fallback was found.",
+                                    )
                     # Rebuild this run's tool registry with the reloaded
                     # extension tools.
                     run_tool_registry = dict(self.tool_registry)
