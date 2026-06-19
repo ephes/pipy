@@ -11,7 +11,7 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–13 plus the first
+Implementation status: **partially implemented.** Slices 1–15 plus the first
 package-source/update follow-on have landed (see "Suggested Implementation
 Slices"), including **package runtime composition** — installed local-path and
 managed git package resources (extensions/skills/prompts/themes) now flow
@@ -29,12 +29,14 @@ patching, and basic provider experiments. A later block of interactive
 command-context capabilities also landed (used by the `answer.py` example, a
 port of Pi's `answer.ts`): `ctx.conversation.last_assistant_message()`, a
 bounded one-shot `ctx.complete(system_prompt, user_text)`, a full-screen
-custom interactive overlay `ctx.ui.custom(...)`, and keyboard-shortcut
-registration `api.register_shortcut(...)`. It is not source-compatible with
-Pi's TypeScript extensions, and it still lacks several mature Pi surfaces:
-richer multi-widget TUI and custom message/tool rendering (only single
-`ctx.ui.custom` overlays exist), extension state/session-manager helpers,
-remote PyPI/npm package distribution, and broader package ecosystem polish.
+custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
+(`ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.set_status`,
+`ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
+keyboard-shortcut registration `api.register_shortcut(...)`. It is not
+source-compatible with Pi's TypeScript extensions, and it still lacks several
+mature Pi surfaces: richer multi-widget TUI and custom message/tool rendering,
+extension state/session-manager helpers, remote PyPI/npm package distribution,
+and broader package ecosystem polish.
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
@@ -887,15 +889,22 @@ plus the follow-on per-run source-loading flags for explicit extensions, skills,
 prompt templates, and themes. Discovery never imports extension code; activation
 imports only loadable descriptors.
 
-Beyond the numbered slices, an **interactive command-context block** has also
+Beyond the first numbered slices, an **interactive command-context block** has also
 landed to support porting Pi's `answer.ts`
 (`docs/examples/extensions/answer.py`): the command/shortcut context now exposes
 `ctx.conversation.last_assistant_message()` (read-only), a bounded one-shot
 `ctx.complete(system_prompt, user_text)` on the active provider, a full-screen
 `ctx.ui.custom(factory)` interactive overlay (`ToolLoopTerminalUi.run_custom_component`),
-and `api.register_shortcut(key, handler)` keyboard shortcuts. These are covered
-by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty,shortcuts}.py`,
-`tests/test_example_answer_extension.py`, and the live `scripts/tmux_answer_verify.sh`.
+and `api.register_shortcut(key, handler)` keyboard shortcuts. The simple UI
+primitive follow-on then added `ctx.ui.select`, `ctx.ui.input`,
+`ctx.ui.confirm`, `ctx.ui.set_status`, `ctx.ui.set_working_message`, and
+`ctx.ui.set_working_visible`: interactive runs delegate to the product TUI
+(simple overlays, live status rows, and working-label/visibility controls),
+while non-interactive runs return cancel/default values and record status
+deterministically without blocking. These are covered by
+`tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty,shortcuts}.py`,
+`tests/test_native_tool_loop_tui.py`, `tests/test_example_answer_extension.py`,
+and the live `scripts/tmux_answer_verify.sh`.
 
 1. Discovery and manifest inventory (no execution) — **landed**: find
    workspace/global local Python extension candidates, parse optional
@@ -1026,6 +1035,15 @@ by `tests/test_native_extension_{conversation,completion,custom_ui,custom_ui_pty
     provider turn on unknown/malformed tokens, and expose values as `ctx.flags`
     to commands, shortcuts, extension tools, and hook contexts. Product-path
     tests cover `pipy repl --extension <file> --plan --ticket PIPY-123`.
+15. Simple extension UI primitives — **landed for command/shortcut contexts**:
+    `ctx.ui.select`, `ctx.ui.input`, and `ctx.ui.confirm` run simple
+    product-TUI overlays and return cancel/default values in headless mode;
+    `ctx.ui.set_status` renders bounded live status rows; and
+    `ctx.ui.set_working_message` / `ctx.ui.set_working_visible` control the
+    provider-turn working row for subsequent turns until changed again or reset
+    by the extension. This is still short of Pi's full widget/component surface:
+    custom message/tool renderers, custom header/footer/editor, autocomplete
+    providers, and extension state/session-manager helpers remain follow-ons.
 
 ## Open Questions
 

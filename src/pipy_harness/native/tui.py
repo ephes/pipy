@@ -204,6 +204,221 @@ class _FrameLine:
     meta: dict[str, Any] | None = None
 
 
+class _ExtensionSelectComponent:
+    """Simple string selector used by extension `ctx.ui.select`/`confirm`."""
+
+    _MAX_VISIBLE_OPTIONS = 8
+
+    def __init__(
+        self, title: str, options: Sequence[str], done: Callable[..., None]
+    ) -> None:
+        self.title = title
+        self.options = tuple(str(option) for option in options if str(option))
+        self.selected = 0
+        self._done = done
+
+    def render(self, width: int) -> list[str]:
+        lines = [
+            _clip_plain(
+                f" {sanitize_label_text(self.title)} - up/down move, enter select, esc cancel",
+                width,
+            )
+        ]
+        start, end = self._visible_window()
+        for index, option in enumerate(self.options[start:end], start=start):
+            prefix = "-> " if index == self.selected else "   "
+            lines.append(_clip_plain(f"{prefix}{sanitize_label_text(option)}", width))
+        if start > 0 or end < len(self.options):
+            lines.append(
+                _clip_plain(
+                    f"   ({self.selected + 1}/{len(self.options)})",
+                    width,
+                )
+            )
+        return lines
+
+    def _visible_window(self) -> tuple[int, int]:
+        total = len(self.options)
+        if total <= self._MAX_VISIBLE_OPTIONS:
+            return 0, total
+        start = max(
+            0,
+            min(
+                self.selected - (self._MAX_VISIBLE_OPTIONS // 2),
+                total - self._MAX_VISIBLE_OPTIONS,
+            ),
+        )
+        return start, start + self._MAX_VISIBLE_OPTIONS
+
+    def handle_input(self, key: str) -> None:
+        if key in {"esc", "ctrl-c", "ctrl-d"}:
+            self._done(None)
+            return
+        if not self.options:
+            self._done(None)
+            return
+        if key == "up":
+            self.selected = (self.selected - 1) % len(self.options)
+            return
+        if key == "down":
+            self.selected = (self.selected + 1) % len(self.options)
+            return
+        if key == "enter":
+            self._done(self.options[self.selected])
+
+
+class _ExtensionConfirmComponent(_ExtensionSelectComponent):
+    """Confirmation dialog with a bounded, visible message body."""
+
+    _MAX_MESSAGE_LINES = 6
+
+    def __init__(
+        self,
+        title: str,
+        message: str,
+        done: Callable[..., None],
+    ) -> None:
+        super().__init__(title, ("Yes", "No"), done)
+        self.message = message
+
+    def render(self, width: int) -> list[str]:
+        lines = [
+            _clip_plain(
+                f" {sanitize_label_text(self.title)} - up/down move, enter select, esc cancel",
+                width,
+            )
+        ]
+        message_lines = self._message_lines(width)
+        lines.extend(message_lines)
+        if message_lines:
+            lines.append("")
+        start, end = self._visible_window()
+        for index, option in enumerate(self.options[start:end], start=start):
+            prefix = "-> " if index == self.selected else "   "
+            lines.append(_clip_plain(f"{prefix}{option}", width))
+        return lines
+
+    def _message_lines(self, width: int) -> list[str]:
+        all_lines: list[str] = []
+        body_width = max(20, width - 3)
+        raw_lines = str(self.message).splitlines() or [""]
+        for raw_line in raw_lines:
+            pieces = textwrap.wrap(
+                sanitize_label_text(raw_line), width=body_width
+            ) or [""]
+            all_lines.extend(f"  {piece}" for piece in pieces)
+        truncated = len(all_lines) > self._MAX_MESSAGE_LINES
+        wrapped = all_lines[: self._MAX_MESSAGE_LINES]
+        if truncated and wrapped:
+            wrapped[-1] = _clip_plain(wrapped[-1] + " ...", width)
+        return [_clip_plain(line, width) for line in wrapped]
+
+
+class _ExtensionInputComponent:
+    """Single-line input overlay used by extension `ctx.ui.input`."""
+
+    def __init__(
+        self, title: str, placeholder: str | None, done: Callable[..., None]
+    ) -> None:
+        self.title = title
+        self.placeholder = placeholder or ""
+        self.text = ""
+        self._done = done
+
+    def render(self, width: int) -> list[str]:
+        shown = sanitize_label_text(self.text if self.text else self.placeholder)
+        return [
+            _clip_plain(
+                f" {sanitize_label_text(self.title)} - enter submit, esc cancel",
+                width,
+            ),
+            _clip_plain(f"> {shown}", width),
+        ]
+
+    def handle_input(self, key: str) -> None:
+        if key in {"esc", "ctrl-c", "ctrl-d"}:
+            self._done(None)
+            return
+        if key == "enter":
+            self._done(self.text)
+            return
+        if key == "backspace":
+            self.text = self.text[:-1]
+            return
+        if len(key) == 1 and key.isprintable():
+            self.text += key
+
+
+def _clip_plain(text: str, width: int) -> str:
+    return sanitize_label_text(text)[: max(0, width)]
+
+
+def _safe_extension_status_key(key: str) -> str | None:
+    text = sanitize_label_text(str(key)).strip()
+    if not text:
+        return None
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
+    cleaned = cleaned.strip("-_.")
+    return cleaned[:64] or None
+
+
+_SAFE_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _sanitize_custom_overlay_text(text: str) -> str:
+    """Sanitize custom overlay text while preserving simple SGR styling."""
+
+    raw = str(text)
+    cleaned: list[str] = []
+    index = 0
+    while index < len(raw):
+        match = _SAFE_SGR_RE.match(raw, index)
+        if match is not None:
+            cleaned.append(match.group(0))
+            index = match.end()
+            continue
+        ch = raw[index]
+        code = ord(ch)
+        if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
+            cleaned.append(" ")
+        else:
+            cleaned.append(ch)
+        index += 1
+    return "".join(cleaned)
+
+
+def _visible_len_allow_sgr(text: str) -> int:
+    return len(_SAFE_SGR_RE.sub("", text))
+
+
+def _clip_custom_overlay_text(text: str, width: int) -> str:
+    """Clip text by visible width, retaining only safe SGR sequences."""
+
+    safe = _sanitize_custom_overlay_text(text)
+    if width <= 0:
+        return ""
+    if _visible_len_allow_sgr(safe) <= width:
+        return safe
+    if width <= 1:
+        return "…"
+
+    target = width - 1
+    visible = 0
+    clipped: list[str] = []
+    index = 0
+    while index < len(safe) and visible < target:
+        match = _SAFE_SGR_RE.match(safe, index)
+        if match is not None:
+            clipped.append(match.group(0))
+            index = match.end()
+            continue
+        clipped.append(safe[index])
+        visible += 1
+        index += 1
+    clipped.append("…")
+    return "".join(clipped)
+
+
 @dataclass(slots=True)
 class ToolLoopTerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
@@ -222,6 +437,9 @@ class ToolLoopTerminalUi:
     input_text: str = ""
     input_cursor: int | None = None
     working_text: str = ""
+    extension_working_message: str | None = None
+    extension_working_visible: bool = True
+    extension_status: dict[str, str] = field(default_factory=dict)
     assistant_text: str = ""
     reasoning_text: str = ""
     tool_output_text: str = ""
@@ -335,7 +553,7 @@ class ToolLoopTerminalUi:
     _painted_block_count: int = 0
     _live_height: int = 0
     _live_input_row: int = 0
-    _paint_lock: Any = field(default_factory=threading.Lock)
+    _paint_lock: Any = field(default_factory=threading.RLock)
     # Editor ergonomics state.
     #
     # ``input_history`` is an in-memory, session-scoped ring of submitted
@@ -1238,15 +1456,76 @@ class ToolLoopTerminalUi:
             self._restore_terminal_mode()
         return self._custom_result
 
+    def run_extension_select(
+        self, title: str, options: Sequence[str]
+    ) -> str | None:
+        """Run a Pi-shaped extension selector over string options."""
+
+        choices = tuple(str(option) for option in options if str(option))
+        if not choices:
+            return None
+        result = self.run_custom_component(
+            lambda done: _ExtensionSelectComponent(str(title), choices, done)
+        )
+        return result if isinstance(result, str) else None
+
+    def run_extension_input(
+        self, title: str, placeholder: str | None = None
+    ) -> str | None:
+        """Run a Pi-shaped extension text input overlay."""
+
+        result = self.run_custom_component(
+            lambda done: _ExtensionInputComponent(str(title), placeholder, done)
+        )
+        return result if isinstance(result, str) else None
+
+    def run_extension_confirm(self, title: str, message: str) -> bool:
+        """Run a Pi-shaped extension confirmation dialog."""
+
+        result = self.run_custom_component(
+            lambda done: _ExtensionConfirmComponent(str(title), str(message), done)
+        )
+        return result == "Yes"
+
+    def set_extension_status(self, key: str, text: str | None) -> None:
+        """Set or clear an extension status row in the live frame."""
+
+        safe_key = _safe_extension_status_key(key)
+        if safe_key is None:
+            return
+        with self._paint_lock:
+            if text is None:
+                self.extension_status.pop(safe_key, None)
+            else:
+                self.extension_status[safe_key] = sanitize_label_text(str(text))
+        self.paint()
+
+    def set_extension_working_message(self, message: str | None = None) -> None:
+        """Set the sticky working label used by future provider turns."""
+
+        with self._paint_lock:
+            self.extension_working_message = (
+                None if message is None else sanitize_label_text(str(message))
+            )
+        self.paint()
+
+    def set_extension_working_visible(self, visible: bool) -> None:
+        """Show or hide the sticky working row for future provider turns."""
+
+        with self._paint_lock:
+            self.extension_working_visible = bool(visible)
+            if not self.extension_working_visible:
+                self.working_text = ""
+        self.paint()
+
     def _custom_overlay_region_lines(
         self, *, width: int, height: int
     ) -> list[_FrameLine]:
         """Compose the custom extension overlay from the component's lines.
 
-        The component owns its own styling/layout (it is trusted local code,
-        matching the extension trust boundary), so its lines pass through
-        verbatim; the driver only bounds the line count to the screen height so
-        a misbehaving component cannot overrun the frame.
+        The component owns its own layout (it is trusted local code, matching
+        the extension trust boundary), but the driver still sanitizes and clips
+        rendered lines before they reach the terminal frame.
         """
 
         component = self._custom_component
@@ -1258,7 +1537,9 @@ class ToolLoopTerminalUi:
             raise
         except BaseException:  # noqa: BLE001 - never let a bad render crash paint
             raw = ["(custom component render error)"]
-        lines = [str(line) for line in (raw or [])][: max(1, height)]
+        lines = [
+            _clip_custom_overlay_text(str(line), width) for line in (raw or [])
+        ][: max(1, height)]
         return [_FrameLine(line, "normal") for line in lines]
 
     # -- interactive session picker (/resume + -r overlay) ------------------
@@ -1765,7 +2046,10 @@ class ToolLoopTerminalUi:
 
     def add_notice(self, text: str) -> None:
         self._settle_reasoning()
-        self._history_blocks.append(("notice", tuple(text.splitlines() or [""])))
+        safe_lines = tuple(
+            sanitize_label_text(line) for line in str(text).splitlines()
+        ) or ("",)
+        self._history_blocks.append(("notice", safe_lines))
         self.paint()
 
     def show_settings(self, lines: Iterable[str]) -> None:
@@ -1923,7 +2207,9 @@ class ToolLoopTerminalUi:
                     )
                 return padded
             return [
-                _FrameLine(line.text[:width], line.kind, line.meta)
+                _FrameLine(
+                    _clip_custom_overlay_text(line.text, width), line.kind, line.meta
+                )
                 for line in frame[:height]
             ]
         menu_lines = self._popup_menu_frame_lines(
@@ -1935,17 +2221,30 @@ class ToolLoopTerminalUi:
         # pending lines push the input/footer out of the returned frame when
         # history fills the viewport.
         pending_lines = self._pending_region_lines(width)
+        status_lines = self._extension_status_lines(width)
         has_tool_panel = any(
             kind in {"tool", "tool_read", "tool_result"}
             for kind, _block_lines in self._history_blocks
         )
         input_lines = self._input_frame_lines(
             width,
-            max_rows=max(1, height - len(menu_lines) - len(pending_lines) - 4),
+            max_rows=max(
+                1,
+                height
+                - len(menu_lines)
+                - len(pending_lines)
+                - len(status_lines)
+                - 4,
+            ),
         )
         max_history_lines = max(
             0,
-            height - len(input_lines) - 4 - len(menu_lines) - len(pending_lines),
+            height
+            - len(input_lines)
+            - 4
+            - len(menu_lines)
+            - len(pending_lines)
+            - len(status_lines),
         )
         if has_tool_panel:
             max_history_lines = min(
@@ -1979,6 +2278,7 @@ class ToolLoopTerminalUi:
                 *input_lines,
                 bottom_separator,
                 *menu_lines,
+                *status_lines,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
             ]
@@ -1989,6 +2289,7 @@ class ToolLoopTerminalUi:
                 top_separator,
                 *input_lines,
                 bottom_separator,
+                *status_lines,
                 _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
             ]
@@ -2004,7 +2305,9 @@ class ToolLoopTerminalUi:
                 )
             return padded
         return [
-            _FrameLine(line.text[:width], line.kind, line.meta)
+            _FrameLine(
+                _clip_custom_overlay_text(line.text, width), line.kind, line.meta
+            )
             for line in frame[:height]
         ]
 
@@ -2125,13 +2428,28 @@ class ToolLoopTerminalUi:
             max_rows=max(1, height - 7),
         )
         pending_lines = self._pending_region_lines(width)
+        status_lines = self._extension_status_lines(width)
         input_lines = self._input_frame_lines(
             width,
-            max_rows=max(1, height - len(menu_lines) - len(pending_lines) - 4),
+            max_rows=max(
+                1,
+                height
+                - len(menu_lines)
+                - len(pending_lines)
+                - len(status_lines)
+                - 4,
+            ),
         )
         # Chrome below the transient tail: pending region + two separators +
-        # wrapped input rows + menu rows + two footer rows.
-        chrome_height = len(input_lines) + 2 + len(menu_lines) + len(pending_lines) + 2
+        # wrapped input rows + menu rows + extension status + two footer rows.
+        chrome_height = (
+            len(input_lines)
+            + 2
+            + len(menu_lines)
+            + len(pending_lines)
+            + len(status_lines)
+            + 2
+        )
         transient_budget = max(0, height - chrome_height - 1)
         transient = self._transient_tail_lines(width)
         if len(transient) > transient_budget:
@@ -2143,6 +2461,7 @@ class ToolLoopTerminalUi:
             *input_lines,
             self._input_frame_separator(width, label=True),
             *menu_lines,
+            *status_lines,
             _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
             _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
         ]
@@ -2317,6 +2636,29 @@ class ToolLoopTerminalUi:
             )
         )
         return lines
+
+    def _extension_status_lines(self, width: int) -> list[_FrameLine]:
+        """Render bounded extension status rows above the footer."""
+
+        if not self.extension_status:
+            return []
+        with self._paint_lock:
+            items = tuple(sorted(self.extension_status.items()))
+        rows: list[_FrameLine] = []
+        for key, raw_value in items[:3]:
+            value = sanitize_label_text(raw_value)
+            rows.append(
+                _FrameLine(self._clip(f"  {key}: {value}", width), "notice")
+            )
+        hidden = len(items) - len(rows)
+        if hidden > 0:
+            rows.append(
+                _FrameLine(
+                    self._clip(f"  ... +{hidden} extension status rows", width),
+                    "slash_menu_scroll",
+                )
+            )
+        return rows
 
     def _transient_tail_lines(self, width: int) -> list[_FrameLine]:
         lines: list[_FrameLine] = []
@@ -2834,6 +3176,7 @@ class ToolLoopTerminalUi:
 
     @staticmethod
     def _clip(text: str, width: int) -> str:
+        text = sanitize_label_text(str(text))
         if len(text) <= width:
             return text
         if width <= 1:
@@ -2842,9 +3185,10 @@ class ToolLoopTerminalUi:
 
     @staticmethod
     def _pad(text: str, width: int) -> str:
-        if len(text) >= width:
-            return text[:width]
-        return text + (" " * (width - len(text)))
+        visible_len = _visible_len_allow_sgr(text)
+        if visible_len >= width:
+            return _clip_custom_overlay_text(text, width)
+        return text + (" " * (width - visible_len))
 
     def _read_key(self, fd: int) -> str | None:
         ch = self._read_byte(fd)

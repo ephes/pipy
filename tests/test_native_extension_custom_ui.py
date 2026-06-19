@@ -18,9 +18,16 @@ from typing import TextIO, cast
 from pipy_harness.native.extension_runtime import (
     CustomComponent,
     ExtensionUi,
+    RegisteredCommand,
     _CollectingUi,
+    dispatch_extension_command,
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import (
+    _ExtensionConfirmComponent,
+    _ExtensionInputComponent,
+    _ExtensionSelectComponent,
+)
 
 
 class _TtyBuffer:
@@ -74,6 +81,92 @@ def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
     assert "CUSTOM-OVERLAY-LINE" in frame
 
 
+def test_extension_select_component_navigation_and_cancel() -> None:
+    result: list[object] = []
+    component = _ExtensionSelectComponent(
+        "Pick\x1b[31m",
+        ["one", "two\rbad", "three"],
+        lambda value=None: result.append(value),
+    )
+
+    rendered = "\n".join(component.render(80))
+    assert "\x1b" not in rendered
+    assert "\r" not in rendered
+    assert "two bad" in rendered
+    component.handle_input("down")
+    assert "-> two bad" in "\n".join(component.render(80))
+    component.handle_input("down")
+    component.handle_input("down")
+    assert "-> one" in "\n".join(component.render(80))
+    component.handle_input("enter")
+    assert result == ["one"]
+
+    cancelled: list[object] = []
+    component = _ExtensionSelectComponent(
+        "Pick", ["one"], lambda value=None: cancelled.append(value)
+    )
+    component.handle_input("esc")
+    assert cancelled == [None]
+
+
+def test_extension_select_component_windows_around_highlight() -> None:
+    component = _ExtensionSelectComponent(
+        "Pick",
+        [f"option-{index:02d}" for index in range(20)],
+        lambda value=None: None,
+    )
+
+    for _ in range(13):
+        component.handle_input("down")
+    rendered = "\n".join(component.render(80))
+
+    assert "-> option-13" in rendered
+    assert "option-00" not in rendered
+    assert "(14/20)" in rendered
+
+
+def test_extension_confirm_component_keeps_body_and_choices_visible() -> None:
+    result: list[object] = []
+    component = _ExtensionConfirmComponent(
+        "Delete",
+        "This operation removes a generated file.\n"
+        "Review the path carefully before continuing because this message is long.",
+        lambda value=None: result.append(value),
+    )
+
+    rendered = "\n".join(component.render(44))
+
+    assert "Delete" in rendered
+    assert "This operation removes" in rendered
+    assert "Review the path carefully" in rendered
+    assert "-> Yes" in rendered
+    assert "   No" in rendered
+
+    component.handle_input("down")
+    component.handle_input("enter")
+    assert result == ["No"]
+
+
+def test_extension_input_component_edits_sanitizes_display_and_submits_raw() -> None:
+    result: list[object] = []
+    component = _ExtensionInputComponent(
+        "Name\x1b[31m",
+        "place\rholder",
+        lambda value=None: result.append(value),
+    )
+
+    assert "Name [31m" in "\n".join(component.render(80))
+    assert "place holder" in "\n".join(component.render(80))
+
+    component.handle_input("a")
+    component.handle_input("\x1b")
+    component.handle_input("b")
+    component.handle_input("backspace")
+    component.handle_input("enter")
+
+    assert result == ["a"]
+
+
 def test_collecting_ui_custom_delegates_to_driver() -> None:
     captured: dict[str, object] = {}
 
@@ -112,3 +205,98 @@ def test_collecting_ui_custom_is_noop_without_driver_or_ui() -> None:
 
     ui2 = _CollectingUi(has_ui=False, custom_driver=driver)
     assert ui2.custom(lambda done: _ScriptedComponent(done)) is None
+
+
+class _FakeUiDriver:
+    def __init__(self) -> None:
+        self.status: list[tuple[str, str | None]] = []
+        self.working_messages: list[str | None] = []
+        self.working_visible: list[bool] = []
+
+    def select(self, title: str, options) -> str | None:
+        return f"{title}:{options[1]}"
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None:
+        return f"{title}:{placeholder}"
+
+    def confirm(self, title: str, message: str) -> bool:
+        return title == "confirm" and bool(message)
+
+    def set_status(self, key: str, text: str | None) -> None:
+        self.status.append((key, text))
+
+    def set_working_message(self, message: str | None = None) -> None:
+        self.working_messages.append(message)
+
+    def set_working_visible(self, visible: bool) -> None:
+        self.working_visible.append(visible)
+
+
+def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
+    driver = _FakeUiDriver()
+    ui = _CollectingUi(has_ui=True, ui_driver=driver)
+
+    assert ui.select("pick", ["a", "b"]) == "pick:b"
+    assert ui.input("name", "placeholder") == "name:placeholder"
+    assert ui.confirm("confirm", "continue?") is True
+    ui.set_status("build status", "green")
+    ui.set_status("build status", None)
+    ui.set_working_message("Thinking")
+    ui.set_working_visible(False)
+
+    assert driver.status == [("build-status", "green"), ("build-status", None)]
+    assert driver.working_messages == ["Thinking"]
+    assert driver.working_visible == [False]
+    assert ui.statuses == {}
+    assert ui.working_message == "Thinking"
+    assert ui.working_visible is False
+
+
+def test_collecting_ui_dialogs_are_deterministic_without_ui() -> None:
+    def fail_driver(*_args, **_kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("driver must not run without UI")
+
+    driver = _FakeUiDriver()
+    driver.select = fail_driver  # type: ignore[method-assign]
+    ui = _CollectingUi(has_ui=False, ui_driver=driver)
+
+    assert ui.select("pick", ["a"]) is None
+    assert ui.input("name") is None
+    assert ui.confirm("confirm", "continue?") is False
+    ui.set_status("build", "green")
+
+    assert driver.status == []
+    assert ui.statuses == {"build": "green"}
+
+
+def test_extension_command_ui_methods_reach_driver(tmp_path: Path) -> None:
+    driver = _FakeUiDriver()
+    seen: dict[str, object] = {}
+
+    def handler(ctx, _args):
+        seen["selected"] = ctx.ui.select("pick", ["a", "b"])
+        seen["answer"] = ctx.ui.input("name", "default")
+        seen["confirmed"] = ctx.ui.confirm("confirm", "continue?")
+        ctx.ui.set_status("task", "running")
+        ctx.ui.set_working_message("Custom work")
+        ctx.ui.set_working_visible(False)
+
+    command = RegisteredCommand("probe", "probe ui", handler, "ext")
+    dispatch = dispatch_extension_command(
+        "/probe",
+        {"probe": command},
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran
+    assert seen == {
+        "selected": "pick:b",
+        "answer": "name:default",
+        "confirmed": True,
+    }
+    assert driver.status == [("task", "running")]
+    assert driver.working_messages == ["Custom work"]
+    assert driver.working_visible == [False]

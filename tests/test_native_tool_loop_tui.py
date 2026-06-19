@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO, cast
@@ -47,6 +48,19 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
     )
 
 
+def _wait_for_frame_text(
+    ui: ToolLoopTerminalUi, text: str, *, width: int = 72, height: int = 14
+) -> str:
+    deadline = time.monotonic() + 1.0
+    frame = ""
+    while time.monotonic() < deadline:
+        frame = "\n".join(ui.render_lines(width=width, height=height))
+        if text in frame:
+            return frame
+        time.sleep(0.01)
+    return frame
+
+
 class _ExitOnlyUi:
     runtime_label = "tool-loop-tui"
 
@@ -72,6 +86,15 @@ class _ExitOnlyUi:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _RawCustomComponent:
+    def render(self, width: int) -> list[str]:
+        del width
+        return ["custom\x1b[31mred\x1b[0m\rreturn\x1b]0;bad\x07"]
+
+    def handle_input(self, key: str) -> None:
+        del key
 
 
 def test_tui_frame_owns_distinct_regions(tmp_path: Path):
@@ -110,6 +133,69 @@ def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):
     ) > next(index for index, line in enumerate(streamed) if "Hello from pipy." in line)
 
 
+def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui.footer_lines = ("workspace", "model")
+    ui.set_extension_status("build", "green")
+    ui.set_extension_status("lint", "run\rning")
+    ui.set_extension_status("zeta", "queued")
+    ui.set_extension_status("alpha", "\x1b[31mred")
+    ui.input_text = "next"
+
+    frame = ui.render_lines(width=72, height=14, pad=False)
+    text = "\n".join(frame)
+
+    assert any("build: green" in line for line in frame)
+    assert any("lint: run ning" in line for line in frame)
+    assert "... +1 extension status rows" in text
+    assert "\x1b" not in text
+    assert "\r" not in text
+    input_index = next(index for index, line in enumerate(frame) if "next" in line)
+    assert any("build: green" in line for line in frame[input_index + 2 :])
+    assert frame[-2].startswith("workspace")
+    assert frame[-1].startswith("model")
+
+
+def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui.add_notice("bad\x1b[31mred\rreturn")
+
+    frame = "\n".join(ui.render_lines(width=72, height=14))
+    assert "\x1b" not in frame
+    assert "\r" not in frame
+    assert "bad [31mred" in frame
+    assert "return" in frame
+
+
+def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui.add_tool_call("ext-tool\x1b[31mred\rreturn")
+    ui.add_tool_result(lines=["result\x1b[31mred\rreturn"], is_error=False)
+
+    frame = "\n".join(ui.render_lines(width=72, height=20))
+    assert "\x1b" not in frame
+    assert "\r" not in frame
+    assert "ext-tool [31mred" in frame
+    assert "result [31mred" in frame
+
+
+def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
+    ui = _ui(tmp_path)
+    ui._custom_component = _RawCustomComponent()
+    ui.custom_overlay_open = True
+
+    frame = "\n".join(ui.render_lines(width=72, height=14))
+    assert "\x1b[31m" in frame
+    assert "\r" not in frame
+    assert "\x07" not in frame
+    assert "\x1b]" not in frame
+    plain = frame.replace("\x1b[31m", "").replace("\x1b[0m", "")
+    assert "customred" in plain
+    assert "]0;bad" in plain
+
+
 def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     ui = _ui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui)
@@ -127,6 +213,24 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     frame = "\n".join(ui.render_lines(width=72, height=20))
     assert "Working..." not in frame
     assert frame.count("hello world") == 1
+
+
+def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
+    ui = _ui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+
+    ui.set_extension_working_message("Checking")
+    renderer.show_working()
+    frame = _wait_for_frame_text(ui, "Checking")
+    assert "Checking" in frame
+    assert "Working..." not in frame
+
+    renderer.end_provider_turn(final_text="", has_tool_calls=False)
+    ui.set_extension_working_visible(False)
+    renderer.show_working()
+    frame = "\n".join(ui.render_lines(width=72, height=14))
+    assert "Checking" not in frame
+    assert "Working..." not in frame
 
 
 def test_tui_renderer_abort_shows_operation_aborted(tmp_path: Path):

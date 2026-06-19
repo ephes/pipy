@@ -161,3 +161,47 @@ def test_command_notify_still_surfaces(tmp_path, monkeypatch) -> None:
     )
 
     assert "STATUS_OK" in error_stream.getvalue()
+
+
+def test_command_notify_sanitizes_terminal_controls(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "st.py").write_text(
+        "def activate(api):\n"
+        "    def status(ctx, args):\n"
+        "        ctx.ui.notify('BAD\\x1b[31mRED\\rRETURN')\n"
+        "    api.register_command('st', 'status', status)\n",
+        encoding="utf-8",
+    )
+    session = NativeToolReplSession(provider=_FinalText(), tool_registry={})
+    error_stream = io.StringIO()
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/st\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    output = error_stream.getvalue()
+    assert "\x1b" not in output
+    assert "\r" not in output
+    assert "BAD [31mRED" in output
+    assert "RETURN" in output
+
+
+def test_non_tui_diagnostic_sanitizes_terminal_controls() -> None:
+    error_stream = io.StringIO()
+
+    NativeToolReplSession._emit_diagnostic(
+        None,
+        error_stream,
+        "pipy: BAD\x1b[31mRED\rRETURN",
+    )
+
+    output = error_stream.getvalue()
+    assert "\x1b" not in output
+    assert "\r" not in output
+    assert "BAD [31mRED" in output
+    assert "RETURN" in output

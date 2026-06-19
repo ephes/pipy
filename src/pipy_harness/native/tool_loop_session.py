@@ -1125,7 +1125,10 @@ class NativeToolReplSession:
         # notifications are emitted as local diagnostics (interactive) and
         # degrade deterministically in non-interactive mode.
         def _extension_notify(_kind: str, message: str) -> None:
-            self._emit_diagnostic(terminal_ui, error_stream, message)
+            safe_message = "\n".join(
+                sanitize_label_text(line) for line in str(message).splitlines()
+            )
+            self._emit_diagnostic(terminal_ui, error_stream, safe_message)
 
         # A bounded one-shot completion handed to extension command handlers as
         # `ctx.complete(system_prompt, user_text)`: runs a single provider turn
@@ -1157,6 +1160,38 @@ class NativeToolReplSession:
             if terminal_ui is None:
                 return None
             return terminal_ui.run_custom_component(factory)
+
+        class _LiveExtensionUiDriver:
+            def select(self, title: str, options: Sequence[str]) -> str | None:
+                if terminal_ui is None:
+                    return None
+                return terminal_ui.run_extension_select(title, options)
+
+            def input(
+                self, title: str, placeholder: str | None = None
+            ) -> str | None:
+                if terminal_ui is None:
+                    return None
+                return terminal_ui.run_extension_input(title, placeholder)
+
+            def confirm(self, title: str, message: str) -> bool:
+                if terminal_ui is None:
+                    return False
+                return terminal_ui.run_extension_confirm(title, message)
+
+            def set_status(self, key: str, text: str | None) -> None:
+                if terminal_ui is not None:
+                    terminal_ui.set_extension_status(key, text)
+
+            def set_working_message(self, message: str | None = None) -> None:
+                if terminal_ui is not None:
+                    terminal_ui.set_extension_working_message(message)
+
+            def set_working_visible(self, visible: bool) -> None:
+                if terminal_ui is not None:
+                    terminal_ui.set_extension_working_visible(visible)
+
+        extension_ui_driver = _LiveExtensionUiDriver() if terminal_ui is not None else None
 
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
@@ -1904,6 +1939,7 @@ class NativeToolReplSession:
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
+                        ui_driver=extension_ui_driver,
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
@@ -2982,6 +3018,7 @@ class NativeToolReplSession:
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
+                        ui_driver=extension_ui_driver,
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
@@ -4782,7 +4819,10 @@ class NativeToolReplSession:
         if terminal_ui is not None:
             terminal_ui.add_notice(message)
             return
-        print(message, file=error_stream)
+        safe_message = "\n".join(
+            sanitize_label_text(line) for line in str(message).splitlines()
+        )
+        print(safe_message, file=error_stream)
 
     def _copy_last_answer(
         self, messages: list[LoopMessage], *, error_stream: TextIO
@@ -5980,6 +6020,8 @@ class _TuiToolLoopRenderer:
 
     def show_working(self) -> None:
         self._stop_working(clear=True)
+        if not self._ui.extension_working_visible:
+            return
         stop_event = threading.Event()
         self._stop_working_event = stop_event
 
@@ -5989,7 +6031,8 @@ class _TuiToolLoopRenderer:
                 glyph = self._SPINNER_FRAMES[
                     frame_index % len(self._SPINNER_FRAMES)
                 ]
-                self._ui.set_working(f"{glyph} Working...")
+                message = self._ui.extension_working_message or "Working..."
+                self._ui.set_working(f"{glyph} {message}")
                 frame_index += 1
                 stop_event.wait(self._SPINNER_INTERVAL_SECONDS)
 

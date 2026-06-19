@@ -9,7 +9,9 @@ driver (no real TTY). The live TUI rendering is verified separately under tmux.
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
+from typing import TextIO, cast
 
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
@@ -17,6 +19,7 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
 )
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tools.messages import AssistantMessage
 
 _EXAMPLE = (
@@ -82,6 +85,30 @@ def test_component_renders_question_progress_and_footer() -> None:
     assert "Which database?" in frame
     assert "only mysql/pg" in frame
     assert "cancel" in frame  # footer controls
+
+
+def test_component_tui_custom_overlay_preserves_safe_sgr(tmp_path: Path) -> None:
+    done: list = []
+    comp = answer.QnAComponent(
+        [{"question": "Which database?", "context": "only mysql/pg"}],
+        done.append,
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, io.StringIO()),
+        terminal_stream=cast(TextIO, io.StringIO()),
+        cwd=tmp_path,
+    )
+    ui._custom_component = comp
+    ui.custom_overlay_open = True
+
+    frame = "\n".join(ui.render_lines(width=80, height=14))
+    plain = answer._ANSI_RE.sub("", frame)
+
+    assert "\x1b[2m" in frame
+    assert "Questions" in plain
+    assert "Which database?" in plain
+    assert "[2m" not in plain
+    assert "\r" not in frame
 
 
 def test_component_navigation_and_submit_compiles_answers() -> None:

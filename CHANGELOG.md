@@ -24,6 +24,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extension command/shortcut contexts now expose simple Pi-shaped UI
+  primitives: `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`,
+  `ctx.ui.set_status`, `ctx.ui.set_working_message`, and
+  `ctx.ui.set_working_visible`. Interactive product-TUI runs use simple
+  overlays, live status rows, and sticky provider-turn working controls;
+  headless runs return cancel/default values without blocking.
 - Python extensions can now register dynamic `pipy repl` tool-loop CLI flags
   with `ExtensionFlag`; parsed values are available to extension commands,
   shortcuts, hooks, and tools through `ctx.flags`.

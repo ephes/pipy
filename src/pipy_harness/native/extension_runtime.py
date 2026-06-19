@@ -386,6 +386,7 @@ def make_extension_context(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
@@ -398,7 +399,7 @@ def make_extension_context(
 
     return _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         _ConversationView(messages),
         complete_fn,
         set_active_tools_fn,
@@ -673,18 +674,48 @@ CustomComponentDriver = Callable[[CustomComponentFactory], object]
 
 
 @runtime_checkable
+class ExtensionUiDriver(Protocol):
+    """Live UI operations backed by the product TUI."""
+
+    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+
+    def confirm(self, title: str, message: str) -> bool: ...
+
+    def set_status(self, key: str, text: str | None) -> None: ...
+
+    def set_working_message(self, message: str | None = None) -> None: ...
+
+    def set_working_visible(self, visible: bool) -> None: ...
+
+
+@runtime_checkable
 class ExtensionUi(Protocol):
     """Mode-aware UI handed to a command handler.
 
-    Exposes `notify` (transient messages) and `custom` (take over the terminal
-    with a custom interactive component). In non-interactive mode the methods
-    behave deterministically: notifications are recorded and `custom` is a
-    no-op returning ``None`` (never blocks).
+    Exposes transient notifications, simple dialogs, live status/working
+    controls, and `custom` (take over the terminal with a custom interactive
+    component). In non-interactive mode the methods behave deterministically:
+    notifications are recorded, dialogs return cancel/default values, and
+    `custom` is a no-op returning ``None`` (never blocks).
     """
 
     has_ui: bool
 
     def notify(self, message: str, kind: str = "info") -> None: ...
+
+    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+
+    def confirm(self, title: str, message: str) -> bool: ...
+
+    def set_status(self, key: str, text: str | None) -> None: ...
+
+    def set_working_message(self, message: str | None = None) -> None: ...
+
+    def set_working_visible(self, visible: bool) -> None: ...
 
     def custom(self, factory: CustomComponentFactory) -> object: ...
 
@@ -797,11 +828,16 @@ class _CollectingUi:
         has_ui: bool,
         notify_sink: "Callable[[str, str], None] | None" = None,
         custom_driver: "CustomComponentDriver | None" = None,
+        ui_driver: "ExtensionUiDriver | None" = None,
     ) -> None:
         self.has_ui = has_ui
         self.messages: list[tuple[str, str]] = []
+        self.statuses: dict[str, str] = {}
+        self.working_message: str | None = None
+        self.working_visible: bool = True
         self._notify_sink = notify_sink
         self._custom_driver = custom_driver
+        self._ui_driver = ui_driver
 
     def custom(self, factory: "CustomComponentFactory") -> object:
         """Run a custom interactive component, or no-op deterministically.
@@ -814,6 +850,63 @@ class _CollectingUi:
             return None
         return self._custom_driver(factory)
 
+    def select(self, title: str, options: Sequence[str]) -> str | None:
+        choices = tuple(str(option) for option in options if str(option))
+        if self._ui_driver is None or not self.has_ui or not choices:
+            return None
+        try:
+            return self._ui_driver.select(str(title), choices)
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return None
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None:
+        if self._ui_driver is None or not self.has_ui:
+            return None
+        try:
+            return self._ui_driver.input(str(title), placeholder)
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return None
+
+    def confirm(self, title: str, message: str) -> bool:
+        if self._ui_driver is None or not self.has_ui:
+            return False
+        try:
+            return bool(self._ui_driver.confirm(str(title), str(message)))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return False
+
+    def set_status(self, key: str, text: str | None) -> None:
+        safe_key = _safe_ui_key(key)
+        if safe_key is None:
+            return
+        if text is None:
+            self.statuses.pop(safe_key, None)
+        else:
+            self.statuses[safe_key] = str(text)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_status(
+                    safe_key, None if text is None else str(text)
+                )
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_working_message(self, message: str | None = None) -> None:
+        self.working_message = None if message is None else str(message)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_working_message(self.working_message)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_working_visible(self, visible: bool) -> None:
+        self.working_visible = bool(visible)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_working_visible(self.working_visible)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"
         text = str(message)
@@ -823,6 +916,15 @@ class _CollectingUi:
                 self._notify_sink(safe_kind, text)
             except Exception:  # noqa: BLE001 - a UI sink must not break the handler
                 pass
+
+
+def _safe_ui_key(key: object) -> str | None:
+    text = str(key).strip()
+    if not text:
+        return None
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
+    cleaned = cleaned.strip("-_.")
+    return cleaned[:64] or None
 
 
 class _CommandContext:
@@ -942,6 +1044,7 @@ def dispatch_extension_command(
     complete_fn: "CompletionFn | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -978,6 +1081,7 @@ def dispatch_extension_command(
         complete_fn=complete_fn,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
+        ui_driver=ui_driver,
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
@@ -995,6 +1099,7 @@ def dispatch_extension_shortcut(
     complete_fn: "CompletionFn | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -1022,6 +1127,7 @@ def dispatch_extension_shortcut(
         complete_fn=complete_fn,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
+        ui_driver=ui_driver,
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
@@ -1040,6 +1146,7 @@ def _run_extension_handler(
     complete_fn: "CompletionFn | None",
     notify_sink: "Callable[[str, str], None] | None",
     ui_custom_driver: "CustomComponentDriver | None",
+    ui_driver: "ExtensionUiDriver | None",
     set_active_tools_fn: "ControlSetActiveToolsFn | None",
     set_model_fn: "ControlSetModelFn | None",
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
@@ -1047,7 +1154,7 @@ def _run_extension_handler(
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
 
-    ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver)
+    ui = _CollectingUi(has_ui, notify_sink, ui_custom_driver, ui_driver)
     ctx = _CommandContext(
         cwd,
         ui,
