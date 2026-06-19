@@ -2066,6 +2066,16 @@ class ToolLoopTerminalUi:
         self._history_blocks.append(("settings", tuple(lines) or ("",)))
         self.paint()
 
+    def add_custom_entry(self, custom_type: str, lines: Iterable[str]) -> None:
+        """Render an extension custom session entry into committed history."""
+
+        self._settle_reasoning()
+        self.working_text = ""
+        label = sanitize_label_text(str(custom_type).strip()) or "custom"
+        safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
+        self._history_blocks.append(("custom", (f"[{label}]", *safe_lines)))
+        self.paint()
+
     def add_tool_call(self, header: str) -> None:
         self._settle_reasoning()
         self.working_text = ""
@@ -2921,6 +2931,7 @@ class ToolLoopTerminalUi:
             "tool_read": " ",
             "tool_result": " ",
             "settings": " ",
+            "custom": " ",
             "notice": "pipy  ",
             "section": "",
             "title": "",
@@ -2934,7 +2945,7 @@ class ToolLoopTerminalUi:
             rendered.append(_FrameLine("", "user"))
         elif kind in {"tool", "tool_read"}:
             rendered.append(_FrameLine("", "tool_result"))
-        elif kind in {"reasoning", "notice", "settings"}:
+        elif kind in {"reasoning", "notice", "settings", "custom"}:
             rendered.append(_FrameLine(""))
         for line in block_lines:
             available = max(10, width - len(prefix))
@@ -2952,7 +2963,7 @@ class ToolLoopTerminalUi:
             rendered.append(_FrameLine("", "tool_result"))
         elif kind == "tool_read":
             rendered.extend((_FrameLine("", "tool_result"), _FrameLine("")))
-        elif kind in {"assistant", "tool_result", "notice", "working", "settings"}:
+        elif kind in {"assistant", "tool_result", "notice", "working", "settings", "custom"}:
             rendered.append(_FrameLine(""))
             if kind == "tool_result":
                 rendered.append(_FrameLine(""))
@@ -2977,6 +2988,7 @@ class ToolLoopTerminalUi:
             "tool_read": "tool_read",
             "tool_result": "tool_result",
             "settings": "settings",
+            "custom": "settings",
         }.get(kind, "normal")
 
     @staticmethod

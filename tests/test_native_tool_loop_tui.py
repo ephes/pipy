@@ -156,6 +156,19 @@ def test_tui_renders_bounded_extension_status_rows(tmp_path: Path):
     assert frame[-1].startswith("model")
 
 
+def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui.add_custom_entry("card\x1b[31m", ["line one", "bad\rreturn"])
+
+    frame = "\n".join(ui.render_lines(width=72, height=14))
+    assert "[card [31m]" in frame
+    assert "line one" in frame
+    assert "bad return" in frame
+    assert "\x1b" not in frame
+    assert "\r" not in frame
+
+
 def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
 

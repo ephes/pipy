@@ -11,7 +11,9 @@ from `docs/extension-api.md`:
 3. a handler exception is bounded into a safe diagnostic and the loop
    survives;
 4. an extension cannot shadow a built-in command name (disabled at
-   activation, so the built-in still resolves).
+   activation, so the built-in still resolves);
+5. a custom session-entry renderer plus `ctx.append_entry(...)` persists and
+   renders without a provider turn.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -38,6 +40,7 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
 )
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
@@ -102,13 +105,27 @@ def run_checks(workspace: Path) -> list[Check]:
         "    api.register_command('help', 'x', lambda ctx, args: None)\n",
         encoding="utf-8",
     )
+    (ext / "card.py").write_text(
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: ['CARD:' + data['title']])\n"
+        "    def card(ctx, args):\n"
+        "        entry_id = ctx.append_entry('card', {'title': args or 'untitled'})\n"
+        "        ctx.ui.notify('ENTRY:' + str(entry_id))\n"
+        "    api.register_command('card', 'add card', card)\n",
+        encoding="utf-8",
+    )
 
     provider = _Provider()
-    session = NativeToolReplSession(provider=provider, tool_registry={})
+    native_session = NativeSessionTree.create(workspace, persist=False)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=native_session,
+    )
     error_stream = StringIO()
     result = session.run(
         workspace_root=workspace,
-        input_stream=StringIO("/sayhi world\n/crash\nplain prompt\n"),
+        input_stream=StringIO("/sayhi world\n/card hello\n/crash\nplain prompt\n"),
         output_stream=StringIO(),
         error_stream=error_stream,
     )
@@ -124,6 +141,20 @@ def run_checks(workspace: Path) -> list[Check]:
             len(provider.requests) == 1
             and "plain prompt" in provider.requests[0].user_prompt,
             "extension commands issue no provider turn",
+        )
+    )
+    custom_entries = [
+        entry for entry in native_session.entries if isinstance(entry, CustomEntry)
+    ]
+    checks.append(
+        Check(
+            "custom_entry_rendered",
+            "CARD:hello" in err
+            and "ENTRY:" in err
+            and len(custom_entries) == 1
+            and custom_entries[0].custom_type == "card"
+            and custom_entries[0].data == {"title": "hello"},
+            "custom entry persisted and rendered without a provider turn",
         )
     )
     checks.append(

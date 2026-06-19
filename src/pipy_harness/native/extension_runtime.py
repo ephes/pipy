@@ -38,6 +38,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import inspect
+import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -67,6 +68,8 @@ REASON_RESERVED_SHORTCUT: str = "reserved_shortcut"
 REASON_DUPLICATE_SHORTCUT: str = "duplicate_shortcut"
 REASON_INVALID_FLAG: str = "invalid_flag"
 REASON_DUPLICATE_FLAG: str = "duplicate_flag"
+REASON_INVALID_MESSAGE_RENDERER: str = "invalid_message_renderer"
+REASON_DUPLICATE_MESSAGE_RENDERER: str = "duplicate_message_renderer"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
@@ -161,6 +164,13 @@ EVENT_SESSION_BEFORE_TREE: str = "session_before_tree"
 
 # Bound a transformed tool-result observation before it reaches the model.
 _TOOL_RESULT_MAX_CHARS: int = 60 * 1024
+# Bound custom extension-rendered session entry text and data. Product native
+# sessions intentionally store full user-visible content, but extension payloads
+# should still be JSON-safe and capped so a bad renderer cannot grow the TUI or
+# session file without bound.
+_CUSTOM_ENTRY_DATA_MAX_CHARS: int = 64 * 1024
+_CUSTOM_ENTRY_TYPE_MAX_CHARS: int = 200
+_CUSTOM_RENDER_MAX_CHARS: int = 16 * 1024
 
 LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_SESSION_START,
@@ -385,6 +395,7 @@ def make_extension_context(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    append_entry_fn: "AppendEntryFn | None" = None,
     flags: Mapping[str, object] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
 ) -> CommandContext:
@@ -405,6 +416,7 @@ def make_extension_context(
         set_active_tools_fn,
         set_model_fn,
         set_thinking_level_fn,
+        append_entry_fn,
         flags,
     )
 
@@ -538,6 +550,7 @@ _PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
 ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
 ControlSetModelFn = Callable[[str], bool]
 ControlSetThinkingLevelFn = Callable[[str], bool]
+AppendEntryFn = Callable[[str, object | None], object]
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -581,6 +594,12 @@ class PipyExtensionAPI(Protocol):
 
     def register_flag(self, flag: "ExtensionFlag") -> None: ...
 
+    def register_message_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RegisteredCommand:
@@ -589,6 +608,15 @@ class RegisteredCommand:
     name: str
     description: str
     handler: CommandHandler
+    extension: str
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredMessageRenderer:
+    """A renderer for extension custom session entries of one type."""
+
+    custom_type: str
+    renderer: Callable[..., object]
     extension: str
 
 
@@ -649,6 +677,7 @@ class ActivatedExtension:
     unregistered_providers: tuple[str, ...] = ()
     shortcuts: tuple[RegisteredShortcut, ...] = ()
     flags: tuple[RegisteredFlag, ...] = ()
+    message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
 
 
 @runtime_checkable
@@ -789,6 +818,10 @@ class CommandContext(Protocol):
 
     def set_thinking_level(self, level: str) -> bool:
         """Set the active thinking level for later provider turns."""
+        ...
+
+    def append_entry(self, custom_type: str, data: object | None = None) -> object:
+        """Append a custom entry to the active product session tree."""
         ...
 
 
@@ -939,6 +972,7 @@ class _CommandContext:
         set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
         set_model_fn: "ControlSetModelFn | None" = None,
         set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+        append_entry_fn: "AppendEntryFn | None" = None,
         flags: Mapping[str, object] | None = None,
     ) -> None:
         self.cwd = cwd
@@ -950,6 +984,7 @@ class _CommandContext:
         self._set_active_tools_fn = set_active_tools_fn
         self._set_model_fn = set_model_fn
         self._set_thinking_level_fn = set_thinking_level_fn
+        self._append_entry_fn = append_entry_fn
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         if self._complete_fn is None:
@@ -978,6 +1013,16 @@ class _CommandContext:
                 "thinking-level control is not available in this context"
             )
         return self._set_thinking_level_fn(str(level))
+
+    def append_entry(self, custom_type: str, data: object | None = None) -> object:
+        if self._append_entry_fn is None:
+            raise ExtensionCapabilityError(
+                "custom session entries are not available in this context"
+            )
+        name = str(custom_type).strip()
+        if not is_valid_custom_entry_type(name):
+            raise ValueError("invalid custom entry type")
+        return self._append_entry_fn(name, data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1048,6 +1093,7 @@ def dispatch_extension_command(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    append_entry_fn: "AppendEntryFn | None" = None,
     flags: Mapping[str, object] | None = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
@@ -1085,6 +1131,7 @@ def dispatch_extension_command(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        append_entry_fn=append_entry_fn,
         flags=flags,
     )
 
@@ -1103,6 +1150,7 @@ def dispatch_extension_shortcut(
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    append_entry_fn: "AppendEntryFn | None" = None,
     flags: Mapping[str, object] | None = None,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch a registered extension shortcut `key`, or return None.
@@ -1131,6 +1179,7 @@ def dispatch_extension_shortcut(
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
+        append_entry_fn=append_entry_fn,
         flags=flags,
     )
 
@@ -1150,6 +1199,7 @@ def _run_extension_handler(
     set_active_tools_fn: "ControlSetActiveToolsFn | None",
     set_model_fn: "ControlSetModelFn | None",
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
+    append_entry_fn: "AppendEntryFn | None",
     flags: Mapping[str, object] | None,
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
@@ -1163,6 +1213,7 @@ def _run_extension_handler(
         set_active_tools_fn,
         set_model_fn,
         set_thinking_level_fn,
+        append_entry_fn,
         flags,
     )
     try:
@@ -1216,6 +1267,7 @@ class _ActivationApi:
         taken_providers: frozenset[str] = frozenset(),
         taken_shortcuts: frozenset[str] = frozenset(),
         taken_flags: frozenset[str] = frozenset(),
+        taken_message_renderers: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
@@ -1225,6 +1277,7 @@ class _ActivationApi:
         self._taken_providers = taken_providers
         self._taken_shortcuts = taken_shortcuts
         self._taken_flags = taken_flags
+        self._taken_message_renderers = taken_message_renderers
         self._outbox = outbox
         self._staged: dict[str, RegisteredCommand] = {}
         self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
@@ -1232,6 +1285,7 @@ class _ActivationApi:
         self._staged_providers: dict[str, RegisteredProvider] = {}
         self._staged_unregistered: list[str] = []
         self._staged_flags: dict[str, RegisteredFlag] = {}
+        self._staged_message_renderers: dict[str, RegisteredMessageRenderer] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -1405,6 +1459,41 @@ class _ActivationApi:
     def staged_flags(self) -> tuple[RegisteredFlag, ...]:
         return tuple(self._staged_flags.values())
 
+    def register_message_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None:
+        try:
+            self._validate_and_stage_message_renderer(custom_type, renderer)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def _validate_and_stage_message_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None:
+        if not isinstance(custom_type, str):
+            raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
+        name = custom_type.strip()
+        if not is_valid_custom_entry_type(name):
+            raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
+        if not callable(renderer):
+            raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
+        if name in self._taken_message_renderers or name in self._staged_message_renderers:
+            raise _ActivationError(REASON_DUPLICATE_MESSAGE_RENDERER)
+        self._staged_message_renderers[name] = RegisteredMessageRenderer(
+            custom_type=name,
+            renderer=renderer,
+            extension=self._extension_name,
+        )
+
+    def staged_message_renderers(self) -> tuple[RegisteredMessageRenderer, ...]:
+        return tuple(self._staged_message_renderers.values())
+
     def register_command(
         self,
         name: str,
@@ -1550,6 +1639,7 @@ def activate_extensions(
     taken_providers: set[str] = set()
     taken_shortcuts: set[str] = set()
     taken_flags: set[str] = set()
+    taken_message_renderers: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
@@ -1568,6 +1658,7 @@ def activate_extensions(
                 taken_providers=taken_providers,
                 taken_shortcuts=taken_shortcuts,
                 taken_flags=taken_flags,
+                taken_message_renderers=taken_message_renderers,
                 outbox=outbox,
             )
         )
@@ -1626,6 +1717,117 @@ def extension_flags(
             continue
         flags.extend(extension.flags)
     return tuple(flags)
+
+
+def extension_message_renderers(
+    activated: Sequence[ActivatedExtension],
+) -> dict[str, RegisteredMessageRenderer]:
+    """Collect custom session-entry renderers from activated extensions."""
+
+    renderers: dict[str, RegisteredMessageRenderer] = {}
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for renderer in extension.message_renderers:
+            renderers.setdefault(renderer.custom_type, renderer)
+    return renderers
+
+
+def safe_custom_entry_data(data: object | None) -> object | None:
+    """Return JSON-safe, bounded custom-entry data for the product session."""
+
+    if data is None:
+        return None
+    try:
+        encoded = json.dumps(
+            data,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        decoded = json.loads(encoded)
+    except (TypeError, ValueError):
+        encoded = str(data)
+        decoded = encoded
+    if len(encoded) <= _CUSTOM_ENTRY_DATA_MAX_CHARS:
+        return decoded
+    return {
+        "truncated": True,
+        "text": encoded[: _CUSTOM_ENTRY_DATA_MAX_CHARS - 128],
+    }
+
+
+def render_extension_message(
+    renderers: Mapping[str, RegisteredMessageRenderer],
+    custom_type: str,
+    data: object | None,
+) -> tuple[str, ...]:
+    """Render a custom entry through its extension renderer, fail-soft."""
+
+    renderer = renderers.get(custom_type)
+    if renderer is None:
+        if data is None:
+            return ()
+        return (_bounded_render_text(data),)
+    try:
+        # Copy here even when the caller already persisted safe data: the
+        # renderer receives a detached JSON-safe value and cannot mutate the
+        # in-memory CustomEntry object held by the native session tree.
+        rendered = renderer.renderer(_copy_custom_entry_data(data))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as err:  # noqa: BLE001 - bound a bad renderer
+        return (f"render error: {_safe_diagnostic(err)}",)
+    try:
+        return _coerce_rendered_lines(rendered)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as err:  # noqa: BLE001 - bound bad renderer output
+        return (f"render error: {_safe_diagnostic(err)}",)
+
+
+def _copy_custom_entry_data(data: object | None) -> object | None:
+    if data is None:
+        return None
+    try:
+        return json.loads(
+            json.dumps(data, ensure_ascii=False, allow_nan=False)
+        )
+    except (TypeError, ValueError):
+        return safe_custom_entry_data(data)
+
+
+def _coerce_rendered_lines(rendered: object) -> tuple[str, ...]:
+    if inspect.isawaitable(rendered):
+        close = getattr(rendered, "close", None)
+        if callable(close):
+            close()
+        return ("render error: unsupported awaitable",)
+    if rendered is None:
+        return ()
+    if isinstance(rendered, str):
+        lines = rendered.splitlines() or [""]
+    elif isinstance(rendered, Sequence) and not isinstance(rendered, (bytes, bytearray)):
+        lines = [str(item) for item in rendered]
+    else:
+        lines = [_bounded_render_text(rendered)]
+    text = "\n".join(lines)
+    if len(text) > _CUSTOM_RENDER_MAX_CHARS:
+        text = text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+    return tuple(text.splitlines() or [""])
+
+
+def _bounded_render_text(value: object) -> str:
+    try:
+        text = json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        text = str(value)
+    if len(text) > _CUSTOM_RENDER_MAX_CHARS:
+        return text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+    return text
 
 
 def parse_extension_flag_tokens(
@@ -1694,6 +1896,7 @@ def _activate_one(
     taken_providers: set[str],
     taken_shortcuts: set[str],
     taken_flags: set[str],
+    taken_message_renderers: set[str],
     outbox: list[QueuedUserMessage],
 ) -> ActivatedExtension:
     try:
@@ -1724,6 +1927,7 @@ def _activate_one(
         taken_providers=frozenset(taken_providers),
         taken_shortcuts=frozenset(taken_shortcuts),
         taken_flags=frozenset(taken_flags),
+        taken_message_renderers=frozenset(taken_message_renderers),
         outbox=outbox,
     )
     try:
@@ -1750,6 +1954,7 @@ def _activate_one(
     providers = api.staged_providers()
     shortcuts = api.staged_shortcuts()
     flags = api.staged_flags()
+    message_renderers = api.staged_message_renderers()
     # Commit the command/tool/provider/shortcut names + staged
     # send_user_message prompts only now that activation fully succeeded.
     for command in commands:
@@ -1762,6 +1967,8 @@ def _activate_one(
         taken_shortcuts.add(shortcut.key)
     for flag in flags:
         taken_flags.add(flag.flag.name)
+    for renderer in message_renderers:
+        taken_message_renderers.add(renderer.custom_type)
     api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
@@ -1777,6 +1984,7 @@ def _activate_one(
         unregistered_providers=api.staged_unregistered(),
         shortcuts=shortcuts,
         flags=flags,
+        message_renderers=message_renderers,
     )
 
 
@@ -2470,9 +2678,18 @@ def safe_activation_metadata(
             "status": item.status,
             "reason": item.reason,
             "commands": [command.name for command in item.commands],
+            "message_renderers": [
+                renderer.custom_type for renderer in item.message_renderers
+            ],
         }
         for item in activated
     ]
+
+
+def is_valid_custom_entry_type(name: str) -> bool:
+    """Bounded lowercase ASCII custom-entry identifier."""
+
+    return len(name) <= _CUSTOM_ENTRY_TYPE_MAX_CHARS and _is_valid_command_name(name)
 
 
 def _is_valid_command_name(name: str) -> bool:

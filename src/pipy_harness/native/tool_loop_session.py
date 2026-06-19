@@ -164,6 +164,7 @@ from pipy_harness.native.extension_runtime import (
     QueuedUserMessage,
     RegisteredCommand,
     RegisteredFlag,
+    RegisteredMessageRenderer,
     RegisteredProvider,
     RegisteredShortcut,
     RegisteredTool,
@@ -183,13 +184,17 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
     extension_event_hooks,
     extension_flags,
+    extension_message_renderers,
     extension_providers,
     extension_shortcuts,
     extension_tool_call_hooks,
     extension_tools,
     extension_unregistered_providers,
+    is_valid_custom_entry_type,
     make_extension_context,
     parse_extension_flag_tokens,
+    render_extension_message,
+    safe_custom_entry_data,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.extension_provider_catalog import (
@@ -653,6 +658,7 @@ class _ExtensionRuntime:
     flags: tuple[RegisteredFlag, ...]
     providers: tuple[RegisteredProvider, ...]
     unregistered_providers: tuple[str, ...]
+    message_renderers: dict[str, RegisteredMessageRenderer]
 
 
 def _activate_workspace_extensions(
@@ -751,6 +757,7 @@ def _activate_workspace_extensions(
         flags=extension_flags(activated),
         providers=extension_providers(activated),
         unregistered_providers=extension_unregistered_providers(activated),
+        message_renderers=extension_message_renderers(activated),
     )
 
 
@@ -1056,6 +1063,7 @@ class NativeToolReplSession:
         )
         extension_session_before_tree_hooks = _ext_runtime.session_before_tree_hooks
         extension_message_outbox = _ext_runtime.outbox
+        extension_renderer_map = _ext_runtime.message_renderers
         extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
             _ext_runtime.flags,
             tuple(resource_options.extension_flag_tokens),
@@ -1333,6 +1341,28 @@ class NativeToolReplSession:
         compaction_summary = ""
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
+
+        def extension_append_entry(custom_type: str, data: object | None = None) -> object:
+            safe_type = str(custom_type).strip()
+            if not is_valid_custom_entry_type(safe_type):
+                raise ValueError("invalid custom entry type")
+            safe_data = safe_custom_entry_data(data)
+            appended = session_tree.append_custom(safe_type, safe_data)
+            rendered = render_extension_message(
+                extension_renderer_map,
+                safe_type,
+                safe_data,
+            )
+            if terminal_ui is not None:
+                terminal_ui.add_custom_entry(safe_type, rendered)
+            else:
+                lines = "\n".join(str(line) for line in rendered)
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    f"{safe_type}:\n{lines}" if lines else safe_type,
+                )
+            return appended.id
 
         def refresh_footer_text() -> None:
             if terminal_ui is not None:
@@ -1943,6 +1973,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        append_entry_fn=extension_append_entry,
                         flags=extension_flag_values,
                     )
                     if (
@@ -2134,6 +2165,7 @@ class NativeToolReplSession:
                         _ext_runtime.session_before_tree_hooks
                     )
                     extension_message_outbox = _ext_runtime.outbox
+                    extension_renderer_map = _ext_runtime.message_renderers
                     reloaded_flag_values, reloaded_flag_error = (
                         parse_extension_flag_tokens(
                             _ext_runtime.flags,
@@ -3022,6 +3054,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        append_entry_fn=extension_append_entry,
                         flags=extension_flag_values,
                     )
                     if extension_dispatch is not None:

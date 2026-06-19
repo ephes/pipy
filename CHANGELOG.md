@@ -24,6 +24,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now register custom session-entry renderers with
+  `api.register_message_renderer(...)`; command and shortcut handlers can call
+  `ctx.append_entry(...)` to persist JSON-safe `custom` entries in the native
+  product session tree and render them in the product TUI or captured-stream
+  diagnostics without starting a provider turn.
 - Python extension command/shortcut contexts now expose simple Pi-shaped UI
   primitives: `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`,
   `ctx.ui.set_status`, `ctx.ui.set_working_message`, and

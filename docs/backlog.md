@@ -306,10 +306,11 @@ The highest-impact remaining gaps are now:
    local-path/managed-git package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Live-session hooks/controls for `user_bash`,
    `before_provider_request`, session-operation gates, and active
-   tool/model/thinking controls now ship. Pi remains ahead on rich TUI extension
-   UI, custom rendering, extension state/session-manager helpers, dynamic
-  broader dynamic-flag integration/message renderers, OAuth-provider extension registration,
-  remote PyPI/npm sources, and the broader package ecosystem. Managed git
+   tool/model/thinking controls and the first custom session-entry/message-
+   rendering slice now ship. Pi remains ahead on rich TUI extension UI, custom
+   tool rendering, extension state/session-manager helpers, broader dynamic-flag
+   integration, OAuth-provider extension registration, remote PyPI/npm sources,
+   and the broader package ecosystem. Managed git
   sources and package `update` now ship behind a pipy-owned cache; the next
   extension/package slices are richer API follow-ons and any future PyPI/npm
   source kinds after a broader supply-chain policy.
@@ -1453,18 +1454,20 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ### Extension and package platform follow-ons — SELECTED
 
-The extension-provider catalog wiring slice has shipped: providers registered
-through `api.register_provider(ExtensionProvider(...))` now appear in
-`--list-models`, startup resolution, `/model`, and `/reload`, and construct
-through the extension `ProviderPort` factory. The next largest remaining parity
-topic is still the broader extension/package platform follow-on area.
+The first custom session-entry/message-rendering slice has shipped:
+`api.register_message_renderer(custom_type, renderer)` registers a bounded text
+renderer, and command/shortcut handlers can call `ctx.append_entry(custom_type,
+data)` to persist JSON-safe custom entries in the native product session tree
+and render them locally without a provider turn. The next largest remaining
+parity topic is still the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, broader dynamic-flag integration/message
-  renderers, or future PyPI/npm package sources after supply-chain policy; and
+  richer hooks/UI, OAuth-provider extension registration, custom tool renderers,
+  extension session-manager helpers, broader dynamic-flag integration, or future
+  PyPI/npm package sources after supply-chain policy; and
 - keep any future non-git remote source work behind explicit supply-chain
   policy and an isolated cache.
 
@@ -1480,9 +1483,9 @@ just check
 ### Extension API slice 12 closeout: package runtime composition — LANDED
 
 Slices 1–12 have **landed**. The managed git package-source/update follow-on
-has also landed, including **package runtime composition**: installed local-path
-and managed git package resources now flow through discovery (see the closing
-note below). Landed so far:
+has also landed, as has the first custom session-entry/message-rendering
+follow-on. Installed local-path and managed git package resources now flow
+through discovery (see the closing note below). Landed so far:
 
 - Slice 1 (discovery + manifest inventory, no execution):
   `pipy_harness.native.extensions.discover_extensions` returns deterministic
@@ -1606,6 +1609,15 @@ note below). Landed so far:
   a persisted resource filter disables the same resource name. The package gate
   now includes this check.
 
+Custom session-entry/message-rendering follow-on: extensions can now register a
+bounded text renderer with `api.register_message_renderer(...)`; command and
+shortcut handlers can call `ctx.append_entry(...)` to write JSON-safe `custom`
+entries to the native product session tree and show the rendered result in the
+product TUI or captured-stream diagnostics. Renderer crashes fail soft, non-JSON
+data is converted before persistence, and the metadata-first archive remains
+unaffected. Rich custom tool renderers and multi-widget message components
+remain follow-ons.
+
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
 `update` now ship.
@@ -1617,11 +1629,11 @@ of Pi permission gates, custom slash commands, simple model-visible tools,
 input/system-prompt hooks, lifecycle observation, minimal UI notices,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
-extension APIs: custom message/tool rendering, full `ctx.ui`
-dialogs/widgets/editor/autocomplete/theme controls, extension state helpers
-equivalent to `appendEntry`/session-manager access, TypeScript source
-compatibility, OAuth-provider extension registration, dynamic extension
-flags/message renderers, or PyPI/npm package distribution. Managed git sources
+extension APIs: custom tool rendering, full `ctx.ui`
+dialogs/widgets/editor/autocomplete/theme controls, richer `appendEntry` replay
+and session-manager access, TypeScript source compatibility, OAuth-provider
+extension registration, broader dynamic extension flag integration, or PyPI/npm
+package distribution. Managed git sources
 and package `update` now ship; broader remote package sources remain deferred.
 
 Acceptance criteria:
@@ -1764,13 +1776,15 @@ Invariants that must hold for any near-term slice:
   provider-request cancellation now ship. Still deferred are the richer
   extension-owned UI surfaces Pi exposes: dialogs, widgets, editor replacement,
   autocomplete providers, theme controls, custom overlays beyond the narrow
-  Python `ctx.ui.custom` path, and custom message/tool rendering.
+  Python `ctx.ui.custom` and custom session-entry/message-rendering paths, and
+  custom tool rendering.
 - Extension/package platform follow-ons: package runtime composition for
   installed local-path/managed-git packages, package `update`, per-run
   source-loading flags, live-session operation gates, `user_bash`,
-  provider-request transforms, and dynamic active tool/model/thinking controls
-  have landed. Remaining Pi gaps are broader dynamic-flag integration/message renderers,
-  extension state/session-manager views, richer extension UI/rendering,
+  provider-request transforms, dynamic active tool/model/thinking controls, and
+  the first custom session-entry/message-rendering slice have landed. Remaining
+  Pi gaps are broader dynamic-flag integration, extension state/session-manager views,
+  richer extension UI/rendering,
   OAuth-provider extension registration, PyPI/npm package sources, and the
   corresponding supply-chain/security model. The target specification is
   [extension-api.md](extension-api.md).

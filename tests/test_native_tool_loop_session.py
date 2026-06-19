@@ -904,6 +904,43 @@ def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
     assert "theme: ocean" in out
 
 
+def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    marker = extension_dir / "renderer_prefix.txt"
+    extension_file = extension_dir / "renderer_reload.py"
+    extension_file.write_text(
+        "from pathlib import Path\n"
+        "def activate(api):\n"
+        "    marker = Path(__file__).with_name('renderer_prefix.txt')\n"
+        "    prefix = marker.read_text(encoding='utf-8') if marker.exists() else 'old'\n"
+        "    api.register_message_renderer('card', lambda data, prefix=prefix: [prefix + ':' + data['title']])\n"
+        "    def card(ctx, args):\n"
+        "        ctx.append_entry('card', {'title': args})\n"
+        "    def flip(ctx, args):\n"
+        "        marker.write_text('new', encoding='utf-8')\n"
+        "    api.register_command('card', 'card', card)\n"
+        "    api.register_command('flip-renderer', 'flip renderer', flip)\n",
+        encoding="utf-8",
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    error_stream = io.StringIO()
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/card one\n/flip-renderer\n/reload\n/card two\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    err = error_stream.getvalue()
+    assert marker.read_text(encoding="utf-8") == "new"
+    assert "old:one" in err
+    assert "new:two" in err
+    assert "old:two" not in err
+
+
 def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     marker = tmp_path / "marker.txt"
     marker.write_text("before", encoding="utf-8")

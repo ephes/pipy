@@ -268,13 +268,22 @@ def run_checks(workspace: Path) -> list[Check]:
 
     metadata = safe_activation_metadata(result)
     greeter_meta = next((m for m in metadata if m["name"] == "greeter"), None)
-    allowed = {"name", "version", "path_label", "status", "reason", "commands"}
+    allowed = {
+        "name",
+        "version",
+        "path_label",
+        "status",
+        "reason",
+        "commands",
+        "message_renderers",
+    }
     checks.append(
         Check(
             "safe_metadata",
             greeter_meta is not None
             and set(greeter_meta) == allowed
             and greeter_meta["commands"] == ["greet"]
+            and greeter_meta["message_renderers"] == []
             and "function" not in json.dumps(metadata).lower(),
             "activation metadata excludes handlers",
         )

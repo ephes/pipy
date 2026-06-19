@@ -10,6 +10,8 @@ command (the caller falls through to its normal handling).
 
 from __future__ import annotations
 
+import gc
+import warnings
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import StringIO
@@ -21,8 +23,12 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     dispatch_extension_command,
     extension_command_map,
+    extension_message_renderers,
+    render_extension_message,
+    safe_custom_entry_data,
 )
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
@@ -158,6 +164,156 @@ def test_dispatch_exposes_extension_flags_to_command(tmp_path: Path) -> None:
     assert dispatch.messages == (("info", "True:PIPY-123"),)
 
 
+def test_dispatch_exposes_append_entry_capability(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "entryext",
+        "def activate(api):\n"
+        "    def save(ctx, args):\n"
+        "        ctx.append_entry('note', {'args': args})\n"
+        "    api.register_command('save-note', 'save note', save)\n",
+    )
+    entries: list[tuple[str, object | None]] = []
+
+    def append_entry(custom_type: str, data: object | None = None) -> object:
+        entries.append((custom_type, data))
+        return "entry-id"
+
+    dispatch = dispatch_extension_command(
+        "/save-note hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        append_entry_fn=append_entry,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert entries == [("note", {"args": "hello"})]
+
+
+def test_append_entry_rejects_invalid_custom_type(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "entryext",
+        "def activate(api):\n"
+        "    def save(ctx, args):\n"
+        "        ctx.append_entry('bad/type', {'args': args})\n"
+        "    api.register_command('save-note', 'save note', save)\n",
+    )
+    entries: list[tuple[str, object | None]] = []
+
+    def append_entry(custom_type: str, data: object | None = None) -> object:
+        entries.append((custom_type, data))
+        return "entry-id"
+
+    dispatch = dispatch_extension_command(
+        "/save-note hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        append_entry_fn=append_entry,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is False
+    assert dispatch.error == "ValueError"
+    assert not entries
+
+
+def test_message_renderer_gets_json_safe_copy(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "mutating",
+        "def activate(api):\n"
+        "    def render(data):\n"
+        "        data['text'] = 'mutated'\n"
+        "        return 'done'\n"
+        "    api.register_message_renderer('note', render)\n",
+    )
+    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    renderers = extension_message_renderers(activate_extensions(descriptors))
+    payload = {"text": "original"}
+
+    assert render_extension_message(renderers, "note", payload) == ("done",)
+    assert payload == {"text": "original"}
+
+
+def test_message_renderer_output_coercion_fails_soft(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "bad_output",
+        "class Bad:\n"
+        "    def __str__(self):\n"
+        "        raise RuntimeError('secret')\n"
+        "def activate(api):\n"
+        "    api.register_message_renderer('note', lambda data: [Bad()])\n",
+    )
+    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    renderers = extension_message_renderers(activate_extensions(descriptors))
+
+    rendered = render_extension_message(renderers, "note", {"text": "hello"})
+
+    assert rendered == ("render error: RuntimeError",)
+
+
+def test_async_message_renderer_fails_soft_without_unawaited_warning(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "async_render",
+        "def activate(api):\n"
+        "    async def render(data):\n"
+        "        return 'async'\n"
+        "    api.register_message_renderer('note', render)\n",
+    )
+    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    renderers = extension_message_renderers(activate_extensions(descriptors))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        rendered = render_extension_message(renderers, "note", {"text": "hello"})
+        gc.collect()
+
+    assert rendered == ("render error: unsupported awaitable",)
+    assert not [warning for warning in caught if "never awaited" in str(warning.message)]
+
+
+def test_message_renderer_fails_soft_and_data_is_json_safe(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "renderext",
+        "def activate(api):\n"
+        "    api.register_message_renderer('note', lambda data: ['Note', data['text']])\n"
+        "    api.register_message_renderer('boom', lambda data: (_ for _ in ()).throw(RuntimeError('secret')))\n",
+    )
+    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    activated = activate_extensions(descriptors)
+    renderers = extension_message_renderers(activated)
+
+    safe = safe_custom_entry_data({"text": "hello", "raw": object()})
+
+    assert isinstance(safe, str)
+    ordered = safe_custom_entry_data({"z": 1, "a": 2})
+    assert isinstance(ordered, dict)
+    assert list(ordered) == ["z", "a"]
+    assert isinstance(safe_custom_entry_data({"v": float("inf")}), str)
+    assert render_extension_message(renderers, "note", {"text": "hello"}) == (
+        "Note",
+        "hello",
+    )
+    assert render_extension_message(renderers, "boom", {}) == (
+        "render error: RuntimeError",
+    )
+
+
 def test_unknown_command_is_not_dispatched(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(
@@ -204,6 +360,47 @@ def test_handler_exception_is_bounded(tmp_path: Path) -> None:
     # Bounded, no raw message leak.
     assert "/Users/x" not in dispatch.error
     assert "leak-tok-123" not in dispatch.error
+
+
+def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) -> None:
+    # Product path: a command can append a custom native-session entry and render
+    # it through the extension's renderer with no provider turn.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "card.py").write_text(
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: ['Card title: ' + data['title']])\n"
+        "    def card(ctx, args):\n"
+        "        entry_id = ctx.append_entry('card', {'title': args or 'untitled'})\n"
+        "        ctx.ui.notify('ENTRY_ID:' + str(entry_id))\n"
+        "    api.register_command('card', 'add card', card)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    native_session = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=native_session,
+    )
+    error_stream = StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/card hello\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert "Card title: hello" in error_stream.getvalue()
+    assert "ENTRY_ID:" in error_stream.getvalue()
+    assert not provider.requests
+    custom_entries = [e for e in native_session.entries if isinstance(e, CustomEntry)]
+    assert len(custom_entries) == 1
+    assert custom_entries[0].custom_type == "card"
+    assert custom_entries[0].data == {"title": "hello"}
+    assert result.user_turn_count == 0
 
 
 def test_extension_command_runs_through_the_session(tmp_path, monkeypatch) -> None:

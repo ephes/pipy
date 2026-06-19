@@ -11,7 +11,7 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–15 plus the first
+Implementation status: **partially implemented.** Slices 1–16 plus the first
 package-source/update follow-on have landed (see "Suggested Implementation
 Slices"), including **package runtime composition** — installed local-path and
 managed git package resources (extensions/skills/prompts/themes) now flow
@@ -34,9 +34,12 @@ custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
 keyboard-shortcut registration `api.register_shortcut(...)`. It is not
 source-compatible with Pi's TypeScript extensions, and it still lacks several
-mature Pi surfaces: richer multi-widget TUI and custom message/tool rendering,
+mature Pi surfaces: richer multi-widget TUI, custom tool rendering,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
-and broader package ecosystem polish.
+and broader package ecosystem polish. A first custom session-entry/message
+rendering slice has landed: extensions can register a text renderer for a custom
+entry type and command/shortcut handlers can append JSON-safe custom entries to
+the native product session tree.
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
@@ -270,11 +273,8 @@ class PipyExtensionAPI(Protocol):
         options: Mapping[str, Any] | None = None,
     ) -> None: ...
 
-    def append_entry(
-        self,
-        entry_type: str,
-        data: Mapping[str, Any] | None = None,
-    ) -> None: ...
+    # Runtime handlers append entries through `ctx.append_entry(...)`; the
+    # activation-time API only registers the renderer.
 
     def get_commands(self) -> Sequence["CommandInfo"]: ...
     def get_all_tools(self) -> Sequence["ToolInfo"]: ...
@@ -292,6 +292,7 @@ class CommandContext(Protocol):
     def set_active_tools(self, tool_names: Sequence[str]) -> bool: ...
     def set_model(self, reference: str) -> bool: ...
     def set_thinking_level(self, level: str) -> bool: ...
+    def append_entry(self, custom_type: str, data: object | None = None) -> object: ...
 ```
 
 Actual implementation should reuse existing native tool contracts where
@@ -1042,8 +1043,28 @@ and the live `scripts/tmux_answer_verify.sh`.
     `ctx.ui.set_working_message` / `ctx.ui.set_working_visible` control the
     provider-turn working row for subsequent turns until changed again or reset
     by the extension. This is still short of Pi's full widget/component surface:
-    custom message/tool renderers, custom header/footer/editor, autocomplete
-    providers, and extension state/session-manager helpers remain follow-ons.
+    custom tool renderers, custom header/footer/editor, autocomplete providers,
+    and extension state/session-manager helpers remain follow-ons.
+16. Custom session entries and message renderers — **landed for command/shortcut
+    contexts**: `api.register_message_renderer(custom_type, renderer)` accepts a
+    bounded synchronous text renderer for JSON-safe custom entries, and handlers can call
+    `ctx.append_entry(custom_type, data)` to append a `custom` entry to the
+    native product session tree and receive the new entry id. The rendered entry
+    appears in the product TUI or captured-stream diagnostics without a provider
+    turn; renderer crashes
+    fail soft with a bounded diagnostic, and non-JSON data is converted before
+    persistence. Renderers receive the same JSON-safe value that is persisted,
+    not the original live object, so the TUI and exports see one consistent
+    payload; if the original value cannot be encoded, the renderer receives a
+    stringified fallback, and if it exceeds the cap it receives a truncated
+    marker object. `custom_type` must be the same command-shaped, lowercase
+    identifier registered with the renderer (1-200 characters); unknown or differently-cased types
+    render through the bounded generic fallback. This first slice renders custom
+    entries when they are appended; replaying custom entries into a resumed TUI
+    session is a later session-manager/rendering follow-on. This is the first
+    Pi-shaped `appendEntry` / `registerMessageRenderer` slice. Rich custom tool
+    renderers, multi-widget message components, and extension session-manager
+    helpers remain follow-ons.
 
 ## Open Questions
 

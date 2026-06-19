@@ -17,6 +17,7 @@ from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     activate_extensions,
     extension_flags,
+    extension_message_renderers,
     parse_extension_flag_tokens,
     safe_activation_metadata,
 )
@@ -84,6 +85,76 @@ def test_async_activate_is_awaited(tmp_path: Path) -> None:
 
     assert activated.status == "activated"
     assert [c.name for c in activated.commands] == ["ah"]
+
+
+def test_activate_registers_message_renderer(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "renderext",
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: ['CARD', str(data)])\n",
+    )
+
+    renderers = extension_message_renderers(_activate(workspace))
+
+    assert sorted(renderers) == ["card"]
+    assert renderers["card"].extension == "renderext"
+
+
+def test_duplicate_message_renderer_disables_later_extension(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "first",
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: str(data))\n",
+    )
+    _write_single_file(
+        workspace,
+        "second",
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: str(data))\n",
+    )
+
+    first = _by_name(_activate(workspace), "first")
+    second = _by_name(_activate(workspace), "second")
+
+    assert first.status == "activated"
+    assert second.status == "disabled"
+    assert second.reason == "duplicate_message_renderer"
+
+
+def test_invalid_message_renderer_disables_only_that_extension(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "badrender",
+        "def activate(api):\n"
+        "    api.register_message_renderer('bad/name', lambda data: str(data))\n",
+    )
+
+    activated = _by_name(_activate(workspace), "badrender")
+
+    assert activated.status == "disabled"
+    assert activated.reason == "invalid_message_renderer"
+    assert not activated.message_renderers
+
+
+def test_long_message_renderer_type_is_rejected(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "longrender",
+        "def activate(api):\n"
+        f"    api.register_message_renderer({'x' * 201!r}, lambda data: str(data))\n",
+    )
+
+    activated = _by_name(_activate(workspace), "longrender")
+
+    assert activated.status == "disabled"
+    assert activated.reason == "invalid_message_renderer"
+    assert not activated.message_renderers
 
 
 def test_activate_registers_extension_flags_and_parses_tokens(tmp_path: Path) -> None:
@@ -460,8 +531,17 @@ def test_safe_activation_metadata_excludes_handlers(tmp_path: Path) -> None:
     metadata = safe_activation_metadata(result)
 
     entry = next(m for m in metadata if m["name"] == "metaext")
-    assert set(entry) == {"name", "version", "path_label", "status", "reason", "commands"}
+    assert set(entry) == {
+        "name",
+        "version",
+        "path_label",
+        "status",
+        "reason",
+        "commands",
+        "message_renderers",
+    }
     assert entry["commands"] == ["mc"]
+    assert entry["message_renderers"] == []
     # No handler objects or callables leak into metadata.
     assert "lambda" not in str(entry) and "function" not in str(entry).lower()
 
@@ -469,3 +549,4 @@ def test_safe_activation_metadata_excludes_handlers(tmp_path: Path) -> None:
 def test_public_api_protocol_is_importable() -> None:
     # The public extension surface the spec examples import from.
     assert hasattr(PipyExtensionAPI, "register_command")
+    assert hasattr(PipyExtensionAPI, "register_message_renderer")
