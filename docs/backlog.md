@@ -336,6 +336,45 @@ The highest-impact remaining gaps are now:
    should come through extension-defined permission/tool gates once the
    extension platform exists, not through a revived pipy-only `/verify` command.
 
+### Fresh TUI parity bug reports (2026-06-19)
+
+These are small, user-visible polish/parity items reported from a live
+`openai-codex` / `gpt-5.5` product-TUI session. They should be fixed as narrow
+TUI/status slices rather than bundled into the broad extension/package track.
+
+- **Right-edge TUI gutter / footer clipping.** Symptom: in a wide terminal the
+  footer right side ends with `• hig`, cutting off the final `h` of `high`, and
+  the right border shows a suspicious blank strip. Likely root cause: most live
+  rows (`ToolLoopTerminalUi._live_region_lines`, footer rows, separators, and
+  `_clip(width)`) use the full reported terminal width, while only the editable
+  input path deliberately reserves a trailing safety cell (`width - 1`). In
+  terminals/panes with a right-edge scrollbar, border, or wrap-sensitive final
+  column, right-aligned footer text lands in the unsafe cell. Backlog item:
+  introduce a consistent one-cell right gutter (or display-width-aware safe
+  width) for all live-frame rows and footer/status rendering, keep padding and
+  clipping consistent, and add a real-PTY/tmux regression proving `high` remains
+  visible with no wrap/erase artifact at the right edge.
+- **Working spinner color parity.** Symptom: Pi renders the active working
+  spinner in a greenish/accent color, while pipy's spinner is grey. Root cause:
+  `ToolLoopTerminalUi._styled_line()` styles `kind == "working"` with
+  `ChromeStyle.secondary_dim()`, and the TUI renderer only supplies spinner text
+  (`⠋ Working...` etc.) via `set_working()`. Backlog item: render working rows
+  with the theme accent/title color (preserving `NO_COLOR` and custom extension
+  working-message behavior) and pin it with an ANSI/style regression.
+- **Footer usage/status parity.** Symptom: Pi's footer can show a fuller line
+  such as `↑212k ↓11k R3.5M CH99.0% $3.157 (sub) 40.8%/272k (auto)`, while
+  pipy currently shows a reduced/different line such as
+  `↑13.6k ↓106 R15 $0.018 (sub) 2.5%/272k (auto)`. Root causes: pipy normalizes
+  provider `cached_tokens` but `_UsageAccumulator` ignores them; pipy uses `R`
+  for `reasoning_tokens`, while Pi's footer uses `R` for cache-read tokens
+  (and `W` for cache-write when present); pipy has no cache-hit percentage
+  (`CH…%`) rendering and its cost table has no cache read/write rates. Backlog
+  item: align footer usage semantics with Pi by accumulating input/output/cache
+  read/cache write, computing/displaying cache-hit percentage when available,
+  using Pi-like compact token formatting, and treating provider reasoning-token
+  counters separately from the Pi `R` cache-read footer label. Add focused
+  formatter tests plus an OpenAI Codex usage fixture.
+
 ## Parity Cleanup: accidental pipy-only surfaces to remove or realign
 
 These surfaces exist only in pipy and not in Pi. Per the parity principle
