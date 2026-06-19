@@ -185,7 +185,9 @@ Initial event vocabulary:
 
 - `harness.run.started`
 - `harness.run.completed`
-- `harness.run.failed`
+- `harness.run.adapter_failed`
+- `harness.run.exception`
+- `harness.run.aborted`
 - `agent.process.started`
 - `agent.process.exited`
 - `agent.native_session.referenced`
@@ -194,8 +196,8 @@ Initial event vocabulary:
 - `session.finalized`
 
 `session.finalized` is a harness lifecycle event. It is appended by the Runner
-just before the recorder unit of work is closed and moved into the finalized
-archive.
+after the recorder rename succeeds, as the final mutation before the finalized
+archive is returned to callers.
 
 Potential later events:
 
@@ -1781,9 +1783,9 @@ sequenceDiagram
   Runner->>Recorder: append agent.process.exited
   Adapter-->>Runner: result
   Runner->>Recorder: append summary events
-  Runner->>Recorder: append session.finalized
   Runner->>Recorder: finalize with Markdown summary
   Recorder->>Archive: move JSONL + Markdown
+  Runner->>Archive: append session.finalized
   Runner-->>CLI: exit with native status
 ```
 
@@ -1792,9 +1794,9 @@ write lock. Child stdout/stderr streams and adapter lifecycle callbacks may
 arrive concurrently; recorder event order must come from Runner-assigned
 `sequence`, not thread scheduling.
 
-`session.finalized` is the final JSONL event appended while the record is still
-active. The recorder then closes the unit of work and moves the JSONL and
-Markdown summary into the finalized archive.
+`session.finalized` is the final JSONL event appended after the recorder closes
+the unit of work and moves the JSONL and Markdown summary into the finalized
+archive. `--no-session` uses the null recorder and skips this archive mutation.
 
 The Runner returns the native exit status only after recorder finalization has
 completed or a recording failure has been handled according to the capture
@@ -1887,7 +1889,7 @@ capture.limitations
 harness.run.started
 agent.process.started
 agent.process.exited
-harness.run.completed | harness.run.failed | harness.run.aborted
+harness.run.completed | harness.run.adapter_failed | harness.run.exception | harness.run.aborted
 session.finalized
 ```
 
@@ -1916,7 +1918,7 @@ than every event:
 carry the run envelope fields (`run_id`, `event_id`, `sequence`, `timestamp`)
 and `harness_protocol_version`, with `sequence` set to 0. Subsequent harness
 events should carry the same envelope fields. `session.finalized` is a harness
-event appended before recorder finalization, not a post-archive mutation.
+event appended after recorder finalization as the final archive mutation.
 
 The finalized Markdown summary should include:
 

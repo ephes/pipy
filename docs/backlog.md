@@ -343,38 +343,21 @@ These are small, user-visible polish/parity items reported from a live
 `openai-codex` / `gpt-5.5` product-TUI session. They should be fixed as narrow
 TUI/status slices rather than bundled into the broad extension/package track.
 
-- **Right-edge TUI gutter / footer clipping.** Symptom: in a wide terminal the
-  footer right side ends with `• hig`, cutting off the final `h` of `high`, and
-  the right border shows a suspicious blank strip. Likely root cause: most live
-  rows (`ToolLoopTerminalUi._live_region_lines`, footer rows, separators, and
-  `_clip(width)`) use the full reported terminal width, while only the editable
-  input path deliberately reserves a trailing safety cell (`width - 1`). In
-  terminals/panes with a right-edge scrollbar, border, or wrap-sensitive final
-  column, right-aligned footer text lands in the unsafe cell. Backlog item:
-  introduce a consistent one-cell right gutter (or display-width-aware safe
-  width) for all live-frame rows and footer/status rendering, keep padding and
-  clipping consistent, and add a real-PTY/tmux regression proving `high` remains
-  visible with no wrap/erase artifact at the right edge.
-- **Working spinner color parity.** Symptom: Pi renders the active working
-  spinner in a greenish/accent color, while pipy's spinner is grey. Root cause:
-  `ToolLoopTerminalUi._styled_line()` styles `kind == "working"` with
-  `ChromeStyle.secondary_dim()`, and the TUI renderer only supplies spinner text
-  (`⠋ Working...` etc.) via `set_working()`. Backlog item: render working rows
-  with the theme accent/title color (preserving `NO_COLOR` and custom extension
-  working-message behavior) and pin it with an ANSI/style regression.
-- **Footer usage/status parity.** Symptom: Pi's footer can show a fuller line
-  such as `↑212k ↓11k R3.5M CH99.0% $3.157 (sub) 40.8%/272k (auto)`, while
-  pipy currently shows a reduced/different line such as
-  `↑13.6k ↓106 R15 $0.018 (sub) 2.5%/272k (auto)`. Root causes: pipy normalizes
-  provider `cached_tokens` but `_UsageAccumulator` ignores them; pipy uses `R`
-  for `reasoning_tokens`, while Pi's footer uses `R` for cache-read tokens
-  (and `W` for cache-write when present); pipy has no cache-hit percentage
-  (`CH…%`) rendering and its cost table has no cache read/write rates. Backlog
-  item: align footer usage semantics with Pi by accumulating input/output/cache
-  read/cache write, computing/displaying cache-hit percentage when available,
-  using Pi-like compact token formatting, and treating provider reasoning-token
-  counters separately from the Pi `R` cache-read footer label. Add focused
-  formatter tests plus an OpenAI Codex usage fixture.
+- **Right-edge TUI gutter / footer clipping — resolved.** Live-frame painting
+  now reserves a consistent one-cell safety gutter and footer/status formatting
+  uses the same safe width, so `• high` remains visible without wrapping into
+  the unsafe final column. The real-PTY resize/settings regressions now expect
+  the safe-width separator.
+- **Working spinner color parity — resolved.** Working rows render with the
+  theme accent color instead of secondary gray while preserving the existing
+  `NO_COLOR`/non-TTY and extension working-message behavior; an ANSI style
+  regression pins this.
+- **Footer usage/status parity — partially resolved.** The footer accumulator
+  now tracks cache-read (`cached_tokens`) and cache-write counters, renders Pi's
+  `R`/`W` cache labels plus `CH…%`, and keeps provider reasoning counters out
+  of the Pi `R` cache-read label. Focused formatter/usage tests cover the new
+  semantics; provider-specific cache pricing can still be refined from catalog
+  rates later.
 
 ## Parity Cleanup: accidental pipy-only surfaces to remove or realign
 
@@ -1159,10 +1142,10 @@ Collapse the parallel families.
    archive-safe one-call boundary it claims to be plus a separate
    path-validation helpers module shared with the model-driven tools.
    Refs: `03:F2`.
-8. Lift `NativeConversationState.MAX_TURNS = 8` for the interactive
-   REPL. The cap is currently shipping a UX bug (the REPL refuses
-   turns at 8) and silently disables `session_compaction` (Track
-   CQ-A slice 4). Refs: `07:F7`.
+8. Resolved: `NativeConversationState.MAX_TURNS` was lifted from 8 to 256
+   (with matching turn-identity bounds), so the interactive REPL no longer
+   refuses ordinary sessions at eight turns and compaction has room to run.
+   Refs: `07:F7`.
 9. Consolidate the 13-way provider switch in `repl_state.py` (four
    copies) into one provider-descriptor table that owns every
    per-provider fact. Refs: `02:F19`, `07:F8`.
@@ -1175,9 +1158,9 @@ Collapse the parallel families.
 
 Concrete bugs surfaced by the audits. Each warrants a focused test.
 
-1. Re-order `session.finalized` emission to fire *after*
-   `recorder.finalize()` completes, not before. Wrap the failure path
-   in `finally` so finalization is guaranteed. Refs: `04:F7`, `04:F8`.
+1. Resolved: `session.finalized` is appended only after `recorder.finalize()`
+   returns and remains the last lifecycle event in finalized JSONL records.
+   Refs: `04:F7`, `04:F8`.
 2. Resolve the chrome banner / loader path disagreement. Pick one
    canonical layout for global resources (currently chrome says
    `~/.pipy/...`, loader says `~/.config/pipy/...`) and one for
@@ -1187,24 +1170,20 @@ Concrete bugs surfaced by the audits. Each warrants a focused test.
 3. Stop printing `final_text` to `sys.stdout` from inside
    `PipyNativeAdapter.run`. The adapter does not own stdout. Refs:
    `04:F21`.
-4. Stop instantiating a real provider in `_resolve_repl_mode` just to
-   read `supports_tool_calls`. Derive the capability from the
-   model-registry (Track CQ-B slice 8) without an HTTP-capable
-   instance. Refs: `04:F9`.
-5. Disambiguate the `harness.run.failed` event. It is emitted from
-   two code paths with different semantics (adapter returned bad
-   status vs exception escaped adapter); split into
-   `harness.run.adapter_failed` and `harness.run.exception`. Refs:
-   `04:F16`.
+4. Resolved: `_resolve_repl_mode` now uses catalog/provider-registry metadata
+   (plus the automation fake exception) instead of constructing a live provider
+   just to read `supports_tool_calls`. Refs: `04:F9`.
+5. Resolved: the old ambiguous `harness.run.failed` event was split into
+   `harness.run.adapter_failed` (adapter returned failed status) and
+   `harness.run.exception` (exception escaped prepare/run). Refs: `04:F16`.
 6. Fix `_resource_files.discover_resource_files`: enforce the workspace
    byte cap *before* `_read_capped_bytes` streams the whole file, not
    after. Today an over-cap file is read fully and then discarded.
    Refs: `06:F14`.
 7. Fix `_resource_files._path_label_for` so symlink resolution does
    not lose the workspace prefix. Refs: `06:F15`.
-8. Fix `_load_first_candidate` so a seen candidate falls through to
-   the next candidate in the same directory, instead of returning
-   `None` for the whole directory. Refs: `06:F16`.
+8. Resolved: `_load_first_candidate` now continues past a seen candidate and
+   can load the next candidate in the same directory. Refs: `06:F16`.
 9. Tighten the two competing secret detectors (`looks_sensitive`
    substring vs `has_secret_shaped_content` regex) into one helper
    with one definition. Apply at one layer. Refs: `03:F9`.

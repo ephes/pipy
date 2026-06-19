@@ -60,7 +60,7 @@ def _supports_adaptive_thinking(model_id: str) -> bool:
 BEDROCK_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
-    ("cache_creation_input_tokens", "cached_tokens"),
+    ("cache_creation_input_tokens", "cache_write_tokens"),
     ("cache_read_input_tokens", "cached_tokens"),
 )
 
@@ -531,17 +531,23 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
             usage[normalized_key] = item
 
     if usage.get("total_tokens") is None:
-        input_tokens = value.get("input_tokens")
-        output_tokens = value.get("output_tokens")
-        if (
-            isinstance(input_tokens, int)
-            and not isinstance(input_tokens, bool)
-            and isinstance(output_tokens, int)
-            and not isinstance(output_tokens, bool)
-        ):
-            usage["total_tokens"] = input_tokens + output_tokens
+        input_tokens = _usage_int(usage.get("input_tokens"))
+        output_tokens = _usage_int(usage.get("output_tokens"))
+        if input_tokens is not None and output_tokens is not None:
+            usage["total_tokens"] = (
+                input_tokens
+                + output_tokens
+                + (_usage_int(usage.get("cached_tokens")) or 0)
+                + (_usage_int(usage.get("cache_write_tokens")) or 0)
+            )
 
     return normalize_provider_usage(usage)
+
+
+def _usage_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 # ---------------------------------------------------------------------------

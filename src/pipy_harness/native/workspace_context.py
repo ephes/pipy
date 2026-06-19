@@ -287,7 +287,7 @@ def _load_first_candidate(
         except ValueError:
             continue
         if resolved_candidate in seen_paths:
-            return None
+            continue
         try:
             head, byte_length, sha256 = _read_capped_bytes(
                 resolved_candidate,

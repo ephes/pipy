@@ -39,7 +39,7 @@ ANTHROPIC_DEFAULT_THINKING_BUDGET = 16384
 ANTHROPIC_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
-    ("cache_creation_input_tokens", "cached_tokens"),
+    ("cache_creation_input_tokens", "cache_write_tokens"),
     ("cache_read_input_tokens", "cached_tokens"),
 )
 
@@ -463,7 +463,8 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
         usage[key] = value.get(key)
 
     # Anthropic exposes cache-related counters under cache_creation_input_tokens
-    # and cache_read_input_tokens. Map either to cached_tokens when present.
+    # and cache_read_input_tokens. Map creation to cache writes and reads to
+    # cached tokens when present.
     for anthropic_key, normalized_key in ANTHROPIC_USAGE_FIELD_MAP:
         if anthropic_key == normalized_key:
             continue
@@ -471,13 +472,23 @@ def _extract_usage(value: Any) -> dict[str, int | float]:
         if item is not None and usage.get(normalized_key) is None:
             usage[normalized_key] = item
 
-    # Synthesize total_tokens when the provider omits it but supplies inputs+outputs.
+    # Synthesize total_tokens when the provider omits it. Anthropic reports
+    # cache reads/writes separately from fresh input tokens, so include them.
     if usage.get("total_tokens") is None:
-        input_tokens = value.get("input_tokens")
-        output_tokens = value.get("output_tokens")
-        if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) and (
-            isinstance(output_tokens, int) and not isinstance(output_tokens, bool)
-        ):
-            usage["total_tokens"] = input_tokens + output_tokens
+        input_tokens = _usage_int(usage.get("input_tokens"))
+        output_tokens = _usage_int(usage.get("output_tokens"))
+        if input_tokens is not None and output_tokens is not None:
+            usage["total_tokens"] = (
+                input_tokens
+                + output_tokens
+                + (_usage_int(usage.get("cached_tokens")) or 0)
+                + (_usage_int(usage.get("cache_write_tokens")) or 0)
+            )
 
     return normalize_provider_usage(usage)
+
+
+def _usage_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value

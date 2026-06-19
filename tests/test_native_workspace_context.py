@@ -201,6 +201,25 @@ def test_missing_files_do_not_fail(tmp_path: Path) -> None:
 # -- dedup by canonical path -------------------------------------------------
 
 
+def test_seen_candidate_falls_through_to_next_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "pipy_harness.native.workspace_context.INSTRUCTION_CANDIDATE_FILENAMES",
+        ("AGENTS.md", "pipy.md"),
+    )
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    (workspace / "AGENTS.md").write_text("global copy\n", encoding="utf-8")
+    (workspace / "pipy.md").write_text("workspace fallback\n", encoding="utf-8")
+
+    result = _discover(workspace, env={PIPY_CONFIG_HOME_ENV: str(workspace)})
+
+    labels = [entry.path_label for entry in result.instructions]
+    assert labels == [f"{GLOBAL_PATH_LABEL_PREFIX}AGENTS.md", "pipy.md"]
+    assert result.instructions[-1].content.strip() == "workspace fallback"
+
+
 def test_dedup_by_canonical_path_via_symlinked_ancestor(tmp_path: Path) -> None:
     real_parent = tmp_path / "real_parent"
     workspace = real_parent / "ws"

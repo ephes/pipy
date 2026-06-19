@@ -108,7 +108,12 @@ def test_success_returns_final_text(tmp_path):
                     {"type": "text", "text": "hello"},
                     {"type": "text", "text": " world"},
                 ],
-                "usage": {"input_tokens": 7, "output_tokens": 3},
+                "usage": {
+                    "input_tokens": 7,
+                    "output_tokens": 3,
+                    "cache_creation_input_tokens": 4,
+                    "cache_read_input_tokens": 2,
+                },
             },
         )
     )
@@ -125,7 +130,9 @@ def test_success_returns_final_text(tmp_path):
     assert result.usage == {
         "input_tokens": 7,
         "output_tokens": 3,
-        "total_tokens": 10,
+        "total_tokens": 16,
+        "cached_tokens": 2,
+        "cache_write_tokens": 4,
     }
     assert result.metadata == {"stop_reason": "end_turn"}
     assert result.tool_calls == ()

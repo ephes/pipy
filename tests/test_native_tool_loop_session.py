@@ -38,6 +38,7 @@ from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_tool_names,
     load_extension_provider_contributions,
 )
+from pipy_harness.native.tool_loop_session import _UsageAccumulator
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
@@ -118,6 +119,36 @@ def _run_session(
         error_stream=error_stream,
     )
     return result, output_stream.getvalue(), error_stream.getvalue()
+
+
+def test_usage_accumulator_cache_hit_uses_provider_specific_denominator():
+    openai_usage = _UsageAccumulator()
+    openai_usage.bind("openai-codex", "gpt-5.5")
+    openai_usage.absorb({"input_tokens": 100, "cached_tokens": 80})
+
+    anthropic_usage = _UsageAccumulator()
+    anthropic_usage.bind("custom-anthropic", "claude-test")
+    anthropic_usage.absorb(
+        {
+            "input_tokens": 7,
+            "cached_tokens": 2,
+            "cache_write_tokens": 4,
+            "total_tokens": 13,
+        }
+    )
+    read_only_cache_usage = _UsageAccumulator()
+    read_only_cache_usage.bind("custom-anthropic", "claude-test")
+    read_only_cache_usage.absorb(
+        {"input_tokens": 100, "cached_tokens": 80, "total_tokens": 180}
+    )
+    all_cache_usage = _UsageAccumulator()
+    all_cache_usage.bind("custom-anthropic", "claude-test")
+    all_cache_usage.absorb({"input_tokens": 0, "cached_tokens": 20, "total_tokens": 20})
+
+    assert openai_usage.cache_hit_percent == 80.0
+    assert anthropic_usage.cache_hit_percent == pytest.approx(100.0 * 2 / 13)
+    assert read_only_cache_usage.cache_hit_percent == pytest.approx(100.0 * 80 / 180)
+    assert all_cache_usage.cache_hit_percent == 100.0
 
 
 # --------------------- production registry holds model tools ----------------

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pipy_harness.adapters import SubprocessAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, HarnessStatus, PreparedRun, RunRequest
-from pipy_harness.runner import HarnessRunner
+from pipy_harness.runner import HarnessRunner, NullSessionRecorder
 from pipy_session import (
     SessionRecord,
     inspect_finalized_session,
@@ -75,7 +76,7 @@ def test_runner_nonzero_child_finalizes_and_returns_native_exit_code(tmp_path):
     assert result.exit_code == 7
     assert result.status.value == "failed"
     events = read_jsonl(result.record.jsonl_path)
-    assert events[-2]["type"] == "harness.run.failed"
+    assert events[-2]["type"] == "harness.run.adapter_failed"
     assert events[-1]["type"] == "session.finalized"
     assert verify_session_archive(root=tmp_path / "sessions").ok is True
 
@@ -150,6 +151,30 @@ def test_runner_record_files_is_opt_in_and_records_paths_only(tmp_path):
     assert payload["diffs_stored"] is False
     assert payload["file_contents_stored"] is False
     assert "write_text('x')" not in recorded_result.record.jsonl_path.read_text(encoding="utf-8")
+
+
+def test_null_session_recorder_does_not_write_finalized_event(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    sentinel = tmp_path / "pipy-no-session.jsonl"
+
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(),
+        recorder=NullSessionRecorder(),
+        id_factory=lambda: "run-no-session",
+    ).run(
+        RunRequest(
+            agent="custom",
+            slug="no-session",
+            command=[sys.executable, "-c", "print('ephemeral')"],
+            cwd=tmp_path,
+        )
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.record.jsonl_path == sentinel
+    assert not sentinel.exists()
 
 
 def test_new_records_remain_compatible_with_catalog_commands(tmp_path):
@@ -227,6 +252,23 @@ def test_runner_finalizes_aborted_record_when_adapter_raises_keyboard_interrupt(
     assert verify_session_archive(root=tmp_path / "sessions").ok is True
 
 
+def test_runner_records_aborted_event_when_adapter_returns_aborted_status(tmp_path):
+    result = HarnessRunner(adapter=AbortedResultAdapter(), id_factory=lambda: "run-aborted-result").run(
+        RunRequest(
+            agent="custom",
+            slug="aborted-result",
+            command=["fake"],
+            cwd=tmp_path,
+            root=tmp_path / "sessions",
+        )
+    )
+
+    assert result.exit_code == 130
+    assert result.status == HarnessStatus.ABORTED
+    events = read_jsonl(result.record.jsonl_path)
+    assert [event["type"] for event in events[-2:]] == ["harness.run.aborted", "session.finalized"]
+
+
 def test_runner_finalizes_failed_record_when_adapter_raises_exception(tmp_path):
     result = HarnessRunner(adapter=ExplodingAdapter(), id_factory=lambda: "run-error").run(
         RunRequest(
@@ -243,7 +285,7 @@ def test_runner_finalizes_failed_record_when_adapter_raises_exception(tmp_path):
     assert result.error_type == "RuntimeError"
     assert result.error_message == "adapter exploded"
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.failed", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == ["harness.run.exception", "session.finalized"]
     assert events[-2]["payload"]["error_type"] == "RuntimeError"
     assert events[-2]["payload"]["error_message"] == "adapter exploded"
     assert events[-2]["payload"]["duration_seconds"] >= 0
@@ -290,6 +332,28 @@ class InterruptingAdapter:
 
     def run(self, prepared, *, event_sink, capture_policy) -> AdapterResult:
         raise KeyboardInterrupt
+
+
+class AbortedResultAdapter:
+    name = "fake-aborted-result"
+
+    def prepare(self, request: RunRequest) -> PreparedRun:
+        return PreparedRun(
+            command=tuple(request.command),
+            cwd=request.cwd,
+            adapter=self.name,
+            command_executable="fake",
+        )
+
+    def run(self, prepared, *, event_sink, capture_policy) -> AdapterResult:
+        del prepared, event_sink, capture_policy
+        now = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
+        return AdapterResult(
+            status=HarnessStatus.ABORTED,
+            exit_code=130,
+            started_at=now,
+            ended_at=now,
+        )
 
 
 class ExplodingAdapter:

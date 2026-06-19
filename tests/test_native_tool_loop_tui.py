@@ -18,6 +18,7 @@ from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelOption
+from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import SettingsRow, ToolLoopTerminalUi
@@ -114,6 +115,51 @@ def test_tui_frame_owns_distinct_regions(tmp_path: Path):
     assert frame[input_index + 1].strip("─") == ""
     assert "~/projects/pipy" in frame[input_index + 2]
     assert "$0.000" in frame[input_index + 3]
+
+
+def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
+    ui = _ui(tmp_path)
+    frame_line = ui._block_frame_lines(
+        "working", ("⠋ Working...",), width=40
+    )[0]
+    styled = ui._styled_line(
+        frame_line,
+        style=ChromeStyle(enabled=True),
+        width=40,
+    )
+
+    assert styled.startswith("\x1b[2m \x1b[0m\x1b[36m⠋\x1b[0m")
+    assert "\x1b[2m Working...\x1b[0m" in styled
+
+
+def test_tui_keeps_input_row_stable_when_working_line_settles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "24")
+    stream = _TtyBuffer()
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, io.StringIO()),
+        terminal_stream=cast(TextIO, stream),
+        cwd=tmp_path,
+    )
+    ui.footer_lines = ("~/projects/pipy (main)", "$0.000 (sub) status")
+    ui.input_text = "next prompt"
+
+    ui.set_working("⠋ Working...")
+    ui.append_assistant("line one\nline two")
+    active = parse_ansi_screen(stream.getvalue(), columns=80, rows=24)
+    active_input = next(
+        index for index, line in enumerate(active.viewport) if "next prompt" in line
+    )
+
+    ui.settle_assistant()
+    settled = parse_ansi_screen(stream.getvalue(), columns=80, rows=24)
+    settled_input = next(
+        index for index, line in enumerate(settled.viewport) if "next prompt" in line
+    )
+
+    assert settled_input == active_input
 
 
 def test_tui_keeps_working_region_below_assistant_stream(tmp_path: Path):

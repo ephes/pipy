@@ -99,6 +99,29 @@ def test_format_bottom_status_line_emits_token_arrows_after_a_turn() -> None:
     assert line.endswith("(openai-codex) gpt-5.5 • high")
 
 
+def test_format_bottom_status_line_uses_pi_cache_labels() -> None:
+    fields = chrome.BottomStatusFields(
+        cwd_label="",
+        cost_label="$3.157",
+        plan_label="sub",
+        context_used_pct=40.8,
+        context_budget_label="272k",
+        context_budget_suffix="auto",
+        provider_name="openai-codex",
+        model_id="gpt-5.5",
+        effort_label="high",
+        tokens_in=212_000,
+        tokens_out=11_000,
+        tokens_reasoning=15,
+        tokens_cache_read=3_500_000,
+        cache_hit_percent=99.0,
+    )
+    line = chrome.format_bottom_status_line(120, fields)
+    assert line.startswith("↑212k ↓11k R3.5M CH99.0%")
+    assert "R15" not in line
+    assert "$3.157 (sub) 40.8%/272k (auto)" in line
+
+
 def test_discover_loaded_resource_names_returns_local_and_global(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

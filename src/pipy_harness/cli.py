@@ -87,6 +87,22 @@ STREAMING_NATIVE_PROVIDERS = frozenset({"openai-codex", "fake"})
 `ProviderPort.complete(..., stream_sink=...)`. `--stream` fails closed
 with a stderr diagnostic when the active provider is not in this set."""
 
+TOOL_CAPABLE_NATIVE_APIS = frozenset(
+    {
+        "anthropic-messages",
+        "openai-responses",
+        "openai-completions",
+        "openai-codex-responses",
+        "google-generative-ai",
+        "google-vertex",
+        "amazon-bedrock",
+        "azure-openai-responses",
+        "cloudflare-workers-ai",
+        "mistral",
+    }
+)
+"""Catalog API families whose provider adapters support tool calls."""
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -1848,22 +1864,31 @@ def _resolve_repl_mode(
         # Unknown provider/model — the adapter build will surface the error;
         # default the probe to no-tool.
         return "no-tool"
-    # Probe through catalog construction (the same boundary the REPL uses) so a
-    # custom models.json provider is recognized as tool-capable, not just the
-    # built-in registry.
-    provider_state = NativeReplProviderState(
-        selection=selection,
-        provider_factory=_native_provider_for_selection,
-        catalog_state=catalog_state,
-        persist_defaults=False,
-    )
-    try:
-        provider = provider_state.current_provider()
-    except Exception:
-        return "no-tool"
-    if getattr(provider, "supports_tool_calls", False):
+    if selection.provider_name == "fake" and selection.model_id == AUTOMATION_FAKE_MODEL_ID:
         return "tool-loop"
-    return "no-tool"
+    row = catalog_state.find(selection.provider_name, selection.model_id)
+    if row is None:
+        return "no-tool"
+    if row.api == "extension-provider":
+        # Extension provider capabilities are exposed by the extension-built
+        # port rather than the static catalog row. Keep this probe limited to
+        # extension providers so built-in/custom HTTP-capable adapters are not
+        # constructed during startup mode resolution.
+        provider_state = NativeReplProviderState(
+            selection=selection,
+            provider_factory=_native_provider_for_selection,
+            catalog_state=catalog_state,
+            persist_defaults=False,
+        )
+        try:
+            provider = provider_state.current_provider()
+        except Exception:
+            return "no-tool"
+        return "tool-loop" if getattr(provider, "supports_tool_calls", False) else "no-tool"
+    spec = native_provider_spec(row.provider_name)
+    if spec is not None:
+        return "tool-loop" if spec.supports_tool_calls else "no-tool"
+    return "tool-loop" if row.api in TOOL_CAPABLE_NATIVE_APIS else "no-tool"
 
 
 def _tool_repl_adapter_for(

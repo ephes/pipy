@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from collections.abc import Callable
@@ -29,12 +30,15 @@ _SAFE_USAGE_COUNTERS = {
     "output_tokens",
     "total_tokens",
     "cached_tokens",
+    "cache_write_tokens",
     "reasoning_tokens",
 }
 
 
 class FileSessionRecorder:
     """Small adapter over the existing pipy-session recorder functions."""
+
+    writes_records = True
 
     def init(
         self,
@@ -69,6 +73,8 @@ class NullSessionRecorder:
     record is created or written. ``finalize`` returns a record whose paths
     point at a never-created sentinel file.
     """
+
+    writes_records = False
 
     def __init__(self) -> None:
         import tempfile
@@ -209,11 +215,12 @@ class HarnessRunner:
                     },
                 )
 
-            completion_event = (
-                "harness.run.completed"
-                if status == HarnessStatus.SUCCEEDED
-                else "harness.run.failed"
-            )
+            if status == HarnessStatus.SUCCEEDED:
+                completion_event = "harness.run.completed"
+            elif status == HarnessStatus.ABORTED:
+                completion_event = "harness.run.aborted"
+            else:
+                completion_event = "harness.run.adapter_failed"
             sink.emit(
                 completion_event,
                 summary=f"Harness run finished: status={status.value}, exit_code={exit_code}.",
@@ -243,8 +250,8 @@ class HarnessRunner:
             error_type = type(exc).__name__
             error_message = _error_message(exc)
             sink.emit(
-                "harness.run.failed",
-                summary="Harness run failed before a native process result was available.",
+                "harness.run.exception",
+                summary="Harness run failed because an exception escaped the adapter.",
                 payload={
                     **_base_payload(request, self.adapter.name, workspace, status),
                     "exit_code": exit_code,
@@ -254,15 +261,6 @@ class HarnessRunner:
                 },
             )
 
-        sink.emit(
-            "session.finalized",
-            summary="Session finalization requested for the harness run.",
-            payload={
-                **_base_payload(request, self.adapter.name, workspace, status),
-                "exit_code": exit_code,
-                "duration_seconds": _duration_seconds(started_at, self.clock()),
-            },
-        )
         record = self.recorder.finalize(
             active_path,
             root=request.root,
@@ -281,6 +279,27 @@ class HarnessRunner:
             ),
         )
         duration_seconds = _duration_seconds(started_at, self.clock())
+        if getattr(self.recorder, "writes_records", True):
+            _append_finalized_event(
+                record,
+                event={
+                    "type": "session.finalized",
+                    "timestamp": _ensure_utc(self.clock()).isoformat(),
+                    "agent": sanitize_text(request.agent),
+                    "run_id": run_id,
+                    "event_id": f"{run_id}-{sink.sequence + 1:04d}",
+                    "sequence": sink.sequence + 1,
+                    "harness_protocol_version": HARNESS_PROTOCOL_VERSION,
+                    "summary": "Session finalized for the harness run.",
+                    "payload": _event_payload_metadata(
+                        {
+                            **_base_payload(request, self.adapter.name, workspace, status),
+                            "exit_code": exit_code,
+                            "duration_seconds": duration_seconds,
+                        }
+                    ),
+                },
+            )
         return RunResult(
             run_id=run_id,
             status=status,
@@ -328,6 +347,14 @@ class _RecorderEventSink:
             if payload:
                 event["payload"] = _event_payload_metadata(dict(payload))
             self.recorder.append(self.active_path, event, root=self.root)
+
+
+def _append_finalized_event(record: SessionRecord, *, event: Mapping[str, Any]) -> None:
+    """Append the terminal lifecycle event after the recorder rename succeeds."""
+
+    with record.jsonl_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(dict(event), sort_keys=True, separators=(",", ":")))
+        handle.write("\n")
 
 
 def _initial_session_fields(run_id: str, timestamp: datetime) -> dict[str, Any]:

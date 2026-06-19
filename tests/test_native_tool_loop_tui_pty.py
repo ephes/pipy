@@ -1014,8 +1014,8 @@ def test_pty_resize_repaints_inline_with_overlay_open(
         daemon=True,
     )
     worker.start()
-    sep_start = "─" * start_cols
-    sep_end = "─" * end_cols
+    sep_start = "─" * (start_cols - 1)
+    sep_end = "─" * (end_cols - 1)
     overlay_snapshot = None
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
@@ -1454,12 +1454,12 @@ def test_pty_settings_dialog_live_navigate_toggle_clear_and_resize(
         winsize=start,
     )
 
-    sep_end = "─" * end_cols
+    sep_end = "─" * (end_cols - 1)
     before_snapshot = None
     after_snapshot = None
     try:
         assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup chrome missing"
-        assert _wait_for(ctx.err_chunks, "─" * start_cols), "initial separator missing"
+        assert _wait_for(ctx.err_chunks, "─" * (start_cols - 1)), "initial separator missing"
         os.write(ctx.in_master, b"/settings\n")
         assert _wait_for(ctx.err_chunks, "Settings —"), "settings dialog never opened"
         # Inspect the live overlay BEFORE any action.

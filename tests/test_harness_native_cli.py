@@ -620,8 +620,8 @@ def test_cli_native_repl_status_prints_safe_state_without_provider_tool_or_archi
     assert "  provider: fake" in captured.err
     assert "  model: fake-native-bootstrap" in captured.err
     assert f"  workspace: {tmp_path.name}" in captured.err
-    assert "  provider_turns: 0/8" in captured.err
-    assert "  no_tool_history: retained=false exchanges=0/8 bytes=0/4096" in captured.err
+    assert "  provider_turns: 0/256" in captured.err
+    assert "  no_tool_history: retained=false exchanges=0/256 bytes=0/4096" in captured.err
     assert (
         "  read_budget: can_attempt=true successful=0/2 remaining=2 "
         "successful_used=false"

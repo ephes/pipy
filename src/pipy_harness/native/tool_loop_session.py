@@ -264,6 +264,8 @@ class _PricingEntry:
     input_per_million: float
     output_per_million: float
     reasoning_per_million: float
+    cache_read_per_million: float = 0.0
+    cache_write_per_million: float = 0.0
 
 
 _PRICING_TABLE: dict[tuple[str, str], _PricingEntry] = {
@@ -323,8 +325,8 @@ class _UnavailableAfterReloadProvider:
 class _UsageAccumulator:
     """Running counters fed from each provider turn's usage payload.
 
-    Captures input, output, and reasoning tokens plus an approximate USD
-    cost. The last-turn total-token snapshot drives the context-window
+    Captures input, output, cache-read/cache-write, and reasoning tokens plus
+    an approximate USD cost. The last-turn total-token snapshot drives the context-window
     meter so the bottom status reflects real provider numbers when the
     adapter reports them and falls back to the deterministic estimate
     otherwise.
@@ -334,6 +336,10 @@ class _UsageAccumulator:
         "input_tokens",
         "output_tokens",
         "reasoning_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "separate_cache_read_tokens",
+        "separate_cache_write_tokens",
         "last_total_tokens",
         "cost_usd",
         "_pricing",
@@ -345,6 +351,10 @@ class _UsageAccumulator:
         self.input_tokens = 0
         self.output_tokens = 0
         self.reasoning_tokens = 0
+        self.cache_read_tokens = 0
+        self.cache_write_tokens = 0
+        self.separate_cache_read_tokens = 0
+        self.separate_cache_write_tokens = 0
         self.last_total_tokens = 0
         self.cost_usd = 0.0
         self._pricing: _PricingEntry | None = None
@@ -356,16 +366,44 @@ class _UsageAccumulator:
         self._model_id = model_id
         self._pricing = _pricing_for(provider_name, model_id)
 
+    @property
+    def cache_hit_percent(self) -> float | None:
+        # OpenAI-style providers report cached tokens as a subset of input
+        # tokens. Anthropic/Bedrock-style providers report cache reads/writes
+        # separately; `absorb` classifies those per turn using total_tokens.
+        denominator = float(
+            self.input_tokens
+            + self.separate_cache_read_tokens
+            + self.separate_cache_write_tokens
+        )
+        if denominator <= 0:
+            return None
+        return 100.0 * self.cache_read_tokens / denominator
+
     def absorb(self, usage: Mapping[str, Any] | None) -> None:
         if not usage:
             return
         input_tokens = _coerce_int(usage.get("input_tokens"))
         output_tokens = _coerce_int(usage.get("output_tokens"))
         reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
+        cache_read_tokens = _coerce_int(usage.get("cached_tokens"))
+        cache_write_tokens = _coerce_int(usage.get("cache_write_tokens"))
         total_tokens = _coerce_int(usage.get("total_tokens"))
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
         self.reasoning_tokens += reasoning_tokens
+        self.cache_read_tokens += cache_read_tokens
+        self.cache_write_tokens += cache_write_tokens
+        if _cache_counters_are_separate(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            total_tokens=total_tokens,
+        ):
+            self.separate_cache_read_tokens += cache_read_tokens
+            self.separate_cache_write_tokens += cache_write_tokens
         if total_tokens > 0:
             self.last_total_tokens = total_tokens
         else:
@@ -377,6 +415,8 @@ class _UsageAccumulator:
                 input_tokens * self._pricing.input_per_million
                 + output_tokens * self._pricing.output_per_million
                 + reasoning_tokens * self._pricing.reasoning_per_million
+                + cache_read_tokens * self._pricing.cache_read_per_million
+                + cache_write_tokens * self._pricing.cache_write_per_million
             ) / 1_000_000.0
 
 
@@ -388,6 +428,29 @@ def _coerce_int(value: Any) -> int:
     if isinstance(value, float):
         return int(value)
     return 0
+
+
+def _cache_counters_are_separate(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    reasoning_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+    total_tokens: int,
+) -> bool:
+    if cache_read_tokens <= 0 and cache_write_tokens <= 0:
+        return False
+    if total_tokens <= 0:
+        return False
+    minimum_total_if_separate = (
+        input_tokens
+        + output_tokens
+        + reasoning_tokens
+        + cache_read_tokens
+        + cache_write_tokens
+    )
+    return total_tokens >= minimum_total_if_separate
 
 
 @dataclass(frozen=True, slots=True)
@@ -4337,6 +4400,11 @@ class NativeToolReplSession:
             if usage_accumulator is not None
             else "$0.000"
         )
+        cache_hit_percent = (
+            usage_accumulator.cache_hit_percent
+            if usage_accumulator is not None
+            else None
+        )
         fields = BottomStatusFields(
             cwd_label="",
             cost_label=cost_label,
@@ -4356,8 +4424,16 @@ class NativeToolReplSession:
             tokens_reasoning=(
                 usage_accumulator.reasoning_tokens if usage_accumulator else 0
             ),
+            tokens_cache_read=(
+                usage_accumulator.cache_read_tokens if usage_accumulator else 0
+            ),
+            tokens_cache_write=(
+                usage_accumulator.cache_write_tokens if usage_accumulator else 0
+            ),
+            cache_hit_percent=cache_hit_percent,
         )
-        status_line = format_bottom_status_line(chrome_width(error_stream), fields)
+        status_width = max(20, chrome_width(error_stream) - 1)
+        status_line = format_bottom_status_line(status_width, fields)
         cwd_label = _friendly_cwd_label(cwd)
         return f"{cwd_label}\n{status_line}"
 

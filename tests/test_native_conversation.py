@@ -70,8 +70,10 @@ def test_native_turn_identity_is_bounded_and_correlates_with_conversation():
     assert identity.turn_id == "native-conversation-0001-turn-0001"
     with pytest.raises(ValueError, match="turn_index"):
         NativeTurnIdentity(conversation_id=conversation_id, turn_index=-1)
+    max_identity = NativeTurnIdentity(conversation_id=conversation_id, turn_index=255)
+    assert max_identity.turn_id.endswith("turn-0255")
     with pytest.raises(ValueError, match="turn_index"):
-        NativeTurnIdentity(conversation_id=conversation_id, turn_index=8)
+        NativeTurnIdentity(conversation_id=conversation_id, turn_index=256)
 
 
 def test_native_turn_metadata_is_metadata_only_and_allowlisted():

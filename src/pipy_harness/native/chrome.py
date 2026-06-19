@@ -287,6 +287,9 @@ class BottomStatusFields:
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_reasoning: int = 0
+    tokens_cache_read: int = 0
+    tokens_cache_write: int = 0
+    cache_hit_percent: float | None = None
     attention: str = ""
 
 
@@ -298,13 +301,22 @@ def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
     """
 
     tokens_prefix = ""
-    if fields.tokens_in or fields.tokens_out or fields.tokens_reasoning:
+    if (
+        fields.tokens_in
+        or fields.tokens_out
+        or fields.tokens_cache_read
+        or fields.tokens_cache_write
+    ):
         parts = [
             f"↑{_short_token_count(fields.tokens_in)}",
             f"↓{_short_token_count(fields.tokens_out)}",
         ]
-        if fields.tokens_reasoning:
-            parts.append(f"R{_short_token_count(fields.tokens_reasoning)}")
+        if fields.tokens_cache_read:
+            parts.append(f"R{_short_token_count(fields.tokens_cache_read)}")
+        if fields.tokens_cache_write:
+            parts.append(f"W{_short_token_count(fields.tokens_cache_write)}")
+        if fields.cache_hit_percent is not None:
+            parts.append(f"CH{min(max(fields.cache_hit_percent, 0.0), 100.0):.1f}%")
         tokens_prefix = " ".join(parts) + " "
     left = (
         f"{tokens_prefix}{fields.cost_label} ({fields.plan_label}) "
@@ -327,8 +339,12 @@ def _justify_status_line(left: str, right: str, width: int) -> str:
 
 
 def _short_token_count(value: int) -> str:
+    if value >= 1_000_000:
+        rendered = value / 1_000_000
+        return f"{rendered:.1f}M" if not rendered.is_integer() else f"{int(rendered)}M"
     if value >= 1_000:
-        return f"{value / 1000:.1f}k"
+        rendered = value / 1000
+        return f"{rendered:.1f}k" if not rendered.is_integer() else f"{int(rendered)}k"
     return str(value)
 
 

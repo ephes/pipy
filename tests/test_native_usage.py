@@ -10,6 +10,7 @@ def test_normalize_provider_usage_keeps_only_finite_allowlisted_counters():
             "output_tokens": 2.5,
             "total_tokens": float("nan"),
             "cached_tokens": -1,
+            "cache_write_tokens": 4,
             "reasoning_tokens": 1,
             "extra_bool": True,
             "input_characters": 999,
@@ -20,6 +21,7 @@ def test_normalize_provider_usage_keeps_only_finite_allowlisted_counters():
     assert usage == {
         "input_tokens": 10,
         "output_tokens": 2.5,
+        "cache_write_tokens": 4,
         "reasoning_tokens": 1,
     }
 
@@ -30,5 +32,6 @@ def test_normalized_provider_usage_key_order_is_stable():
         "output_tokens",
         "total_tokens",
         "cached_tokens",
+        "cache_write_tokens",
         "reasoning_tokens",
     )

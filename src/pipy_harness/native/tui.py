@@ -353,6 +353,21 @@ def _clip_plain(text: str, width: int) -> str:
     return sanitize_label_text(text)[: max(0, width)]
 
 
+def _split_working_spinner(text: str) -> tuple[str, str, str]:
+    """Return leading padding, spinner glyph, and working-message label."""
+
+    if not text:
+        return "", "", ""
+    leading_length = len(text) - len(text.lstrip())
+    leading = text[:leading_length]
+    remainder = text[leading_length:]
+    if not remainder:
+        return leading, "", ""
+    if len(remainder) >= 2 and remainder[1].isspace():
+        return leading, remainder[0], remainder[1:]
+    return leading, remainder[:1], remainder[1:]
+
+
 def _safe_extension_status_key(key: str) -> str | None:
     text = sanitize_label_text(str(key)).strip()
     if not text:
@@ -2329,6 +2344,7 @@ class ToolLoopTerminalUi:
 
     def _paint_locked(self) -> None:
         width, height = self._dimensions()
+        render_width = self._safe_render_width(width)
         style = chrome_style_for(self.terminal_stream)
         output: list[str] = ["\x1b[?25l"]
         # 1. Return to the top of the previously drawn live region and erase it
@@ -2343,37 +2359,31 @@ class ToolLoopTerminalUi:
         # 2. Commit any newly finalized history blocks into the normal buffer.
         #    Raw-mode input disables LF-to-CRLF translation, so use explicit
         #    carriage returns to keep each row starting in column 1.
+        committed_rows = 0
         for kind, block_lines in self._history_blocks[self._painted_block_count :]:
-            for frame_line in self._block_frame_lines(kind, block_lines, width=width):
-                output.append(self._styled_line(frame_line, style=style, width=width))
+            for frame_line in self._block_frame_lines(kind, block_lines, width=render_width):
+                output.append(self._styled_line(frame_line, style=style, width=render_width))
                 output.append("\x1b[K\r\n")
+                committed_rows += 1
         self._painted_block_count = len(self._history_blocks)
         # 3. Draw the live region (bounded transient stream + input/footer).
-        live = self._live_region_lines(width=width, height=height)
+        live = self._live_region_lines(width=render_width, height=height)
+        input_index = self._input_index(live)
+        padding_before_live = max(0, self._live_input_row - committed_rows - input_index)
+        if padding_before_live:
+            live = [
+                *(_FrameLine("", "normal") for _ in range(padding_before_live)),
+                *live,
+            ]
+            input_index += padding_before_live
         last_index = len(live) - 1
         for index, frame_line in enumerate(live):
-            output.append(self._styled_line(frame_line, style=style, width=width))
+            output.append(self._styled_line(frame_line, style=style, width=render_width))
             output.append("\x1b[K")
             if index != last_index:
                 output.append("\r\n")
         # 4. Park the visible cursor on the input cell with relative moves; an
         #    absolute row would be wrong once the buffer has scrolled.
-        input_index = next(
-            (
-                index
-                for index, frame_line in enumerate(live)
-                if frame_line.kind == "input"
-                and isinstance((frame_line.meta or {}).get("cursor_col"), int)
-            ),
-            next(
-                (
-                    index
-                    for index, frame_line in enumerate(live)
-                    if frame_line.kind == "input"
-                ),
-                last_index,
-            ),
-        )
         lines_up = last_index - input_index
         if lines_up > 0:
             output.append(f"\x1b[{lines_up}A")
@@ -2394,7 +2404,7 @@ class ToolLoopTerminalUi:
             input_meta = live[input_index].meta or {}
             raw_cursor_col = input_meta.get("cursor_col")
             cursor_col = raw_cursor_col if isinstance(raw_cursor_col, int) else 0
-            cursor_col = min(max(0, width - 1), cursor_col)
+            cursor_col = min(max(0, render_width - 1), cursor_col)
             if cursor_col > 0:
                 output.append(f"\x1b[{cursor_col}C")
             output.append("\x1b[?25h")
@@ -2726,7 +2736,12 @@ class ToolLoopTerminalUi:
         if line.kind == "bash_separator":
             return style.error(text)
         if line.kind == "working":
-            return style.secondary_dim(text)
+            leading, spinner, rest = _split_working_spinner(text)
+            return (
+                f"{style.secondary_dim(leading)}"
+                f"{style.menu_selection(spinner)}"
+                f"{style.secondary_dim(rest)}"
+            )
         if line.kind == "reasoning":
             return style.dim_italic(text)
         if line.kind == "error":
@@ -3185,6 +3200,30 @@ class ToolLoopTerminalUi:
         if cursor_row >= len(rows):
             rows.append("")
         return rows, cursor_row, cursor_col
+
+    @staticmethod
+    def _input_index(lines: list[_FrameLine]) -> int:
+        last_index = len(lines) - 1
+        return next(
+            (
+                index
+                for index, frame_line in enumerate(lines)
+                if frame_line.kind == "input"
+                and isinstance((frame_line.meta or {}).get("cursor_col"), int)
+            ),
+            next(
+                (
+                    index
+                    for index, frame_line in enumerate(lines)
+                    if frame_line.kind == "input"
+                ),
+                last_index,
+            ),
+        )
+
+    @staticmethod
+    def _safe_render_width(width: int) -> int:
+        return max(1, width - 1)
 
     @staticmethod
     def _clip(text: str, width: int) -> str:

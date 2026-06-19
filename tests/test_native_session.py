@@ -2990,7 +2990,7 @@ def test_native_runner_finalizes_failed_provider_record(tmp_path):
     assert tool_skipped["payload"]["status"] == "skipped"
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert "native.tool.started" not in [event["type"] for event in events]
-    assert [event["type"] for event in events[-2:]] == ["harness.run.failed", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == ["harness.run.adapter_failed", "session.finalized"]
     combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
         encoding="utf-8"
     )
@@ -3105,7 +3105,7 @@ def test_native_runner_finalizes_prepare_failure_for_missing_cwd(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "ValueError"
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.failed", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == ["harness.run.exception", "session.finalized"]
     assert verify_session_archive(root=root).ok is True
 
 

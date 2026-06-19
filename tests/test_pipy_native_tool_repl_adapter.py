@@ -175,18 +175,10 @@ def test_pipy_native_repl_adapter_no_tool_mode_unaffected_by_new_flag():
 # --------------------- slice 12: --repl-mode auto resolver -----------------
 
 
-def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_inert_provider(
-    monkeypatch,
-):
-    """When the selected provider advertises `supports_tool_calls=False`,
-    `auto` must fall back to the no-tool REPL."""
+def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_inert_provider():
+    """When the selected provider is statically inert, `auto` uses no-tool."""
 
     from pipy_harness import cli
-
-    class _Stub:
-        supports_tool_calls = False
-
-    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
 
     resolved = cli._resolve_repl_mode(
         "auto", native_provider="fake", native_model="fake-native-bootstrap"
@@ -195,36 +187,57 @@ def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_inert_provider(
     assert resolved == "no-tool"
 
 
-def test_resolve_repl_mode_auto_routes_to_tool_loop_for_tool_capable_provider(
-    monkeypatch,
-):
+def test_resolve_repl_mode_auto_routes_to_tool_loop_for_tool_capable_provider():
     from pipy_harness import cli
 
-    class _Stub:
-        supports_tool_calls = True
-
-    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
-
     resolved = cli._resolve_repl_mode(
-        "auto", native_provider="fake", native_model="fake-native-bootstrap"
+        "auto", native_provider="openai", native_model="gpt-5.5"
     )
 
     assert resolved == "tool-loop"
 
 
-def test_resolve_repl_mode_explicit_no_tool_overrides_auto(monkeypatch):
+def test_resolve_repl_mode_explicit_no_tool_overrides_auto():
     from pipy_harness import cli
 
-    class _Stub:
-        supports_tool_calls = True
-
-    monkeypatch.setattr(cli, "_native_provider_for_selection", lambda _s: _Stub())
-
     resolved = cli._resolve_repl_mode(
-        "no-tool", native_provider="fake", native_model="fake-native-bootstrap"
+        "no-tool", native_provider="openai", native_model="gpt-5.5"
     )
 
     assert resolved == "no-tool"
+
+
+def test_resolve_repl_mode_auto_probes_extension_provider_capability(tmp_path):
+    from pipy_harness import cli
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.extension_runtime import ExtensionProvider, RegisteredProvider
+
+    class _ToolCapableExtensionProvider:
+        supports_tool_calls = True
+
+    catalog_state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        extension_providers=(
+            RegisteredProvider(
+                provider=ExtensionProvider(
+                    name="extprov",
+                    default_model="ext-model",
+                    models=("ext-model",),
+                    factory=lambda *_args: _ToolCapableExtensionProvider(),
+                ),
+                extension="test-extension",
+            ),
+        ),
+    )
+
+    resolved = cli._resolve_repl_mode(
+        "auto",
+        native_provider="extprov",
+        native_model="ext-model",
+        catalog_state=catalog_state,
+    )
+
+    assert resolved == "tool-loop"
 
 
 def test_resolve_repl_mode_explicit_tool_loop_overrides_auto():

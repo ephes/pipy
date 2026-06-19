@@ -13,6 +13,7 @@ NORMALIZED_PROVIDER_USAGE_KEYS: tuple[str, ...] = (
     "output_tokens",
     "total_tokens",
     "cached_tokens",
+    "cache_write_tokens",
     "reasoning_tokens",
 )
 

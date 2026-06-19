@@ -205,7 +205,12 @@ def test_success_returns_tool_calls(tmp_path):
                         "input": {"path": "README.md"},
                     },
                 ],
-                "usage": {"input_tokens": 7, "output_tokens": 5, "cache_read_input_tokens": 2},
+                "usage": {
+                    "input_tokens": 7,
+                    "output_tokens": 5,
+                    "cache_creation_input_tokens": 3,
+                    "cache_read_input_tokens": 2,
+                },
             },
         )
     )
@@ -221,8 +226,10 @@ def test_success_returns_tool_calls(tmp_path):
     assert call.tool_name == "read"
     assert json.loads(call.arguments_json) == {"path": "README.md"}
     assert result.metadata == {"stop_reason": "tool_use", "aws_region": "us-east-1"}
-    # cached_tokens populated from cache_read_input_tokens.
-    assert result.usage is not None and result.usage.get("cached_tokens") == 2
+    assert result.usage is not None
+    assert result.usage.get("cached_tokens") == 2
+    assert result.usage.get("cache_write_tokens") == 3
+    assert result.usage.get("total_tokens") == 17
 
 
 def test_tool_result_round_trip(tmp_path):

@@ -113,7 +113,7 @@ class NativeTurnIdentity:
     conversation_id: NativeConversationIdentity
     turn_index: int
 
-    MAX_TURN_INDEX: ClassVar[int] = 7
+    MAX_TURN_INDEX: ClassVar[int] = 255
 
     def __post_init__(self) -> None:
         if not isinstance(self.conversation_id, NativeConversationIdentity):
@@ -300,7 +300,7 @@ class NativeConversationState:
     turns: tuple[NativeConversationTurn, ...] = ()
     max_turns: int = 2
 
-    MAX_TURNS: ClassVar[int] = 8
+    MAX_TURNS: ClassVar[int] = 256
 
     def __post_init__(self) -> None:
         if not isinstance(self.conversation_id, NativeConversationIdentity):

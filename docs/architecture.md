@@ -63,6 +63,7 @@ sequenceDiagram
   participant Provider as ProviderPort
   participant Tool as Tool boundary
   participant Recorder as pipy-session
+  participant Archive as Archive
 
   CLI->>Runner: RunRequest
   Runner->>Recorder: init_session(partial=true)
@@ -80,9 +81,9 @@ sequenceDiagram
   end
   Runtime->>Recorder: native.session.completed
   Adapter-->>Runner: AdapterResult
-  Runner->>Recorder: harness.run.completed or failed
-  Runner->>Recorder: session.finalized
+  Runner->>Recorder: harness.run.completed / adapter_failed / exception / aborted
   Runner->>Recorder: finalize_session()
+  Runner->>Archive: append session.finalized to finalized archive
 ```
 
 This diagram compresses the native event stream. See
