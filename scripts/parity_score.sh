@@ -93,12 +93,13 @@ check D3 "PIPY_CONFIG_HOME"          small  "grep -q PIPY_CONFIG_HOME src/pipy_h
 check D4 "Skills loading"            small  "grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_SKILL_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'skills'; p.mkdir(parents=True); _=(p/'demo.md').write_text(chr(10).join(['---','name: demo','---','SKILLBODY',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/skill demo',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'SKILLBODY' in x.provider_text else 1)\""
 check D5 "Prompt templates"          small  "grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_TEMPLATE_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'templates'; p.mkdir(parents=True); _=(p/'rev.md').write_text(chr(10).join(['---','name: rev','---','review ARGS='+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/rev hello',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'ARGS=hello' in x.provider_text else 1)\""
 check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command src/pipy_harness/native/tool_loop_session.py && uv run python -c \"import tempfile,pathlib; from pipy_harness.native.resources import WorkspaceResources,dispatch_resource_command,DISPATCH_COMMAND_RUN as K; d=pathlib.Path(tempfile.mkdtemp()); p=d/'.pipy'/'commands'; p.mkdir(parents=True); _=(p/'dep.md').write_text(chr(10).join(['---','name: dep','---','deploy '+chr(36)+'ARGUMENTS',''])); r=WorkspaceResources.discover(d,config_home_env={},home_dir=d); x=dispatch_resource_command('/dep prod',r); raise SystemExit(0 if x and x.kind==K and x.provider_text and 'deploy prod' in x.provider_text else 1)\""
-# D7 is a behavior check, not a file-existence rubber-stamp: it drives the
-# product tool-loop REPL with a TTY-like stream and a real /theme switch and
-# proves the selected theme changes the rendered chrome styling (default pi
-# separator before the switch, ocean separator after), while NO_COLOR / non-TTY
-# always force plain output regardless of the selected theme.
-check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q '\"/theme\"' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py"
+# D7 is a behavior check, not a file-existence rubber-stamp: it applies a theme
+# via select_theme (the function the /settings theme picker calls) and proves the
+# selected theme changes the rendered chrome styling (default pi separator, ocean
+# separator after switching), while NO_COLOR / non-TTY always force plain output
+# regardless of the selected theme. Theme selection lives in the /settings dialog
+# (the _open_theme_selector picker); the pipy-only /theme command was removed.
+check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q '_open_theme_selector' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py"
 # D8 is a behavior check, not a grep rubber-stamp: it seeds a workspace PNG,
 # drives the product tool-loop REPL with a real @image: prompt, and proves
 # the image reaches the provider as a bounded, type-validated attachment that a

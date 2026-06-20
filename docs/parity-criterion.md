@@ -168,7 +168,7 @@ row was dropped.
 | D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
 | D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` (templates are invoked as `/<name>`, not `/template <name>`) to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. The tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
 | D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; the tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
-| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q '"/theme"' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the tool-loop REPL with a real `/theme` switch and proves the selected palette changes the rendered chrome — default `pi` separator before, `ocean` after — while NO_COLOR / non-TTY always force plain output) |
+| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q '_open_theme_selector' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the real `/settings` theme picker `_open_theme_selector` with a stub selector choosing `ocean` — proving the picker is wired to `select_theme`; the pipy-only `/theme` command was removed — and proves the selected palette changes the rendered chrome: default `pi` separator, `ocean` after, while NO_COLOR / non-TTY always force plain output) |
 | D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the tool-loop REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the metadata-first result records only safe counters — never the raw base64) |
 
 Post-baseline source-loading flags are not part of this locked 50-row
@@ -209,9 +209,10 @@ tree is now the full durable transcript. The pass bar is unchanged
 
 All 49 legacy rows are green; B7 (bash) is a real shell matching Pi. D7
 (themes), D8 (image attachments), and E5 (dynamic provider swap) are ✅ as
-**behavior checks** that exercise the real product tool-loop REPL: D7 drives a
-`/theme` switch and proves the rendered palette changes while NO_COLOR/TTY
-fallback is preserved; D8 drives an `@image:` prompt and proves the image
+**behavior checks** that exercise the real product tool-loop REPL: D7 drives the
+`/settings` theme picker (`_open_theme_selector`) and proves the rendered palette
+changes while NO_COLOR/TTY fallback is preserved; D8 drives an
+`@image:` prompt and proves the image
 reaches the provider as a native multimodal block while the metadata-first
 result keeps only safe counters; E5 drives a `/model` switch via
 `NativeReplProviderState`. E2 (session compaction) and E3 (session branching)
@@ -237,9 +238,9 @@ helpers. They are now ✅ for the same reason — each ships **with** a
 runtime consumer and a behavior check that exercises it:
 
 - **D7** reintroduces `themes.py` as the palette registry behind
-  `chrome.ChromeStyle`, wires a `/theme` command into the tool-loop REPL
-  (persisted via `NativeThemeStore`, resolved per-render through
-  `PIPY_THEME`), and proves a switch changes the rendered palette while
+  `chrome.ChromeStyle`, drives theme selection through the `/settings` dialog
+  picker (`select_theme`, persisted via `NativeThemeStore`, resolved per-render
+  through `PIPY_THEME`), and proves a switch changes the rendered palette while
   NO_COLOR / non-TTY still force plain output.
 - **D8** reintroduces `image_attachment.py` as a bounded, fail-closed
   `@image:` loader, threads `ProviderRequest.attachments` into the

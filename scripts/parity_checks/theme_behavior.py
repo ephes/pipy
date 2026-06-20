@@ -1,15 +1,20 @@
 """Parity row D7 behavior check: theme / color-scheme selection.
 
-Drives the product tool-loop REPL (``NativeToolReplSession`` on the plain input
-runtime, so the legacy input separator is painted) with a TTY-like error stream
-and an explicit ``/theme`` switch, proving that the selected theme actually
-changes the rendered chrome styling mid-session: the input separator painted
-before the switch carries the default ``pi`` palette code, and the separator
-painted after the switch carries the chosen ``ocean`` palette code.
+Drives the ACTUAL product theme picker — ``NativeToolReplSession._open_theme_selector``,
+the ``/settings`` dialog's "Theme" action — with a stub selector that chooses the
+``ocean`` theme. This proves the picker is wired to ``select_theme`` (not just
+that the function exists) and that the selected theme changes the rendered chrome
+styling: a chrome separator rendered on the default theme carries the ``pi``
+palette code, and one rendered after the picker applies ``ocean`` carries the
+``ocean`` palette code.
 
-It also proves the NO_COLOR / non-TTY fallback always wins: with ``NO_COLOR``
-set (or a non-TTY stream), the same scripted ``/theme`` switch emits no ANSI
-styling at all, so a theme can never override the no-color contract.
+The pipy-only ``/theme`` command was removed in the 2026-06-20 cleanup; theme
+selection now lives in the ``/settings`` dialog, so this check exercises that
+product path rather than ``select_theme`` in isolation.
+
+It also proves the NO_COLOR / non-TTY fallback always wins: with ``NO_COLOR`` set
+(or a non-TTY stream), the picked theme emits no ANSI color styling at all, so a
+theme can never override the no-color contract.
 
 Exits 0 when every behavior holds, 1 otherwise. No real network or AI calls.
 """
@@ -24,6 +29,7 @@ from pathlib import Path
 
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_PLAIN
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.themes import resolve_palette
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
@@ -48,69 +54,122 @@ class _TTYStringIO(io.StringIO):
         return True
 
 
-def _run_theme_switch(*, tty: bool) -> str:
-    """Run the tool-loop REPL with a ``/theme ocean`` switch; return stderr text."""
+class _StubThemeSelectorUi:
+    """Minimal terminal-UI stub that picks the named theme from the selector.
 
-    cwd = Path(tempfile.mkdtemp())
-    error_stream: io.StringIO = _TTYStringIO() if tty else io.StringIO()
-    session = NativeToolReplSession(
+    ``_open_theme_selector`` only calls ``run_model_selector`` (to choose a row)
+    and ``add_notice`` (to report the result), so this duck-typed stub drives the
+    real product picker without standing up a live TUI.
+    """
+
+    def __init__(self, pick_name: str) -> None:
+        self.pick_name = pick_name
+        self.notices: list[str] = []
+        self.selector_title: str | None = None
+        self.offered_labels: list[str] = []
+
+    def run_model_selector(self, options, *, current_index: int = 0, title=None):
+        self.selector_title = title
+        self.offered_labels = [option.label for option in options]
+        for index, option in enumerate(options):
+            if option.label.startswith(self.pick_name):
+                return index
+        return None
+
+    def add_notice(self, message: str) -> None:
+        self.notices.append(message)
+
+
+def _new_session() -> NativeToolReplSession:
+    return NativeToolReplSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
         input_runtime=REPL_INPUT_RUNTIME_PLAIN,
     )
-    session.run(
+
+
+def _run_session(*, tty: bool) -> str:
+    """Run the REPL (just ``/exit``); return the rendered stderr chrome.
+
+    The startup input separator is painted with whatever theme is currently
+    active (``PIPY_THEME`` / the persisted store), so rendering once per theme
+    state reveals the palette in use.
+    """
+
+    cwd = Path(tempfile.mkdtemp())
+    error_stream: io.StringIO = _TTYStringIO() if tty else io.StringIO()
+    _new_session().run(
         workspace_root=cwd,
-        input_stream=io.StringIO("/theme ocean\n/exit\n"),
+        input_stream=io.StringIO("/exit\n"),
         output_stream=io.StringIO(),
         error_stream=error_stream,
     )
     return error_stream.getvalue()
 
 
-def _colored_switch_changes_styling() -> bool:
-    # Enable truecolor; isolate the persisted theme store and clear any ambient
-    # PIPY_THEME so the session starts on the default palette.
+def _isolate_theme_env() -> None:
+    """Truecolor terminal, isolated theme store, default (unset) active theme."""
+
     os.environ["TERM"] = "xterm-256color"
     os.environ["COLORTERM"] = "truecolor"
-    os.environ.pop("NO_COLOR", None)
     os.environ.pop("PIPY_THEME", None)
+    # Honored by default_native_theme_path(), so the picker's persist stays in a
+    # temp file and never touches the real user theme store.
     os.environ["PIPY_NATIVE_THEME_PATH"] = str(
         Path(tempfile.mkdtemp()) / "theme.json"
     )
-    text = _run_theme_switch(tty=True)
-    # Separator before the switch uses the default pi palette; the one after
-    # uses the freshly selected ocean palette.
-    return (_PI_SEPARATOR in text) and (_OCEAN_SEPARATOR in text)
+
+
+def _pick_ocean_via_settings_picker() -> bool:
+    """Drive the real ``/settings`` theme picker to choose ocean.
+
+    Returns True when the picker offered an ``ocean`` row and applied it (setting
+    ``PIPY_THEME`` for the next render), proving the product picker is wired to
+    ``select_theme``.
+    """
+
+    cwd = Path(tempfile.mkdtemp())
+    ui = _StubThemeSelectorUi("ocean")
+    settings = SettingsManager.for_workspace(cwd)
+    _new_session()._open_theme_selector(ui, settings=settings)
+    return (
+        any(label.startswith("ocean") for label in ui.offered_labels)
+        and os.environ.get("PIPY_THEME") == "ocean"
+    )
+
+
+def _selecting_theme_changes_styling() -> bool:
+    os.environ.pop("NO_COLOR", None)
+    _isolate_theme_env()
+    before = _run_session(tty=True)
+    if not _pick_ocean_via_settings_picker():
+        return False
+    after = _run_session(tty=True)
+    # The separator before the switch uses the default pi palette; the one after
+    # the picker applies ocean uses the ocean palette.
+    return (_PI_SEPARATOR in before) and (_OCEAN_SEPARATOR in after)
 
 
 def _no_color_switch_is_plain() -> bool:
-    os.environ["TERM"] = "xterm-256color"
-    os.environ["COLORTERM"] = "truecolor"
+    _isolate_theme_env()
     os.environ["NO_COLOR"] = "1"
-    os.environ.pop("PIPY_THEME", None)
-    os.environ["PIPY_NATIVE_THEME_PATH"] = str(
-        Path(tempfile.mkdtemp()) / "theme.json"
-    )
-    text = _run_theme_switch(tty=True)
-    # NO_COLOR wins regardless of the selected theme: no color styling at all
+    if not _pick_ocean_via_settings_picker():
+        return False
+    # NO_COLOR wins regardless of the picked theme: no color styling at all
     # (cursor-control from the editor is permitted; SGR color sequences are not).
-    return not _has_color_styling(text)
+    return not _has_color_styling(_run_session(tty=True))
 
 
 def _non_tty_switch_is_plain() -> bool:
-    os.environ["TERM"] = "xterm-256color"
-    os.environ["COLORTERM"] = "truecolor"
     os.environ.pop("NO_COLOR", None)
-    os.environ.pop("PIPY_THEME", None)
-    os.environ["PIPY_NATIVE_THEME_PATH"] = str(
-        Path(tempfile.mkdtemp()) / "theme.json"
-    )
-    text = _run_theme_switch(tty=False)
-    return "\x1b[" not in text
+    _isolate_theme_env()
+    if not _pick_ocean_via_settings_picker():
+        return False
+    return "\x1b[" not in _run_session(tty=False)
 
 
 def main() -> int:
-    if not _colored_switch_changes_styling():
+    if not _selecting_theme_changes_styling():
         return 1
     if not _no_color_switch_is_plain():
         return 1
