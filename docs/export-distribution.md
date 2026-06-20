@@ -97,20 +97,21 @@ Pi reference (read for exact behavior):
 
 Pipy current state (read for the gap):
 
-- `src/pipy_session/export.py` — `export_session(..., include_transcript=False)`,
-  metadata-only by construction, optional sensitive transcript sidecar.
+- `src/pipy_session/export.py` — `export_session(...)`, metadata-only by
+  construction (export schema v2; no transcript sidecar).
 - `src/pipy_harness/native/session_tree.py` — `NativeSessionTree` with
   `SessionHeader` (incl. `parentSession`), entry types, `append_*`,
   `get_branch`, `get_tree`, `build_context`, `open`, `fork`.
 - `docs/session-tree.md` — native session tree spec (source for full export).
-- `docs/session-storage.md` — `--archive-transcript` sidecar, metadata-only
-  archive `export`, deferred raw-transcript import policy.
+- `docs/session-storage.md` — the native session tree as the transcript
+  (the `--archive-transcript` sidecar was removed), metadata-only archive
+  `export`, deferred raw-transcript import policy.
 - `docs/backlog.md` — export / import / share / distribution is now a shipped
   baseline; the next selected slice has moved on.
 
 ## Target Outcome / Goal
 
-When running `pipy repl --agent pipy-native --repl-mode tool-loop`, the user can:
+When running `pipy` / `pipy repl`, the user can:
 
 - `/export` — write a self-contained HTML file of the current native session
   (the full session tree, with the leaf marking the active path), defaulting to

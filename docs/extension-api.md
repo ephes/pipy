@@ -551,9 +551,9 @@ extension commands, keyboard shortcuts, model-visible tools, and hook contexts.
 Supported forms are `--flag`, `--flag=true|false`, `--name value`, and
 `--name=value`. For one-shot `--print`/`--mode json` runs that also need a
 positional prompt, prefer `--name=value`; the space-separated string form is
-ambiguous with the prompt positional. Dynamic flags currently apply only to
-`pipy repl` tool-loop runs; top-level `run`, package-manager commands, and the
-legacy no-tool REPL remain strict and do not consume extension flags.
+ambiguous with the prompt positional. Dynamic flags apply only to `pipy repl`
+(the product tool-loop session); top-level `run` and the package-manager
+commands remain strict and do not consume extension flags.
 
 `/reload` reactivates extensions and reparses the original per-run extension
 flag tokens. If the reloaded extension set no longer accepts those tokens, pipy
@@ -997,7 +997,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     extensions through `discover_extensions(package_roots=...)`, and themes
     through a file-based loader + overlay registry
     (`theme_files.build_theme_registry` + `themes.set_active_theme_registry`) so
-    `/theme <name>` selects a package theme and re-colors the chrome. All four
+    a package theme becomes selectable via the `/settings` Theme picker (or
+    `PIPY_THEME` / settings) and re-colors the chrome. All four
     kinds sit at lowest precedence (a workspace/global resource wins a name
     collision) and honor the `+/-pattern` filters; package resources are
     included in `/reload` and `pipy config` discovery. The example package lives

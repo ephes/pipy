@@ -161,19 +161,13 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
         in compact_storage
     )
     assert "`just-check` label mapped internally to `just check`" in compact_storage
-    assert "The proposal-only REPL boundary is available" in compact_storage
-    assert (
-        "`/propose-file <workspace-relative-path> -- <change-request>`"
-        in compact_storage
-    )
+    assert "The now-removed proposal-only REPL boundary" in compact_storage
+    assert "`/propose-file`, `/apply-proposal`" in compact_storage
+    assert "model-driven `write` / `edit` / `edit_diff` tools" in compact_storage
     assert "`propose_file_repl`" in compact_storage
     assert "metadata-only `native.patch.proposal.recorded` event" in compact_storage
-    assert (
-        "native.tool.observation.recorded native.provider.started # label propose_file_repl"
-        in (compact_storage)
-    )
-    assert "must not apply edits" in compact_storage
-    assert "must not be copied into provider lifecycle payloads" in compact_storage
+    assert "applied no edits itself" in compact_storage
+    assert "never enter provider lifecycle payloads" in compact_storage
     assert "approval required/resolved booleans" in compact_storage
     assert "`tool_request_id`" in compact_storage
     assert "`turn_index`" in compact_storage

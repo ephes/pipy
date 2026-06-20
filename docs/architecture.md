@@ -21,9 +21,9 @@ flowchart LR
   User[User] --> CLI[pipy CLI]
   CLI --> Runner[HarnessRunner]
   Runner --> AgentPort[AgentPort]
-  AgentPort --> NativeAdapter[PipyNativeAdapter or PipyNativeReplAdapter]
+  AgentPort --> NativeAdapter[PipyNativeAdapter or PipyNativeToolReplAdapter]
   AgentPort --> SubprocessAdapter[SubprocessAdapter]
-  NativeAdapter --> NativeSession[NativeAgentSession or NativeNoToolReplSession]
+  NativeAdapter --> NativeSession[NativeAgentSession or NativeToolReplSession]
   NativeSession --> InputAdapter[REPL Input Adapter]
   NativeSession --> ProviderPort[ProviderPort]
   NativeSession --> ToolBoundaries[Tool Boundaries]
@@ -49,8 +49,8 @@ The important ownership rule is simple: `HarnessRunner` owns the run lifecycle
 and the pipy session record. Adapters and native sessions report safe events
 through an `EventSink`; they do not mutate finalized records directly.
 One-shot native runs go through `PipyNativeAdapter` and `NativeAgentSession`;
-interactive REPL runs go through `PipyNativeReplAdapter` and
-`NativeNoToolReplSession`.
+interactive REPL runs go through `PipyNativeToolReplAdapter` and
+`NativeToolReplSession`, the single model-driven tool-loop product session.
 
 ## Runtime Flow
 
@@ -102,11 +102,11 @@ Markdown, catalog output, and structured native JSON output by default.
 | CLI | `src/pipy_harness/cli.py` | Parse `pipy`, `pipy run`, `pipy repl`, and auth commands; select adapters and providers; preserve stdout/stderr contracts. |
 | Harness core | `src/pipy_harness/models.py`, `src/pipy_harness/runner.py` | Define `RunRequest`, `PreparedRun`, `AdapterResult`, `RunResult`, `HarnessStatus`, recorder port, event sink, lifecycle events, and finalization. |
 | Adapter port | `src/pipy_harness/adapters/base.py` | Stable `AgentPort` and `EventSink` protocols. |
-| Native adapters | `src/pipy_harness/adapters/native.py` | Bridge the harness port to one-shot native sessions, the no-tool REPL (`PipyNativeReplAdapter`), and the bounded model-driven tool loop (`PipyNativeToolReplAdapter`). |
+| Native adapters | `src/pipy_harness/adapters/native.py` | Bridge the harness port to one-shot native sessions (`PipyNativeAdapter`) and the bounded model-driven tool-loop product REPL (`PipyNativeToolReplAdapter`). |
 | Subprocess adapter | `src/pipy_harness/adapters/subprocess.py` | Run arbitrary child processes for conservative lifecycle capture. |
 | Capture policy | `src/pipy_harness/capture.py` | Sanitization, workspace basename plus hash, argv redaction, and optional changed-path capture. |
-| Native sessions | `src/pipy_harness/native/session.py` | One-shot and no-tool REPL control flow, command dispatch, provider turns, event emission, and metadata-only runtime policy. |
-| Tool-loop session | `src/pipy_harness/native/tool_loop_session.py` | Bounded model-driven REPL: turn loop, `--tool-budget` enforcement, malformed-call streak fatal-after-three, production tool registry, and `TranscriptSink` plumbing. |
+| Native sessions | `src/pipy_harness/native/session.py` | One-shot native control flow, provider turns, event emission, and metadata-only runtime policy. |
+| Tool-loop session | `src/pipy_harness/native/tool_loop_session.py` | Bounded model-driven REPL: turn loop, `--tool-budget` enforcement, malformed-call streak fatal-after-three, and the production tool registry. The native session tree is the full-content record; there is no transcript sidecar. |
 | Tool-loop terminal UI | `src/pipy_harness/native/tui.py` | Pipy-owned inline-scrollback TTY shell for the bounded tool-loop REPL. It never enters the alternate screen: finalized startup, user, assistant, reasoning, tool, and notice blocks commit into the terminal's normal buffer while the bounded live stream tail, input/editor, slash/menu overlays, and footer/status repaint in a bottom-pinned live region. Captured streams keep the deterministic line-rendering fallback. |
 | Terminal-screen verifier | `src/pipy_harness/native/terminal_screen.py` | Stdlib ANSI screen-cell model used by TUI tests and tmux verification artifacts. Replays terminal output into viewport rows, columns, cursor position, scroll state, visible-string findings, reverse/cell attributes, and screen anomaly reports. |
 | Terminal comparison verifier | `src/pipy_harness/native/terminal_compare.py` | Compares pipy and Pi screen metrics from controlled tmux captures, writing row/column and cell-attribute deltas plus anomalies for prompt, expected output, footer/status, input row, live cursor, and drawn cursor positions. |
@@ -117,14 +117,13 @@ Markdown, catalog output, and structured native JSON output by default.
 | Provider port | `src/pipy_harness/native/provider.py` | `ProviderPort.complete()` protocol plus the `supports_tool_calls` capability flag. |
 | Shared provider helpers | `src/pipy_harness/native/_provider_helpers.py` | `JsonResponse`, `JsonHTTPClient` Protocol, and the deduplicated helpers each provider used to inline (`utc_now`, `safe_response_label`, `failed_provider_result`, `extract_chat_completions_tool_calls`, `extract_usage_from_fields`, `serialize_tool_for_*`, `envelope_to_chat_message`, `extract_text_content`, `safe_http_status_metadata`). |
 | Providers | `src/pipy_harness/native/fake.py`, `ds4_provider.py`, `openai_provider.py`, `openai_completions_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py`, `anthropic_provider.py`, `google_provider.py`, `google_vertex_provider.py`, `mistral_provider.py`, `bedrock_provider.py`, `azure_openai_provider.py`, `cloudflare_provider.py` | Deterministic fake provider (with `programmable_tool_calls`) plus stdlib HTTP adapters for local ds4, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google Generative AI, Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI, and Cloudflare Workers AI. Tool-capable real adapters advertise `supports_tool_calls=True`; ds4 is tool-loop capable after a live ds4 smoke verified OpenAI-style tool calls. |
-| Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal tool invocation protocol used by `/read` and `/apply-proposal`. |
+| Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal `ToolPort` invocation protocol for the native runtime bootstrap. |
 | Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope. |
 | Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py`, `edit_diff.py`, `truncate.py`, `bash.py` | Production registry tools for the bounded tool-loop. Filesystem tools reuse `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny, and stat-gate oversized file reads before loading content. `truncate` is pure transformation only. `bash` is a real shell matching Pi: it runs `bash -c <command>` in the workspace with the inherited environment, streams combined stdout/stderr to the live UI when available, returns bounded combined output to the model, and kills the process group on timeout. The archive records only safe counters and labels, never the raw command or output. |
-| Transcript sidecar | `src/pipy_harness/native/transcripts.py` | Opt-in `TranscriptSink` writing raw loop turns to `~/.local/state/pipy/transcripts/<id>.jsonl` outside the pipy session archive, excluded from `pipy-session list/search/inspect`. |
 | Usage normalization | `src/pipy_harness/native/usage.py` | Normalizes provider token counters to the safe allowlisted metadata keys. |
-| Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation, a shared two-successful-excerpt REPL budget, metadata-only archive output, and the `_resolved_relative_label` helper used by every model-driven tool. |
-| Runtime resources | `src/pipy_harness/native/_resource_files.py`, `skills.py`, `prompt_templates.py`, `custom_commands.py`, `resources.py` | Workspace + global `.pipy/{skills,templates,commands}/*.md` discovery (frontmatter parse, byte caps, symlink/secret-shaped/binary/ignored safety screen) and the `WorkspaceResources` registry + pure `dispatch_resource_command` consumed by both REPL paths for `/skill`, `/template`, and custom `/<name>` slash commands. Only safe per-resource metadata (path label, sha256, byte length, truncated, name, kind) is archived; bodies/expansions stay provider-visible only. |
-| Chrome + themes | `src/pipy_harness/native/chrome.py`, `themes.py` | Shared Pi-parity terminal chrome (startup banner, separators, two-row status block) rendered through `ChromeStyle`, which holds a `ChromePalette`. `themes.py` is the palette registry (`pi`/`high-contrast`/`ocean`), `NativeThemeStore` persistence, and `resolve_active_theme_name` (env `PIPY_THEME` > store > default). The `/theme` command in both REPLs swaps the active palette; `chrome_style_for` decides color enablement (NO_COLOR / non-TTY → plain) before any palette is consulted, so a theme never overrides the no-color contract. |
+| Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation, metadata-only archive output, and the `_resolved_relative_label` helper used by every model-driven tool. Backs `@path` references and the model-driven `read` tool. |
+| Runtime resources | `src/pipy_harness/native/_resource_files.py`, `skills.py`, `prompt_templates.py`, `custom_commands.py`, `resources.py` | Workspace + global `.pipy/{skills,templates,commands}/*.md` discovery (frontmatter parse, byte caps, symlink/secret-shaped/binary/ignored safety screen) and the `WorkspaceResources` registry + pure `dispatch_resource_command` consumed by the product REPL for `/skill`, each prompt template's own `/<template-name>` command, and custom `/<name>` slash commands. Only safe per-resource metadata (path label, sha256, byte length, truncated, name, kind) is archived; bodies/expansions stay provider-visible only. |
+| Chrome + themes | `src/pipy_harness/native/chrome.py`, `themes.py` | Shared Pi-parity terminal chrome (startup banner, separators, two-row status block) rendered through `ChromeStyle`, which holds a `ChromePalette`. `themes.py` is the palette registry (`pi`/`high-contrast`/`ocean`), `NativeThemeStore` persistence, and `resolve_active_theme_name` (env `PIPY_THEME` > store > default). The Theme row in the `/settings` dialog swaps the active palette; `chrome_style_for` decides color enablement (NO_COLOR / non-TTY → plain) before any palette is consulted, so a theme never overrides the no-color contract. |
 | User-directed @-context | `src/pipy_harness/native/file_references.py`, `image_attachment.py` | Resolve `@path` text excerpts and `@image:<path>` image attachments from a genuine prompt, reusing the `read` tool's path policy. `file_references` appends bounded UTF-8 excerpts to the provider prompt; `image_attachment` loads bounded, magic-byte-validated (PNG/JPEG/GIF/WebP) images onto `ProviderRequest.attachments`, which multimodal adapters render as native image blocks. Both fail closed and archive only safe metadata (counts; for images, media type / byte count / sha256) — never file contents or raw image bytes. |
 | Patch apply boundary | `src/pipy_harness/native/patch_apply.py` | One approved, human-reviewed, bounded workspace mutation request. |
 | Legacy verification boundary | `src/pipy_harness/native/verification.py` | Retained legacy allowlisted `just-check` helper; no longer wired as a user-facing REPL slash command. |
@@ -205,8 +204,9 @@ Pipy has three data classes:
 - Native or external data: Pi, Codex, Claude, provider, and shell transcript
   stores remain external unless pipy records a metadata-only reference.
 
-The archive is intentionally metadata-first. `--native-output json` follows the
-same rule and is not a transcript channel.
+The archive is intentionally metadata-first. The headless automation surfaces
+(`--mode json`, `--mode rpc`, `--print`) are separate full-content transports
+and are not metadata archive channels (see `docs/automation-rpc.md`).
 
 ## Testing And Verification
 

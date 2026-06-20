@@ -158,7 +158,6 @@ session archive:
 uv run pipy
 uv run pipy repl
 uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
-uv run pipy run --agent pipy-native --native-output json --slug native-json --goal "Native JSON smoke"
 uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
 uv run pipy auth openai-codex login
 uv run pipy run --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-smoke --goal "Say hello briefly"
@@ -235,12 +234,6 @@ Optional:
 - `--native-model <id>`: model label for the native provider. Most real
   providers require it in one-shot `pipy run`; `ds4` defaults to
   `deepseek-v4-flash`.
-- `--native-output json`: **deprecated** for `--agent pipy-native`; emits a
-  single metadata-only JSON status object (record paths, counters) instead of
-  provider final text. It is not a Pi-style event stream and has no Pi
-  equivalent — use `pipy repl --mode json "<prompt>"` for the full Pi-shaped
-  session event stream (see "Headless automation" below and
-  [`docs/automation-rpc.md`](docs/automation-rpc.md)).
 - `--list-models [search]`: print the table of available provider/models
   (provider, model, context, max-out, thinking, images), optionally fuzzy-
   filtered over `provider id`, then exit without running a provider turn. Reads
@@ -364,14 +357,11 @@ touches `pipy-session` records).
 ### Native REPL
 
 `pipy` and `pipy repl` start the interactive native shell with default slug
-`native-repl`. `--repl-mode` defaults to `auto`: when the selected provider
-advertises `supports_tool_calls=True`, the shell launches the bounded
-model-driven tool loop with `read`, `ls`, `grep`, `find`, `write`, `edit`,
-`edit_diff`, `truncate`, and `bash`. Pass `--repl-mode no-tool` or
-`tool-loop` to force a mode.
-`--tool-budget` (default 10,
-max 25) caps invocations per user turn. Filesystem tools refuse generated,
-`.git`, symlink-escaped, and oversized targets.
+`native-repl`. There is one product REPL: the bounded model-driven tool loop.
+The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`,
+`truncate`, and `bash`. `--tool-budget` (default 50, max 200) caps invocations
+per user turn. Filesystem tools refuse generated, `.git`, symlink-escaped, and
+oversized targets.
 
 `bash` is a real shell, matching Pi: a prompt like "run the tests" lets the
 model run an arbitrary command in the workspace (e.g. `just test`, `uv run
@@ -427,38 +417,38 @@ These commands operate on the full native product session tree. They are
 separate from `pipy-session export`, which remains a metadata-only catalog
 utility for finalized learning/archive records.
 
-The line-oriented mode also exposes these explicit commands:
+The product REPL also exposes these explicit slash commands (the `/` menu lists
+them; `/hotkeys` covers keyboard shortcuts):
 
-- `/settings`, `/status`, `/clear`, `/compact`
+- `/settings` (settings and status dialog, including a Theme row whose picker
+  selects the terminal palette), `/compact`
 - `/hotkeys` (resolved keyboard-shortcut table), `/reload` (re-read settings,
   keybindings, and resources), `/changelog` (release notes)
 - `/login [openai-codex]`, `/logout [openai-codex]`,
-  `/model [<provider>/<model>]`
-- `/theme [<name>]` — list available chrome themes, or switch the terminal
-  palette. Selecting a theme only swaps chrome colors; it runs no provider
-  turn and records only the non-secret theme name.
+  `/model [<provider>/<model>]`, `/scoped-models`
 - `/skill [<name>]` — list workspace/global skills, or load one named skill's
-  instruction body as a bounded provider turn.
-- `/template [<name> [args]]` — list prompt templates, or run one with
-  `$ARGUMENTS`/`$1..$9` expansion as a bounded provider turn.
-- `/read <path>` — bounded excerpt printed to stdout only; not
-  provider-forwarded or archived.
-- `/ask-file <path> -- <question>` — forwards one bounded excerpt plus
-  question to a single provider turn labeled `ask_file_repl`.
-- `/propose-file <path> -- <change-request>` — produces an in-memory
-  proposal draft. No write.
-- `/apply-proposal <path>` — consumes the same-session draft and invokes
-  the `NativePatchApplyTool` on exactly one file.
+  instruction body as a bounded provider turn. Discovered skills are also
+  advertised in the system prompt (name, description, and absolute location)
+  so the model can load a skill body on demand with the `read` tool.
+- `/export`, `/import`, `/share` (see "Product export, import, and share"),
+  `/copy` (copy the last answer to the clipboard)
+- `/new`, `/session`, `/name`, `/tree`, `/resume`, `/fork`, `/clone` (native
+  session-tree controls)
+- `/exit`, `/quit`
 
-`/read`, `/ask-file`, and `/propose-file` share a two-successful-excerpt
-budget per REPL session and never display approval prompts. Workspace
-context (`AGENTS.md` / `CLAUDE.md` ancestors plus the global pipy config
-root) is discovered and composed into the native bootstrap system prompt
-across the real providers, bounded by 64 KiB per file and 256 KiB total.
+A `.pipy/commands/<name>.md` custom command and each discovered prompt template
+also appear as their own `/<name>` command (see "Runtime resources" below).
+
+The model reads and edits files through the model-visible `read`, `ls`, `grep`,
+`find`, `write`, `edit`, `edit_diff`, and `bash` tools rather than dedicated
+slash commands. Workspace context (`AGENTS.md` / `CLAUDE.md` ancestors plus the
+global pipy config root) is discovered and composed into the native bootstrap
+system prompt across the real providers, bounded by 64 KiB per file and
+256 KiB total.
 
 ### Runtime resources: skills, prompt templates, custom commands
 
-Both REPL modes load three bounded resource kinds from pipy-owned Markdown
+The product REPL loads three bounded resource kinds from pipy-owned Markdown
 stores, workspace-first then global (`<workspace>/.pipy/{skills,templates,commands}/`
 then `<config>/{skills,templates,commands}/`, where `<config>` resolves through
 `PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.config/pipy`). Each `*.md`
@@ -466,23 +456,22 @@ file may carry optional `---` frontmatter with `name` and `description`; the
 body is the instruction/template text.
 
 - `/skill <name>` loads a skill body as a bounded provider turn; `/skill`
-  lists available skills.
-- `/template <name> [args]` runs a prompt template, expanding `$ARGUMENTS` /
-  `$1..$9`; `/template` lists templates.
+  lists available skills. Discovered skills are also advertised in the system
+  prompt so the model can load a skill body on demand with the `read` tool.
+- Each discovered prompt template is invoked as its own `/<template-name>`
+  command, expanding `$ARGUMENTS` / `$1..$9` as a bounded provider turn.
 - A `.pipy/commands/<name>.md` file becomes a `/<name>` custom slash command
   that runs through the same local-command boundary as the built-ins (it
-  cannot shadow a built-in) and appears in the tool-loop TUI slash menu and
-  no-tool completion. Unknown/unsafe/empty resources fail closed with no
-  provider turn.
+  cannot shadow a built-in) and appears in the product REPL slash menu and
+  completion. Unknown/unsafe/empty resources fail closed with no provider turn.
 
 Discovery rejects secret-shaped filenames, binary content, generated /
 `.gitignore`-matched filenames, oversized bodies (64 KiB/file, 256 KiB total),
 and symlink-escapes. This is deliberately not a general extension API — only
 these three kinds load, through the existing provider/session/tool/archive
 boundaries. Resource bodies, expanded prompts, and command text never enter
-the metadata archive, prompt history, or transcript sidecar; only safe
-counters/labels (name, path label, sha256, byte length, truncated) are
-recorded.
+the metadata archive or prompt history; only safe counters/labels (name, path
+label, sha256, byte length, truncated) are recorded.
 
 REPL input goes through `--input-runtime auto|plain|prompt-toolkit`. `auto`
 keeps plain stdin/stderr for captured streams and uses the optional
@@ -493,9 +482,8 @@ dependency.
 
 A genuine user prompt that names workspace files with `@path` (one or more
 references) loads bounded UTF-8 excerpts for those files into the next provider
-request in both `pipy repl --agent pipy-native` and `--repl-mode tool-loop`
-(including the product TUI). The references resolve through the same bounded
-reader as `/read` and the model-selected `read` tool, so missing, ignored,
+request (including the product TUI). The references resolve through the same
+bounded reader as the model-selected `read` tool, so missing, ignored,
 binary, oversized, secret-shaped, and out-of-workspace paths fail closed with
 safe local diagnostics; the user's literal prompt text is preserved and only
 safe counters reach the session archive.
@@ -554,14 +542,13 @@ could reveal payloads, tool results, stdout, stderr, diffs, file contents,
 secrets, credentials, tokens, private keys, or sensitive personal data.
 
 Successful native runs print provider final text to stdout; finalization
-messages and diagnostics go to stderr. `--native-output json` emits one
-versioned metadata-only status object on stdout after recorder
-finalization.
+messages and diagnostics go to stderr. For a full Pi-shaped session event
+stream use `pipy repl --mode json "<prompt>"` (see "Headless automation"
+above and [`docs/automation-rpc.md`](docs/automation-rpc.md)).
 
-The opt-in `--archive-transcript` flag writes raw loop turns to
-`~/.local/state/pipy/transcripts/<id>.jsonl` outside the pipy session
-archive; this sidecar is sensitive content and is excluded from
-`pipy-session list/search/inspect`.
+The native session tree is the transcript: use `/export` in-session or the
+top-level `--export` to write a portable copy. There is no separate transcript
+sidecar.
 
 For the full invariant set, capture-policy rationale, and deferred
 boundaries see [`docs/harness-spec.md`](docs/harness-spec.md) and
@@ -602,8 +589,8 @@ uv run pipy-session init --agent codex --slug manual-reconstruction --partial
   listing metadata, event types, event summaries, and Markdown summaries.
 - `inspect <name> [--json]` — metadata, event counts, and Markdown summary
   for one finalized record (accepts path, basename, or stem).
-- `export <name>` — metadata-only JSON of one record; raw transcript
-  sidecar included only with explicit `--include-transcript`.
+- `export <name>` — metadata-only JSON of one record (export schema v2; no
+  transcript payload — the native session tree is the transcript).
 - `resume-info <name>` — JSON-only continuation metadata, including safe
   resume/branch lineage and compaction-event counts.
 - `verify [--json]` — scans the archive for structural issues (malformed

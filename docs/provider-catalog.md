@@ -300,8 +300,8 @@ is functionally equivalent to Pi's `ModelRegistry` + `model-resolver`:
 - a refresh path so editing `models.json` or logging in/out updates the catalog
   without restarting the process.
 
-`pipy run`, `pipy repl`, the no-tool REPL `/model`, and the product-TUI `/model`
-selector all consume this catalog through `NativeReplProviderState` and the
+`pipy run`, `pipy repl`, and the product-TUI `/model` selector all consume this
+catalog through `NativeReplProviderState` and the
 existing `provider_factory` boundary. Concrete adapters keep deciding how to
 call their upstream API; the catalog only chooses *which* provider/model/auth
 to construct and supplies the resolved request config.
@@ -667,10 +667,18 @@ Pipy target:
   ambient-credential providers report availability correctly rather than
   appearing unconfigured.
 
-Secrets, tokens, refresh tokens, authorization URLs, PKCE verifiers, and
-`Authorization` headers stay out of every archive surface (JSONL, Markdown,
-catalog/search/inspect, `--native-output json`). This is the standard
-credential-hygiene rule, not a capability reduction.
+The `pipy-session` archive surfaces (JSONL, Markdown, catalog/search/inspect)
+are metadata-only: prompts, model output, and tool payloads never reach them.
+The headless automation surfaces emit real conversation content, so
+metadata-first redaction does not apply to them: `--mode json` and `--mode rpc`
+are full-event transports that deliberately emit prompts, tool arguments, tool
+results, and model output, while `--print`/`-p` prints the one-shot final
+assistant text only (see `docs/automation-rpc.md`).
+
+What is withheld from *every* surface — the archive, the full-event transports,
+and the one-shot print — is credential material: secrets, tokens, refresh
+tokens, authorization URLs, PKCE verifiers, and `Authorization` headers. This is
+the standard credential-hygiene rule, not a capability reduction.
 
 ## `--list-models` And `/model` Selector Data
 
@@ -688,8 +696,8 @@ Pipy target:
   `provider id`, with the same `models.json`-error warning and
   no-models-available guidance. Output goes to stdout and exits; it runs no
   provider turn.
-- The no-tool `/model` command and the product-TUI `/model` selector
-  (`ToolLoopTerminalUi.run_model_selector` over `model_options()`) read the
+- The product-TUI `/model` selector
+  (`ToolLoopTerminalUi.run_model_selector` over `model_options()`) reads the
   full catalog with availability state and reasons. The existing selector
   already gates unavailable/non-tool-capable providers; this track widens
   `model_options()` from one-default-per-provider to the full catalog, with the
@@ -959,7 +967,7 @@ Focused tests should also cover:
 - `--list-models` and `--list-models <search>` output (sorted columns, fuzzy
   filter, `models.json`-error warning, no-models guidance) through the real CLI;
 - `--models` scope resolution + forward/backward cycling rebinding the live
-  provider/model and pinned level with no provider turn (no-tool + product TUI);
+  provider/model and pinned level with no provider turn (product TUI);
 - the `/model` selector over the full catalog with availability reasons,
   `:level` support, and context-clear/rebind, including a real-PTY product-path
   flow;

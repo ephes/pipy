@@ -43,15 +43,17 @@ Local reference checkout at `/Users/jochen/src/pi-mono`, especially:
 
 Pipy current state:
 
-- `docs/harness-spec.md` (`--native-output json`, `--stream`, CLI output
-  convention, Deferred Work: "Network/wire-protocol RPC daemon").
+- `docs/harness-spec.md` (`--stream`, CLI output convention, Deferred Work:
+  "Network/wire-protocol RPC daemon"; the former `--native-output json` is
+  removed).
 - `docs/backlog.md` (Streaming Output Parity Track; "RPC and automation modes"
   in Current Largest Gaps item 5).
 - `docs/session-tree.md` and `docs/extension-api.md` (house style; the native
   session tree and Python extension API this mode composes with).
 - `src/pipy_harness/sdk.py` (`run_native`, `StreamChunkSink`).
-- `src/pipy_harness/cli.py` (`pipy run`, `--native-output json`,
-  `_native_json_output(...)`, `--stream`).
+- `src/pipy_harness/cli.py` (`pipy run`, `--mode {text,json,rpc}`, `--print`,
+  `--stream`; `--native-output json` was removed and is now rejected with
+  guidance).
 
 ## Target Outcome / Goal
 
@@ -78,11 +80,11 @@ secrets and credential tokens are never emitted (standard). This is a
 deliberate, explicit divergence from the archive's redaction rules, scoped to
 the automation transport.
 
-Pipy's existing `--native-output json` is a pipy-specific divergence that
-emits one final **metadata-only** object (counters, labels, record paths; see
-`_native_json_output(...)` in `src/pipy_harness/cli.py`). It is **not** a
-full-event stream and has no Pi equivalent. This spec **replaces and retires**
-`--native-output json` with the Pi-style `--mode json` full-event stream.
+Pipy's former `--native-output json` was a pipy-specific divergence that
+emitted one final **metadata-only** object (counters, labels, record paths).
+It was **not** a full-event stream and had no Pi equivalent. It has been
+**removed**: the flag is now rejected with guidance pointing at the Pi-style
+`--mode json` full-event stream described in this document.
 
 This work composes with two existing target specs:
 
@@ -539,30 +541,23 @@ on success, diagnostics to stderr) is the same semantic contract and is the
 natural home for `-p`/`--print`; the spec does not require a new subcommand name
 if `pipy run` grows the `--print` and `--mode` flags instead.
 
-## (d) Relationship to / Replacement of `--native-output json`
+## (d) Relationship to / Replacement of `--native-output json` (done)
 
-`--native-output json` (pipy-only) emits one final metadata object via
-`_native_json_output(...)`: `schema: "pipy.native_output"`, `run_id`, `status`,
-`exit_code`, record paths, and a `capture` block asserting `prompt_stored:
-false`, `model_output_stored: false`, `tool_payloads_stored: false`. It is a
-**metadata-only divergence** with no Pi analogue and is explicitly listed in
-`docs/harness-spec.md` as "one final metadata-only JSON object … not a JSONL
-event stream."
+The former `--native-output json` (pipy-only) emitted one final metadata object:
+`schema: "pipy.native_output"`, `run_id`, `status`, `exit_code`, record paths,
+and a `capture` block asserting `prompt_stored: false`, `model_output_stored:
+false`, `tool_payloads_stored: false`. It was a **metadata-only divergence**
+with no Pi analogue and not a JSONL event stream.
 
-This spec **retires** `--native-output json` and replaces it with `--mode json`:
+It has been **removed** and replaced by `--mode json`:
 
 - `--mode json` is the Pi-compatible full-event JSONL stream (full message
   content, tool calls/results), not a single metadata object.
+- `--native-output json` is now rejected with a migration message pointing at
+  `--mode json` (and, for the metadata-recording one-shot path,
+  `pipy run --agent pipy-native`). There is no deprecation alias.
 - The metadata-only summary remains valuable for the `pipy-session` archive
-  surface, but it is **not** an automation event stream. The retirement plan:
-  1. Add `--mode json` (and `--mode rpc`) emitting the Pi event vocabulary.
-  2. Mark `--native-output json` deprecated in `--help` and docs, pointing to
-     `--mode json` for full events; optionally re-implement the old single
-     metadata object as a final non-Pi `{"type":"run_summary",...}` trailer
-     gated behind a separate explicit flag if any consumer still needs it.
-  3. Remove `--native-output json` once no caller depends on it, updating
-     `docs/harness-spec.md`, `docs/backlog.md`, `docs/parity-criterion.md`, and
-     `README.md`.
+  surface, but it was never an automation event stream.
 
 Archive privacy is unchanged for the `pipy-session` archive: the metadata-first
 recorder still stores no prompts, model text, tool payloads, file contents, or
@@ -659,8 +654,8 @@ These hold throughout the track, not as later deferrals:
    serialized shapes against a fixture for the fake provider.
 4. **`--mode json` one-shot.** Wire mode resolution (`--mode`, `--print`/`-p`,
    non-TTY default) and emit header + full event stream for a one-shot run with
-   the fake provider. Replace the metadata-only path; deprecate
-   `--native-output json` in help/docs.
+   the fake provider. Replace the metadata-only path (the former
+   `--native-output json` is now removed, not aliased).
 5. **RPC dispatch loop — synchronous commands.** Read commands, dispatch
    `get_state`, `get_messages`, `get_session_stats`, `get_last_assistant_text`,
    `get_commands`, `set_session_name`, model/thinking/queue-mode commands;
@@ -680,10 +675,9 @@ These hold throughout the track, not as later deferrals:
    UI surface.)
 10. **Lifecycle + shutdown hardening.** stdin EOF, SIGTERM/SIGHUP, extension
     shutdown, detached-child cleanup, stdout flush ordering.
-11. **Retire `--native-output json`.** Remove the flag (or gate the legacy
-    metadata object behind an explicit separate flag), update
-    `docs/harness-spec.md`, `docs/backlog.md`, `docs/parity-criterion.md`,
-    `README.md`, and re-run `just parity-score`.
+11. **Retire `--native-output json` (done).** The flag was removed and is now
+    rejected with guidance pointing at `--mode json`; `docs/harness-spec.md`,
+    `docs/backlog.md`, `docs/parity-criterion.md`, and `README.md` were updated.
 
 ## Verification Plan
 
@@ -728,7 +722,7 @@ correct. It must verify:
 11. Stdin EOF triggers a clean shutdown with a zero exit code and a flushed
     stdout.
 12. `--mode json "<prompt>"` (one-shot) emits the native session header line
-    first, then the full event sequence, then exits 0; the metadata-only
+    first, then the full event sequence, then exits 0; the removed metadata-only
     `pipy.native_output` schema is **not** emitted.
 
 `--json` prints a machine-readable pass/fail summary per check, mirroring the
@@ -758,8 +752,8 @@ calls.
   `extension_ui_response` resolves it, and a `timeout` falls back to the safe
   default.
 - Secret hygiene: no provider keys/tokens reach any stdout object.
-- Retirement: `--native-output json` is rejected or deprecated per the chosen
-  slice; `--mode json` is the supported full-event path.
+- Retirement: `--native-output json` is rejected with guidance (the flag was
+  removed); `--mode json` is the supported full-event path.
 
 Suggested test files: `tests/test_native_automation_jsonl.py`,
 `tests/test_native_automation_json_mode.py`,

@@ -93,7 +93,7 @@ Pipy current state (the boundaries this track extends):
 
 ## Target Outcome / Goal
 
-`pipy repl --agent pipy-native --repl-mode tool-loop` reaches Pi-equivalent
+`pipy` / `pipy repl` reaches Pi-equivalent
 interactive comfort: the product editor offers an `@` file picker and broader
 path completion, image data can be pasted/dropped (not only typed as
 `@image:`), the editor runs ad-hoc shell with `!`/`!!`, and a rich set of

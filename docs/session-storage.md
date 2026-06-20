@@ -379,17 +379,13 @@ Session records must not include secrets, API keys, credentials, private keys, t
 
 If raw tool output contains sensitive data, store a summary instead of the raw output.
 
-### Opt-In Tool-Loop Transcript Sidecar
+### The Native Session Tree Is the Transcript
 
-The native tool-loop REPL (`pipy repl --agent pipy-native --repl-mode tool-loop`) supports an explicit `--archive-transcript` flag that writes raw loop turns - user messages, assistant messages with provider tool calls, tool result messages, unified `write`/`edit` diffs, and session metadata - to one JSONL line each at `~/.local/state/pipy/transcripts/<id>.jsonl` (overridable via the `PIPY_TRANSCRIPT_DIR` env var). The sidecar is treated as sensitive content. The transcript id is filename-safe, and the sidecar is created as a regular owner-only file without following a preexisting symlink. Each line carries a stable `type` field, a UTC `recorded_at`, the `pipy-transcript-sidecar` discriminator, and a `payload` dict.
+There is no separate transcript sidecar. The removed `--archive-transcript` flag (which wrote raw loop turns to `~/.local/state/pipy/transcripts/<id>.jsonl`) and its `TranscriptSink` writer are gone; the flag is now rejected with guidance. The native product session tree is the full-content record of the conversation.
 
-The sidecar deliberately lives outside `PIPY_SESSION_DIR`:
+To write a portable copy of a session, use `/export` in-session or the top-level `pipy --export`. These operate on the native session tree, not on the metadata-first `pipy-session` archive.
 
-- The pipy metadata-first session archive is not written to and not read from when the flag is set.
-- `pipy-session list`, `search`, `inspect`, `verify`, and `sync` never see the sidecar because they walk only the session root.
-- The sidecar is opt-in. When `--archive-transcript` is not supplied (the default), no file is created and no raw loop content is persisted anywhere.
-
-Users who enable the sidecar are responsible for treating the transcript files as sensitive. Do not share them, do not commit them, and do not include them in archive sync flows.
+The `pipy-session` metadata archive remains metadata-first and never stores raw loop turns; its `export` command emits a metadata-only JSON object (export schema v2 — the former opt-in `transcript_events` / `transcript_path_label` fields were removed along with the sidecar).
 
 ## Partial Transcripts
 
@@ -685,10 +681,11 @@ The direct native explicit file excerpt tool keeps successful excerpt text in
 memory only. The explicit file excerpt tool keeps successful excerpt text in
 memory only and excludes raw excerpt text from the archive.
 
-The proposal-only REPL boundary is available through
-`/propose-file <workspace-relative-path> -- <change-request>` and labels its
-provider turn `propose_file_repl`. It records a metadata-only
-`native.patch.proposal.recorded` event, follows
-`native.tool.observation.recorded native.provider.started # label
-propose_file_repl`, must not apply edits, and must not be copied into provider
-lifecycle payloads.
+The now-removed proposal-only REPL boundary (`/propose-file`, `/apply-proposal`)
+was part of the deleted no-tool REPL. The model now edits files through the
+model-driven `write` / `edit` / `edit_diff` tools instead. When that boundary
+existed it recorded a metadata-only `native.patch.proposal.recorded` event,
+labeled its provider turn `propose_file_repl`, applied no edits itself, and kept
+raw patch text out of provider lifecycle payloads. The model-driven mutation
+tools (`write` / `edit` / `edit_diff`) do apply edits, but share that archive
+boundary: their raw diffs and payloads never enter provider lifecycle payloads.

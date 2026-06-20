@@ -83,7 +83,7 @@ the product session source for Pi-style workflows.
 
 ## Target Outcome
 
-`pipy repl --agent pipy-native --repl-mode tool-loop` opens and maintains a
+`pipy` / `pipy repl` opens and maintains a
 raw, private, durable native session tree, analogous to Pi's
 `~/.pi/agent/sessions/...` files. In a live session, `/tree` opens an
 interactive selector over the current session's full history. Selecting a prior
@@ -96,9 +96,9 @@ context reconstruction, `/tree`, `/fork`, `/clone`, `/resume`, `/new`, and
 durable compaction. `pipy-session` remains a separate metadata/archive surface
 and must not be used as the product-session substitute for these workflows.
 
-The full interactive workflow targets the tool-loop product TUI first because
-that is pipy's Pi-like daily-driver shell. The no-tool REPL should also use the
-native product session store for ordinary user/assistant conversation
+The full interactive workflow runs in the tool-loop product TUI — pipy's
+single Pi-like daily-driver shell. The non-TTY captured-stream fallback uses the
+same native product session store for ordinary user/assistant conversation
 persistence and native-session resume where it can do so without a full selector
 UI; selector-only commands may print captured-stream diagnostics instead of
 falling through to a provider prompt.
