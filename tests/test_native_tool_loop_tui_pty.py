@@ -15,6 +15,7 @@ input (here `/copy`) must be sent only after the turn's answer is on screen.
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import pty
@@ -31,7 +32,9 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.tools import AssistantMessage, ToolResultMessage
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     StaticNativeReplProviderState,
@@ -2217,6 +2220,293 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = _text()
     assert "\x1b[?1049h" not in captured  # inline only, never alt-screen
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_slash_quit_during_local_shell_output_exits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A slash command remains reachable while a `!` command streams output."""
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    prompts: list[str] = []
+    provider = _PromptRecordingProvider(prompts)
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b'!printf "running-tests\\n"; sleep 30\n')
+        assert _wait_for(err_chunks, "running-tests"), "shell output never streamed"
+        os.write(in_master, b"/quit\n")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "slash /quit did not exit during shell output"
+    assert prompts == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_slash_quit_during_model_bash_tool_output_exits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A slash command remains reachable while the model's bash tool streams."""
+
+    class BashToolCallProvider:
+        name = "fake"
+        model_id = "fake-native-bootstrap"
+        supports_tool_calls = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(
+            self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+        ):
+            from datetime import UTC, datetime
+
+            del stream_sink, reasoning_sink, cancel_token
+            self.calls += 1
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=request.provider_name,
+                model_id=request.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="",
+                tool_calls=(
+                    ProviderToolCall(
+                        provider_correlation_id="call-1",
+                        tool_name="bash",
+                        arguments_json=json.dumps(
+                            {"command": 'printf "tool-running\\n"; sleep 30'}
+                        ),
+                    ),
+                ),
+            )
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = BashToolCallProvider()
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"start bash tool\n")
+        assert _wait_for(err_chunks, "tool-running"), "bash tool output never streamed"
+        os.write(in_master, b"/quit\n")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "slash /quit did not exit during bash tool output"
+    assert provider.calls == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_local_command_during_multi_tool_call_balances_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Interrupting one parallel tool call leaves results for the skipped calls."""
+
+    class MultiToolCallProvider:
+        name = "fake"
+        model_id = "fake-native-bootstrap"
+        supports_tool_calls = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.balanced = threading.Event()
+
+        def complete(
+            self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+        ):
+            from datetime import UTC, datetime
+
+            del stream_sink, reasoning_sink, cancel_token
+            self.calls += 1
+            now = datetime.now(UTC)
+            if self.calls == 1:
+                return ProviderResult(
+                    status=HarnessStatus.SUCCEEDED,
+                    provider_name=request.provider_name,
+                    model_id=request.model_id,
+                    started_at=now,
+                    ended_at=now,
+                    final_text="",
+                    tool_calls=(
+                        ProviderToolCall(
+                            provider_correlation_id="call-1",
+                            tool_name="bash",
+                            arguments_json=json.dumps(
+                                {"command": 'printf "first-tool-running\\n"; sleep 30'}
+                            ),
+                        ),
+                        ProviderToolCall(
+                            provider_correlation_id="call-2",
+                            tool_name="bash",
+                            arguments_json=json.dumps({"command": "echo second"}),
+                        ),
+                    ),
+                )
+            assistant_index = next(
+                index
+                for index, message in enumerate(request.messages)
+                if isinstance(message, AssistantMessage) and message.tool_calls
+            )
+            assistant = request.messages[assistant_index]
+            result_count = sum(
+                isinstance(message, ToolResultMessage)
+                for message in request.messages[assistant_index + 1 :]
+            )
+            if result_count == len(assistant.tool_calls):
+                self.balanced.set()
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=request.provider_name,
+                model_id=request.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="HISTORY_BALANCED",
+                tool_calls=(),
+            )
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    provider = MultiToolCallProvider()
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=provider)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        os.write(in_master, b"start multi tool\n")
+        assert _wait_for(err_chunks, "first-tool-running"), "bash tool never streamed"
+        os.write(in_master, b"/help\n")
+        assert _wait_for(err_chunks, "tool-loop mode supports"), "/help did not run"
+        os.write(in_master, b"after interrupt\n")
+        assert _wait_for_predicate(provider.balanced.is_set), "tool results unbalanced"
+        assert _wait_for(err_chunks, "HISTORY_BALANCED"), "follow-up never completed"
+        os.write(in_master, b"\x04")
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x04")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+    assert not worker.is_alive(), "session did not exit after balanced interruption"
 
 
 def _reasoning_catalog_state(tmp_path: Path, provider: ProviderPort, model_id: str):

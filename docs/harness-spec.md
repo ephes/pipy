@@ -698,7 +698,10 @@ and inline (no alternate screen): the `@` file picker
 mirroring Pi's `scoreEntry`, not fuzzy) and general Tab path completion; `!`/`!!`
 local shell shortcuts (`run_local_command`, reusing the model-visible `bash`
 streaming substrate with cooperative Escape cancellation) recording into the
-native session tree for `!` and live-only for `!!`; `Shift+Tab` thinking-level
+native session tree for `!` and live-only for `!!`; long-running or streaming
+model-visible tools must observe `ToolContext.cancel_event` so active TUI
+interrupts such as Escape or `/quit` can stop them without orphaned output;
+`Shift+Tab` thinking-level
 cycling (clamped to model reasoning support, recorded as a
 `thinking_level_change` native-tree entry) and `Ctrl+P`/`Shift+Ctrl+P` model
 cycling through the scoped/available set; `Ctrl+O` tool-output expansion and

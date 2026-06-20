@@ -10,6 +10,7 @@ also pin the move to genuine shell parity.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -25,9 +26,16 @@ from pipy_harness.native.tools.bash import BashTool
 
 
 def _ctx(
-    workspace: Path, *, output_sink: Callable[[str], None] | None = None
+    workspace: Path,
+    *,
+    output_sink: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> ToolContext:
-    return ToolContext(workspace_root=workspace.resolve(), output_sink=output_sink)
+    return ToolContext(
+        workspace_root=workspace.resolve(),
+        output_sink=output_sink,
+        cancel_event=cancel_event,
+    )
 
 
 def _request(arguments: dict[str, Any]) -> ToolRequest:
@@ -169,6 +177,41 @@ def test_timeout_enforced_when_stdout_closed_early(tmp_path: Path) -> None:
     assert result.is_error is True
     assert "timed out" in result.output_text.lower()
     assert elapsed < 5  # must not wait for the full 30s sleep
+
+
+def test_cancellation_observed_when_stdout_closed_early(tmp_path: Path) -> None:
+    cancel_event = threading.Event()
+    holder: list[Any] = []
+
+    def invoke() -> None:
+        holder.append(
+            BashTool().invoke(
+                _request(
+                    {
+                        "command": (
+                            'printf "started\\n"; sleep 0.1; '
+                            "exec 1>&- 2>&-; sleep 30"
+                        ),
+                    }
+                ),
+                _ctx(tmp_path, cancel_event=cancel_event),
+            )
+        )
+
+    start = time.monotonic()
+    worker = threading.Thread(target=invoke, daemon=True)
+    worker.start()
+    time.sleep(0.5)
+    cancel_event.set()
+    worker.join(timeout=5)
+    elapsed = time.monotonic() - start
+
+    assert not worker.is_alive()
+    result = holder[0]
+    assert not isinstance(result, BaseException)
+    assert result.is_error is True
+    assert "cancelled" in result.output_text.lower()
+    assert elapsed < 5
 
 
 def test_high_volume_output_is_bounded_not_accumulated(tmp_path: Path) -> None:

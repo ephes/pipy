@@ -805,18 +805,23 @@ class ToolLoopTerminalUi:
         *,
         poll_seconds: float = 0.05,
         accept_queue: bool = False,
+        accept_commands: bool = False,
     ) -> str:
         """Watch stdin during an active turn; optionally a mid-turn editor.
 
-        Returns one of :data:`TURN_SETTLED`, :data:`TURN_ABORTED`, or
-        :data:`TURN_STEERED`. With ``accept_queue=False`` (e.g. a ``!`` shell
-        run) it only watches for Escape (sets ``abort_event``, returns
-        ``aborted``) and Ctrl-C (sets ``abort_event``, raises). With
-        ``accept_queue=True`` (a provider turn) it also accepts editor input
-        mid-turn: a normal Enter enqueues a steering message and interrupts the
-        turn (returns ``steered``), Alt+Enter enqueues a follow-up without
-        interrupting, Alt+Up restores queued messages to the editor, and
-        Escape/Ctrl-C abort (the caller restores the queue to the editor).
+        Returns one of :data:`TURN_SETTLED`, :data:`TURN_ABORTED`,
+        :data:`TURN_STEERED`, or :data:`TURN_LOCAL_COMMAND`. With both
+        ``accept_queue`` and ``accept_commands`` disabled it only watches for
+        Escape (sets ``abort_event``, returns ``aborted``) and Ctrl-C (sets
+        ``abort_event``, raises). With ``accept_queue=True`` (a provider turn)
+        it also accepts editor input mid-turn: a normal Enter enqueues a
+        steering message and interrupts the turn (returns ``steered``),
+        Alt+Enter enqueues a follow-up without interrupting, Alt+Up restores
+        queued messages to the editor, and Escape/Ctrl-C abort (the caller
+        restores the queue to the editor). With ``accept_commands=True`` and
+        ``accept_queue=False`` (e.g. a ``!`` shell run), only local command
+        input that starts with ``/`` or ``!`` is editable/submittable; submitting
+        one interrupts the active work and hands the command to the session.
         """
 
         fd = self.input_stream.fileno()
@@ -836,14 +841,29 @@ class ToolLoopTerminalUi:
                 if key == "ctrl-c":
                     abort_event.set()
                     raise KeyboardInterrupt
-                if not accept_queue:
+                if not accept_queue and not accept_commands:
                     if key == "paste":
                         # A paste mid-turn is not editor input; drop it so its
                         # body never lingers into the next prompt.
                         self._pending_paste = ""
                     continue
-                # accept_queue: a mid-turn editor for steering/follow-up.
+                command_only = accept_commands and not accept_queue
+                # In command-only mode, preserve the old "ignore random typing"
+                # behavior until the user explicitly starts a local command.
+                if command_only and not self.input_text and key not in {"/", "!"}:
+                    if key == "paste":
+                        self._pending_paste = ""
+                    continue
+                # accept_queue / accept_commands: a mid-turn editor for
+                # steering/follow-up and/or local commands.
                 if key == "enter":
+                    if self.autocomplete_open:
+                        self._accept_autocomplete_selection()
+                        continue
+                    if self.slash_menu_open and self._filtered_commands():
+                        matches = self._filtered_commands()
+                        if self.input_text not in matches:
+                            self._accept_slash_menu_selection()
                     text = self.input_text
                     self._reset_mid_turn_input()
                     if not text.strip():
@@ -858,21 +878,31 @@ class ToolLoopTerminalUi:
                         abort_event.set()
                         self.paint()
                         return TURN_LOCAL_COMMAND
+                    if command_only:
+                        self.paint()
+                        continue
                     self.enqueue_steering(text)
                     abort_event.set()
                     self.paint()
                     return TURN_STEERED
                 if key == "alt-enter":
+                    if command_only:
+                        continue
                     text = self.input_text
                     self._reset_mid_turn_input()
                     self.enqueue_follow_up(text)
                     self.paint()
                     continue
                 if key == "alt-up":
+                    if command_only:
+                        continue
                     self.restore_pending_to_editor()
                     self.paint()
                     continue
                 if key == "paste":
+                    if command_only:
+                        self._pending_paste = ""
+                        continue
                     self._insert_paste(self._pending_paste)
                     self._pending_paste = ""
                     self.paint()
@@ -881,8 +911,36 @@ class ToolLoopTerminalUi:
                     self._delete_before_cursor()
                     self.paint()
                     continue
+                if key in {"up", "down"}:
+                    if self.slash_menu_open:
+                        self._navigate_slash_menu(key)
+                    elif self.autocomplete_open:
+                        self._navigate_autocomplete(key)
+                    self.paint()
+                    continue
+                if key == "tab":
+                    if self.slash_menu_open and self._filtered_commands():
+                        self._accept_slash_menu_selection()
+                    elif self.autocomplete_open:
+                        self._accept_autocomplete_selection()
+                    elif not command_only:
+                        self._attempt_path_completion()
+                    self.paint()
+                    continue
                 if key in {"left", "right", "home", "end"}:
                     self._move_input_cursor(key)
+                    self.paint()
+                    continue
+                if key == "ctrl-u":
+                    self._kill_to_line_start()
+                    self.paint()
+                    continue
+                if key == "ctrl-z":
+                    self._undo_edit()
+                    self.paint()
+                    continue
+                if key == "ctrl-y":
+                    self._redo_edit()
                     self.paint()
                     continue
                 if len(key) == 1 and key.isprintable():
@@ -896,6 +954,7 @@ class ToolLoopTerminalUi:
         self.input_text = ""
         self.input_cursor = 0
         self.slash_menu_open = False
+        self.slash_menu_selection = 0
         self._close_autocomplete()
 
     def run_model_selector(

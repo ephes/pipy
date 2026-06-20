@@ -155,11 +155,12 @@ class BashTool:
         except OSError:
             return self._result(request, "bash: failed to start command", is_error=True)
 
-        output, truncated, timed_out, _cancelled = _stream_output(
+        output, truncated, timed_out, cancelled = _stream_output(
             proc,
             sink=context.output_sink,
             timeout=timeout,
             max_output_bytes=self.max_output_bytes,
+            cancel_event=context.cancel_event,
         )
         return self._result(
             request,
@@ -168,9 +169,10 @@ class BashTool:
                 proc.returncode,
                 truncated=truncated,
                 timed_out=timed_out,
+                cancelled=cancelled,
                 timeout=timeout,
             ),
-            is_error=timed_out,
+            is_error=timed_out or cancelled,
         )
 
     def _resolve_shell(self) -> str | None:
@@ -284,13 +286,25 @@ def _stream_output(
 
     if not timed_out and eof:
         # stdout is closed, but the process may still be running (it can close
-        # or redirect its fds and keep working). Keep enforcing the deadline so
-        # such a child cannot hang invoke().
-        try:
-            wait_for = None if deadline is None else max(0.0, deadline - time.monotonic())
-            proc.wait(timeout=wait_for)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        # or redirect its fds and keep working). Keep enforcing the deadline and
+        # cancellation so such a child cannot hang invoke() or survive a TUI
+        # /quit after it disconnected its output.
+        while proc.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                wait_for = min(_STREAM_THROTTLE_SECONDS, remaining)
+            else:
+                wait_for = _STREAM_THROTTLE_SECONDS
+            try:
+                proc.wait(timeout=wait_for)
+            except subprocess.TimeoutExpired:
+                pass
 
     if timed_out or cancelled:
         _kill_process_group(proc)
@@ -311,7 +325,7 @@ def _stream_output(
     return bytes(raw_tail).decode("utf-8", "replace"), truncated, timed_out, cancelled
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class LocalShellResult:
     """Outcome of a local ``!``/``!!`` editor shell shortcut run."""
 
@@ -321,6 +335,7 @@ class LocalShellResult:
     timed_out: bool
     cancelled: bool
     started: bool
+    cancel_reason: str | None = None
 
 
 def run_local_command(
@@ -408,8 +423,11 @@ def _shape(
     truncated: bool,
     timed_out: bool,
     timeout: int | None,
+    cancelled: bool = False,
 ) -> str:
-    if timed_out:
+    if cancelled:
+        sections = ["bash: command cancelled"]
+    elif timed_out:
         sections = [f"bash: command timed out after {timeout}s"]
     else:
         sections = [f"exit code: {exit_code}"]

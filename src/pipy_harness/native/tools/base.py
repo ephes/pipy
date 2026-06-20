@@ -37,6 +37,7 @@ Anything outside this subset raises a clear error at definition time.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -231,12 +232,17 @@ class ToolContext:
     `None`, in which case the tool still returns its full bounded result but
     emits nothing mid-run. The archive boundary is unrelated; streamed output
     never crosses it.
+
+    `cancel_event` is set by the live TUI when the user interrupts an active
+    tool run (Escape or a submitted local command such as `/quit`). Tools that
+    can stop safely should observe it; the bash tool kills its process group.
     """
 
     workspace_root: Path
     stderr_sink: Callable[[str], None] | None = field(default=None)
     reference_roots: tuple[Path, ...] = field(default=())
     output_sink: Callable[[str], None] | None = field(default=None)
+    cancel_event: threading.Event | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):
@@ -247,6 +253,10 @@ class ToolContext:
             raise ValueError("ToolContext.stderr_sink must be callable or None")
         if self.output_sink is not None and not callable(self.output_sink):
             raise ValueError("ToolContext.output_sink must be callable or None")
+        if self.cancel_event is not None and not hasattr(
+            self.cancel_event, "is_set"
+        ):
+            raise ValueError("ToolContext.cancel_event must be an Event-like object or None")
         if not isinstance(self.reference_roots, tuple):
             raise ValueError("ToolContext.reference_roots must be a tuple")
         for root in self.reference_roots:

@@ -8,6 +8,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Slash/local commands such as `/quit` now remain editable and submittable while
+  a `!` shell shortcut or model-driven bash tool is streaming output, so
+  long-running tests no longer trap the user in the product TUI.
 - Raw terminal input now preserves UTF-8 prompt text in the product TUI and
   slash-menu editor, so non-ASCII characters such as `ö` no longer render as
   replacement characters or reach the provider corrupted.

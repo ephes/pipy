@@ -36,7 +36,7 @@ import json
 import os
 import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Callable, Mapping, Sequence
@@ -222,6 +222,7 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_TOOLS,
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
+    TURN_SETTLED,
     TURN_STEERED,
     ModelSelectorOption,
     ScopedModelRow,
@@ -3451,7 +3452,8 @@ class NativeToolReplSession:
                         break
 
                     fatal = False
-                    for call in tool_calls:
+                    tool_interrupted_turn = False
+                    for call_index, call in enumerate(tool_calls):
                         if invocations_this_turn >= self.tool_budget:
                             budget_exhausted_count += 1
                             renderer.render_tool_call(call)
@@ -3528,8 +3530,11 @@ class NativeToolReplSession:
                         active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
                         try:
-                            observation = self._invoke(
-                                call=call, context=context, registry=run_tool_registry
+                            observation, tool_interrupt = self._invoke_interruptible(
+                                call=call,
+                                context=context,
+                                registry=run_tool_registry,
+                                terminal_ui=terminal_ui,
                             )
                         finally:
                             active_tool_call[0] = None
@@ -3576,6 +3581,21 @@ class NativeToolReplSession:
                             is_error=observation.is_error,
                             duration_seconds=tool_duration,
                         )
+                        if tool_interrupt in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
+                            messages.append(observation)
+                            session_tree.append_message(observation)
+                            for skipped_call in tool_calls[call_index + 1 :]:
+                                skipped = self._error_observation(
+                                    call=skipped_call,
+                                    output_text=(
+                                        "tool skipped because the turn was interrupted"
+                                    ),
+                                )
+                                turn_tool_results.append(skipped)
+                                messages.append(skipped)
+                                session_tree.append_message(skipped)
+                            tool_interrupted_turn = True
+                            break
                         if observation.is_error:
                             malformed_argument_count += 1
                             consecutive_malformed_streak += 1
@@ -3612,6 +3632,8 @@ class NativeToolReplSession:
                             )
 
                     emitter.turn_end(turn_assistant_message, turn_tool_results)
+                    if tool_interrupted_turn:
+                        break
                     if fatal:
                         emitter.agent_end(
                             messages[agent_run_start_index:], will_retry=False
@@ -4134,7 +4156,8 @@ class NativeToolReplSession:
         # or cancellation. A non-zero exit (e.g. !false) is an error the model
         # should see, matching the real bash execution boundary.
         if result.cancelled:
-            status_line = "(cancelled by escape)"
+            reason = result.cancel_reason or "escape"
+            status_line = f"(cancelled by {reason})"
         elif result.timed_out:
             status_line = "(timed out)"
         else:
@@ -4315,13 +4338,21 @@ class NativeToolReplSession:
             target=_worker, name="pipy-local-shell", daemon=True
         )
         worker.start()
+        outcome = TURN_SETTLED
         try:
-            terminal_ui.wait_for_active_turn_interrupt(done_event, cancel_event)
+            outcome = terminal_ui.wait_for_active_turn_interrupt(
+                done_event, cancel_event, accept_commands=True
+            )
         except KeyboardInterrupt:
             cancel_event.set()
+            outcome = TURN_ABORTED
         worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+        cancel_reason = "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
         if holder:
-            return holder[0]
+            result = holder[0]
+            if result.cancelled:
+                result.cancel_reason = cancel_reason
+            return result
         return LocalShellResult(
             output="",
             exit_code=None,
@@ -4329,6 +4360,7 @@ class NativeToolReplSession:
             timed_out=False,
             cancelled=True,
             started=True,
+            cancel_reason=cancel_reason,
         )
 
     def _cancel_active_turn(
@@ -5285,6 +5317,79 @@ class NativeToolReplSession:
                 if content:
                     return message.content
         return ""
+
+    def _invoke_interruptible(
+        self,
+        *,
+        call: ProviderToolCall,
+        context: ToolContext,
+        registry: dict[str, ToolPort] | None = None,
+        terminal_ui: ToolLoopTerminalUi | None = None,
+    ) -> tuple[ToolResultMessage, str]:
+        """Invoke a tool while the live TUI can submit local commands.
+
+        Model-driven bash tools run tests/builds on the tool loop's main path.
+        Run the tool on a worker while the foreground thread watches the
+        terminal, so `/quit`/`!…` submitted during live tool output can cancel
+        the tool and dispatch locally instead of waiting for the command to
+        finish. Tools receive a cancel event via ``ToolContext``; the bash tool
+        observes it by killing its process group.
+        """
+
+        if terminal_ui is None:
+            return self._invoke(call=call, context=context, registry=registry), TURN_SETTLED
+
+        cancel_event = threading.Event()
+        done_event = threading.Event()
+        result_holder: list[ToolResultMessage] = []
+        error_holder: list[BaseException] = []
+        cancellable_context = replace(context, cancel_event=cancel_event)
+
+        def _worker() -> None:
+            try:
+                result_holder.append(
+                    self._invoke(
+                        call=call, context=cancellable_context, registry=registry
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - re-raised below
+                error_holder.append(exc)
+            finally:
+                done_event.set()
+
+        worker = threading.Thread(target=_worker, name="pipy-tool-call", daemon=True)
+        worker.start()
+        try:
+            outcome = terminal_ui.wait_for_active_turn_interrupt(
+                done_event, cancel_event, accept_commands=True
+            )
+        except KeyboardInterrupt:
+            cancel_event.set()
+            outcome = TURN_ABORTED
+        if outcome in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
+            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+            if not result_holder:
+                label = (
+                    "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
+                )
+                # The user interrupted this tool; if the worker also raised at
+                # the same time, preserve the user-visible cancellation outcome
+                # and keep provider tool-result history balanced.
+                return (
+                    self._error_observation(
+                        call=call, output_text=f"tool cancelled by {label}"
+                    ),
+                    outcome,
+                )
+        worker.join()
+        if error_holder:
+            raise error_holder[0]
+        if result_holder:
+            return result_holder[0], outcome
+        return (
+            self._error_observation(call=call, output_text="tool cancelled"),
+            outcome,
+        )
 
     def _invoke(
         self,
