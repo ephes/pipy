@@ -2412,7 +2412,10 @@ class ToolLoopTerminalUi:
 
     def _paint_locked(self) -> None:
         width, height = self._dimensions()
-        render_width = self._safe_render_width(width)
+        # Render edge-to-edge at the true terminal width, matching Pi. The input
+        # line keeps its one-column cursor-safety margin internally (its wrap
+        # capacity is width - 1), so the hardware cursor never lands in the last
+        # column even though separators, bands, and the footer now fill it.
         style = chrome_style_for(self.terminal_stream)
         output: list[str] = ["\x1b[?25l"]
         # 1. Return to the top of the previously drawn live region and erase it
@@ -2429,13 +2432,20 @@ class ToolLoopTerminalUi:
         #    carriage returns to keep each row starting in column 1.
         committed_rows = 0
         for kind, block_lines in self._history_blocks[self._painted_block_count :]:
-            for frame_line in self._block_frame_lines(kind, block_lines, width=render_width):
-                output.append(self._styled_line(frame_line, style=style, width=render_width))
-                output.append("\x1b[K\r\n")
+            for frame_line in self._block_frame_lines(kind, block_lines, width=width):
+                styled = self._styled_line(frame_line, style=style, width=width)
+                output.append(styled)
+                # A line that already fills the row overwrites every column, so a
+                # trailing erase would only blank its last cell; shorter lines
+                # still erase their stale tail.
+                if _visible_len_allow_sgr(styled) >= width:
+                    output.append("\r\n")
+                else:
+                    output.append("\x1b[K\r\n")
                 committed_rows += 1
         self._painted_block_count = len(self._history_blocks)
         # 3. Draw the live region (bounded transient stream + input/footer).
-        live = self._live_region_lines(width=render_width, height=height)
+        live = self._live_region_lines(width=width, height=height)
         input_index = self._input_index(live)
         padding_before_live = max(0, self._live_input_row - committed_rows - input_index)
         if padding_before_live:
@@ -2446,8 +2456,12 @@ class ToolLoopTerminalUi:
             input_index += padding_before_live
         last_index = len(live) - 1
         for index, frame_line in enumerate(live):
-            output.append(self._styled_line(frame_line, style=style, width=render_width))
-            output.append("\x1b[K")
+            styled = self._styled_line(frame_line, style=style, width=width)
+            output.append(styled)
+            # Rows that already fill the width self-clear; erasing would blank
+            # the last column. Shorter rows still erase their stale tail.
+            if _visible_len_allow_sgr(styled) < width:
+                output.append("\x1b[K")
             if index != last_index:
                 output.append("\r\n")
         # 4. Park the visible cursor on the input cell with relative moves; an
@@ -2472,7 +2486,7 @@ class ToolLoopTerminalUi:
             input_meta = live[input_index].meta or {}
             raw_cursor_col = input_meta.get("cursor_col")
             cursor_col = raw_cursor_col if isinstance(raw_cursor_col, int) else 0
-            cursor_col = min(max(0, render_width - 1), cursor_col)
+            cursor_col = min(max(0, width - 1), cursor_col)
             if cursor_col > 0:
                 output.append(f"\x1b[{cursor_col}C")
             output.append("\x1b[?25h")
@@ -3289,10 +3303,6 @@ class ToolLoopTerminalUi:
                 last_index,
             ),
         )
-
-    @staticmethod
-    def _safe_render_width(width: int) -> int:
-        return max(1, width - 1)
 
     @staticmethod
     def _clip(text: str, width: int) -> str:

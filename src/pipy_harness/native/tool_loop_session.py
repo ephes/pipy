@@ -4420,7 +4420,7 @@ class NativeToolReplSession:
             ),
             cache_hit_percent=cache_hit_percent,
         )
-        status_width = max(20, chrome_width(error_stream) - 1)
+        status_width = max(20, chrome_width(error_stream))
         status_line = format_bottom_status_line(status_width, fields)
         cwd_label = _friendly_cwd_label(cwd)
         return f"{cwd_label}\n{status_line}"

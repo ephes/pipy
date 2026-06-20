@@ -49,6 +49,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Raw terminal input now preserves UTF-8 prompt text in the product TUI and
   slash-menu editor, so non-ASCII characters such as `ö` no longer render as
   replacement characters or reach the provider corrupted.
+- The interactive TUI now paints edge-to-edge at the true terminal width,
+  matching Pi, removing the blank right-hand column. Full-row elements — the
+  user-message and tool/bash background bands, the input-frame separators, and
+  the bottom status line — now reach the final column instead of stopping one
+  short. The input line keeps its one-column cursor-safety margin internally, so
+  the hardware cursor still never lands in the last column.
 
 ### Changed
 

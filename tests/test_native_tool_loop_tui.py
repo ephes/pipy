@@ -545,6 +545,94 @@ def test_tui_user_message_background_matches_pi_three_row_band(
     assert snapshot.cells[prompt.row + 2][0].attr.bg is None
 
 
+def test_tui_user_message_band_fills_last_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+    ui.footer_lines = (
+        "~/projects/pipy (main)",
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high",
+    )
+    ui.submit_user_message("hello world")
+    ui.append_assistant("Hello!")
+
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(),
+        columns=88,
+        rows=24,
+    )
+    prompt = snapshot.find("hello world")[0]
+    bg = prompt.attr.bg
+    # Pi fills the band across the whole row; every column including the last
+    # must carry the band background, with no trailing default-bg gap.
+    for row_index in (prompt.row - 1, prompt.row, prompt.row + 1):
+        row = snapshot.cells[row_index]
+        filled = sum(1 for cell in row if cell.attr.bg == bg)
+        assert filled == snapshot.columns, (
+            f"band row {row_index} fills {filled}/{snapshot.columns} columns"
+        )
+        assert row[snapshot.columns - 1].attr.bg == bg
+
+
+def test_tui_input_separator_spans_full_width(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+    ui.footer_lines = ("~/projects/pipy (main)", "x")
+
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(),
+        columns=88,
+        rows=24,
+    )
+    separator_rows = [
+        "".join(cell.char if cell.char else " " for cell in row)
+        for row in snapshot.cells
+        if any(cell.char == "─" for cell in row)
+    ]
+    assert separator_rows, "no separator row painted"
+    # Pi draws separators edge-to-edge; every separator row must reach the last
+    # column with no trailing default-background gap.
+    for line in separator_rows:
+        assert line.count("─") == snapshot.columns, (
+            f"separator spans {line.count('─')}/{snapshot.columns} columns"
+        )
+
+
+def test_tui_tool_command_band_fills_last_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+    ui.footer_lines = ("~/projects/pipy (main)", "x")
+    ui._history_blocks.append(("tool", ('bash(command="ls")',)))
+
+    ui.paint()
+
+    snapshot = parse_ansi_screen(
+        cast(_TtyBuffer, ui.terminal_stream).getvalue(),
+        columns=88,
+        rows=24,
+    )
+    command = snapshot.find("bash(command")[0]
+    bg = command.attr.bg
+    row = snapshot.cells[command.row]
+    filled = sum(1 for cell in row if cell.attr.bg == bg)
+    assert filled == snapshot.columns, (
+        f"tool band fills {filled}/{snapshot.columns} columns"
+    )
+    assert row[snapshot.columns - 1].attr.bg == bg
+
+
 def test_tui_drops_tail_when_context_and_prompt_fill_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._history_blocks = [("normal", ("ctx1", "ctx2", "ctx3", "ctx4"))]
