@@ -1606,10 +1606,11 @@ Compatibility assessment for slice selection: treat Pipy's extension support as
 extension platform**. The landed slices cover the high-value Python equivalents
 of Pi permission gates, custom slash commands, simple model-visible tools,
 input/system-prompt hooks, lifecycle observation, minimal UI notices,
+simple `ctx.ui` select/input/confirm/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
-extension APIs: custom tool rendering, full `ctx.ui`
-dialogs/widgets/editor/autocomplete/theme controls, richer `appendEntry` replay
+extension APIs: custom tool rendering, richer multi-widget `ctx.ui`
+dialogs/editor/autocomplete/theme controls beyond the simple primitives, richer `appendEntry` replay
 and session-manager access, TypeScript source compatibility, OAuth-provider
 extension registration, broader dynamic extension flag integration, or PyPI/npm
 package distribution. Managed git sources

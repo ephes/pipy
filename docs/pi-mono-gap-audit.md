@@ -3,7 +3,10 @@
 Status: comparison snapshot and implementation specification, originally
 written 2026-06-02 and groomed 2026-06-17 after session CLI/pickers,
 settings/keybindings, TUI workflow, provider-catalog construction, JSON/RPC
-automation, and extension/package slice-12 runtime composition shipped.
+automation, and extension/package slice-12 runtime composition shipped. The
+extension follow-on section was refreshed 2026-06-20 after extension
+live-session hooks, dynamic tool-loop flags, simple `ctx.ui` primitives, and
+the first custom session-entry/message-rendering slice shipped.
 
 This audit compares pipy's current docs/specs and command help with the local Pi
 reference in `/Users/jochen/src/pi-mono` plus the installed `pi 0.78.0` help.
@@ -160,6 +163,11 @@ Pipy current state:
 - Extension slice 13 has shipped: live-session hooks for `user_bash`,
   `before_provider_request`, session switch/fork/tree/compaction gates, and
   dynamic active tool/model/thinking controls through the command/hook context.
+- Extension slices 14–16 have shipped: dynamic `pipy repl` tool-loop CLI flags
+  (`ExtensionFlag` + `ctx.flags`), simple command/shortcut UI primitives
+  (`ctx.ui.select`/`input`/`confirm`/`set_status`/`set_working_*`), and the
+  first custom session-entry/message-rendering slice
+  (`api.register_message_renderer` + `ctx.append_entry`).
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -168,8 +176,10 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: multi-widget UI/rendering, custom message/tool
-   renderers, broader dynamic-flag integration beyond the landed tool-loop
+1. Richer Pi extension APIs: multi-widget UI/rendering beyond the simple
+   `ctx.ui` primitives, custom tool renderers and rich multi-widget message
+   components beyond the first `register_message_renderer`/`append_entry`
+   slice, broader dynamic-flag integration beyond the landed tool-loop
    `ctx.flags` slice, and extension state/session-manager views.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
@@ -230,10 +240,10 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Extension/package platform follow-ons: richer UI/rendering, extension
-   state/session-manager helpers, broader dynamic-flag integration/message renderers,
-   OAuth-provider extension registration, and future PyPI/npm package source
-   policy.
+1. Extension/package platform follow-ons: richer multi-widget UI/rendering,
+   extension state/session-manager helpers, custom tool renderers, broader
+   dynamic-flag integration, OAuth-provider extension registration, and future
+   PyPI/npm package source policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
 4. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
