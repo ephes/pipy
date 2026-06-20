@@ -1,17 +1,7 @@
 """Parity row E5 behavior check: dynamic provider/model swap mid-session.
 
-Proves the live ``/model`` capability in BOTH REPL product paths through the
+Proves the live ``/model`` capability in the product tool-loop REPL through the
 shared ``NativeReplProviderState`` boundary — not a dead wrapper module.
-
-No-tool product path (driven via the real adapter + HarnessRunner so the
-finalized session archive is the witness):
-
-  * a successful mid-session ``/model`` switch makes the *next* provider turn
-    record the new ``model_id`` in its safe archive metadata;
-  * an unavailable target is refused by the availability gate, leaving the
-    prior selection in force for the following turn;
-  * neither ``/model`` invocation creates a provider turn or a tool event of
-    its own (no provider/tool/archive side effects during selection).
 
 Tool-loop product path (driven via ``NativeToolReplSession.run`` with captured
 streams, recording every ``ProviderRequest``):
@@ -29,89 +19,18 @@ Exits 0 when every behavior holds, 1 otherwise. No real network or AI calls.
 from __future__ import annotations
 
 import io
-import json
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeReplAdapter
-from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import HarnessStatus, RunRequest
-from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
 )
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
-from pipy_harness.runner import HarnessRunner
-
-
-def _no_tool_provider_state() -> NativeReplProviderState:
-    """A boundary whose only available provider is the deterministic fake.
-
-    ``env={}`` makes every keyed provider unavailable, so ``/model
-    openai/...`` exercises the real availability gate without touching the
-    ambient environment.
-    """
-
-    return NativeReplProviderState(
-        selection=NativeModelSelection("fake", "model-a"),
-        provider_factory=lambda selection: FakeNativeProvider(
-            model_id=selection.model_id
-        ),
-        defaults_store=None,
-        persist_defaults=False,
-        env={},
-    )
-
-
-def _no_tool_archive_models() -> tuple[list[str], int, int]:
-    """Run the no-tool REPL across two switches; return per-turn model ids.
-
-    Script: prompt, switch to an available model, prompt, attempt a switch to
-    an unavailable provider (refused), prompt. Returns the ordered list of
-    ``model_id`` values recorded on ``native.provider.completed`` events, plus
-    the provider-completed and tool-event counts.
-    """
-
-    root = Path(tempfile.mkdtemp())
-    cwd = Path(tempfile.mkdtemp())
-    adapter = PipyNativeReplAdapter(
-        provider_state=_no_tool_provider_state(),
-        input_stream=io.StringIO(
-            "hi\n"
-            "/model fake/model-b\n"
-            "yo\n"
-            "/model openai/gpt-5.5\n"
-            "there\n"
-            "/exit\n"
-        ),
-        output_stream=io.StringIO(),
-        error_stream=io.StringIO(),
-    )
-    result = HarnessRunner(adapter=adapter).run(
-        RunRequest(
-            agent="pipy-native",
-            slug="parity-dynamic-provider",
-            command=[],
-            cwd=cwd,
-            goal="parity dynamic provider",
-            root=root,
-            capture_policy=CapturePolicy(),
-        )
-    )
-    events = [
-        json.loads(line)
-        for line in result.record.jsonl_path.read_text(encoding="utf-8").splitlines()
-    ]
-    completed = [e for e in events if e.get("type") == "native.provider.completed"]
-    models = [e.get("payload", {}).get("model_id") for e in completed]
-    tool_events = [
-        e for e in events if str(e.get("type", "")).startswith("native.tool.")
-    ]
-    return models, len(completed), len(tool_events)
 
 
 @dataclass
@@ -193,20 +112,6 @@ def _tool_loop_requests() -> list[ProviderRequest]:
     return probe.requests
 
 
-def _no_tool_behaviour_holds() -> bool:
-    models, completed_count, tool_event_count = _no_tool_archive_models()
-    # Turn 1 uses model-a; turn 2 uses model-b (switch applied); turn 3 still
-    # model-b (the unavailable openai switch was refused by the gate).
-    if models != ["model-a", "model-b", "model-b"]:
-        return False
-    # The two /model commands created no provider turns and no tool events.
-    if completed_count != 3:
-        return False
-    if tool_event_count != 0:
-        return False
-    return True
-
-
 def _tool_loop_behaviour_holds() -> bool:
     requests = _tool_loop_requests()
     # Three prompts -> three provider calls; the two /model commands add none.
@@ -238,8 +143,6 @@ def _tool_loop_behaviour_holds() -> bool:
 
 
 def main() -> int:
-    if not _no_tool_behaviour_holds():
-        return 1
     if not _tool_loop_behaviour_holds():
         return 1
     return 0

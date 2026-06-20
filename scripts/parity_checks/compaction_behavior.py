@@ -1,11 +1,13 @@
 """Parity row E2 behavior check: live in-session compaction.
 
-Seeds a temporary session by running the no-tool REPL product path with a
-deterministic fake provider and an explicit ``/compact`` command, then proves
-that the finalized record carries a ``native.session.compacted`` event whose
-safe counters show the provider-visible context was actually reduced. It also
-proves the pure tool-loop compactor reduces a message history at a user-turn
-boundary without orphaning a tool result (provider message-protocol validity).
+Drives the product tool-loop REPL through the real ``PipyNativeToolReplAdapter``
+with several plain user turns and an explicit ``/compact`` command, then proves
+the adapter emits a ``native.session.compacted`` event whose safe counters show
+context was actually compacted (a positive ``compaction_count`` and at least one
+dropped user-turn group). It also proves the pure tool-loop compactor reduces a
+message history at a user-turn boundary without orphaning a tool result
+(provider message-protocol validity), and never leaks tool-result bodies into
+the summary block.
 
 Exits 0 when both behaviors hold, 1 otherwise. No real network or AI calls.
 """
@@ -13,15 +15,19 @@ Exits 0 when both behaviors hold, 1 otherwise. No real network or AI calls.
 from __future__ import annotations
 
 import io
-import json
-import tempfile
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import mkdtemp
 
-from pipy_harness.adapters.native import PipyNativeReplAdapter
+from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import RunRequest
-from pipy_harness.native.fake import FakeNativeProvider
-from pipy_harness.native.models import ProviderToolCall
+from pipy_harness.models import HarnessStatus, RunRequest
+from pipy_harness.native.models import (
+    ProviderRequest,
+    ProviderResult,
+    ProviderToolCall,
+)
 from pipy_harness.native.session_compaction import compact_tool_loop_messages
 from pipy_harness.native.tools.base import SUPPORTED_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.tools.messages import (
@@ -29,33 +35,69 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from pipy_harness.runner import HarnessRunner
 
 
-def _seeded_no_tool_compaction_record() -> list[dict]:
-    root = Path(tempfile.mkdtemp())
-    cwd = Path(tempfile.mkdtemp())
-    adapter = PipyNativeReplAdapter(
-        provider=FakeNativeProvider(),
-        input_stream=io.StringIO("a\nb\nc\n/compact\n/exit\n"),
+class _PlainToolProvider:
+    """Tool-capable provider that always answers (no tool calls)."""
+
+    name = "fake"
+    supports_tool_calls = True
+    model_id = "fake-native-bootstrap"
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="answer",
+            tool_calls=(),
+        )
+
+
+class _RecordingEventSink:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, Mapping[str, object] | None]] = []
+
+    def emit(self, event_type, *, summary, payload=None):  # noqa: ANN001
+        self.events.append((event_type, payload))
+
+
+def _adapter_compaction_event() -> Mapping[str, object] | None:
+    sink = _RecordingEventSink()
+    adapter = PipyNativeToolReplAdapter(
+        provider=_PlainToolProvider(),
+        input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
+        tool_budget=3,
     )
-    result = HarnessRunner(adapter=adapter).run(
+    prepared = adapter.prepare(
         RunRequest(
             agent="pipy-native",
             slug="parity-compaction",
             command=[],
-            cwd=cwd,
+            cwd=Path(mkdtemp()),
             goal="parity compaction",
-            root=root,
             capture_policy=CapturePolicy(),
         )
     )
-    return [
-        json.loads(line)
-        for line in result.record.jsonl_path.read_text(encoding="utf-8").splitlines()
-    ]
+    adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
+    compacted = [p for (t, p) in sink.events if t == "native.session.compacted"]
+    return compacted[0] if compacted else None
+
+
+def _adapter_compaction_holds() -> bool:
+    payload = _adapter_compaction_event()
+    if payload is None:
+        return False
+    if payload.get("compaction_count", 0) <= 0:
+        return False
+    if payload.get("compaction_dropped_group_count", 0) <= 0:
+        return False
+    return True
 
 
 def _tool_loop_protocol_preserved() -> bool:
@@ -99,16 +141,7 @@ def _tool_loop_protocol_preserved() -> bool:
 
 
 def main() -> int:
-    events = _seeded_no_tool_compaction_record()
-    compacted = [e for e in events if e.get("type") == "native.session.compacted"]
-    if not compacted:
-        return 1
-    payload = compacted[0].get("payload", {})
-    if payload.get("compaction_dropped_exchange_count", 0) <= 0:
-        return 1
-    if payload.get("compaction_bytes_after", 1) >= payload.get(
-        "compaction_bytes_before", 0
-    ):
+    if not _adapter_compaction_holds():
         return 1
     if not _tool_loop_protocol_preserved():
         return 1

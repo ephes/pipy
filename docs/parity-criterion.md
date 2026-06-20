@@ -15,12 +15,12 @@ This document keeps two scores distinct:
 2. **Current product-surface stage** — a coarser map of the remaining Pi-class
    product surfaces after that baseline is complete.
 
-## Current Stage (2026-06-02)
+## Current Stage (2026-06-20)
 
 `just parity-score` currently reports:
 
 ```text
-Score: 50 / 50  (big features passed: 10)
+Score: 49 / 49  (big features passed: 10)
 Status: PASS (>=40 features AND >=5 big features)
 ```
 
@@ -46,7 +46,7 @@ feature is deferred or spec-only.
 | Extension/package platform | 🟡 Pi-shaped core, not Pi-equivalent | Runtime skills/templates/custom commands/themes ship. The Python extension API now has discovery/activation, commands, shortcuts, lifecycle/input/prompt hooks, `tool_call` gates, extension tools, `tool_result` transforms, minimal `ctx.ui.notify`, simple `ctx.ui` select/input/confirm/status/working primitives, golden conformance, provider registration wired into the native catalog/model selector, a local-path/managed-git package CLI, package runtime composition, package `update`, live-session hooks/controls, first dynamic extension flags for tool-loop `pipy repl`, first custom session-entry/message rendering, and per-run source-loading flags: installed packages contribute extensions/skills/prompts/themes through discovery at lowest precedence with `+/-pattern` filters, and explicit CLI paths can load those resource kinds while default discovery is disabled. Remaining Pi gaps: rich UI/rendering, custom tool rendering, state/session-manager helpers, OAuth-provider extension registration, broader dynamic-flag integration, PyPI/npm package sources, and broader supply-chain policy. Source: `docs/extension-api.md`. |
 | Provider/model catalog | 🟢 catalog + implemented-family product construction, gated | A pipy-owned built-in catalog (`native/catalog.py`/`catalog_data.py`), the layered matcher (`native/model_resolver.py`), the `models.json` custom-provider/override loader with routing/compat deep-merge and `refresh`/`register_provider` (`native/models_json.py`), thinking (`native/thinking.py`), the auth store + Pi-order request-auth + availability gate (`native/auth_store.py`), the stdlib OAuth registry for Anthropic/Copilot/Codex (`native/oauth_providers.py`), `--list-models [search]`, the full-catalog `/model` selector, direct `/model <ref>` through the shared resolver, and extension-registered provider rows all ship. Catalog-driven product construction (`native/provider_construction.py` via `current_provider`/`provider_for`) now covers the implemented catalog-constructed adapter families, one-shot runs, startup resolution, and extension-provider construction; `scripts/parity_checks/provider_catalog_conformance.py --json` passes items 1-25. Remaining work is adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version parity, and broader local-provider maturity. Spec in `docs/provider-catalog.md`. |
 | Settings/config/keybindings | ✅ shipped | Layered global/project `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files, resource enablement filters, `/reload`, `/changelog`, and `--version` ship and pass `scripts/parity_checks/settings_config_conformance.py --json`; a few display/transport keys are accept+round-trip+report by design. Spec in `docs/settings-config.md`. |
-| JSON/RPC automation | ✅ shipped | Pi-shaped `--mode json`, `--print`/`-p`, and stdin/stdout `--mode rpc` ship, including async prompt, queued steer/follow-up, abort, queue updates, bash, state/messages/stats introspection, and accepted command vocabulary. `--native-output json` is deprecated metadata-only compatibility output. Spec/gate in `docs/automation-rpc.md`. |
+| JSON/RPC automation | ✅ shipped | Pi-shaped `--mode json`, `--print`/`-p`, and stdin/stdout `--mode rpc` ship, including async prompt, queued steer/follow-up, abort, queue updates, bash, state/messages/stats introspection, and accepted command vocabulary. The legacy `--native-output json` flag was removed; it now prints migration guidance pointing at `--mode json`. Spec/gate in `docs/automation-rpc.md`. |
 | Export/share/distribution/package polish | ✅ baseline shipped | Product HTML export, active-branch JSONL export, import-and-resume, private gist share, top-level `--export`, self-update planning, and install docs ship through `docs/export-distribution.md` and pass `scripts/parity_checks/export_distribution_conformance.py --json`. Managed git package-source updates ship through the extension-platform track; PyPI/npm package sources remain deferred. |
 | Verification/project policy | ❌ not separately specified | The former pipy-specific `/verify just-check` command has been removed from the REPL because it was not a Pi slash command. Pi's comparable capability is broad model-visible `bash` plus extension-defined gates. Broader pipy verification policy needs its own spec and should not be scored as Pi parity without mapping it to a Pi user workflow. |
 | Multi-agent/orchestration/indexing | ❌ deferred | Mentioned in backlog only. Needs a target spec before implementation. |
@@ -73,7 +73,7 @@ longer means "keep the surface."
 | Pipy-specific archive sync/reflect/learning guidance | Not a Pi feature. | Keep out of parity scope entirely; optional pipy utility at most, never a default that shapes the product session model. |
 | Code-quality audit tracks CQ-A..F | pipy cleanup, not Pi features. | Keep as engineering hygiene backlog, separate from feature parity. |
 
-## Legacy 80% Gate: Locked Feature List (50 features)
+## Legacy 80% Gate: Locked Feature List (49 features)
 
 For each feature: `STATUS` is one of `✅ done`, `🟡 partial`, `❌ missing`.
 `VERIFY` is the shell command(s) that decide the status; a feature is `✅` only
@@ -131,10 +131,15 @@ Source of truth: every `.ts` file under
 gets registered in `production_tool_registry` (where appropriate for the model
 loop). Hermetic tests covering happy-path + at least two failure cases.
 
-### C. Core subsystems (15 features)
+### C. Core subsystems (14 features)
 
 Source of truth: pi-mono's documented capabilities in its own README plus the
 `packages/agent/src/` and `packages/coding-agent/src/core/` layouts.
+
+C12 (opt-in transcript sidecar, `transcripts.py`) was retired together with the
+no-tool REPL: the native session tree (`docs/session-tree.md`) is now the full
+durable transcript, so the standalone sidecar no longer exists and its rubric
+row was dropped.
 
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
@@ -149,8 +154,7 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
 | C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/tool_loop_session.py` |
 | C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |
-| C12 | Transcript sidecar (opt-in) | ✅ | `test -f src/pipy_harness/native/transcripts.py` |
-| C13 | JSON output mode | ✅ | `uv run pipy run --help \| grep -q 'native-output'` |
+| C13 | JSON output mode | ✅ | `uv run pipy repl --help \| grep -q -- '--mode'` |
 | C14 | Streaming output (provider→stdout) | ✅ | `grep -q StreamChunkSink src/pipy_harness/native/provider.py && grep -q -- '--stream' src/pipy_harness/cli.py` |
 | C15 | Retry/backoff for transient provider errors | ✅ | `test -f src/pipy_harness/native/retry.py \|\| grep -rq 'RetryPolicy' src/pipy_harness/native/` |
 
@@ -161,11 +165,11 @@ Source of truth: pi-mono's documented capabilities in its own README plus the
 | D1 | Parent-walk for instruction files | ✅ | `grep -q 'parent' src/pipy_harness/native/workspace_context.py` |
 | D2 | Per-file + total byte caps | ✅ | `grep -q 'byte_cap' src/pipy_harness/native/workspace_context.py` |
 | D3 | Global config root (PIPY_CONFIG_HOME) | ✅ | `grep -q 'PIPY_CONFIG_HOME' src/pipy_harness/native/workspace_context.py` |
-| D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by both `session.py` and `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
-| D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/template <name> <args>')` to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. Both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
-| D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; both REPL paths import the dispatcher. See `scripts/parity_score.sh`. |
-| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q THEME_REPL_COMMAND …/session.py && grep -q '"/theme"' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the no-tool REPL with a real `/theme` switch and proves the selected palette changes the rendered chrome — default `pi` separator before, `ocean` after — while NO_COLOR / non-TTY always force plain output) |
-| D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/session.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the no-tool REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the archive records only safe metadata — media type / byte count / sha256 — never the raw base64) |
+| D4 | Skills loading (workspace skills) | ✅ | Behavior check: `dispatch_resource_command` is imported by `tool_loop_session.py`, and a seeded `.pipy/skills/<name>.md` resolves through `WorkspaceResources.discover` + `dispatch_resource_command('/skill <name>')` to a `DISPATCH_SKILL_RUN` with the skill body as `provider_text`. See `scripts/parity_score.sh`. |
+| D5 | Prompt templates | ✅ | Behavior check: a seeded `.pipy/templates/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` (templates are invoked as `/<name>`, not `/template <name>`) to a `DISPATCH_TEMPLATE_RUN` whose `provider_text` contains the `$ARGUMENTS`-expanded body. The tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
+| D6 | Custom slash commands (user-defined) | ✅ | Behavior check: a seeded `.pipy/commands/<name>.md` resolves through `dispatch_resource_command('/<name> <args>')` to a `DISPATCH_COMMAND_RUN` whose `provider_text` contains the expanded body. Reserved built-in names cannot be shadowed; the tool-loop REPL imports the dispatcher. See `scripts/parity_score.sh`. |
+| D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q '"/theme"' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the tool-loop REPL with a real `/theme` switch and proves the selected palette changes the rendered chrome — default `pi` separator before, `ocean` after — while NO_COLOR / non-TTY always force plain output) |
+| D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the tool-loop REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the metadata-first result records only safe counters — never the raw base64) |
 
 Post-baseline source-loading flags are not part of this locked 50-row
 denominator. They are tracked under the extension/package platform surface
@@ -180,47 +184,52 @@ persisted filters are disabled.
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
 | E1 | Session resume (replay from record) | ✅ | `test -f src/pipy_harness/native/session_resume.py \|\| grep -rq 'def resume' src/pipy_harness/native/` |
-| E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_no_tool_context …/session.py && grep -q compact_tool_loop_messages …/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py` (seeds a temp record; proves `/compact` reduces provider-visible context and tool-loop compaction never orphans a tool result) |
+| E2 | Session compaction (summarize/trim retained context) | ✅ | **behavior check**: `grep -q compact_tool_loop_messages …/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py` (drives the tool-loop adapter with `/compact`; proves a `native.session.compacted` event with positive compaction/dropped-group counters, and that tool-loop compaction never orphans a tool result) |
 | E3 | Session branching/forking | ✅ | **behavior check**: `grep -q build_session_lineage …/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py` (seeds a parent, runs `--branch`, proves safe lineage metadata is recorded and the parent stays byte-for-byte immutable) |
 | E4 | Session export/share | ✅ | `uv run python scripts/parity_checks/export_distribution_conformance.py --json` |
-| E5 | Dynamic provider/model swap mid-session | ✅ | **behavior check**: `uv run python scripts/parity_checks/dynamic_provider_behavior.py` (drives BOTH REPL product paths through the shared `NativeReplProviderState`; proves a mid-session `/model` switch rebinds the live provider/model in subsequent turns, the availability gate refuses an unavailable target with the prior selection preserved, the tool-loop clears the provider-visible conversation on a successful switch and preserves it on a refused one, and `/model` itself creates no provider/tool/archive side effects) |
-| E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/session.py` |
+| E5 | Dynamic provider/model swap mid-session | ✅ | **behavior check**: `uv run python scripts/parity_checks/dynamic_provider_behavior.py` (drives the tool-loop REPL through the shared `NativeReplProviderState`; proves a mid-session `/model` switch rebinds the live provider/model in subsequent turns, the availability gate refuses an unavailable target with the prior selection preserved, the tool-loop clears the provider-visible conversation on a successful switch and preserves it on a refused one, and `/model` itself creates no provider/tool/archive side effects) |
+| E6 | Settings/config panel | ✅ | `grep -rq '/settings' src/pipy_harness/native/tool_loop_session.py` |
 | E7 | RPC mode / SDK embedding | ✅ | `test -f src/pipy_harness/sdk.py` |
 
 ## Legacy Gate Scoring
 
 ```text
-✅ count / 50 = legacy parity %
+✅ count / 49 = legacy parity %
 
-current ✅ count (2026-06-02, verified with `just parity-score`): 50
+current ✅ count (2026-06-20, verified with `just parity-score`): 49
 target  ✅ count for original 80% parity gate:                         40
-delta beyond original 80% target:                                      +10
+delta beyond original 80% target:                                       +9
 big features passed:                                                    10
 ```
 
-All 50 legacy rows are green; B7 (bash) is a real shell matching Pi. D7
+The rubric is 49 rows: C12 (opt-in transcript sidecar) was dropped when the
+no-tool REPL and its `transcripts.py` sidecar were retired — the native session
+tree is now the full durable transcript. The pass bar is unchanged
+(≥40 rows AND ≥5 big features), which stays a meaningful ~82% gate on 49 rows.
+
+All 49 legacy rows are green; B7 (bash) is a real shell matching Pi. D7
 (themes), D8 (image attachments), and E5 (dynamic provider swap) are ✅ as
-**behavior checks** that exercise the real product paths: D7 drives a `/theme`
-switch and proves the rendered palette changes while NO_COLOR/TTY fallback is
-preserved; D8 drives an `@image:` prompt and proves the image reaches the
-provider as a native multimodal block while the archive keeps only safe
-metadata; E5 drives a `/model` switch through both REPLs via
+**behavior checks** that exercise the real product tool-loop REPL: D7 drives a
+`/theme` switch and proves the rendered palette changes while NO_COLOR/TTY
+fallback is preserved; D8 drives an `@image:` prompt and proves the image
+reaches the provider as a native multimodal block while the metadata-first
+result keeps only safe counters; E5 drives a `/model` switch via
 `NativeReplProviderState`. E2 (session compaction) and E3 (session branching)
-are ✅ as **behavior checks** that seed temporary records and prove the live
-`/compact`/`--branch` product paths.
+are ✅ as **behavior checks** that drive the live `/compact`/branch product
+paths through the tool-loop adapter.
 
 D4 (skills), D5 (prompt templates), and D6 (custom slash commands) were
 red after the 2026-05-26 audit cleanup removed their dormant helper
 modules (no runtime consumer existed). They are now ✅ because the
 helpers were reintroduced **with** a runtime consumer: the
-`pipy_harness.native.resources` registry/dispatcher is wired into both
-the no-tool REPL (`session.py`) and the bounded tool loop /
-product TUI (`tool_loop_session.py`). Their Verify commands were
-upgraded from `test -f path` / `grep` rubber-stamps to **behavior
-checks** that seed a resource in a temp workspace and assert the
+`pipy_harness.native.resources` registry/dispatcher is wired into the
+bounded tool loop / product TUI (`tool_loop_session.py`). Their Verify
+commands were upgraded from `test -f path` / `grep` rubber-stamps to
+**behavior checks** that seed a resource in a temp workspace and assert the
 dispatcher resolves it to a bounded provider turn (see
 `scripts/parity_score.sh`), so recreating a dormant helper file cannot
-satisfy them.
+satisfy them. (Templates are invoked as `/<name> <args>`, not
+`/template <name>`.)
 
 D7 (themes), D8 (image attachments), and E5 (dynamic provider swap) were
 likewise red after the 2026-05-26 audit cleanup removed their dormant
@@ -228,20 +237,20 @@ helpers. They are now ✅ for the same reason — each ships **with** a
 runtime consumer and a behavior check that exercises it:
 
 - **D7** reintroduces `themes.py` as the palette registry behind
-  `chrome.ChromeStyle`, wires a `/theme` command into both REPLs
+  `chrome.ChromeStyle`, wires a `/theme` command into the tool-loop REPL
   (persisted via `NativeThemeStore`, resolved per-render through
   `PIPY_THEME`), and proves a switch changes the rendered palette while
   NO_COLOR / non-TTY still force plain output.
 - **D8** reintroduces `image_attachment.py` as a bounded, fail-closed
   `@image:` loader, threads `ProviderRequest.attachments` into the
   Anthropic / OpenAI-Responses / Google adapters as native image blocks,
-  wires resolution into both REPLs, and proves the archive keeps only
-  safe metadata (media type / byte count / sha256), never raw bytes.
+  wires resolution into the tool-loop REPL, and proves the metadata-first
+  result keeps only safe counters, never raw bytes.
 - **E5** is verified through the existing `NativeReplProviderState`
   boundary (not a recreated `dynamic_provider` wrapper): the behavior
-  check drives a `/model` switch through both REPL product paths.
+  check drives a `/model` switch through the tool-loop REPL product path.
 
-All 50 rows are green. B7 (bash) uses a behavior check
+All 49 rows are green. B7 (bash) uses a behavior check
 (`scripts/parity_checks/bash_behavior.py`) that resolves the tool from the
 production registry and proves it is a real shell matching Pi (a plain command
 runs, a pipeline runs, `.git` is readable, and a non-zero exit is surfaced as a
@@ -258,13 +267,13 @@ just parity-score
 ```
 
 The `just parity-score` recipe re-runs the per-row `Verify` commands and
-counts how many succeed. The historical pass bar is **40 ✅ out of 50** with
+counts how many succeed. The historical pass bar is **40 ✅ out of 49** with
 the constraint that **at least 5 of the implementations must be "big" features**
 (one of: anthropic provider, google provider, streaming output, session resume,
 session compaction, retry/backoff with real HTTP error injection tests, mistral
 provider, bedrock provider, dynamic provider swap). This anti-gaming rule
 prevented reaching 80% by only adding trivial helpers. The current legacy score
-is expected to stay **50/50**; regressions are still useful, but new roadmap
+is expected to stay **49/49**; regressions are still useful, but new roadmap
 work should be evaluated against the post-baseline product surface matrix.
 
 The `bash` tool (B7) is a registered big feature. It is a real shell matching

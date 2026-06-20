@@ -1,11 +1,12 @@
 """Parity row E3 behavior check: session branching/forking.
 
-Seeds a finalized parent record, then runs the no-tool REPL product path as a
-child *branch* of that parent (``RunRequest.resume`` carrying a validated
-branch label). It proves the child archive records safe parent id, branch
-label, fork timestamp, and relationship metadata; that a
-``native.session.resumed`` event is emitted; and that the parent record is
-never mutated (byte-for-byte identical before and after the child run).
+Seeds a finalized parent record, then runs the product tool-loop REPL
+(``PipyNativeToolReplAdapter``) as a child *branch* of that parent
+(``RunRequest.resume`` carrying a validated branch label). It proves the child
+archive records safe parent id, branch label, fork timestamp, and relationship
+metadata; that a ``native.session.resumed`` event is emitted; and that the
+parent record is never mutated (byte-for-byte identical before and after the
+child run).
 
 Exits 0 when all branch behaviors hold, 1 otherwise. No real network/AI calls.
 """
@@ -17,7 +18,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeReplAdapter
+from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import (
     RESUME_RELATIONSHIP_BRANCH,
@@ -62,8 +63,8 @@ def main() -> int:
         prior_model_id="fake-native-bootstrap",
         prior_turn_count=2,
     )
-    adapter = PipyNativeReplAdapter(
-        provider=FakeNativeProvider(),
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
         input_stream=io.StringIO("/exit\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),

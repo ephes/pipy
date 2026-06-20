@@ -1,16 +1,16 @@
 """Parity row D8 behavior check: image/binary attachment loading.
 
-Seeds a workspace PNG and drives the no-tool REPL product path with a real
-``@image:`` prompt, capturing the ``ProviderRequest`` the provider receives and
-reading the finalized session archive. It proves:
+Seeds a workspace PNG and drives the product tool-loop REPL
+(``NativeToolReplSession``) with a real ``@image:`` prompt, capturing the
+``ProviderRequest`` the provider receives. It proves:
 
   * the image reaches the provider as a bounded, type-validated attachment
     whose base64 round-trips back to the exact on-disk bytes;
   * a multimodal adapter (Anthropic) renders it as a native image content
     block on the current user message;
   * a non-image binary attachment fails closed (no provider attachment);
-  * the metadata-first archive records only safe metadata (media type, byte
-    count, sha256) and never the raw base64 image data.
+  * the loop reports a safe loaded-image counter and never leaks the raw
+    base64 image bytes through its result object (the metadata-first contract).
 
 Exits 0 when every behavior holds, 1 otherwise. No real network or AI calls.
 """
@@ -20,20 +20,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-import json
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeReplAdapter
-from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import HarnessStatus, RunRequest
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.anthropic_provider import _messages_payload
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.runner import HarnessRunner
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+_B64 = base64.b64encode(_PNG).decode("ascii")
 
 
 @dataclass
@@ -50,7 +48,7 @@ class _CapturingProvider:
 
     @property
     def supports_tool_calls(self) -> bool:
-        return False
+        return True
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
@@ -68,37 +66,25 @@ class _CapturingProvider:
         )
 
 
-def _run(prompt: str, *, seed_png: bool, seed_blob: bool) -> tuple[_CapturingProvider, str]:
-    root = Path(tempfile.mkdtemp())
+def _run(prompt: str, *, seed_png: bool, seed_blob: bool):
     cwd = Path(tempfile.mkdtemp())
     if seed_png:
         (cwd / "shot.png").write_bytes(_PNG)
     if seed_blob:
         (cwd / "blob.bin").write_bytes(b"\x00\x01\x02 not an image at all")
     provider = _CapturingProvider()
-    adapter = PipyNativeReplAdapter(
-        provider=provider,
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    result = session.run(
+        workspace_root=cwd,
         input_stream=io.StringIO(f"{prompt}\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
-    result = HarnessRunner(adapter=adapter).run(
-        RunRequest(
-            agent="pipy-native",
-            slug="parity-attachment",
-            command=[],
-            cwd=cwd,
-            goal="parity attachment",
-            root=root,
-            capture_policy=CapturePolicy(),
-        )
-    )
-    archive = result.record.jsonl_path.read_text(encoding="utf-8")
-    return provider, archive
+    return provider, result
 
 
-def _image_reaches_provider_and_archive_is_safe() -> bool:
-    provider, archive = _run("describe @image:shot.png", seed_png=True, seed_blob=False)
+def _image_reaches_provider_and_result_is_safe() -> bool:
+    provider, result = _run("describe @image:shot.png", seed_png=True, seed_blob=False)
     if not provider.requests:
         return False
     attachments = provider.requests[0].attachments
@@ -117,36 +103,26 @@ def _image_reaches_provider_and_archive_is_safe() -> bool:
     image_blocks = [b for b in user["content"] if b.get("type") == "image"]
     if len(image_blocks) != 1:
         return False
-    # Archive privacy: the safe sha256 IS present; the raw base64 is NOT.
-    if att.sha256 not in archive:
+    # Safe counter is recorded; the metadata-first result never leaks raw bytes.
+    if result.image_attachment_loaded_count != 1:
         return False
-    if att.data_base64 in archive:
-        return False
-    if base64.b64encode(_PNG).decode("ascii") in archive:
-        return False
-    # The resolved event recorded a loaded image without leaking bytes.
-    events = [json.loads(line) for line in archive.splitlines()]
-    resolved = [
-        e for e in events if e.get("type") == "native.image_attachment.resolved"
-    ]
-    if not resolved:
-        return False
-    payload_meta = resolved[0].get("payload", {})
-    if payload_meta.get("image_attachment_loaded_count") != 1:
+    if _B64 in repr(result):
         return False
     return True
 
 
 def _non_image_binary_fails_closed() -> bool:
-    provider, _archive = _run("look @image:blob.bin", seed_png=False, seed_blob=True)
+    provider, result = _run("look @image:blob.bin", seed_png=False, seed_blob=True)
     if not provider.requests:
         return False
     # The non-image binary never becomes a provider attachment.
-    return provider.requests[0].attachments == ()
+    if provider.requests[0].attachments != ():
+        return False
+    return result.image_attachment_loaded_count == 0
 
 
 def main() -> int:
-    if not _image_reaches_provider_and_archive_is_safe():
+    if not _image_reaches_provider_and_result_is_safe():
         return 1
     if not _non_image_binary_fails_closed():
         return 1
