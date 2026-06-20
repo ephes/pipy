@@ -75,6 +75,11 @@ class _RawResourceFile:
     Public modules wrap this in their own typed dataclass so the
     public API names (`SkillFile`, `PromptTemplate`,
     `CustomSlashCommand`) stay obvious and stable.
+
+    `absolute_path` is the resolved on-disk path of the file. It is an
+    in-process discovery detail that a public module may surface (skills
+    need it for the system-prompt `<location>`), but it must never reach
+    the archive-safe metadata projection (`safe_resource_metadata`).
     """
 
     path_label: str
@@ -84,6 +89,7 @@ class _RawResourceFile:
     sha256: str
     byte_length: int
     truncated: bool
+    absolute_path: Path
 
 
 def resolve_global_resource_root(
@@ -318,6 +324,7 @@ def discover_resource_files(
                     sha256=sha256,
                     byte_length=byte_length,
                     truncated=truncated,
+                    absolute_path=resolved_candidate,
                 )
             )
             total_loaded += byte_length

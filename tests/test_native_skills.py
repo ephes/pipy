@@ -349,12 +349,50 @@ def test_frontmatter_parsed_with_name_and_description(tmp_path: Path) -> None:
     assert "just a body" in plain_skill.body
 
 
-def test_compose_skills_system_block_includes_name_and_description(
+def test_skillfile_exposes_absolute_path(tmp_path: Path) -> None:
+    from pipy_harness.native.skills import discover_workspace_skills
+
+    skill_dir = tmp_path / ".pipy" / "skills"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "lint.md").write_text(
+        "---\nname: lint\ndescription: Lint the code\n---\nbody\n",
+        encoding="utf-8",
+    )
+    skills, _ = discover_workspace_skills(
+        workspace_root=tmp_path,
+        config_home_env=_empty_env(),
+        home_dir=tmp_path / "cfg",
+    )
+    assert skills
+    assert skills[0].absolute_path == (skill_dir / "lint.md").resolve()
+
+
+def test_compose_skills_system_block_pi_format_includes_location_and_escapes() -> None:
+    s = SkillFile(
+        name="x<y",
+        description="a & b",
+        path_label=".pipy/skills/x.md",
+        body="body",
+        sha256="0" * 64,
+        byte_length=1,
+        truncated=False,
+        absolute_path=Path("/abs/.pipy/skills/x.md"),
+    )
+    block = compose_skills_system_block([s])
+    assert "Use the read tool to load a skill" in block
+    assert "<available_skills>" in block and "</available_skills>" in block
+    assert "<name>x&lt;y</name>" in block
+    assert "<description>a &amp; b</description>" in block
+    assert "<location>/abs/.pipy/skills/x.md</location>" in block
+    assert compose_skills_system_block([]) == ""
+
+
+def test_compose_skills_system_block_includes_name_description_location(
     tmp_path: Path,
 ) -> None:
     workspace = _make_workspace(tmp_path)
     skills_dir = workspace / ".pipy" / "skills"
-    _write_skill(
+    lint_path = _write_skill(
         skills_dir,
         filename="lint.md",
         name="lint",
@@ -372,11 +410,12 @@ def test_compose_skills_system_block_includes_name_and_description(
     skills, _ = _discover(workspace)
     block = compose_skills_system_block(skills)
 
-    assert "Available skills" in block
-    assert "/skill <name>" in block
-    assert "- lint: Run linters" in block
-    # Bare skill (empty description) still appears as a single name line.
-    assert "- bare" in block
+    assert "<available_skills>" in block
+    assert "<name>lint</name>" in block
+    assert "<description>Run linters</description>" in block
+    assert f"<location>{lint_path.resolve()}</location>" in block
+    # Bare skill (empty description) still appears with its name + location.
+    assert "<name>bare</name>" in block
     # Bodies must NEVER leak into the block.
     assert "real body" not in block
     assert "another body" not in block
@@ -384,6 +423,30 @@ def test_compose_skills_system_block_includes_name_and_description(
 
 def test_compose_skills_system_block_empty_returns_empty_string() -> None:
     assert compose_skills_system_block([]) == ""
+
+
+def test_safe_skill_metadata_never_leaks_absolute_path(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    skills_dir = workspace / ".pipy" / "skills"
+    _write_skill(
+        skills_dir,
+        filename="lint.md",
+        name="lint",
+        description="Run linters",
+        body="body\n",
+    )
+
+    skills, _ = _discover(workspace)
+    safe = safe_skill_metadata(skills)
+
+    assert len(safe) == 1
+    entry = safe[0]
+    # Archive-safe boundary: only these four keys, and the absolute path of the
+    # skill file never appears in the archive metadata projection.
+    assert set(entry.keys()) == {"path_label", "sha256", "byte_length", "truncated"}
+    absolute = str(skills[0].absolute_path)
+    assert absolute not in str(entry)
+    assert "absolute_path" not in entry
 
 
 def test_no_skill_body_in_returned_metadata_archive_function(

@@ -132,6 +132,220 @@ def test_pipy_native_tool_repl_adapter_runs_with_fake_provider(tmp_path: Path):
     assert metadata["malformed_argument_count"] == 0
 
 
+class _RecordingSession:
+    """Spy that captures the constructor kwargs and the run() system prompt."""
+
+    last_init_kwargs: dict[str, object] | None = None
+    last_run_kwargs: dict[str, object] | None = None
+
+    def __init__(self, **kwargs: object) -> None:
+        type(self).last_init_kwargs = dict(kwargs)
+
+    def run(self, **kwargs: object):
+        from datetime import UTC, datetime
+
+        from pipy_harness.models import HarnessStatus
+        from pipy_harness.native.tool_loop_session import NativeToolReplResult
+
+        type(self).last_run_kwargs = dict(kwargs)
+        now = datetime.now(UTC)
+        return NativeToolReplResult(
+            status=HarnessStatus.SUCCEEDED,
+            exit_code=0,
+            started_at=now,
+            ended_at=now,
+            provider_name=str(kwargs.get("provider_name") or "fake"),
+            model_id=str(kwargs.get("model_id") or "fake"),
+        )
+
+
+def _write_skill(skills_dir: Path, *, name: str, description: str, body: str) -> Path:
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    path = skills_dir / f"{name}.md"
+    path.write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n{body}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _run_adapter_with_spy(adapter, prepared, monkeypatch):
+    import pipy_harness.adapters.native as native_mod
+
+    monkeypatch.setattr(native_mod, "NativeToolReplSession", _RecordingSession)
+    _RecordingSession.last_init_kwargs = None
+    _RecordingSession.last_run_kwargs = None
+    adapter.run(prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy())
+    assert _RecordingSession.last_run_kwargs is not None
+    assert _RecordingSession.last_init_kwargs is not None
+    return _RecordingSession.last_init_kwargs, _RecordingSession.last_run_kwargs
+
+
+def _prepared_for(adapter, tmp_path: Path):
+    return adapter.prepare(
+        RunRequest(
+            agent="pipy-native",
+            slug="test",
+            command=[],
+            cwd=tmp_path,
+            goal="t",
+            capture_policy=CapturePolicy(),
+        )
+    )
+
+
+def test_system_prompt_includes_skill_block_when_read_available(
+    tmp_path: Path, monkeypatch
+):
+    from pipy_harness.native.tools.read import ReadTool
+
+    skills_dir = tmp_path / ".pipy" / "skills"
+    skill_path = _write_skill(
+        skills_dir, name="lint", description="Lint the code", body="lint body"
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"read": ReadTool()},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+    _, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    system_prompt = run_kwargs["system_prompt"]
+    assert "<available_skills>" in system_prompt
+    assert "<name>lint</name>" in system_prompt
+    assert f"<location>{skill_path.resolve()}</location>" in system_prompt
+
+
+def test_system_prompt_omits_skill_block_when_read_excluded(
+    tmp_path: Path, monkeypatch
+):
+    skills_dir = tmp_path / ".pipy" / "skills"
+    _write_skill(
+        skills_dir, name="lint", description="Lint the code", body="lint body"
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+    _, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    assert "<available_skills>" not in run_kwargs["system_prompt"]
+
+
+def test_skill_dirs_added_to_reference_roots(tmp_path: Path, monkeypatch):
+    from pipy_harness.native.tools.read import ReadTool
+
+    skills_dir = tmp_path / ".pipy" / "skills"
+    _write_skill(
+        skills_dir, name="lint", description="Lint the code", body="lint body"
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"read": ReadTool()},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+    init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    reference_roots = init_kwargs["reference_roots"]
+    assert skills_dir.resolve() in reference_roots
+
+
+def test_model_can_read_global_skill_body_via_reference_roots(
+    tmp_path: Path, monkeypatch
+):
+    """A1-A4 integration: the model loads an outside-cwd skill body via read.
+
+    The skill lives in a global skill dir outside the workspace. Its parent
+    directory enters the session reference roots, so the read tool can open the
+    skill body by absolute path. A non-skill path outside cwd is still refused.
+    The archive-safe skill metadata stays path_label/sha256/byte_length/truncated.
+    """
+
+    from pipy_harness.native.skills import safe_skill_metadata
+    from pipy_harness.native.tools import ToolContext, ToolRequest
+    from pipy_harness.native.tools.base import ToolArgumentError
+    from pipy_harness.native.tools.read import ReadTool
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    # Global skill dir OUTSIDE the workspace (resolved via PIPY_CONFIG_HOME).
+    config_home = tmp_path / "global_cfg"
+    global_skills = config_home / "skills"
+    skill_path = _write_skill(
+        global_skills,
+        name="deploy",
+        description="Deploy the service",
+        body="GLOBAL SKILL BODY: run the deploy steps",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"read": ReadTool()},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    skills = adapter._discover_skill_files(workspace)
+    assert any(s.name == "deploy" for s in skills)
+    reference_roots = adapter._reference_roots_with_skill_dirs(skills)
+    assert global_skills.resolve() in reference_roots
+
+    tool = ReadTool()
+    context = ToolContext(
+        workspace_root=workspace.resolve(),
+        reference_roots=reference_roots,
+    )
+    allowed = tool.invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-skill-read",
+            tool_name="read",
+            arguments={"path": str(skill_path.resolve())},
+        ),
+        context,
+    )
+    assert allowed.is_error is False
+    assert "GLOBAL SKILL BODY" in allowed.output_text
+
+    # A non-skill path outside cwd is still refused (no reference root covers it).
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / "secret.txt").write_text("nope", encoding="utf-8")
+    with pytest.raises(ToolArgumentError, match="outside the workspace"):
+        tool.invoke(
+            ToolRequest(
+                tool_request_id="pipy-tool-outside-read",
+                tool_name="read",
+                arguments={"path": str((other / "secret.txt").resolve())},
+            ),
+            context,
+        )
+
+    # Archive boundary unchanged: only the four safe keys; no body/abs path.
+    safe = safe_skill_metadata(skills)
+    for entry in safe:
+        assert set(entry.keys()) == {
+            "path_label",
+            "sha256",
+            "byte_length",
+            "truncated",
+        }
+    flat = str(safe)
+    assert "GLOBAL SKILL BODY" not in flat
+    assert str(skill_path.resolve()) not in flat
+
+
 def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path):
     provider = FakeNativeProvider(supports_tool_calls=True)
     adapter = PipyNativeToolReplAdapter(

@@ -15,8 +15,11 @@ from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager, resolve_config_home
+from pipy_harness.native.skills import SkillFile, compose_skills_system_block
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
@@ -266,9 +269,26 @@ class PipyNativeToolReplAdapter:
             for root in self.reference_roots:
                 ref_lines.append(f"- {root}")
             base_prompt = base_prompt + "\n" + "\n".join(ref_lines)
-        composed_system_prompt = compose_system_prompt(
-            base_prompt, discovery
-        )
+        # Discover the workspace + global skills the model may load on demand.
+        # The same loader the /skill command uses; obtained here (before the
+        # session runs) so the advertisement can enter the system prompt and the
+        # skill directories can widen the read-only reference roots.
+        skills = self._discover_skill_files(prepared.cwd)
+        # Add each discovered skill's PARENT DIRECTORY to the read-only reference
+        # roots so the model can `read` skill bodies, including global skills
+        # outside cwd. Bounded to discovered skill directories; deduped; absolute.
+        reference_roots = self._reference_roots_with_skill_dirs(skills)
+        # Inject the Pi-shaped skill advertisement only when the read tool is in
+        # the active tool set (mirrors Pi's customPromptHasRead gate); the model
+        # loads a skill body with that tool.
+        if "read" in self.tool_registry:
+            composed_system_prompt = compose_system_prompt(
+                base_prompt, discovery
+            ) + compose_skills_system_block(skills)
+        else:
+            composed_system_prompt = compose_system_prompt(
+                base_prompt, discovery
+            )
         if self.resume_context is not None:
             # Seed the resumed tool-loop session with only the safe
             # metadata-only resume block; no prior prompts/output/summary text.
@@ -297,7 +317,7 @@ class PipyNativeToolReplAdapter:
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
             input_runtime=self.input_runtime,
-            reference_roots=self.reference_roots,
+            reference_roots=reference_roots,
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
             native_session=self.native_session,
@@ -384,3 +404,57 @@ class PipyNativeToolReplAdapter:
                 "PipyNativeToolReplAdapter requires provider or provider_state"
             )
         return self.provider_state.current_provider()
+
+    def _discover_skill_files(self, cwd: Path) -> tuple[SkillFile, ...]:
+        """Discover the skills the model may load, mirroring the /skill loader.
+
+        Uses the same workspace + global + package discovery and Pi-shaped
+        enablement filters the tool-loop session applies, so the system-prompt
+        advertisement and the read-only reference roots match what `/skill`
+        can run. ``install_theme_registry=False`` avoids re-installing the
+        theme registry (the session installs it when it runs). When no settings
+        manager was injected, falls back to the workspace settings, matching the
+        session's own fallback.
+        """
+
+        options = self.resource_options
+        settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        package_roots = compose_package_runtime(
+            settings,
+            cwd,
+            install_theme_registry=False,
+        )
+        resources = WorkspaceResources.discover(
+            cwd,
+            package_roots=package_roots,
+            explicit_skill_paths=options.skill_paths,
+            explicit_prompt_template_paths=options.prompt_template_paths,
+            include_skills_defaults=not options.no_skills,
+            include_prompt_template_defaults=not options.no_prompt_templates,
+        ).with_enablement(
+            skills_patterns=settings.get_skills_patterns(),
+            prompts_patterns=settings.get_prompts_patterns(),
+            enable_skill_commands=settings.get_enable_skill_commands(),
+        )
+        return resources.skills
+
+    def _reference_roots_with_skill_dirs(
+        self, skills: tuple[SkillFile, ...]
+    ) -> tuple[Path, ...]:
+        """Union the configured reference roots with discovered skill dirs.
+
+        Each discovered skill's parent directory is added (resolved, absolute,
+        deduped) so the read tool can load skill bodies — including global
+        skills outside cwd. Widening is bounded to skill directories; the
+        configured ``--read-root`` roots are preserved and kept first.
+        """
+
+        roots: list[Path] = list(self.reference_roots)
+        seen: set[Path] = {root.resolve() for root in roots}
+        for skill in skills:
+            skill_dir = skill.absolute_path.parent.resolve()
+            if skill_dir in seen:
+                continue
+            seen.add(skill_dir)
+            roots.append(skill_dir)
+        return tuple(roots)

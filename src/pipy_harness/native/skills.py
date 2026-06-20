@@ -19,9 +19,10 @@ Public API:
   `(skills, total_byte_cap_reached)`.
 - `find_skill_by_name(skills, name)` returns the first case-sensitive
   match or `None`.
-- `compose_skills_system_block(skills)` formats a name/description
-  section suitable for system-prompt injection. Bodies do not appear
-  in this block.
+- `compose_skills_system_block(skills)` formats the Pi-shaped
+  `<available_skills>` section (name/description/location) suitable for
+  system-prompt injection. Bodies do not appear in this block; the model
+  loads them on demand with the read tool.
 - `safe_skill_metadata(skills)` returns the archive-safe per-file
   metadata projection.
 """
@@ -46,11 +47,17 @@ from pipy_harness.native._resource_files import (
 SKILLS_WORKSPACE_SUBDIR: str = "skills"
 SKILLS_GLOBAL_SUBDIR: str = "skills"
 
-SKILLS_SYSTEM_BLOCK_HEADER: str = (
-    "Available skills (load with /skill <name>):\n"
+# Header lines for the Pi-shaped skill-advertisement block. Mirrors
+# `formatSkillsForPrompt` in pi-mono `packages/coding-agent/src/core/skills.ts`
+# so the model loads a skill's body on demand with the read tool.
+SKILLS_SYSTEM_BLOCK_HEADER_LINES: tuple[str, ...] = (
+    "The following skills provide specialized instructions for specific tasks.",
+    "Use the read tool to load a skill's file when the task matches its "
+    "description.",
+    "When a skill file references a relative path, resolve it against the "
+    "skill directory (parent of the skill file / dirname of the path) and use "
+    "that absolute path in tool commands.",
 )
-SKILLS_SYSTEM_BLOCK_LINE_TEMPLATE: str = "- {name}: {description}\n"
-SKILLS_SYSTEM_BLOCK_LINE_NO_DESCRIPTION_TEMPLATE: str = "- {name}\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +74,12 @@ class SkillFile:
     `byte_length` always describe the file as it exists on disk;
     `truncated=True` means the body in this object only contains the
     first per-file-cap bytes plus a deterministic marker.
+
+    `absolute_path` is the resolved on-disk path of the skill file. It is
+    used for the system-prompt `<location>` so the model can load the
+    skill body with the read tool, including for global skills outside
+    the workspace. It must never enter `safe_skill_metadata` or any other
+    archive/JSONL/Markdown surface.
     """
 
     path_label: str
@@ -76,6 +89,7 @@ class SkillFile:
     sha256: str
     byte_length: int
     truncated: bool
+    absolute_path: Path
 
 
 def discover_workspace_skills(
@@ -125,6 +139,7 @@ def discover_workspace_skills(
             sha256=raw.sha256,
             byte_length=raw.byte_length,
             truncated=raw.truncated,
+            absolute_path=raw.absolute_path,
         )
         for raw in raw_files
     ]
@@ -148,32 +163,50 @@ def find_skill_by_name(
     return None
 
 
+def _escape_xml(value: str) -> str:
+    """XML-escape `value` for the skill-advertisement block.
+
+    Mirrors `escapeXml` in pi-mono `skills.ts`: escapes `&`, `<`, `>`,
+    `"`, and `'` (ampersand first so already-escaped entities are not
+    double-escaped beyond the intended single pass).
+    """
+
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
 def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
     """Compose the system-prompt section that advertises skills.
 
-    Only the name and description appear in the block. Bodies are
-    loaded lazily by the runtime when the user invokes a
-    `/skill <name>` command. When `skills` is empty the function
-    returns an empty string so the caller can safely concatenate it
-    onto the base prompt.
+    Mirrors Pi's `formatSkillsForPrompt`: a short header instructing the
+    model to load a skill's file with the read tool when the task matches
+    its description, followed by an `<available_skills>` block carrying a
+    per-skill `<name>`, `<description>`, and `<location>` (the skill
+    file's absolute path), all XML-escaped. Bodies never appear in the
+    block; the model loads them on demand with the read tool. When
+    `skills` is empty the function returns an empty string so the caller
+    can safely concatenate it onto the base prompt.
     """
 
     if not skills:
         return ""
-    parts: list[str] = [SKILLS_SYSTEM_BLOCK_HEADER]
+    lines: list[str] = ["", ""]
+    lines.extend(SKILLS_SYSTEM_BLOCK_HEADER_LINES)
+    lines.append("")
+    lines.append("<available_skills>")
     for skill in skills:
-        if skill.description:
-            parts.append(
-                SKILLS_SYSTEM_BLOCK_LINE_TEMPLATE.format(
-                    name=skill.name,
-                    description=skill.description,
-                )
-            )
-        else:
-            parts.append(
-                SKILLS_SYSTEM_BLOCK_LINE_NO_DESCRIPTION_TEMPLATE.format(name=skill.name)
-            )
-    return "".join(parts)
+        lines.append("  <skill>")
+        lines.append(f"    <name>{_escape_xml(skill.name)}</name>")
+        lines.append(f"    <description>{_escape_xml(skill.description)}</description>")
+        lines.append(f"    <location>{_escape_xml(str(skill.absolute_path))}</location>")
+        lines.append("  </skill>")
+    lines.append("</available_skills>")
+    return "\n".join(lines)
 
 
 def safe_skill_metadata(skills: Sequence[SkillFile]) -> list[dict[str, object]]:
