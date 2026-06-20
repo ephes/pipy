@@ -1008,6 +1008,11 @@ class NativeToolReplSession:
     resource_options: RuntimeResourceOptions = field(
         default_factory=RuntimeResourceOptions.empty
     )
+    # Pi-shape ``pipy "<prompt>"``: positional prompts that seed the interactive
+    # session's first user turn(s). They are delivered as provider-visible prompt
+    # text (like a typed message, resolving @file/@image references) before the
+    # loop blocks on fresh input. Empty for the bare ``pipy`` / piped-stdin case.
+    initial_messages: tuple[str, ...] = field(default_factory=tuple)
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -1180,6 +1185,12 @@ class NativeToolReplSession:
         # Prompts an extension enqueues via send_user_message become the
         # next prompts processed by the loop (deterministic turns).
         extension_pending_messages: list[str] = []
+        # Positional prompts from ``pipy "<prompt>"`` seed the first user turn(s)
+        # before the loop blocks on stdin. They drain ahead of everything else so
+        # the seeded message is the session's first user message.
+        seed_pending_messages: list[str] = [
+            message for message in self.initial_messages if message
+        ]
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
@@ -1943,6 +1954,17 @@ class NativeToolReplSession:
                         terminal_ui.take_next_drain() if terminal_ui is not None else None
                     )
                 )
+                # Positional-prompt seeds (`pipy "<prompt>"`) drain first, ahead
+                # of extension messages and fresh input, so a seeded prompt is the
+                # session's first user message. Like steering/extension prompts it
+                # travels the `drained` path (provider-visible text, never parsed
+                # as a local command).
+                if (
+                    drained is None
+                    and pending_command is None
+                    and seed_pending_messages
+                ):
+                    drained = seed_pending_messages.pop(0)
                 # Prompts an extension enqueued via send_user_message are
                 # delivered through the same `drained` path as Pi
                 # steering/follow-ups: provider-visible prompt text, never

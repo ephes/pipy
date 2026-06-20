@@ -89,7 +89,22 @@ with a stderr diagnostic when the active provider is not in this set."""
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pipy",
-        description="Run coding-agent tasks through the pipy harness.",
+        usage="pipy [options] [prompt]\n       pipy <command> ...",
+        description=(
+            "pipy is an interactive coding agent. Run `pipy` (or `pipy "
+            '"<prompt>"`) to start the interactive session; a bare positional '
+            "prompt seeds the first message. The subcommands below "
+            "(auth/run/config/install/...) cover one-shot and management tasks; "
+            "`pipy repl --help` lists every interactive/automation flag."
+        ),
+        epilog=(
+            "Without a recognized subcommand or top-level flag, pipy launches "
+            "the interactive session. The prompt is a single token, so quote it: "
+            '`pipy`, `pipy "explain this code"`, `pipy "@file.py summarize"` '
+            '(an @file reference works inside the quoted prompt), `pipy -p '
+            '"one-shot"`. Use `pipy repl "<word>"` or `pipy -p "<word>"` to send '
+            'a subcommand name (e.g. "auth") as a prompt.'
+        ),
     )
     parser.add_argument(
         "--version",
@@ -273,8 +288,9 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help=(
-            "One-shot prompt for --mode json / --print. Ignored by the "
-            "interactive REPL."
+            "Single positional prompt: the one-shot text for --mode json / "
+            "--print, or the seed for the interactive session's first message "
+            "(quote it; an @file reference works inside the quoted prompt)."
         ),
     )
     repl_parser.add_argument(
@@ -667,6 +683,70 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _parser_subcommands(parser: argparse.ArgumentParser) -> frozenset[str]:
+    """Return the registered subcommand names from a built parser.
+
+    Read once from the argparse subparser action so the router stays in sync
+    with ``build_parser`` instead of carrying a hand-maintained copy that can
+    drift when a subcommand is added or removed.
+    """
+
+    names: set[str] = set()
+    subparsers = getattr(parser, "_subparsers", None)
+    if subparsers is not None:
+        for action in subparsers._group_actions:  # type: ignore[attr-defined]
+            choices = getattr(action, "choices", None)
+            if choices:
+                names.update(choices.keys())
+    return frozenset(names)
+
+
+# Built once from the parser's subparser names so the router never drifts from
+# ``build_parser``. ``auth run repl config install remove uninstall list update``.
+KNOWN_SUBCOMMANDS: frozenset[str] = _parser_subcommands(build_parser())
+
+# Root-level-only options handled by the top-level parser (help/version/export).
+# A bare invocation that starts with one of these is dispatched unchanged and
+# never re-routed into the implicit ``repl``. The catalog flags (``--list-models``
+# et al.) live on the ``repl``/``run`` subparsers, so they intentionally fall
+# through to the ``repl`` injection below.
+_TOP_LEVEL_ONLY_FLAGS: frozenset[str] = frozenset(
+    {"-h", "--help", "-v", "--version", "--export"}
+)
+
+
+def route_argv(
+    argv: list[str], known_subcommands: "frozenset[str] | set[str]"
+) -> list[str]:
+    """Inject ``repl`` for non-subcommand invocations (Pi-shape top-level).
+
+    - empty argv -> ``["repl"]`` (bare ``pipy`` -> interactive)
+    - first token is a known subcommand -> unchanged
+    - first token is a root-level-only flag -> unchanged (help/version/export),
+      including the ``--flag=value`` form (e.g. ``--export=session.jsonl``)
+    - otherwise -> ``["repl", *argv]`` so the existing ``repl`` subparser owns
+      the positional prompt, repl flags, ``@files``, etc.
+
+    Reserved-word exception: a bare first token that is *exactly* a subcommand
+    name (``pipy auth``) dispatches that subcommand even if it was meant as a
+    one-word prompt; use ``pipy repl "<word>"`` / ``pipy -p "<word>"`` to force
+    a prompt. A multi-word prompt is a single positional token and is never
+    confused with a subcommand.
+    """
+
+    if not argv:
+        return ["repl"]
+    first = argv[0]
+    if first in known_subcommands:
+        return list(argv)
+    # Treat both ``--export FILE`` and ``--export=FILE`` as top-level: argparse
+    # accepts the ``--flag=value`` form, so compare the part before ``=`` against
+    # the root-only set as well as the exact token.
+    if first in _TOP_LEVEL_ONLY_FLAGS or first.split("=", 1)[0] in _TOP_LEVEL_ONLY_FLAGS:
+        return list(argv)
+    return ["repl", *argv]
+
+
 def _ordered_repl_extension_flag_tokens(
     raw_argv: list[str],
     args: Any,
@@ -719,9 +799,13 @@ def _ordered_repl_extension_flag_tokens(
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    raw_argv = sys.argv[1:] if argv is None else argv
-    if not raw_argv:
-        raw_argv = ["repl"]
+    incoming_argv = sys.argv[1:] if argv is None else argv
+    # Front-controller router (Pi-shape): bare ``pipy``, a positional prompt, or
+    # bare repl flags launch the interactive product session by injecting the
+    # implicit ``repl`` subcommand; subcommands and the root-only flags
+    # (help/version/export) dispatch unchanged. The injected ``repl`` is what
+    # the extension-flag passthrough below composes with.
+    raw_argv = route_argv(list(incoming_argv), KNOWN_SUBCOMMANDS)
     args, unknown_args = parser.parse_known_args(raw_argv)
     if unknown_args and getattr(args, "command", None) != "repl":
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
@@ -952,12 +1036,9 @@ def main(argv: list[str] | None = None) -> int:
                     native_session=native_session,
                 )
             if args.prompt is not None:
-                # A bare positional prompt is ambiguous in the interactive REPL
-                # (which reads its prompts live); one-shot/RPC must be explicit.
-                raise ValueError(
-                    "a positional prompt requires --print/-p (one-shot text) or "
-                    "--mode json|rpc"
-                )
+                # Pi-shape: a bare positional prompt seeds the interactive
+                # session's first user message (one-shot/RPC are handled above).
+                repl_adapter.initial_messages = (str(args.prompt),)
             request = RunRequest(
                 agent=args.agent,
                 slug=args.slug,

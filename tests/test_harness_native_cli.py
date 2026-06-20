@@ -2029,6 +2029,110 @@ def test_cli_append_system_prompt_flag_appends(tmp_path, monkeypatch) -> None:
     assert "APPENDED TWO" in sp
 
 
+def test_positional_prompt_seeds_interactive_first_message(
+    tmp_path, monkeypatch
+) -> None:
+    captured: list = []
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
+    # Only `/exit` on stdin: the seeded positional prompt must be the first user
+    # turn, so the provider sees it before the interactive loop reads stdin.
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+    exit_code = main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "seed", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "hello there",
+        ]
+    )
+    assert exit_code == 0
+    assert captured, "no provider request captured; the prompt was not seeded"
+    assert captured[0].user_prompt == "hello there"
+
+
+def test_bare_positional_prompt_routes_and_seeds_interactive(
+    tmp_path, monkeypatch
+) -> None:
+    # The router turns `pipy "<prompt>"` into `repl <prompt>` and the prompt
+    # seeds the interactive first message (no explicit subcommand).
+    root = tmp_path / "sessions"
+    captured: list = []
+    monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+    exit_code = main(["summarize this repo"])
+    assert exit_code == 0
+    assert captured, "no provider request captured; bare prompt was not seeded"
+    assert captured[0].user_prompt == "summarize this repo"
+
+
+def test_mode_rpc_still_rejects_positional_prompt(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider([])
+    )
+    exit_code = main(
+        [
+            "repl", "--agent", "pipy-native", "--slug", "rpc", "--no-session",
+            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "--mode", "rpc",
+            "do X",
+        ]
+    )
+    assert exit_code == 2
+
+
+def test_router_does_not_swallow_version(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "pipy " in (captured.out + captured.err)
+
+
+def test_router_does_not_swallow_help_and_mentions_interactive(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--help"])
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert "interactive" in out.lower()
+    assert "[prompt]" in out
+
+
+def test_router_does_not_swallow_export(tmp_path, capsys) -> None:
+    # `--export` is a root-only flag: it reaches the export handler (which fails
+    # on a missing file) rather than being re-routed into the repl.
+    missing = tmp_path / "missing-session.jsonl"
+    exit_code = main(["--export", str(missing)])
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "pipy:" in err
+
+
+def test_router_does_not_swallow_export_equals_form(tmp_path, capsys) -> None:
+    # The argparse `--export=FILE` form is also top-level: it must reach the
+    # export handler, not the repl unknown-extension-flag path.
+    missing = tmp_path / "missing-session.jsonl"
+    exit_code = main([f"--export={missing}"])
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "pipy:" in err
+    assert "unknown extension flag" not in err
+
+
+def test_router_list_models_routes_to_repl_flag(tmp_path, monkeypatch, capsys) -> None:
+    # `--list-models` is a repl/run flag, so the router injects `repl` and the
+    # catalog table prints (exit 0), rather than argparse rejecting it.
+    monkeypatch.chdir(tmp_path)
+    exit_code = main(["--list-models"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert out.strip()
+
+
 def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
     (tmp_path / ".pipy").mkdir()
     (tmp_path / ".pipy" / "SYSTEM.md").write_text("DISCOVERED SYSTEM MD", encoding="utf-8")

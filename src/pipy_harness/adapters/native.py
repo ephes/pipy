@@ -178,11 +178,15 @@ class PipyNativeToolReplAdapter:
         automation_observer: "AutomationEventSink | None" = None,
         abort_event: "threading.Event | None" = None,
         resource_options: RuntimeResourceOptions | None = None,
+        initial_messages: tuple[str, ...] = (),
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
                 "PipyNativeToolReplAdapter requires provider or provider_state"
             )
+        # Positional prompts (`pipy "<prompt>"`) that seed the interactive
+        # session's first user turn(s); empty for bare/piped-stdin invocations.
+        self.initial_messages = tuple(initial_messages)
         self.resume_context = resume_context
         self.resume_branch_label = resume_branch_label
         self.settings_manager = settings_manager
@@ -314,6 +318,7 @@ class PipyNativeToolReplAdapter:
             automation_observer=self.automation_observer,
             abort_event=self.abort_event,
             resource_options=self.resource_options,
+            initial_messages=self.initial_messages,
         )
         try:
             run_output = session.run(
