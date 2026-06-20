@@ -546,7 +546,11 @@ pipy target:
   existing `pipy_harness.native.resources` loader applies those enable/disable
   patterns and package filters when deciding what to register.
 - `enableSkillCommands` (default true) gates registering skills as
-  `/skill:<name>` commands.
+  `/skill:<name>` commands. (`/skill` is kept — the 2026-06-20 top-level CLI
+  cleanup retired the pipy-only `/template` wrapper but kept `/skill` as
+  parity-consistent with Pi; see [parity-plan.md](parity-plan.md) §3. Prompt
+  templates are invokable as their own `/<template-name>` commands. Wiring
+  pipy's own system-prompt skill advertisement is a follow-up.)
 - A non-interactive form (flags / `--json`) so the conformance gate can assert
   enable/disable without a TTY.
 
@@ -599,7 +603,9 @@ restarting (Pi `handleReloadCommand`). Target behavior:
 - Run no provider turn. After reload, re-print the loaded-resources banner
   (honoring `quietStartup`) and report "Reloaded …".
 
-Shipped: `/reload` is implemented in both the tool-loop and no-tool REPL paths.
+Shipped: `/reload` is implemented in the product tool-loop REPL path. (The
+no-tool REPL was retired in the 2026-06-20 top-level CLI cleanup; there is now
+one product REPL.)
 It re-reads settings (both scopes, re-migrating + deep-merging), reloads
 `keybindings.json` (malformed → built-in defaults, not the prior bindings),
 re-runs resource discovery and re-applies the enablement directives, re-applies

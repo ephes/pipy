@@ -69,7 +69,7 @@ def test_native_provider_visible_repo_context_policy_is_documented():
     assert "source label plus a stable path hash or omit the path" in compact_policy
     assert "must fail closed" in compact_policy
     assert "Unsafe data must be dropped or skipped in memory before provider-visible context" in compact_policy
-    assert "JSONL, Markdown, and `--native-output json` may record only" in compact_policy
+    assert "JSONL, Markdown, and the metadata archive may record only" in compact_policy
     assert "`tool_request_id`" in compact_policy
     assert "`turn_index`" in compact_policy
     assert "`native.tool.observation.recorded`" in compact_policy

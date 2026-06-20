@@ -6,6 +6,36 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Removed
+
+- The no-tool REPL has been retired. There is now one product REPL — the
+  model-visible tool-loop session. The `--repl-mode` flag and the no-tool
+  commands `/read`, `/ask-file`, `/propose-file`, and `/apply-proposal` (and
+  their archive-side observation/patch-proposal events) are gone; the model uses
+  `read`/`edit`/`write`/`bash` directly.
+- The `--native-output json` one-shot flag has been removed. Automation callers
+  use `pipy repl --mode json` (the full Pi-shaped session event stream) or
+  `--print`/`-p` for final-text output; the removed flag now prints guidance
+  naming `--mode json`. `pipy run` keeps its default human/exit-code behavior.
+- The `--archive-transcript` transcript sidecar has been removed, along with the
+  `pipy-session export` `--export-transcript`/`--include-transcript` reader (the
+  export schema is bumped v1→v2). The native session tree is the transcript; use
+  `/export` (or `pipy --export`). The removed flag prints guidance.
+- The pipy-only `/template` wrapper command has been removed. Prompt templates
+  are now invokable as their own `/<template-name>` slash commands (matching Pi,
+  which has no literal `/template`).
+
+### Changed
+
+- Bare `pipy` and `pipy "<prompt>"` now launch the interactive product session
+  like Pi (a bare positional prompt seeds the first message), while
+  `auth`/`run`/`repl`/`config`/`install`/... stay reachable as subcommands. A
+  bare token equal to a subcommand name dispatches that subcommand; quote it via
+  `pipy repl "<word>"` or `pipy -p "<word>"` to send it as a prompt instead.
+- `/clear` is now a deprecated alias of `/new` and `/status` a deprecated alias
+  of `/session` (each prints a one-line deprecation notice before performing the
+  target action); `/help` is an alias of `/hotkeys`.
+
 ### Fixed
 
 - Slash/local commands such as `/quit` now remain editable and submittable while

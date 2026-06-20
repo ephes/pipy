@@ -53,20 +53,22 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
 
 - `pi --help` is a single top-level product command with interactive, print,
   JSON, RPC, session, provider/model, settings/resource, package-management,
-  export, and update flags. `uv run pipy --help` still exposes a
-  harness-shaped `auth|run|repl` subcommand layout in places, even though many
-  Pi-compatible surfaces now exist under `pipy repl`. Top-level compatibility
-  dispatch/help remains a parity cleanup item.
+  export, and update flags. `uv run pipy --help` is now Pi-shaped: bare `pipy`
+  and `pipy "<prompt>"` launch the interactive session and the help text reads
+  as a single product command, with `auth|run|repl|config|install|...` kept as
+  secondary subcommands (a bare subcommand-name token is a documented
+  reserved-word exception). The top-level compatibility dispatch shipped in the
+  2026-06-20 cleanup.
 - Pi top-level package commands are partially present in pipy: `install`,
   `remove`/`uninstall`, `list`, and `config` now manage local-path and managed
   git package sources plus resource filters; installed packages contribute
   extensions/skills/prompts/themes through discovery. Package `update` refreshes
   managed git caches. PyPI/`npm:` sources remain deferred to a broader
   supply-chain policy.
-- Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) now ship in
+- Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) ship in
   pipy under the REPL product path and are backed by the native session tree.
-  The remaining automation cleanup is retiring pipy's old metadata-only
-  `--native-output json` after callers move.
+  The old metadata-only `--native-output json` has been **removed** (2026-06-20);
+  callers use `--mode json`, and the removed flag emits guidance naming it.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork
@@ -76,9 +78,11 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   enablement through `pipy config`, per-run source-loading flags
   (`--extension`, `--skill`, `--prompt-template`, `--theme`, and matching
   `--no-*` cutoffs), `/reload`, `/hotkeys`, `/scoped-models`, `/changelog`,
-  settings/keybindings files, and scoped model cycling. Still open: tool
-  allow/deny flags, `--verbose`, `--offline`, and resource-wrapper cleanup
-  (`/skill`/`/template`/`/theme`).
+  settings/keybindings files, and scoped model cycling. The resource-wrapper
+  cleanup partly landed (2026-06-20): the `/template` wrapper was dropped
+  (templates are `/<name>`), while `/skill` and `/theme` are kept pending two
+  follow-ups (system-prompt skill advertisement; theme selection in
+  `/settings`). Still open: tool allow/deny flags, `--verbose`, `--offline`.
 
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the
@@ -222,14 +226,38 @@ Follow-ons:
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
 
-### 6. Top-level CLI compatibility and parity cleanup
+### 6. Top-level CLI compatibility and parity cleanup — largely shipped (2026-06-20)
 
-Pipy still has a harness-shaped command layout and pipy-only historical surfaces
-that should be removed or realigned as their owning areas are touched:
-`--archive-transcript`, no-tool REPL/proposal commands, `/clear`, `/status`,
-`/theme`, `/skill`, `/template`, `/help`, metadata-only `--native-output json`,
-and exposed internal flags that do not map to Pi. This should be staged, not
-landed as one large rewrite.
+The 2026-06-20 top-level CLI cleanup landed the bulk of this item across four
+code slices:
+
+- **Top-level shape is now Pi-like:** bare `pipy` and `pipy "<prompt>"` launch
+  the interactive product session (a bare positional prompt seeds the first
+  message); `auth|run|repl|config|install|...` remain reachable as subcommands.
+  Reserved-word exception: a bare token equal to a subcommand name dispatches
+  that subcommand (escape via `pipy repl "<word>"` / `pipy -p "<word>"`).
+- **Removed (hard):** the no-tool REPL (`--repl-mode`,
+  `NativeNoToolReplSession`, and `/read` `/ask-file` `/propose-file`
+  `/apply-proposal` + their archive-side events), `--native-output json`
+  (callers use `--mode json`), the `--archive-transcript` sidecar (the native
+  session tree is the transcript), and the pipy-only `/template` wrapper.
+- **Realigned:** `/clear` → deprecated alias of `/new`; `/status` → deprecated
+  alias of `/session`; `/help` → alias of `/hotkeys`; prompt templates are
+  invokable as their own `/<template-name>` commands.
+
+**Two follow-ups remain (deviations from the original plan text):**
+
+- `/skill` is **kept** — Pi advertises skills in the system prompt *and* keeps a
+  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The real gap
+  is wiring pipy's own advertisement (`compose_skills_system_block` is dead
+  code); that is a dedicated follow-up.
+- `/theme` is **kept** as a plain working command. Moving theme selection into
+  `/settings` (then aliasing/dropping `/theme`) is a follow-up — pipy's
+  `/settings` dialog has no theme row yet.
+
+`--read-root(s)`, `--tool-budget`, `--input-runtime`, and the persistent prompt
+history are kept as internal mechanisms (decision 3), de-emphasized in docs as
+internal, not parity features.
 
 ### 7. Verification policy through extensions
 
@@ -246,8 +274,10 @@ adding another bespoke slash command.
    PyPI/npm package source policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
-4. Top-level CLI compatibility and pipy-only surface cleanup staged alongside
-   the owning topics.
+4. Top-level CLI compatibility and pipy-only surface cleanup — largely shipped
+   (2026-06-20); the two remaining follow-ups are the system-prompt skill
+   advertisement (`/skill` kept) and theme selection in `/settings` (`/theme`
+   kept).
 5. Verification/project policy through extension gates, not a revived `/verify`
    command.
 

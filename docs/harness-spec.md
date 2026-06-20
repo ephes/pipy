@@ -360,8 +360,7 @@ send OpenRouter app-attribution headers, debug options, provider routing
 preferences, plugins, tools, function calling, streaming, retries, fallback
 routing, OAuth, or provider-side tool settings. It does not store raw request
 bodies, raw provider responses, provider response ids, prompts, model output,
-auth material, or provider-native payloads in JSONL, Markdown, or
-`--native-output json`.
+auth material, or provider-native payloads in JSONL or Markdown.
 
 The local `ds4` provider is selected explicitly as `--native-provider ds4`.
 It reuses the OpenAI-compatible Chat Completions provider machinery against
@@ -414,13 +413,31 @@ Auth material, authorization URLs, raw request bodies, raw provider responses,
 headers with credentials, prompts, model output, provider-native payloads,
 stdout, stderr, tool payloads, diffs, file contents, secrets, credentials,
 tokens, refresh tokens, private keys, and sensitive personal data remain out of
-JSONL, Markdown, catalog/search/inspect surfaces, and `--native-output json`.
+JSONL, Markdown, and catalog/search/inspect surfaces.
 The standalone `pipy auth openai-codex login` command remains supported, and
 the native shell exposes the same auth boundary through `/login openai-codex`
 plus `/logout openai-codex`. Shell login/logout diagnostics stay on stderr and
 do not create provider turns or archive auth material.
 
 ### Native Interactive REPL
+
+> **Current surface (2026-06-20 top-level CLI cleanup):** the no-tool REPL
+> described in the rest of this section has been **retired**. There is now one
+> product REPL — the model-visible tool-loop session — and bare `pipy` (and
+> `pipy "<prompt>"`) launches it directly via the Pi-shape top-level router
+> (`auth|run|repl|config|install|...` stay reachable as subcommands; a bare
+> positional prompt seeds the interactive first message). The `--repl-mode`
+> flag, `NativeNoToolReplSession`, and the no-tool commands `/read`,
+> `/ask-file`, `/propose-file`, `/apply-proposal` (plus their archive-side
+> observation/patch-proposal events) are gone. User-facing slash commands were
+> realigned: `/clear` → deprecated alias of `/new`, `/status` → deprecated alias
+> of `/session`, `/help` → alias of `/hotkeys`, the pipy-only `/template`
+> wrapper is dropped (prompt templates are invokable as their own
+> `/<template-name>` commands). `/skill` and `/theme` are **kept** working (see
+> [parity-plan.md](parity-plan.md) §3 — wiring a system-prompt skill
+> advertisement and moving theme selection into `/settings` are follow-ups, not
+> done here). The historical prose below documents the now-removed no-tool shell
+> and its decision trail; read it as a record, not the current product surface.
 
 The interactive native shell is available as:
 
@@ -497,26 +514,30 @@ their store.
 custom command can never shadow a built-in (collisions are dropped from
 discovery). Outcomes:
 
-- `/skill` / `/template` with no argument print a local listing (names +
-  descriptions only; no bodies) and issue no provider turn.
-- `/skill <name>` loads the skill body, `/template <name> [args]` expands the
-  template body (`$ARGUMENTS` / `${ARGUMENTS}` → the full argument string;
-  `$1..$9` / `${1}..${9}` → whitespace-split positional arguments; a
-  placeholder-free body with arguments appends them as inserted prompt text),
-  and a workspace/global custom `/<name> [args]` expands its body the same way.
-  Each becomes one bounded provider-visible message through the same provider
-  boundary as a genuine prompt.
+- `/skill` with no argument prints a local listing (names + descriptions only;
+  no bodies) and issues no provider turn. (`/skill` is **kept** — it is
+  parity-consistent with Pi's `/skill:name` expansion; see
+  [parity-plan.md](parity-plan.md) §3.)
+- `/skill <name>` loads the skill body. Prompt templates are invokable as their
+  own `/<template-name> [args]` commands — the pipy-only `/template` wrapper has
+  been **removed** (Pi has no literal `/template`; it invokes templates as
+  `/<name>` directly). A template `/<name> [args]` and a workspace/global custom
+  `/<name> [args]` expand their body (`$ARGUMENTS` / `${ARGUMENTS}` → the full
+  argument string; `$1..$9` / `${1}..${9}` → whitespace-split positional
+  arguments; a placeholder-free body with arguments appends them as inserted
+  prompt text). Each becomes one bounded provider-visible message through the
+  same provider boundary as a genuine prompt.
 - Unknown, unsafe, or empty resources fail closed: a diagnostic is printed and
   no provider turn is issued.
 
 Privacy: the resource body, expanded prompt, and command text are never
-archived. The no-tool path emits `native.resource.invoked` and
-`native.resource.rejected` events whose payload carries only safe metadata
+archived. Resource lifecycle metadata is limited to safe fields
 (`resource_kind`, `name`, `path_label`, `sha256`, `byte_length`, `truncated`,
-`resource_label`), plus a `resource_invocation_count` in the completion event;
-the tool-loop path returns `resource_invocation_count` in
-`NativeToolReplResult`. Resource invocations are excluded from the local prompt
-history and from the opt-in `--archive-transcript` sidecar body. The `[Skills]`
+`resource_label`); the product tool-loop path returns `resource_invocation_count`
+in `NativeToolReplResult`. Resource invocations are excluded from the local
+prompt history. (The opt-in `--archive-transcript` transcript sidecar has since been
+**removed**; the native session tree is the transcript — see
+[session-tree.md](session-tree.md) and `/export`.) The `[Skills]`
 startup-chrome section lists the loadable skill names from the same loader the
 dispatcher uses.
 The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
@@ -538,15 +559,17 @@ produces output the committed history fills the full window height with the
 input/footer at the bottom rather than capping the frame to the upper half.
 Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`help`, `model`, `skill`, `template`, `settings`, `login`, `logout`,
-`copy`, `exit`, `quit`, plus any discovered workspace/global custom slash
+locally (`hotkeys` — with `help` as its alias — `model`, `skill`, `settings`,
+`login`, `logout`, `copy`, `exit`, `quit`, plus each discovered prompt template
+as its own `/<template-name>` and any discovered workspace/global custom slash
 commands); Up/Down moves the selected row, Tab or Enter accepts the selected
 command, and Escape closes the menu without exiting the session. The menu is
-honest — it advertises a command only once the dispatcher can execute it, so
-no-tool-only commands (`read`, `ask-file`, `propose-file`, `apply-proposal`,
-`verify`) never appear here — and windows to the `autocompleteMaxVisible`
-setting (Pi default 5, clamped 3..20; honored in both the tool-loop TUI and the
-no-tool stdlib slash menu) with a scroll indicator when more match. `/copy` is a local-only command: it copies the
+honest — it advertises a command only once the dispatcher can execute it, so the
+removed no-tool commands (`read`, `ask-file`, `propose-file`, `apply-proposal`,
+`verify`) and the dropped `/template` wrapper never appear here — and windows to the `autocompleteMaxVisible`
+setting (Pi default 5, clamped 3..20; honored in both the product tool-loop TUI
+and the stdlib slash-menu line editor used for the non-TTY/captured-stream
+fallback) with a scroll indicator when more match. `/copy` is a local-only command: it copies the
 most recent assistant answer through a safe OS clipboard command (`pbcopy` on
 macOS; `wl-copy`/`xclip`/`xsel` on Linux) or an OSC 52 terminal fallback,
 reports a local status notice, and never invokes the provider, tools,
@@ -555,8 +578,8 @@ settings/control dialog (`ToolLoopTerminalUi.run_settings_dialog`) — a live
 overlay drawn in the pinned live region (not a committed history block), like
 the `/model` selector. It lists section headers, read-only status rows (the
 active provider/model and per-provider local availability reasons, the same safe
-information the no-tool `settings_overlay_lines` builder exposes), and actionable
-rows. Up/Down move the highlight between actionable rows (skipping headers and
+information the `settings_overlay_lines` builder exposes for the captured-stream
+fallback), and actionable rows. Up/Down move the highlight between actionable rows (skipping headers and
 status rows, wrapping), Enter/Space activate the highlighted row, the list
 windows with a scroll indicator when it overflows the height, and
 Esc/Ctrl-C/Ctrl-D close the dialog and return to the input. A resize while the
@@ -593,8 +616,8 @@ advertise tool-call support, which tool-loop mode requires), the active
 selection is marked `(current)`, Up/Down move the highlight (wrapping), Enter
 chooses the highlighted row only when it is selectable, and Esc/Ctrl-C/Ctrl-D
 cancel. The selector runs no provider turn while it is open. On a successful
-choice the session calls `NativeReplProviderState.select_model` (the same
-provider-state boundary the no-tool `/model` uses), rebinds the live provider,
+choice the session calls `NativeReplProviderState.select_model` (the shared
+provider-state boundary), rebinds the live provider,
 clears the in-memory conversation context, rebinds the usage meter, refreshes
 the footer/status model label, and persists the non-secret default; the next
 provider turn is constructed with the new provider/model. A direct
@@ -608,8 +631,8 @@ model id); it adds no auth material, provider payloads, prompts, model output,
 command text, or secrets to the metadata archive.
 
 `/login [openai-codex]` and `/logout [openai-codex]` are executable in the
-product TUI through the same `NativeReplProviderState` auth boundary the no-tool
-REPL uses. Both run no provider turn and no tool call. `/login` calls
+product TUI through the `NativeReplProviderState` auth boundary. Both run no
+provider turn and no tool call. `/login` calls
 `OpenAICodexAuthManager.login_interactive()` (the inline frame is suspended via
 `ToolLoopTerminalUi.suspend_for_external_io()` so the OAuth URL/prompt prints to
 and reads from the terminal in cooked mode, then the frame repaints below it);
@@ -814,9 +837,11 @@ handling, apply status, command-skip messages, and the turn-limit notice stay on
 stderr. `/model` with no arguments prints the current selection and conservative
 configured-model information to stderr only. `/ask-file` and `/propose-file`
 never print their raw excerpts directly; `/apply-proposal` does not print raw
-replacement text or diffs. This is separate from one-shot `--native-output json`;
-the REPL does not add structured stdout, a transcript stream, or conversation
-export.
+replacement text or diffs. The REPL does not add structured stdout, a
+transcript stream, or conversation export. (The metadata-only one-shot
+`--native-output json` flag this paragraph once contrasted against has since
+been **removed**; automation uses `--mode json` — the full Pi-shaped session
+event stream — or `--print`.)
 
 The `/read`, `/ask-file`, and `/propose-file` commands share two successful
 explicit file excerpts per REPL session plus one bounded failed or skipped
@@ -849,13 +874,12 @@ turn limit and a 4 KiB provider-visible byte budget, drops oldest exchanges
 before provider visibility, and clears on provider/model changes, login,
 logout, successful `/clear`, provider failure, or ambiguous provider-carryover
 paths. Successful `/read` excerpts are printed only to the interactive stdout
-stream; they are not provider-forwarded, archived, included in Markdown,
-included in catalog/search surfaces, or included in one-shot
-`--native-output json`. Successful `/ask-file` and `/propose-file` excerpts are
-provider-forwarded only in memory to the single corresponding provider turn
-and are not printed directly, archived, included in Markdown, included in
-catalog/search surfaces, included in one-shot `--native-output json`,
-persisted as provider context, or reused by later turns.
+stream; they are not provider-forwarded, archived, included in Markdown, or
+included in catalog/search surfaces. Successful `/ask-file` and `/propose-file`
+excerpts are provider-forwarded only in memory to the single corresponding
+provider turn and are not printed directly, archived, included in Markdown,
+included in catalog/search surfaces, persisted as provider context, or reused by
+later turns.
 
 REPL archives reuse existing safe lifecycle event names:
 
@@ -884,8 +908,8 @@ counts, source labels, path hashes, and storage booleans. Patch-apply payloads
 remain the existing metadata-only apply shape with safe status/reason labels,
 operation counts and labels, approval/sandbox labels, capability booleans,
 workspace mutation state, optional safe scope labels, and false storage
-booleans. JSONL, Markdown, catalog/search/inspect surfaces, and one-shot
-`--native-output json` must still omit raw prompts, model output, provider
+booleans. JSONL, Markdown, and catalog/search/inspect surfaces must still omit
+raw prompts, model output, provider
 responses, provider-native payloads, provider metadata, raw approval prompts,
 raw tool arguments, raw tool results, stdout, stderr, diffs, patches, full file
 contents, command output, auth material, secrets, credentials, tokens, private
@@ -976,7 +1000,7 @@ Limits: per excerpt: 4 KiB and 80 lines; per source file per provider turn:
 source files per provider turn: 6. Metadata uses normalized relative workspace
 path plus source label plus a stable path hash or omit the path. Unsafe data
 must fail closed. Unsafe data must be dropped or skipped in memory before
-provider-visible context. JSONL, Markdown, and `--native-output json` may
+provider-visible context. JSONL, Markdown, and the metadata archive may
 record only `tool_request_id`, `turn_index`, and
 `native.tool.observation.recorded` metadata. No-fixture fake/OpenAI/OpenRouter
 runs still perform no repo reads.
@@ -1246,10 +1270,10 @@ boundary: see [Native User-Directed @file Context](#native-user-directed-file-co
 
 A genuine user prompt (not a slash command) that names workspace files with
 `@path` loads bounded UTF-8 excerpts for those files into the next provider
-request. It ships in both `pipy repl --agent pipy-native` (no-tool) and
-`--repl-mode tool-loop`, and applies to every input runtime — including the
-product TUI and the captured-stream fallback — because resolution happens on
-the submitted prompt after `read_line`, not in any runtime-specific path.
+request. It ships in the product tool-loop REPL and applies to every input
+runtime — including the product TUI and the captured-stream fallback — because
+resolution happens on the submitted prompt after `read_line`, not in any
+runtime-specific path.
 
 Boundaries:
 
@@ -1261,17 +1285,14 @@ Boundaries:
   (`pipy_harness.native.file_references` calls `ReadTool`), reusing the
   workspace resolution plus the `.git`/`.gitignore`, binary, oversized,
   non-UTF-8, and secret-shaped defenses. No new reader or path policy is
-  introduced. The tool-loop REPL also passes its `--read-root` reference roots,
-  so absolute references under a configured read-root resolve there; the
-  no-tool REPL resolves workspace-relative references only, matching its other
-  reads (`/read`, `/ask-file`, `/propose-file`), which carry no reference roots.
+  introduced. The tool-loop REPL passes its `--read-root` reference roots, so
+  absolute references under a configured read-root resolve there.
 - Failures fail closed: missing, ignored, binary, oversized, secret-shaped, and
   out-of-workspace references load no content and produce a safe local
   diagnostic. One bad reference never blocks a good one and never leaks unsafe
   content into the prompt.
 - The user's literal prompt text is preserved verbatim; bounded excerpts are
-  appended as a clearly labeled read-only context block. The no-tool rolling
-  conversation context stores the literal prompt, not the excerpt appendix.
+  appended as a clearly labeled read-only context block.
 - Only safe counters (`file_reference_count`, `file_reference_loaded_count`,
   `file_reference_failed_count`) cross the archive boundary. No raw paths, file
   contents, provider payloads, or secrets are recorded.
@@ -1281,7 +1302,7 @@ Boundaries:
 A genuine user prompt may attach a workspace image with `@image:<path>` (the
 alias `@img:` is also accepted). Loaded images become *provider-visible image
 content blocks* on the current user message — the multimodal counterpart to the
-text-only `@file` context above. It ships in both REPL product paths and
+text-only `@file` context above. It ships in the product tool-loop REPL and
 applies to every input runtime, because resolution happens on the submitted
 prompt after `read_line`.
 
@@ -1309,8 +1330,8 @@ Boundaries (`pipy_harness.native.image_attachment`):
   the field.
 - The user's literal prompt text is preserved verbatim. Only safe metadata —
   counts plus each loaded image's media type, byte count, and sha256 — crosses
-  the archive boundary (`native.image_attachment.resolved` in the no-tool path;
-  `image_attachment_count`/`image_attachment_loaded_count`/`image_attachment_failed_count`
+  the archive boundary
+  (`image_attachment_count`/`image_attachment_loaded_count`/`image_attachment_failed_count`
   on `NativeToolReplResult`, forwarded into `AdapterResult.metadata` and thus
   the finalized record, in the tool loop — alongside the matching
   `file_reference_*` counters). The raw base64 image bytes are never
@@ -1422,8 +1443,7 @@ Successful reads return `NativeExplicitFileExcerptResult` with a
 `NativeInMemoryFileExcerpt` containing the sanitized excerpt text. That text may
 be sent only as in-memory provider-visible context during the one bounded
 read-only follow-up provider turn. It is not archived, not emitted as a native
-lifecycle event, not printed to stdout, and not included in
-`--native-output json`.
+lifecycle event, and not printed to stdout.
 
 Archive/event-facing metadata for this direct tool is available only through
 the result's metadata helper. That helper includes safe labels, status, reason,
@@ -1514,7 +1534,7 @@ the tool observation or post-tool turn should be skipped or failed with safe
 reason labels.
 
 Archives and structured stdout remain metadata-only when repo context is
-produced. JSONL, Markdown, and `--native-output json` may record only safe
+produced. JSONL, Markdown, and the metadata archive may record only safe
 metadata such as source labels, counts, byte and line counts, excerpt counts,
 distinct file counts, redaction and skipped booleans, safe skip reason labels,
 `duration_seconds`, storage booleans, `tool_request_id`, `turn_index`, and
@@ -1582,8 +1602,8 @@ The `native.patch.proposal.recorded` payload allowlist is exactly:
 - `raw_transcript_imported`
 - `workspace_mutated`
 
-Proposal archive and structured stdout boundaries stay metadata-only. JSONL,
-Markdown, and `--native-output json` must not include raw patch text, raw
+Proposal archive and structured stdout boundaries stay metadata-only. JSONL
+and Markdown must not include raw patch text, raw
 diffs, file contents, file paths proposed by the model, raw prompts, model
 output, provider responses, provider-native payloads, tool payloads, stdout,
 stderr, shell commands, auth material, secrets, credentials, tokens, private
@@ -1646,7 +1666,7 @@ metadata-only:
 - false storage booleans for patch text, diffs, file contents, prompts, model
   output, provider responses, and raw transcript import
 
-JSONL, Markdown, default stdout, and `--native-output json` must not include raw
+JSONL, Markdown, and default stdout must not include raw
 patch text, raw diffs, replacement file contents, target paths, raw prompts,
 model output, provider responses, provider-native payloads, tool payloads,
 stdout, stderr, shell commands, auth material, secrets, credentials, tokens,
@@ -1704,7 +1724,7 @@ remains metadata-only:
 - false storage booleans for stdout, stderr, command output, prompts, model
   output, provider responses, and raw transcript import
 
-JSONL, Markdown, default stdout, and `--native-output json` must not include raw
+JSONL, Markdown, and default stdout must not include raw
 command stdout, command stderr, shell command text, raw prompts, model output,
 provider responses, provider-native payloads, tool payloads, raw diffs, file
 contents, auth material, secrets, credentials, tokens, private keys, or
@@ -1974,9 +1994,11 @@ CLI output convention:
 - child process output streams through according to adapter policy
 - native provider final text prints to stdout only when `pipy-native` succeeds
 - `pipy-native` session-finalization messages and errors go to stderr
-- `--native-output json` emits one final metadata-only JSON object for
-  `pipy-native`, not a JSONL event stream, and is rejected for non-native
-  agents before record creation
+- the pipy-only metadata-only `--native-output json` flag has been **removed**;
+  automation callers use `pipy repl --mode json` (the full Pi-shaped session
+  event stream) or `pipy repl --print`/`-p` for final-text output. `pipy run`
+  keeps its default human/exit-code behavior and finalizes its metadata record
+  without a metadata-only JSON object
 
 The CLI does not have:
 

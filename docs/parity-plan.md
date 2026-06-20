@@ -81,17 +81,34 @@ Pi's built-in slash commands (source:
 | `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
 
-**Pipy-only commands (not in Pi → remove or realign — see §3):** `/clear`,
-`/status`, `/theme`, `/skill`, `/template`, the no-tool proposal/apply commands
-`/read` `/ask-file` `/propose-file` `/apply-proposal`, and `/help` (Pi uses
-`/hotkeys`).
+**Pipy-only slash commands — realigned in the 2026-06-20 top-level CLI
+cleanup (see §3 for the per-row status):**
+
+- `/clear` → **deprecated alias of `/new`** (one-line deprecation notice).
+- `/status` → **deprecated alias of `/session`** (one-line deprecation notice).
+- `/help` → **alias of `/hotkeys`**.
+- `/template` → **removed**; prompt templates are invokable as their own
+  `/<template-name>` commands (Pi's model — Pi has no literal `/template`).
+- `/read` `/ask-file` `/propose-file` `/apply-proposal` → **removed** with the
+  no-tool REPL (the single tool-loop product session uses model-visible
+  `read`/`edit`/`write`/`bash`).
+- `/skill` → **kept** (deviation from the original "realign" plan): Pi is not
+  skill-command-free — it advertises skills in the system prompt *and* keeps a
+  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The real gap
+  is that pipy never wired its own advertisement (`compose_skills_system_block`
+  is dead code); that is a **follow-up**, not done in this work.
+- `/theme` → **kept** as a plain working command (list + `/theme <name>` apply).
+  Pi has no `/theme` (theme selection lives in `/settings`), but pipy's
+  `/settings` dialog has no theme row yet, so moving it there + aliasing/dropping
+  `/theme` is a **follow-up**, not done here.
 
 Session-tree workflow commands (`/session`, `/name`, `/new`, `/tree`,
-`/resume`, `/fork`, `/clone`, and durable `/compact`) now ship and pass
-`scripts/parity_checks/session_tree_conformance.py --json`. Remaining cleanup is
-limited to retiring or aliasing the older pipy-only names (`/status`, `/clear`)
-and the picker-control / branch-summary polish tracked in
-[session-tree.md](session-tree.md).
+`/resume`, `/fork`, `/clone`, and durable `/compact`) ship and pass
+`scripts/parity_checks/session_tree_conformance.py --json`. The older pipy-only
+names `/clear` and `/status` are now deprecated aliases of `/new` and
+`/session`; remaining work is the picker-control / branch-summary polish tracked
+in [session-tree.md](session-tree.md), plus the two `/skill`/`/theme` follow-ups
+noted above.
 
 ## 2. CLI flag / mode parity matrix
 
@@ -137,11 +154,27 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path and managed git sources, installed packages contribute extensions/skills/prompts/themes, package `update` refreshes managed git caches, and `pipy update self\|pipy [--force] [--dry-run]` ships for install-method-aware self-update planning. Remote PyPI/`npm:` package sources remain deferred to a broader supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | 🟡 landed for `pipy repl` tool-loop boolean/string flags; broader top-level/automation integration remains | [extension-api.md](extension-api.md) |
 
-**Pipy-only flags (not in Pi → remove or realign — see §3):**
-`--repl-mode no-tool`, `--native-output json` (metadata-only),
-`--archive-transcript`, `--input-runtime`, `--read-root(s)`, `--tool-budget`.
-(The pipy-only metadata `--resume RECORD` / `--branch LABEL` repl flags were
-retired on 2026-06-09 in favor of the native session tree.)
+**Top-level shape (realigned in the 2026-06-20 cleanup):** `pipy` is now
+Pi-shaped. Bare `pipy` and `pipy "<prompt>"` launch the interactive product
+session (a bare positional prompt seeds the first message), while
+`auth|run|repl|config|install|...` stay reachable as subcommands. Reserved-word
+exception: a bare token equal to a subcommand name dispatches that subcommand
+(escape via `pipy repl "<word>"` / `pipy -p "<word>"`).
+
+**Pipy-only flags removed/realigned in the 2026-06-20 cleanup (see §3):**
+
+- `--repl-mode {auto,no-tool,tool-loop}` → **removed**; there is one product
+  REPL (the tool-loop session).
+- `--native-output json` (metadata-only) → **removed**; automation callers use
+  `--mode json` (the removed flag emits guidance naming the replacement).
+- `--archive-transcript` sidecar → **removed**; the native session tree is the
+  transcript (use `/export` / `--export`). The removed flag emits guidance.
+
+**Kept as internal mechanisms (not parity features — de-emphasized in docs, no
+code change):** `--read-root(s)`, `--tool-budget`, `--input-runtime`, and the
+persistent prompt history are non-divergent internal conveniences, not Pi
+surfaces. (The pipy-only metadata `--resume RECORD` / `--branch LABEL` repl
+flags were retired on 2026-06-09 in favor of the native session tree.)
 
 ## 3. Accidental pipy-specific surfaces (remove or realign)
 
@@ -153,23 +186,23 @@ target, and the docs/specs must stop presenting them as product virtues.
 | Pipy surface | Why it exists | Keep? | Action |
 | --- | --- | --- | --- |
 | **Metadata-first `pipy-session` archive as the product session store** | Privacy preference | No (privacy is not a valid reason) | The full native session tree ([session-tree.md](session-tree.md)) is the product store. `pipy-session` is demoted to an optional, non-default, separate catalog utility that never shapes or blocks parity. Stop describing metadata-first as a parity virtue. |
-| **`--archive-transcript` opt-in sidecar** | Workaround for the metadata-first default (raw turns live outside the archive) | No | Redundant once the native session tree stores full transcripts like Pi. Retire the flag; the native tree is the transcript. |
-| **`--native-output json` (metadata-only)** | Privacy-limited automation output | No | **Done** — Pi's `--mode json` full-event stream and `--mode rpc` have shipped ([automation-rpc.md](automation-rpc.md)) and `--native-output json` is deprecated (its `--help` points to `--mode json`). The metadata-only object is retained on `pipy run` for existing callers pending final removal. |
-| **No-tool REPL mode (`--repl-mode no-tool`)** | Bootstrap before the model-driven tool loop existed | No | Pi has one interactive mode with model-visible tools. Fold into the single tool-loop product session; retire the separate no-tool mode. |
-| **`/read` `/ask-file` `/propose-file` `/apply-proposal`** | No-tool-REPL human-mediated proposal/apply flow | No | Pi uses model-visible `read`/`edit`/`write`/`bash`. Remove with the no-tool REPL; the archive-side parallel tool family that backs them goes too (Track CQ-A slice 10). |
+| **`--archive-transcript` opt-in sidecar** | Workaround for the metadata-first default (raw turns live outside the archive) | No | **Removed** (2026-06-20 cleanup). The flag, the `TranscriptSink` writer, and the now-dead `pipy_session` `--export-transcript`/`include_transcript` reader are gone (pipy_session export schema bumped v1→v2). The native session tree is the transcript (`/export` / `--export`); the removed flag emits guidance. |
+| **`--native-output json` (metadata-only)** | Privacy-limited automation output | No | **Removed** (2026-06-20 cleanup). Automation callers use `--mode json` (full Pi-shaped event stream) or `--print`/`-p`; the removed flag emits guidance naming `--mode json`. `pipy run` keeps its default human/exit-code behavior (no metadata-only JSON object). |
+| **No-tool REPL mode (`--repl-mode no-tool`)** | Bootstrap before the model-driven tool loop existed | No | **Removed** (2026-06-20 cleanup). `--repl-mode`, `NativeNoToolReplSession`, and the no-tool adapter path are gone; there is one product REPL (the tool-loop session). The REPL fake fallback is the tool-capable `fake/fake-tools`; `pipy run` keeps `fake-native-bootstrap`. |
+| **`/read` `/ask-file` `/propose-file` `/apply-proposal`** | No-tool-REPL human-mediated proposal/apply flow | No | **Removed** (2026-06-20 cleanup) with the no-tool REPL, along with their archive-side observation/patch-proposal events. Pi uses model-visible `read`/`edit`/`write`/`bash`. |
 | **`/verify just-check`** | pipy-specific verification command | Already removed | Done. Pi verifies via the `bash` tool + extension gates. No separate verify command returns without its own spec. |
-| **`/clear`** | Local conversation reset | No | Pi has no `/clear`. Realign to Pi's `/new` (new session) and `/compact`. |
-| **`/status`** | Local state readout | No | Realign to Pi's `/session` (info/stats). |
-| **`/theme` slash command** | pipy theme switcher | Realign | Pi has `--theme` discovery + theme selection inside settings, not a `/theme` command. Move theme selection under `/settings`; keep `--theme`/`--no-themes` load flags. |
-| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Realign | Pi auto-injects skills into the system prompt and invokes prompt templates as `/<template-name>` directly. Match Pi's model: drop the `/skill`/`/template` wrappers, inject skills, register templates as their own slash commands. |
-| **`/help`** | grouped command reference | Realign | Pi uses `/hotkeys` + the slash menu. Provide `/hotkeys`; keep `/help` only as an optional alias if desired. |
+| **`/clear`** | Local conversation reset | No | **Realigned** (2026-06-20): now a deprecated alias of Pi's `/new` — it prints a one-line deprecation notice then performs the `/new` action. Scheduled for removal in a later cycle. |
+| **`/status`** | Local state readout | No | **Realigned** (2026-06-20): now a deprecated alias of Pi's `/session` (info/stats), with a one-line deprecation notice. Scheduled for removal in a later cycle. |
+| **`/theme` slash command** | pipy theme switcher | Realign — **DEFERRED** | Pi has theme selection inside `/settings`, not a `/theme` command. **Kept as a plain working command for now** (list + `/theme <name>` apply, no misleading notice): pipy's `/settings` dialog has no theme row yet, so there is no real target to alias to. Adding a `/settings` theme row + aliasing/dropping `/theme` is a **follow-up**, not done in this cleanup. `--theme`/`--no-themes` load flags are unchanged. |
+| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Mixed: `/template` removed, **`/skill` KEPT** | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill` is KEPT** (deviation from the original "drop both" plan): Pi is not skill-command-free — it advertises skills in the system prompt *and* keeps a `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The genuine gap is that pipy never wired its own advertisement (`compose_skills_system_block` is dead code); that system-prompt skill advertisement is a **follow-up**, not done here. |
+| **`/help`** | grouped command reference | Realigned | **Done** (2026-06-20): `/help` is now an alias of `/hotkeys`. |
 | **Hardcoded `ds4` built-in provider** | First local-model integration | Mostly realigned | ds4 is absent from the built-in catalog and resolves as a `models.json` custom-provider preset (`docs/examples/ds4.models.json`) or env shim. A legacy `--native-provider ds4` adapter path remains for compatibility while construction moves fully through the catalog ([provider-catalog.md](provider-catalog.md)). |
-| **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | Verify | Pi reads within `cwd` + context discovery. This is a genuine non-privacy convenience; keep only if it maps to a real Pi workflow, otherwise demote. Flagged for review. |
-| **`--tool-budget`** | bounds the model loop | Verify | Pi bounds turns internally without a user flag. Reasonable as an internal default; reconsider exposing it as a user flag. |
-| **`--input-runtime plain\|prompt-toolkit\|auto`** | pipy input-adapter selection | Verify | Internal mechanism, not a Pi surface. Keep as an implementation detail; it need not be a documented parity feature. |
+| **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | Kept (internal) | **Decision 3 (2026-06-20): kept as a non-divergent internal mechanism, de-emphasized in docs — not presented as a parity feature.** No code change. |
+| **`--tool-budget`** | bounds the model loop | Kept (internal) | **Decision 3 (2026-06-20): kept as an internal mechanism, de-emphasized in docs — not a parity feature.** Pi bounds turns internally; pipy keeps the existing flag as an internal default. No code change. |
+| **`--input-runtime plain\|prompt-toolkit\|auto`** | pipy input-adapter selection | Kept (internal) | **Decision 3 (2026-06-20): kept as an internal implementation detail, de-emphasized in docs — not a documented parity feature.** No code change. |
 | **Archive sync / reflect / cross-agent learning guidance** | pipy learning/catalog layer (privacy-scoped) | No (as a parity item) | Not a Pi feature. Keep out of parity scope entirely; if retained at all it is an optional pipy utility, never a default that shapes the product session model. |
 | **Code-quality audit tracks CQ-A..F** | pipy engineering hygiene | Keep (non-feature) | Internal cleanup, not a Pi feature and not user-facing. Stays in the backlog as engineering work, separate from parity. |
-| **Persistent cross-session prompt history (`PromptHistoryStore`)** | pipy editor convenience | Verify | Confirm against Pi's editor history behavior; if Pi has no equivalent it is a small pipy extra — keep only if cheap and clearly useful, otherwise drop. |
+| **Persistent cross-session prompt history (`PromptHistoryStore`)** | pipy editor convenience | Kept (internal) | **Decision 3 (2026-06-20): kept as a small internal editor convenience, de-emphasized in docs — not a parity feature.** Off by default behind the `/settings` toggle. No code change. |
 
 ## 4. Big topics and their specs
 
@@ -225,23 +258,30 @@ topics.
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
    parity and broader local-provider maturity.
-4. **Top-level CLI compatibility and parity cleanup** — stage alongside the
-   owning topics. Realign the harness-shaped `auth|run|repl` surfaces where Pi
-   has one top-level product command, remove or hide pipy-only internals such as
-   `--archive-transcript`, no-tool REPL/proposal commands, `/clear`, `/status`,
-   `/theme`, `/skill`, `/template`, `/help`, `--native-output json`, and
-   exposed implementation flags unless a real Pi workflow justifies them.
+4. **Top-level CLI compatibility and parity cleanup** — **largely shipped
+   (2026-06-20).** The top-level shape is now Pi-like (bare `pipy` /
+   `pipy "<prompt>"` launch the interactive session; subcommands stay reachable
+   with a reserved-word exception). Removed: the no-tool REPL + `--repl-mode` +
+   proposal/apply commands, `--native-output json`, `--archive-transcript`, and
+   the `/template` wrapper. Realigned: `/clear`→`/new`, `/status`→`/session`
+   (deprecated aliases), `/help`→`/hotkeys`; templates as `/<name>`. **Two
+   follow-ups remain:** wiring pipy's own system-prompt skill advertisement
+   (`/skill` is kept meanwhile) and moving theme selection into `/settings`
+   (`/theme` is kept meanwhile). `--read-root(s)`/`--tool-budget`/
+   `--input-runtime`/prompt-history are kept as internal mechanisms.
 7. **Verification / project policy through extensions** — do not revive the
    removed pipy-only `/verify` command. Richer verification and permission gates
    should be expressed as extension tools/hooks after the extension platform
    exists.
 
-Cleanup (§3) happens alongside the relevant topic: the no-tool REPL and its
-proposal/apply commands retire with single product-session consolidation;
-`--native-output json` retires after callers move to `--mode json`; the
-transcript sidecar retires once the native tree/export surfaces cover its use
-cases; and resource wrapper commands realign when extension/resource loading has
-Pi-shaped command registration.
+Cleanup (§3) happened in the 2026-06-20 top-level CLI cleanup: the no-tool REPL
+and its proposal/apply commands retired with single product-session
+consolidation; `--native-output json` was removed (callers use `--mode json`);
+the transcript sidecar was removed (the native tree/export surfaces cover its
+use cases); and the `/template` wrapper was dropped in favor of `/<name>`
+template commands. Two realignments are deliberately deferred as follow-ups:
+the system-prompt skill advertisement (`/skill` kept meanwhile) and theme
+selection inside `/settings` (`/theme` kept meanwhile).
 
 ## 6. Definition of "real parity done"
 
