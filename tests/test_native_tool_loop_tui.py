@@ -1875,6 +1875,99 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
     assert NativeThemeStore(tmp_path / "native-theme.json").load() == target_theme
 
 
+def test_settings_dialog_scoped_models_row_routes_to_overlay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Selecting the /settings scoped-models row opens the scope overlay.
+
+    The scoped-models row lives in the native-only ``Model cycle`` section and
+    its branch is handled after ``run_settings_dialog`` returns, so it must be
+    wired as a native exit action — otherwise selecting it is a silent no-op
+    (the overlay never opens). Mirrors the theme-routing test.
+    """
+
+    from pipy_harness.native.settings import SettingsManager
+
+    settings = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        project_path=tmp_path / "project-settings.json",
+        env={},
+    )
+    assert settings.get_enabled_models() == []  # nothing scoped yet
+
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    scripted = iter(["/settings\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+
+    captured_exit_actions: list[frozenset[str]] = []
+    overlay_opened: list[tuple[str, ...]] = []
+
+    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+        del current_index
+        captured_exit_actions.append(frozenset(exit_actions))
+        scope_row = next((row for row in rows if row.action == "scoped_models"), None)
+        assert scope_row is not None, "settings dialog exposes no scoped-models row"
+        if getattr(_fake_dialog, "fired", False):
+            return None
+        _fake_dialog.fired = True  # type: ignore[attr-defined]
+        # Faithfully mirror routing: only an exit action reaches the post-return
+        # branch that opens the overlay; otherwise it routes locally (a no-op).
+        if "scoped_models" in exit_actions:
+            return "scoped_models"
+        on_local_action("scoped_models")
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    def _fake_scope_selector(self, rows, *, checked=()):
+        # Reaching here proves the scoped-models branch/overlay was driven.
+        refs = tuple(row.reference for row in rows)
+        overlay_opened.append(refs)
+        return frozenset(refs)  # save all available refs as the scope
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "run_scoped_models_selector", _fake_scope_selector
+    )
+
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        settings_manager=settings,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.completions == 0  # scoped-models selection runs no provider turn
+    # Routing guard: "scoped_models" must be wired as an exit action so the
+    # post-return branch opens the overlay.
+    assert captured_exit_actions
+    assert all("scoped_models" in actions for actions in captured_exit_actions)
+    # The branch was reached: the scope overlay opened (with the available
+    # provider/model refs) and persisted the chosen scope through settings.
+    assert len(overlay_opened) == 1
+    offered = overlay_opened[0]
+    assert "fake/fake-native-bootstrap" in offered  # the active model is offered
+    assert settings.get_enabled_models() == sorted(offered)
+
+
 def test_persistent_history_contents_stay_out_of_session_archive(tmp_path: Path):
     from pipy_harness.native.prompt_history import PromptHistoryStore
 

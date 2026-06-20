@@ -4525,9 +4525,13 @@ class NativeToolReplSession:
         # post-return branch to drive; everything else is handled locally by
         # ``on_local_action`` while the dialog stays open. The theme picker is
         # available for any provider state with a live TUI, so it is always an
-        # exit action; the provider/model and auth flows are native-only.
+        # exit action; the provider/model, auth, and scoped-models flows are
+        # native-only (scoped models builds model patterns from the native
+        # provider state, and its row is shown only for that state).
         exit_actions = frozenset({"theme"}) | (
-            frozenset({"model", "login", "logout"}) if is_native else frozenset()
+            frozenset({"model", "login", "logout", "scoped_models"})
+            if is_native
+            else frozenset()
         )
 
         def _rows() -> list[SettingsRow]:
