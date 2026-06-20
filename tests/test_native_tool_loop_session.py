@@ -1292,21 +1292,16 @@ def test_clear_matches_new_action_output(tmp_path: Path):
     assert "started a new native session" in clear_out
 
 
-def test_theme_bare_lists_available_themes(tmp_path: Path):
-    # /theme is a plain working command: bare /theme lists the available
-    # themes. (The /theme->/settings realignment is deferred; /settings has
-    # no theme row yet.)
+def test_theme_command_removed(tmp_path: Path):
+    # Pi has no /theme command: theme selection now lives in the /settings
+    # dialog (covered by the settings-dialog theme-row test). Dispatching
+    # /theme is therefore an unknown command — no handler runs, the theme is
+    # not switched, and no provider turn fires.
     out = _run_local_commands(tmp_path, "/theme\n/exit\n")
-    assert "available" in out
-    # No deprecation notice and no /settings routing.
-    assert "deprecated" not in out.lower()
-
-
-def test_theme_named_applies_without_deprecation_notice(tmp_path: Path):
-    out = _run_local_commands(tmp_path, "/theme default\n/exit\n")
-    # A named theme still applies (no error) and emits no deprecation notice.
-    assert "deprecated" not in out.lower()
-    assert "no theme named" not in out.lower()
+    assert "'/theme' is not handled in tool-loop mode" in out
+    # It is not advertised as a supported local command, and nothing about the
+    # old list/apply behavior remains.
+    assert "available:" not in out
 
 
 def test_help_output_matches_hotkeys(tmp_path: Path):

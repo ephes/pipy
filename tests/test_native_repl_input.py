@@ -70,6 +70,16 @@ def test_proposal_commands_absent_from_completions() -> None:
         assert gone not in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
 
 
+def test_theme_command_absent_from_completions_and_descriptions() -> None:
+    # Pi has no /theme command: theme selection lives in /settings. The
+    # --theme/--no-themes load flags are unaffected (they are CLI flags, not
+    # slash commands).
+    from pipy_harness.native.repl_input import DEFAULT_REPL_COMMAND_DESCRIPTIONS
+
+    assert "/theme" not in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+    assert "/theme" not in DEFAULT_REPL_COMMAND_DESCRIPTIONS
+
+
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
     input_stream = StringIO("hello\n")
     error_stream = StringIO()

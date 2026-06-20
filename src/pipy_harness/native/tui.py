@@ -83,7 +83,6 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/share",
     "/reload",
     "/changelog",
-    "/theme",
     "/exit",
     "/quit",
 )
@@ -487,6 +486,10 @@ class ToolLoopTerminalUi:
     model_selector_open: bool = False
     model_selector_options: tuple[ModelSelectorOption, ...] = ()
     model_selector_selection: int = 0
+    # Optional overlay heading; ``None`` keeps the default provider/model
+    # wording. A non-model picker (e.g. the /settings theme row) sets this so
+    # the same generic selector reads honestly for what it is choosing.
+    model_selector_title: str | None = None
     settings_dialog_open: bool = False
     settings_dialog_rows: tuple[SettingsRow, ...] = ()
     settings_dialog_selection: int = 0
@@ -962,6 +965,7 @@ class ToolLoopTerminalUi:
         options: Sequence[ModelSelectorOption],
         *,
         current_index: int = 0,
+        title: str | None = None,
     ) -> int | None:
         """Drive the interactive provider/model selector; return a chosen index.
 
@@ -971,8 +975,13 @@ class ToolLoopTerminalUi:
         Returns the chosen index, or ``None`` when cancelled or when no row is
         selectable. This method never invokes the provider, tools, or a model
         turn; it is pure local navigation that the caller acts on afterwards.
+
+        ``title`` overrides the overlay heading so the same generic
+        label/selectable selector can serve non-model pickers (e.g. the
+        ``/settings`` theme row); ``None`` keeps the provider/model wording.
         """
 
+        self.model_selector_title = title
         self.model_selector_options = tuple(options)
         if not self.model_selector_options:
             return None
@@ -1019,6 +1028,7 @@ class ToolLoopTerminalUi:
         self.model_selector_open = False
         self.model_selector_options = ()
         self.model_selector_selection = 0
+        self.model_selector_title = None
         self.paint()
 
     def run_scoped_models_selector(
@@ -2562,9 +2572,10 @@ class ToolLoopTerminalUi:
             _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
             _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
         ]
+        heading = self.model_selector_title or "Select provider/model"
         title = _FrameLine(
             self._clip(
-                " Select provider/model — ↑/↓ move · enter select · esc cancel",
+                f" {heading} — ↑/↓ move · enter select · esc cancel",
                 width,
             ),
             "selector_title",

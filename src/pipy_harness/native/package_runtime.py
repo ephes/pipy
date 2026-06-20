@@ -7,7 +7,8 @@ directly; managed git packages resolve from the installed cache. Callers thread 
 returned roots into `WorkspaceResources.discover` (skills/prompts) and
 `discover_extensions` (extension entry points) so package resources flow
 through discovery at lowest precedence; the installed theme registry makes
-package themes selectable through the ambient `/theme` path.
+package themes selectable through the ambient theme path (the `/settings`
+theme picker, `PIPY_THEME`, and the `theme` setting).
 
 This boundary executes no package code: resolution only stats
 directories and reads manifests/theme files as data.

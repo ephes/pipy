@@ -294,25 +294,6 @@ def resolve_active_theme_name(
     return DEFAULT_THEME_NAME
 
 
-def theme_status_lines(
-    *,
-    env: Mapping[str, str] | None = None,
-    store: NativeThemeStore | None = None,
-) -> list[str]:
-    """Read-only ``/theme`` status: the active theme plus the registered set.
-
-    Strictly informational — it neither switches the theme, mutates the store,
-    nor touches the environment. Used by ``/theme`` with no argument.
-    """
-
-    active = resolve_active_theme_name(env=env, store=store)
-    lines = ["pipy native REPL theme:", f"  active: {active}", "  available:"]
-    for name in available_theme_names():
-        marker = " (active)" if name == active else ""
-        lines.append(f"    {name}{marker}")
-    return lines
-
-
 def select_theme(
     reference: str,
     *,
@@ -330,7 +311,7 @@ def select_theme(
 
     name = reference.strip()
     if not name:
-        return False, "pipy: malformed /theme command. Provide a theme name."
+        return False, "pipy: no theme selected. Provide a theme name."
     if not is_known_theme(name):
         catalog = ", ".join(available_theme_names())
         return False, f"pipy: unknown theme {name!r}. Available: {catalog}."

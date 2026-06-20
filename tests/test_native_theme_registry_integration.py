@@ -3,9 +3,9 @@
 Once a session installs a `ThemeRegistry` built from package theme roots
 via `set_active_theme_registry`, the no-argument theme functions
 (`available_theme_names`, `is_known_theme`, `resolve_palette`) and the
-chrome render path see package-contributed themes, so `/theme` can select
-one and `chrome_style_for` re-colors with its palette. Resetting the
-registry restores the built-in-only behavior.
+chrome render path see package-contributed themes, so the `/settings` theme
+picker can select one and `chrome_style_for` re-colors with its palette.
+Resetting the registry restores the built-in-only behavior.
 """
 
 from __future__ import annotations

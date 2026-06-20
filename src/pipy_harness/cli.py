@@ -363,8 +363,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Load a theme TOML file or directory for this run. This makes the "
-            "theme selectable by settings, PIPY_THEME, or /theme; it does not "
-            "select the active theme by itself."
+            "theme selectable by settings, PIPY_THEME, or the /settings theme "
+            "picker; it does not select the active theme by itself."
         ),
     )
     repl_parser.add_argument(

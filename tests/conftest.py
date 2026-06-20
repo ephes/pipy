@@ -42,12 +42,13 @@ def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyp
 def _isolated_chrome_theme():  # type: ignore[no-untyped-def]
     """Keep the chrome theme selection from leaking across tests.
 
-    The ``/theme`` command intentionally mutates ``os.environ["PIPY_THEME"]``
-    so the next chrome render (which re-reads the ambient env) picks up the new
-    palette. ``monkeypatch`` cannot undo a value *set* during a test when the
-    key was originally absent, so a test that drives ``/theme`` would otherwise
-    leak the selected palette into every later test's rendered ANSI. Snapshot
-    and restore the relevant env vars around each test to contain that.
+    The theme picker (the ``/settings`` Theme row, via ``select_theme``)
+    intentionally mutates ``os.environ["PIPY_THEME"]`` so the next chrome render
+    (which re-reads the ambient env) picks up the new palette. ``monkeypatch``
+    cannot undo a value *set* during a test when the key was originally absent,
+    so a test that switches the theme would otherwise leak the selected palette
+    into every later test's rendered ANSI. Snapshot and restore the relevant env
+    vars around each test to contain that.
     """
 
     saved = {

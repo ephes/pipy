@@ -210,8 +210,9 @@ from pipy_harness.native.resources import (
 )
 from pipy_harness.native.themes import (
     NativeThemeStore,
+    available_theme_names,
+    resolve_active_theme_name,
     select_theme,
-    theme_status_lines,
 )
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
@@ -3011,34 +3012,6 @@ class NativeToolReplSession:
                             usage_accumulator=usage_accumulator,
                         )
                     continue
-                if command_text == "/theme" or command_text.startswith("/theme "):
-                    # Chrome-only command: swap the active color palette. No
-                    # provider turn, no tool call, no archive write. The next TUI
-                    # frame (and footer) repaints with the new palette because
-                    # chrome_style_for re-reads the ambient PIPY_THEME the switch
-                    # sets; only the non-secret theme name reaches the store.
-                    argument = stripped[len("/theme") :].strip()
-                    if not argument:
-                        for line in theme_status_lines(store=NativeThemeStore()):
-                            self._emit_diagnostic(terminal_ui, error_stream, line)
-                    else:
-                        _ok, message = select_theme(
-                            argument, environ=os.environ, store=NativeThemeStore()
-                        )
-                        # add_notice repaints the frame, so the new palette takes
-                        # effect immediately on the next rendered frame.
-                        self._emit_diagnostic(terminal_ui, error_stream, message)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
-                    continue
                 if command_text == "/login" or command_text.startswith("/login "):
                     # Auth-only command: no provider turn, no tool call. Runs the
                     # OAuth login through the provider-state boundary, refreshes
@@ -4560,7 +4533,13 @@ class NativeToolReplSession:
 
         state = self.provider_state or StaticNativeReplProviderState(self.provider)
         is_native = isinstance(state, NativeReplProviderState)
-        exit_actions = (
+        # Actions that need the terminal themselves (an interactive selector or
+        # auth flow) close the dialog and are returned for the caller's
+        # post-return branch to drive; everything else is handled locally by
+        # ``on_local_action`` while the dialog stays open. The theme picker is
+        # available for any provider state with a live TUI, so it is always an
+        # exit action; the provider/model and auth flows are native-only.
+        exit_actions = frozenset({"theme"}) | (
             frozenset({"model", "login", "logout"}) if is_native else frozenset()
         )
 
@@ -4641,6 +4620,9 @@ class NativeToolReplSession:
                     terminal_ui, state=state, settings=settings
                 )
                 continue
+            if action == "theme":
+                self._open_theme_selector(terminal_ui, settings=settings)
+                continue
 
     def _open_scoped_models_overlay(
         self,
@@ -4682,6 +4664,58 @@ class NativeToolReplSession:
             )
         except RuntimeError as exc:
             message = f"pipy: could not update scoped models: {exc}"
+        terminal_ui.add_notice(message)
+
+    def _open_theme_selector(
+        self,
+        terminal_ui: ToolLoopTerminalUi,
+        *,
+        settings: "SettingsManager",
+    ) -> None:
+        """Open the theme picker and apply + persist the chosen chrome theme.
+
+        Mirrors the ``action == "model"`` path: it builds one selectable row per
+        registered theme (the active theme starts highlighted), opens the shared
+        label/selectable selector with a theme-specific heading, and on a choice
+        applies the theme via ``select_theme`` (which sets ``PIPY_THEME`` so the
+        next rendered frame repaints and persists the non-secret name to the
+        chrome store) and persists it through ``settings`` — the source of truth
+        a later ``/reload`` re-reads. Runs no provider turn, tool call, or
+        archive write; ``Esc`` leaves the theme unchanged.
+        """
+
+        names = available_theme_names()
+        if not names:
+            terminal_ui.add_notice("pipy: no themes available to select.")
+            return
+        active = resolve_active_theme_name(env=os.environ, store=NativeThemeStore())
+        options = [
+            ModelSelectorOption(
+                label=f"{name} (active)" if name == active else name,
+                selectable=True,
+            )
+            for name in names
+        ]
+        current_index = next(
+            (index for index, name in enumerate(names) if name == active), 0
+        )
+        chosen = terminal_ui.run_model_selector(
+            options, current_index=current_index, title="Select theme"
+        )
+        if chosen is None:
+            return
+        name = names[chosen]
+        ok, message = select_theme(
+            name, environ=os.environ, store=NativeThemeStore()
+        )
+        if ok:
+            # Settings is the source of truth (a later /reload re-applies
+            # settings.get_theme() over the chrome store), so persist the choice
+            # there too. A write failure keeps the live selection.
+            try:
+                settings.set_theme(name)
+            except (OSError, RuntimeError):
+                pass
         terminal_ui.add_notice(message)
 
     def _settings_dialog_rows(
@@ -4792,6 +4826,16 @@ class NativeToolReplSession:
                     label=f"thinking level: {level} — cycle (shift+tab)",
                     kind="action",
                     action="cycle_thinking",
+                )
+            )
+            active_theme = resolve_active_theme_name(
+                env=os.environ, store=NativeThemeStore()
+            )
+            rows.append(
+                SettingsRow(
+                    label=f"theme: {active_theme} — change…",
+                    kind="action",
+                    action="theme",
                 )
             )
         if isinstance(state, NativeReplProviderState):

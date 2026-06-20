@@ -730,7 +730,6 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/share",
         "/reload",
         "/changelog",
-        "/theme",
         "/exit",
         "/quit",
     )
@@ -801,10 +800,10 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Seventeen commands match the bare "/" prefix but the menu windows to the
+    # Sixteen commands match the bare "/" prefix but the menu windows to the
     # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
     # /login scrolls behind the "… N more" tail.
-    assert "(1/17)" in rendered
+    assert "(1/16)" in rendered
     assert "  login" not in rendered
 
 
@@ -818,8 +817,8 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ]
     assert len(menu_rows) == 3
     rendered = "\n".join(line.text for line in frame)
-    # 17 commands match, only 3 shown -> overflow indicator present.
-    assert "(1/17)" in rendered
+    # 16 commands match, only 3 shown -> overflow indicator present.
+    assert "(1/16)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
@@ -1653,6 +1652,228 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     # The current session's in-memory recall keeps working (clear only wipes the
     # persisted store, not the live recall buffer).
     assert ui.input_history == ["old prompt"]
+
+
+def test_settings_dialog_theme_row_applies_and_persists_theme(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Selecting the /settings Theme row applies + persists the chosen theme.
+
+    Mirrors the model-selector dialog path: the dialog returns the ``theme``
+    action, the session opens the theme selector, and the chosen theme is
+    applied (PIPY_THEME repaint) and persisted through settings (the source of
+    truth that reload re-reads), running no provider turn.
+    """
+
+    from pipy_harness.native.settings import SettingsManager
+    from pipy_harness.native.themes import (
+        DEFAULT_THEME_NAME,
+        NativeThemeStore,
+        available_theme_names,
+    )
+
+    # Pick the first non-default registered theme so the assertion is meaningful.
+    target_theme = next(
+        name for name in available_theme_names() if name != DEFAULT_THEME_NAME
+    )
+
+    settings = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        project_path=tmp_path / "project-settings.json",
+        env={},
+    )
+    assert settings.get_theme() is None  # nothing persisted yet
+
+    # Isolate the theme store + PIPY_THEME so the test does not touch real state.
+    monkeypatch.setenv("PIPY_NATIVE_THEME_PATH", str(tmp_path / "native-theme.json"))
+    monkeypatch.delenv("PIPY_THEME", raising=False)
+
+    provider = _CountingProvider()
+    provider_state = _read_only_provider_state(tmp_path, provider)
+    ui = _ui(tmp_path)
+    scripted = iter(["/settings\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+
+    captured_selector_titles: list[str | None] = []
+    captured_exit_actions: list[frozenset[str]] = []
+
+    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+        del current_index
+        captured_exit_actions.append(frozenset(exit_actions))
+        # The dialog offers a "Theme" action row.
+        theme_row = next((row for row in rows if row.action == "theme"), None)
+        assert theme_row is not None, "settings dialog exposes no theme row"
+        if getattr(_fake_dialog, "fired", False):
+            return None
+        _fake_dialog.fired = True  # type: ignore[attr-defined]
+        # Faithfully mirror the real dialog's routing: an exit action closes the
+        # dialog and is returned for the caller's post-return branch; a non-exit
+        # action is handled locally via on_local_action and the dialog stays
+        # open. If "theme" were NOT wired as an exit action, it would route
+        # through on_local_action (a no-op) and the selector would never open —
+        # so this branch is what makes the test guard the routing bug.
+        if "theme" in exit_actions:
+            return "theme"
+        on_local_action("theme")  # no-op for a non-exit action: selector unopened
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    def _fake_model_selector(self, options, *, current_index=0, title=None):
+        captured_selector_titles.append(title)
+        # The selector lists every registered theme; pick the target one.
+        labels = [option.label for option in options]
+        return next(i for i, label in enumerate(labels) if target_theme in label)
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
+
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=provider_state,
+        tool_registry={},
+        settings_manager=settings,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.completions == 0  # theme selection runs no provider turn
+    # Routing guard: "theme" must be wired as an exit action so the dialog
+    # returns it (rather than handling it locally) and the post-return branch
+    # opens the selector. Without this the theme picker never opens.
+    assert captured_exit_actions
+    assert all("theme" in actions for actions in captured_exit_actions)
+    # Settings is the source of truth: the chosen theme is persisted there so a
+    # /reload re-reads it.
+    assert settings.get_theme() == target_theme
+    # The live frame repaints with the new palette because PIPY_THEME is set.
+    assert os.environ["PIPY_THEME"] == target_theme
+    # The chrome theme store also carries the choice (legacy persistence path).
+    assert NativeThemeStore(tmp_path / "native-theme.json").load() == target_theme
+    # The overlay is labelled for themes, not "provider/model".
+    assert captured_selector_titles
+    assert all(
+        title is not None and "theme" in title.lower()
+        for title in captured_selector_titles
+    )
+
+
+def test_settings_dialog_theme_row_works_for_static_provider_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The Theme row surfaces and routes for a static (non-native) state too.
+
+    Theme is a display concern independent of provider state: the row lives in
+    the provider-agnostic Display section (gated only on a live TUI), and
+    ``"theme"`` is an exit action for every state. A session built with only a
+    ``provider`` (no ``provider_state``) drives the ``StaticNativeReplProviderState``
+    fallback, which has no /model//login//logout — so without a provider-agnostic
+    theme row + exit action it would have NO way to reach the theme picker.
+    """
+
+    from pipy_harness.native.settings import SettingsManager
+    from pipy_harness.native.themes import (
+        DEFAULT_THEME_NAME,
+        NativeThemeStore,
+        available_theme_names,
+    )
+
+    target_theme = next(
+        name for name in available_theme_names() if name != DEFAULT_THEME_NAME
+    )
+
+    settings = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        project_path=tmp_path / "project-settings.json",
+        env={},
+    )
+    assert settings.get_theme() is None
+
+    monkeypatch.setenv("PIPY_NATIVE_THEME_PATH", str(tmp_path / "native-theme.json"))
+    monkeypatch.delenv("PIPY_THEME", raising=False)
+
+    provider = _CountingProvider()
+    ui = _ui(tmp_path)
+    scripted = iter(["/settings\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+
+    captured_exit_actions: list[frozenset[str]] = []
+    captured_theme_row_labels: list[str] = []
+
+    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+        del current_index
+        captured_exit_actions.append(frozenset(exit_actions))
+        theme_row = next((row for row in rows if row.action == "theme"), None)
+        assert theme_row is not None, (
+            "static-state settings dialog exposes no theme row"
+        )
+        captured_theme_row_labels.append(theme_row.label)
+        if getattr(_fake_dialog, "fired", False):
+            return None
+        _fake_dialog.fired = True  # type: ignore[attr-defined]
+        # Mirror the real routing: only an exit action reaches the post-return
+        # branch that opens the selector.
+        if "theme" in exit_actions:
+            return "theme"
+        on_local_action("theme")
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    def _fake_model_selector(self, options, *, current_index=0, title=None):
+        labels = [option.label for option in options]
+        return next(i for i, label in enumerate(labels) if target_theme in label)
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _fake_model_selector)
+
+    # Build the session with no provider_state, forcing the static fallback.
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        settings_manager=settings,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert provider.completions == 0
+    # The static-state dialog must surface the theme row AND wire it as an exit
+    # action, so the picker is reachable even with no /model//login//logout.
+    assert captured_theme_row_labels
+    assert captured_exit_actions
+    assert all("theme" in actions for actions in captured_exit_actions)
+    # End-to-end: the chosen theme applied and persisted via the static path too.
+    assert settings.get_theme() == target_theme
+    assert os.environ["PIPY_THEME"] == target_theme
+    assert NativeThemeStore(tmp_path / "native-theme.json").load() == target_theme
 
 
 def test_persistent_history_contents_stay_out_of_session_archive(tmp_path: Path):
