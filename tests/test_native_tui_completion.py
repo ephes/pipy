@@ -56,7 +56,7 @@ class TestAtPicker:
 
     def test_slash_menu_keeps_priority_over_at(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
-        _type(ui, "/he")
+        _type(ui, "/ho")
         assert ui.slash_menu_open
         assert not ui.autocomplete_open
 

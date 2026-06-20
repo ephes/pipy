@@ -674,9 +674,7 @@ def _looks_like_slash_menu_row(stripped: str) -> bool:
     if command == "/":
         return False
     return command in {
-        "/help",
-        "/clear",
-        "/status",
+        "/hotkeys",
         "/settings",
         "/copy",
         "/login",

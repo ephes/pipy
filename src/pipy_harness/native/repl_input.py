@@ -27,11 +27,8 @@ SUPPORTED_REPL_INPUT_RUNTIMES = (
     REPL_INPUT_RUNTIME_SLASH_MENU,
 )
 DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
-    "/help",
     "/hotkeys",
-    "/clear",
     "/compact",
-    "/status",
     "/settings",
     "/login",
     "/logout",
@@ -43,16 +40,13 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/quit",
 )
 DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
-    "/help": "Show keyboard shortcuts (alias of /hotkeys)",
     "/hotkeys": "Show keyboard shortcuts",
     "/reload": "Reload settings, keybindings, and resources",
     "/changelog": "Show the changelog (What's New)",
-    "/clear": "Deprecated: use /new (start a new session)",
     "/compact": "Compact context, keep a safe summary",
     "/export": "Export the native session to HTML or active-branch JSONL",
     "/import": "Import a native session JSONL file",
     "/share": "Upload the native session as a secret GitHub gist",
-    "/status": "Deprecated: use /session (show session status)",
     "/settings": "Settings and status",
     "/copy": "Copy the last answer to the clipboard (local)",
     "/login": "Log in (openai-codex OAuth)",

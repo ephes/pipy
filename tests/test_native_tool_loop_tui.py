@@ -716,7 +716,6 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
     from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     assert TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS == (
-        "/help",
         "/hotkeys",
         "/model",
         "/scoped-models",
@@ -786,8 +785,8 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     rendered = "\n".join(line.text for line in frame)
 
     assert ui.slash_menu_open is True
-    assert "→ help" in rendered
-    assert "Show keyboard shortcuts (alias of /hotkeys)" in rendered
+    assert "→ hotkeys" in rendered
+    assert "Show keyboard shortcuts" in rendered
     # The interactive settings dialog is executable in tool-loop mode, so the
     # menu advertises it in the leading rows.
     assert "  settings" in rendered
@@ -800,11 +799,11 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Sixteen commands match the bare "/" prefix but the menu windows to the
+    # Fifteen commands match the bare "/" prefix but the menu windows to the
     # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
-    # /login scrolls behind the "… N more" tail.
-    assert "(1/16)" in rendered
-    assert "  login" not in rendered
+    # /logout scrolls behind the "… N more" tail.
+    assert "(1/15)" in rendered
+    assert "  logout" not in rendered
 
 
 def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
@@ -817,8 +816,8 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ]
     assert len(menu_rows) == 3
     rendered = "\n".join(line.text for line in frame)
-    # 16 commands match, only 3 shown -> overflow indicator present.
-    assert "(1/16)" in rendered
+    # 15 commands match, only 3 shown -> overflow indicator present.
+    assert "(1/15)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
@@ -829,10 +828,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     assert ui.slash_menu_selection == 1
 
     ui._accept_slash_menu_selection()
-    # Menu order is help(0), hotkeys(1), model(2), ...; one step down lands on
-    # the /hotkeys command (auto-completed into the editor).
-    assert ui.input_text == "/hotkeys"
-    assert ui.input_cursor == len("/hotkeys")
+    # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
+    # lands on the /model command (auto-completed into the editor).
+    assert ui.input_text == "/model"
+    assert ui.input_cursor == len("/model")
     assert ui.slash_menu_open is False
 
     ui.input_text = "/"
@@ -842,7 +841,7 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
 
     ui.slash_menu_open = False
     frame = "\n".join(ui.render_lines(width=88, height=24, pad=False))
-    assert "→ help" not in frame
+    assert "→ hotkeys" not in frame
     assert ui.input_text == "/"
 
 
@@ -1954,24 +1953,6 @@ class _AnswerProvider:
             final_text=self.answer,
             tool_calls=(),
         )
-
-
-def test_tool_loop_help_is_alias_of_hotkeys():
-    """`/help` renders the same keyboard-shortcut table as `/hotkeys`."""
-
-    from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
-
-    provider = _AnswerProvider("ignored")
-    session = NativeToolReplSession(provider=provider, tool_registry={})
-    error_stream = io.StringIO()
-    session.run(
-        workspace_root=Path("."),
-        input_stream=io.StringIO("/help\n/exit\n"),
-        output_stream=io.StringIO(),
-        error_stream=error_stream,
-    )
-    hotkeys_text = render_hotkeys(KeybindingsManager.create())
-    assert hotkeys_text in error_stream.getvalue()
 
 
 def test_tui_copy_command_is_local_only_when_nothing_to_copy(

@@ -13,6 +13,11 @@ This file is for coding agents working in this repository. It records local proj
 - For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
 - Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed.
 
+## No-deprecation policy
+- pipy has no users yet and stays private until Pi parity is reached. Do not add
+  deprecation shims (aliases, deprecation notices) for pipy-only surfaces being
+  realigned to Pi — remove them outright and match Pi directly.
+
 ## Dotfile Management (chezmoi)
 - Dotfiles are managed with **chezmoi** (source: `~/.local/share/chezmoi`, repo: dotfiles).
 - Always edit the chezmoi source, not the target file directly. Use `chezmoi edit <target>` or edit the source file in `~/.local/share/chezmoi/` directly.

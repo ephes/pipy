@@ -84,31 +84,31 @@ Pi's built-in slash commands (source:
 **Pipy-only slash commands — realigned in the 2026-06-20 top-level CLI
 cleanup (see §3 for the per-row status):**
 
-- `/clear` → **deprecated alias of `/new`** (one-line deprecation notice).
-- `/status` → **deprecated alias of `/session`** (one-line deprecation notice).
-- `/help` → **alias of `/hotkeys`**.
+- `/clear` → **removed** (no alias). Pi has no `/clear`; use `/new`.
+- `/status` → **removed** (no alias). Pi has no `/status`; use `/session`.
+- `/help` → **removed** (no alias). Pi has no `/help`; use `/hotkeys`.
 - `/template` → **removed**; prompt templates are invokable as their own
   `/<template-name>` commands (Pi's model — Pi has no literal `/template`).
 - `/read` `/ask-file` `/propose-file` `/apply-proposal` → **removed** with the
   no-tool REPL (the single tool-loop product session uses model-visible
   `read`/`edit`/`write`/`bash`).
-- `/skill` → **kept** (deviation from the original "realign" plan): Pi is not
-  skill-command-free — it advertises skills in the system prompt *and* keeps a
-  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The real gap
-  is that pipy never wired its own advertisement (`compose_skills_system_block`
-  is dead code); that is a **follow-up**, not done in this work.
-- `/theme` → **kept** as a plain working command (list + `/theme <name>` apply).
-  Pi has no `/theme` (theme selection lives in `/settings`), but pipy's
-  `/settings` dialog has no theme row yet, so moving it there + aliasing/dropping
-  `/theme` is a **follow-up**, not done here.
+- `/skill` → **kept** (parity, not divergence): Pi is not skill-command-free — it
+  advertises skills in the system prompt *and* keeps a `/skill:name` expansion.
+  pipy now also advertises discovered skills in the tool-loop system prompt
+  (name + description + absolute location) when the `read` tool is available, and
+  the model loads a skill body on demand via `read` (skill directories are added
+  to the read-only reference roots). **Done** (2026-06-20).
+- `/theme` → **removed** (no alias). Pi has no `/theme`; theme selection now
+  lives in the `/settings` dialog (a theme row + picker). The
+  `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged. **Done**
+  (2026-06-20).
 
 Session-tree workflow commands (`/session`, `/name`, `/new`, `/tree`,
 `/resume`, `/fork`, `/clone`, and durable `/compact`) ship and pass
-`scripts/parity_checks/session_tree_conformance.py --json`. The older pipy-only
-names `/clear` and `/status` are now deprecated aliases of `/new` and
-`/session`; remaining work is the picker-control / branch-summary polish tracked
-in [session-tree.md](session-tree.md), plus the two `/skill`/`/theme` follow-ups
-noted above.
+`scripts/parity_checks/session_tree_conformance.py --json`. The pipy-only
+`/clear` and `/status` commands have been removed outright (no aliases); use
+`/new` and `/session`. Remaining work is the picker-control / branch-summary
+polish tracked in [session-tree.md](session-tree.md).
 
 ## 2. CLI flag / mode parity matrix
 
@@ -146,7 +146,7 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--extension, -e` / `--no-extensions, -ne` | ✅ explicit file/dir loading + default-discovery disable; installed local-path and managed git package resources contribute at runtime | [extension-api.md](extension-api.md) |
 | `--skill` / `--no-skills, -ns` | ✅ explicit file/dir loading + default-discovery disable | [settings-config.md](settings-config.md) |
 | `--prompt-template` / `--no-prompt-templates, -np` | ✅ explicit file/dir loading + default-discovery disable | [settings-config.md](settings-config.md) |
-| `--theme` / `--no-themes` | ✅ explicit file/dir loading + package-theme discovery disable; active theme still selected by settings, `PIPY_THEME`, or `/theme` | [settings-config.md](settings-config.md) |
+| `--theme` / `--no-themes` | ✅ explicit file/dir loading + package-theme discovery disable; active theme still selected by settings, `PIPY_THEME`, or the `/settings` theme picker | [settings-config.md](settings-config.md) |
 | `--no-context-files, -nc` | ✅ disables AGENTS/CLAUDE discovery | [settings-config.md](settings-config.md) |
 | `--export <file>` | ✅ top-level `pipy --export <session.jsonl> [output.html]` exports native sessions to HTML and exits | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
@@ -191,11 +191,11 @@ target, and the docs/specs must stop presenting them as product virtues.
 | **No-tool REPL mode (`--repl-mode no-tool`)** | Bootstrap before the model-driven tool loop existed | No | **Removed** (2026-06-20 cleanup). `--repl-mode`, `NativeNoToolReplSession`, and the no-tool adapter path are gone; there is one product REPL (the tool-loop session). The REPL fake fallback is the tool-capable `fake/fake-tools`; `pipy run` keeps `fake-native-bootstrap`. |
 | **`/read` `/ask-file` `/propose-file` `/apply-proposal`** | No-tool-REPL human-mediated proposal/apply flow | No | **Removed** (2026-06-20 cleanup) with the no-tool REPL, along with their archive-side observation/patch-proposal events. Pi uses model-visible `read`/`edit`/`write`/`bash`. |
 | **`/verify just-check`** | pipy-specific verification command | Already removed | Done. Pi verifies via the `bash` tool + extension gates. No separate verify command returns without its own spec. |
-| **`/clear`** | Local conversation reset | No | **Realigned** (2026-06-20): now a deprecated alias of Pi's `/new` — it prints a one-line deprecation notice then performs the `/new` action. Scheduled for removal in a later cycle. |
-| **`/status`** | Local state readout | No | **Realigned** (2026-06-20): now a deprecated alias of Pi's `/session` (info/stats), with a one-line deprecation notice. Scheduled for removal in a later cycle. |
-| **`/theme` slash command** | pipy theme switcher | Realign — **DEFERRED** | Pi has theme selection inside `/settings`, not a `/theme` command. **Kept as a plain working command for now** (list + `/theme <name>` apply, no misleading notice): pipy's `/settings` dialog has no theme row yet, so there is no real target to alias to. Adding a `/settings` theme row + aliasing/dropping `/theme` is a **follow-up**, not done in this cleanup. `--theme`/`--no-themes` load flags are unchanged. |
-| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Mixed: `/template` removed, **`/skill` KEPT** | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill` is KEPT** (deviation from the original "drop both" plan): Pi is not skill-command-free — it advertises skills in the system prompt *and* keeps a `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The genuine gap is that pipy never wired its own advertisement (`compose_skills_system_block` is dead code); that system-prompt skill advertisement is a **follow-up**, not done here. |
-| **`/help`** | grouped command reference | Realigned | **Done** (2026-06-20): `/help` is now an alias of `/hotkeys`. |
+| **`/clear`** | Local conversation reset | No | **Removed** (2026-06-20): Pi has no `/clear`; the deprecated alias was dropped outright (no notice). Use Pi's `/new`. |
+| **`/status`** | Local state readout | No | **Removed** (2026-06-20): Pi has no `/status`; the deprecated alias was dropped outright (no notice). Use Pi's `/session`. |
+| **`/theme` slash command** | pipy theme switcher | Realigned | **Removed** (2026-06-20): Pi has theme selection inside `/settings`, not a `/theme` command. Theme selection now lives in the `/settings` dialog (a theme row + picker); the `/theme` command was dropped outright (no alias). `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged. |
+| **`/skill <name>` and `/template <name>` dispatcher commands** | pipy resource dispatch | Mixed: `/template` removed, **`/skill` KEPT** | **`/template` removed** (2026-06-20): prompt templates now register as their own `/<template-name>` slash commands (Pi's model). **`/skill` is KEPT** (parity, not divergence): Pi is not skill-command-free — it advertises skills in the system prompt *and* keeps a `/skill:name` expansion. pipy's own system-prompt skill advertisement is now wired (**done** 2026-06-20): discovered skills are advertised in the tool-loop system prompt (name + description + absolute location) when the `read` tool is available, and the model loads a skill body on demand via `read` (skill directories are added to the read-only reference roots). |
+| **`/help`** | grouped command reference | Realigned | **Removed** (2026-06-20): Pi has no `/help`; the alias was dropped outright. Use Pi's `/hotkeys`. |
 | **Hardcoded `ds4` built-in provider** | First local-model integration | Mostly realigned | ds4 is absent from the built-in catalog and resolves as a `models.json` custom-provider preset (`docs/examples/ds4.models.json`) or env shim. A legacy `--native-provider ds4` adapter path remains for compatibility while construction moves fully through the catalog ([provider-catalog.md](provider-catalog.md)). |
 | **`--read-root(s)` cross-repo read flag** | pipy convenience for reading sibling repos | Kept (internal) | **Decision 3 (2026-06-20): kept as a non-divergent internal mechanism, de-emphasized in docs — not presented as a parity feature.** No code change. |
 | **`--tool-budget`** | bounds the model loop | Kept (internal) | **Decision 3 (2026-06-20): kept as an internal mechanism, de-emphasized in docs — not a parity feature.** Pi bounds turns internally; pipy keeps the existing flag as an internal default. No code change. |
@@ -262,13 +262,15 @@ topics.
    (2026-06-20).** The top-level shape is now Pi-like (bare `pipy` /
    `pipy "<prompt>"` launch the interactive session; subcommands stay reachable
    with a reserved-word exception). Removed: the no-tool REPL + `--repl-mode` +
-   proposal/apply commands, `--native-output json`, `--archive-transcript`, and
-   the `/template` wrapper. Realigned: `/clear`→`/new`, `/status`→`/session`
-   (deprecated aliases), `/help`→`/hotkeys`; templates as `/<name>`. **Two
-   follow-ups remain:** wiring pipy's own system-prompt skill advertisement
-   (`/skill` is kept meanwhile) and moving theme selection into `/settings`
-   (`/theme` is kept meanwhile). `--read-root(s)`/`--tool-budget`/
-   `--input-runtime`/prompt-history are kept as internal mechanisms.
+   proposal/apply commands, `--native-output json`, `--archive-transcript`, the
+   `/template` wrapper, and the pipy-only `/clear`, `/status`, `/help`, and
+   `/theme` commands (removed outright, no deprecation shims; Pi equivalents are
+   `/new`, `/session`, `/hotkeys`, and theme selection in `/settings`); templates
+   register as `/<name>`. The two earlier follow-ups are now **done**
+   (2026-06-20): pipy's own system-prompt skill advertisement is wired (`/skill`
+   kept) and theme selection moved into `/settings`.
+   `--read-root(s)`/`--tool-budget`/`--input-runtime`/prompt-history are kept as
+   internal mechanisms.
 7. **Verification / project policy through extensions** — do not revive the
    removed pipy-only `/verify` command. Richer verification and permission gates
    should be expressed as extension tools/hooks after the extension platform
@@ -279,9 +281,11 @@ and its proposal/apply commands retired with single product-session
 consolidation; `--native-output json` was removed (callers use `--mode json`);
 the transcript sidecar was removed (the native tree/export surfaces cover its
 use cases); and the `/template` wrapper was dropped in favor of `/<name>`
-template commands. Two realignments are deliberately deferred as follow-ups:
-the system-prompt skill advertisement (`/skill` kept meanwhile) and theme
-selection inside `/settings` (`/theme` kept meanwhile).
+template commands; and the pipy-only `/clear`, `/status`, `/help`, and `/theme`
+commands were removed outright (no deprecation shims) under the no-deprecation
+policy (`AGENTS.md`). The two earlier realignment follow-ups are now done: the
+system-prompt skill advertisement is wired (`/skill` kept) and theme selection
+moved inside `/settings`.
 
 ## 6. Definition of "real parity done"
 

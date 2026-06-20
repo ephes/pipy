@@ -24,6 +24,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - The pipy-only `/template` wrapper command has been removed. Prompt templates
   are now invokable as their own `/<template-name>` slash commands (matching Pi,
   which has no literal `/template`).
+- The pipy-only `/clear`, `/status`, `/help`, and `/theme` slash commands have
+  been removed outright, with no deprecation aliases or notices. Pi has none of
+  them; use the Pi equivalents `/new`, `/session`, and `/hotkeys`, and select a
+  theme from the `/settings` dialog. This follows pipy's no-deprecation policy
+  (no users yet, private until Pi parity — see `AGENTS.md`); the brief
+  `/clear`→`/new`/`/status`→`/session` deprecated aliases and the `/help`→
+  `/hotkeys` alias introduced earlier in this cycle are gone. The
+  `--theme`/`--no-themes` load flags and `PIPY_THEME` are unchanged.
 
 ### Changed
 
@@ -32,9 +40,6 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `auth`/`run`/`repl`/`config`/`install`/... stay reachable as subcommands. A
   bare token equal to a subcommand name dispatches that subcommand; quote it via
   `pipy repl "<word>"` or `pipy -p "<word>"` to send it as a prompt instead.
-- `/clear` is now a deprecated alias of `/new` and `/status` a deprecated alias
-  of `/session` (each prints a one-line deprecation notice before performing the
-  target action); `/help` is an alias of `/hotkeys`.
 
 ### Fixed
 
@@ -57,6 +62,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Discovered skills are now advertised in the tool-loop system prompt when the
+  `read` tool is available, matching Pi's skill model: each skill contributes an
+  `<available_skills>` entry (name, description, and absolute location), and the
+  model loads a skill's body on demand via the `read` tool. Each skill's parent
+  directory is added to the read-only reference roots so the model can read skill
+  bodies (including global skills outside the workspace). The `/skill` command is
+  kept, and the archive-safe skill metadata (path label, sha256, byte length,
+  truncated, name) is unchanged.
+- Theme selection now lives in the `/settings` dialog as a theme row + picker
+  (matching Pi, which has no `/theme` command); the chosen theme persists through
+  settings and re-colors the chrome on the next frame.
 - Python extensions can now register custom session-entry renderers with
   `api.register_message_renderer(...)`; command and shortcut handlers can call
   `ctx.append_entry(...)` to persist JSON-safe `custom` entries in the native

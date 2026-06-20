@@ -65,9 +65,6 @@ SKILL_RESOURCE_COMMAND = "/skill"
 # use that name.
 RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
     {
-        "help",
-        "clear",
-        "status",
         "settings",
         "login",
         "logout",

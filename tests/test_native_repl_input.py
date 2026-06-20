@@ -80,6 +80,18 @@ def test_theme_command_absent_from_completions_and_descriptions() -> None:
     assert "/theme" not in DEFAULT_REPL_COMMAND_DESCRIPTIONS
 
 
+def test_pipy_only_commands_absent_from_completions_and_descriptions() -> None:
+    # Pi has no /clear, /status, or /help built-ins; the equivalents are /new,
+    # /session, and /hotkeys. The pipy-only aliases are removed outright (no
+    # deprecation shims), so they appear in neither the completion list nor the
+    # description registry.
+    from pipy_harness.native.repl_input import DEFAULT_REPL_COMMAND_DESCRIPTIONS
+
+    for gone in ("/clear", "/status", "/help"):
+        assert gone not in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
+        assert gone not in DEFAULT_REPL_COMMAND_DESCRIPTIONS
+
+
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
     input_stream = StringIO("hello\n")
     error_stream = StringIO()
@@ -410,14 +422,14 @@ def test_prompt_toolkit_repl_completer_supports_async_completion_protocol() -> N
         return [
             match
             async for match in completer.get_completions_async(
-                FakeDocument("/st"), None
+                FakeDocument("/se"), None
             )
         ]
 
     matches = asyncio.run(collect_matches())
 
     assert [(match.text, match.start_position) for match in matches] == [
-        ("/status", -3)
+        ("/settings", -3)
     ]
 
 
@@ -576,11 +588,11 @@ def test_readline_repl_input_display_matches_writes_command_descriptions() -> No
     error_stream = StringIO()
     instance = ReadlineNativeReplInput(error_stream=error_stream)
 
-    instance._display_matches("/", ["/help", "/reload"], longest_match_length=5)
+    instance._display_matches("/", ["/hotkeys", "/reload"], longest_match_length=8)
 
     rendered = error_stream.getvalue()
-    assert "/help" in rendered
-    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/help"] in rendered
+    assert "/hotkeys" in rendered
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/hotkeys"] in rendered
     assert "/reload" in rendered
     assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/reload"] in rendered
 
@@ -814,11 +826,11 @@ def test_slash_menu_typing_slash_opens_menu_with_all_commands() -> None:
 
 
 def test_slash_menu_typing_filters_to_matching_prefix() -> None:
-    editor = _make_slash_menu_editor(initial_buffer="/he")
+    editor = _make_slash_menu_editor(initial_buffer="/ho")
     matches = editor._filtered_commands()
 
     assert editor._menu_open is True
-    assert matches == ("/help",)
+    assert matches == ("/hotkeys",)
 
 
 def test_slash_menu_arrow_navigation_wraps_within_filtered_commands() -> None:
@@ -849,10 +861,10 @@ def test_slash_menu_accept_replaces_buffer_with_selected_command() -> None:
 
 
 def test_slash_menu_backspace_leaving_slash_keeps_menu_open() -> None:
-    editor = _make_slash_menu_editor(initial_buffer="/help")
-    editor._handle_backspace()  # `/hel`
+    editor = _make_slash_menu_editor(initial_buffer="/hotk")
+    editor._handle_backspace()  # `/hot`
     assert editor._menu_open is True
-    editor._handle_backspace()  # `/he`
+    editor._handle_backspace()  # `/ho`
     editor._handle_backspace()  # `/h`
     editor._handle_backspace()  # `/`
     assert editor._menu_open is True
@@ -869,8 +881,8 @@ def test_slash_menu_renders_descriptions_below_input() -> None:
     editor._render()
 
     output = error_stream.getvalue()
-    assert "/help" in output
-    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/help"] in output
+    assert "/hotkeys" in output
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/hotkeys"] in output
     # Selection highlight: the first item is rendered in reverse video.
     assert "\x1b[7m" in output
 

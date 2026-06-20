@@ -430,14 +430,16 @@ do not create provider turns or archive auth material.
 > flag, `NativeNoToolReplSession`, and the no-tool commands `/read`,
 > `/ask-file`, `/propose-file`, `/apply-proposal` (plus their archive-side
 > observation/patch-proposal events) are gone. User-facing slash commands were
-> realigned: `/clear` → deprecated alias of `/new`, `/status` → deprecated alias
-> of `/session`, `/help` → alias of `/hotkeys`, the pipy-only `/template`
-> wrapper is dropped (prompt templates are invokable as their own
-> `/<template-name>` commands). `/skill` and `/theme` are **kept** working (see
-> [parity-plan.md](parity-plan.md) §3 — wiring a system-prompt skill
-> advertisement and moving theme selection into `/settings` are follow-ups, not
-> done here). The historical prose below documents the now-removed no-tool shell
-> and its decision trail; read it as a record, not the current product surface.
+> realigned: the pipy-only `/clear`, `/status`, `/help`, and `/theme` commands
+> are removed outright (no deprecation aliases or notices), matching Pi — use
+> `/new`, `/session`, `/hotkeys`, and theme selection in the `/settings` dialog;
+> the pipy-only `/template` wrapper is dropped (prompt templates are invokable as
+> their own `/<template-name>` commands). `/skill` is **kept**, and pipy now
+> advertises discovered skills in the tool-loop system prompt (loaded on demand
+> via the `read` tool); theme selection moved into `/settings` (see
+> [parity-plan.md](parity-plan.md) §3). The historical prose below documents the
+> now-removed no-tool shell and its decision trail; read it as a record, not the
+> current product surface.
 
 The interactive native shell is available as:
 

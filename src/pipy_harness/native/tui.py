@@ -69,7 +69,6 @@ _OVERFLOW_BOTTOM_GUTTER_LINES = 2
 _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
 TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
-    "/help",
     "/hotkeys",
     "/model",
     "/scoped-models",

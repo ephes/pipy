@@ -1246,7 +1246,7 @@ def test_startup_changelog_first_run_records_version_shows_nothing(tmp_path):
     assert on_disk.get("lastChangelogVersion")  # recorded on first run
 
 
-# --------- Slice 3: deprecated slash-command aliases (no provider turn) -------
+# --------- Pi-faithful slash-command set (no deprecation shims) --------------
 
 
 def _run_local_commands(tmp_path: Path, script: str) -> str:
@@ -1265,31 +1265,17 @@ def _run_local_commands(tmp_path: Path, script: str) -> str:
     return error_stream.getvalue()
 
 
-def test_clear_is_deprecated_alias_for_new(tmp_path: Path):
-    out = _run_local_commands(tmp_path, "/clear\n/exit\n")
-    # Performs the /new action ...
-    assert "started a new native session" in out
-    # ... and emits exactly one deprecation notice naming /new.
-    assert out.count("/clear` is deprecated") == 1
-    assert "/new" in out
-
-
-def test_status_is_deprecated_alias_for_session(tmp_path: Path):
-    out = _run_local_commands(tmp_path, "/status\n/exit\n")
-    # Performs the /session action (session status header).
-    assert "native session" in out.lower()
-    # Exactly one deprecation notice naming /session.
-    assert out.count("/status` is deprecated") == 1
-    assert "/session" in out
-
-
-def test_clear_matches_new_action_output(tmp_path: Path):
-    """/clear's session-creation line must match what bare /new prints."""
-
-    new_out = _run_local_commands(tmp_path, "/new\n/exit\n")
-    clear_out = _run_local_commands(tmp_path, "/clear\n/exit\n")
-    assert "started a new native session" in new_out
-    assert "started a new native session" in clear_out
+def test_pipy_only_commands_removed(tmp_path: Path):
+    # Pi has no /clear, /status, or /help built-ins; the equivalents are /new,
+    # /session, and /hotkeys, which remain canonical and unchanged. The
+    # pipy-only aliases are removed outright (no deprecation shims), so each
+    # dispatches as an unknown command: no handler runs and no provider turn
+    # fires.
+    for gone in ("/clear", "/status", "/help"):
+        out = _run_local_commands(tmp_path, f"{gone}\n/exit\n")
+        assert f"'{gone}' is not handled in tool-loop mode" in out
+        # No trace of the old deprecation notices or alias behavior.
+        assert "is deprecated" not in out
 
 
 def test_theme_command_removed(tmp_path: Path):
@@ -1302,18 +1288,3 @@ def test_theme_command_removed(tmp_path: Path):
     # It is not advertised as a supported local command, and nothing about the
     # old list/apply behavior remains.
     assert "available:" not in out
-
-
-def test_help_output_matches_hotkeys(tmp_path: Path):
-    from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
-
-    help_out = _run_local_commands(tmp_path, "/help\n/exit\n")
-    hotkeys_out = _run_local_commands(tmp_path, "/hotkeys\n/exit\n")
-
-    # /help renders the same keyboard-shortcut table as /hotkeys, so the
-    # whole hotkeys block appears verbatim in both outputs.
-    hotkeys_text = render_hotkeys(KeybindingsManager.create())
-    assert hotkeys_text in hotkeys_out
-    assert hotkeys_text in help_out
-    # The old standalone /help paragraph is gone (it is now an alias).
-    assert "tool-loop mode supports" not in help_out

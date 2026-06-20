@@ -62,8 +62,8 @@ def _resources(tmp_path: Path) -> WorkspaceResources:
     # A custom command that tries to shadow a built-in is dropped.
     _write(
         pipy / "commands",
-        "help.md",
-        name="help",
+        "model.md",
+        name="model",
         description="should be ignored",
         body="should never run\n",
     )
@@ -77,14 +77,14 @@ def test_discovery_collects_all_three_kinds(tmp_path: Path) -> None:
     resources = _resources(tmp_path)
     assert set(resources.skill_names()) == {"lint", "empty"}
     assert set(resources.template_names()) == {"review"}
-    assert {c.name for c in resources.commands} == {"deploy", "help"}
+    assert {c.name for c in resources.commands} == {"deploy", "model"}
 
 
 def test_custom_command_slash_names_excludes_reserved(tmp_path: Path) -> None:
     resources = _resources(tmp_path)
     names = resources.custom_command_slash_names()
     assert "/deploy" in names
-    assert "/help" not in names  # reserved built-in collision dropped
+    assert "/model" not in names  # reserved built-in collision dropped
 
 
 def test_dispatch_passthrough_for_non_resource(tmp_path: Path) -> None:
@@ -92,7 +92,7 @@ def test_dispatch_passthrough_for_non_resource(tmp_path: Path) -> None:
     assert dispatch_resource_command("hello there", resources) is None
     assert dispatch_resource_command("/unknown-thing", resources) is None
     # A custom command that collides with a built-in is never claimed here.
-    assert dispatch_resource_command("/help", resources) is None
+    assert dispatch_resource_command("/model", resources) is None
 
 
 def test_skill_bare_lists(tmp_path: Path) -> None:

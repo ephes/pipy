@@ -1969,8 +1969,8 @@ class NativeToolReplSession:
                 # Prompts an extension enqueued via send_user_message are
                 # delivered through the same `drained` path as Pi
                 # steering/follow-ups: provider-visible prompt text, never
-                # parsed as a local command (so a queued "/help" is a prompt,
-                # not the help command). They come after user steering and
+                # parsed as a local command (so a queued "/hotkeys" is a
+                # prompt, not the hotkeys command). They come after user steering and
                 # before blocking on fresh input.
                 if (
                     drained is None
@@ -2149,10 +2149,9 @@ class NativeToolReplSession:
                     continue
                 if command_text in {"/exit", "/quit"}:
                     break
-                if command_text in {"/help", "/hotkeys"}:
-                    # ``/help`` is an alias of ``/hotkeys`` (Pi shape): both
-                    # render the grouped keyboard-shortcut table from the
-                    # resolved keybinding manager (reflecting any user
+                if command_text == "/hotkeys":
+                    # ``/hotkeys`` renders the grouped keyboard-shortcut table
+                    # from the resolved keybinding manager (reflecting any user
                     # keybindings.json overrides). Runs no provider turn.
                     hotkeys_text = render_hotkeys(keybindings)
                     if terminal_ui is not None:
@@ -2617,15 +2616,9 @@ class NativeToolReplSession:
                             tool_invocation_count=tool_invocation_count,
                         )
                     continue
-                if command_text in {"/session", "/status"}:
+                if command_text == "/session":
                     # Local-only: report safe current native-session status. No
-                    # provider turn, tool call, or transcript content. ``/status``
-                    # is a deprecated alias of ``/session`` (Pi shape).
-                    if command_text == "/status":
-                        diag(
-                            "pipy: `/status` is deprecated; use `/session` "
-                            "(showing session status now)."
-                        )
+                    # provider turn, tool call, or transcript content.
                     diag(format_session_status(session_tree))
                     refresh_legacy_footer()
                     continue
@@ -2645,14 +2638,8 @@ class NativeToolReplSession:
                         diag(f"pipy: session named {argument!r}.")
                     refresh_legacy_footer()
                     continue
-                if command_text in {"/new", "/clear"}:
+                if command_text == "/new":
                     # Start a fresh native product session in the same store.
-                    # ``/clear`` is a deprecated alias of ``/new`` (Pi shape).
-                    if command_text == "/clear":
-                        diag(
-                            "pipy: `/clear` is deprecated; use `/new` "
-                            "(starting a new session now)."
-                        )
                     if not extension_session_allows(
                         extension_session_before_switch_hooks,
                         operation="switch",

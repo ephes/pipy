@@ -227,7 +227,12 @@ Top-level scalars:
 - `transport?: "auto"|"sse"|"websocket"` (default `"auto"`)
 - `steeringMode?: "all"|"one-at-a-time"` (default `"one-at-a-time"`)
 - `followUpMode?: "all"|"one-at-a-time"` (default `"one-at-a-time"`)
-- `theme?: string`
+- `theme?: string` — the active theme. Selected interactively from the
+  `/settings` dialog (a theme row + picker, matching Pi — there is no `/theme`
+  command, removed outright in the 2026-06-20 cleanup); the chosen theme persists
+  through settings (the source of truth) and the `NativeThemeStore`, and resolves
+  per render via `PIPY_THEME` (env override > store > default). The
+  `--theme`/`--no-themes` load flags are unchanged.
 - `hideThinkingBlock?: boolean` (default false)
 - `shellPath?: string`, `shellCommandPrefix?: string`,
   `npmCommand?: string[]` (pipy: rename/remap to a Python-relevant equivalent or
@@ -549,8 +554,13 @@ pipy target:
   `/skill:<name>` commands. (`/skill` is kept — the 2026-06-20 top-level CLI
   cleanup retired the pipy-only `/template` wrapper but kept `/skill` as
   parity-consistent with Pi; see [parity-plan.md](parity-plan.md) §3. Prompt
-  templates are invokable as their own `/<template-name>` commands. Wiring
-  pipy's own system-prompt skill advertisement is a follow-up.)
+  templates are invokable as their own `/<template-name>` commands.) pipy's own
+  system-prompt skill advertisement is now wired: when the `read` tool is
+  available, discovered skills are advertised in the tool-loop system prompt as
+  `<available_skills>` entries (per-skill name, description, and absolute
+  location, matching Pi's `formatSkillsForPrompt`), each skill's parent directory
+  is added to the read-only reference roots, and the model loads a skill body on
+  demand via the `read` tool.
 - A non-interactive form (flags / `--json`) so the conformance gate can assert
   enable/disable without a TTY.
 

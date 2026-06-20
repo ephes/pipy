@@ -453,7 +453,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
     # commands (the menu windows to a few rows, so later commands such as /copy
     # scroll below the fold but are still reachable; the unit tests cover the
     # full advertised set).
-    for executable in ("help", "hotkeys", "model", "scoped-models", "settings"):
+    for executable in ("hotkeys", "model", "scoped-models", "settings"):
         assert executable in menu_text, f"menu missing /{executable}"
 
 
@@ -2487,8 +2487,8 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
         os.write(in_master, b"start multi tool\n")
         assert _wait_for(err_chunks, "first-tool-running"), "bash tool never streamed"
-        os.write(in_master, b"/help\n")
-        assert _wait_for(err_chunks, "Keyboard Shortcuts"), "/help did not run"
+        os.write(in_master, b"/hotkeys\n")
+        assert _wait_for(err_chunks, "Keyboard Shortcuts"), "/hotkeys did not run"
         os.write(in_master, b"after interrupt\n")
         assert _wait_for_predicate(provider.balanced.is_set), "tool results unbalanced"
         assert _wait_for(err_chunks, "HISTORY_BALANCED"), "follow-up never completed"
@@ -3157,7 +3157,7 @@ class _GatedRecordingProvider:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
-@pytest.mark.parametrize("queued", ["/help", "!echo queued-shell"])
+@pytest.mark.parametrize("queued", ["/hotkeys", "!echo queued-shell"])
 def test_pty_drained_followup_with_command_prefix_reaches_model(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, queued: str
 ):
@@ -3165,7 +3165,7 @@ def test_pty_drained_followup_with_command_prefix_reaches_model(
 
     Queued steering/follow-up messages (Pi) are provider-visible prompt text,
     not local commands. A follow-up enqueued mid-turn that happens to start with
-    a slash-command (``/help``) or bash-shortcut (``!echo``) prefix must reach
+    a slash-command (``/hotkeys``) or bash-shortcut (``!echo``) prefix must reach
     the provider as the next turn's prompt — never be intercepted and run as a
     local command (which would silently drop it from the conversation).
     """
@@ -3243,10 +3243,10 @@ def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
 ):
     """A `/` command submitted with Enter mid-turn runs locally (Pi), not queued.
 
-    Like Pi's editor, pressing Enter on a recognized local command (`/help`)
+    Like Pi's editor, pressing Enter on a recognized local command (`/hotkeys`)
     while a turn is in flight runs it immediately rather than steering it to the
-    model: the turn is interrupted, the help notice renders, and the command is
-    never delivered to the provider as a prompt. (Prose still steers; this is
+    model: the turn is interrupted, the hotkeys notice renders, and the command
+    is never delivered to the provider as a prompt. (Prose still steers; this is
     why the steering/follow-up queue safely drains to the provider.)
     """
 
@@ -3258,13 +3258,13 @@ def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
         os.write(in_master, b"begin the turn\n")
         assert _wait_for_predicate(active.is_set), "turn never went active"
         # Type a slash command mid-turn and submit it with a plain Enter.
-        os.write(in_master, b"/help")
+        os.write(in_master, b"/hotkeys")
         os.write(in_master, b"\n")
         assert _wait_for(chunks, "Keyboard Shortcuts"), (
-            "/help did not run locally mid-turn"
+            "/hotkeys did not run locally mid-turn"
         )
 
     captured = _run_editor_pty(monkeypatch, tmp_path, provider, drive)
     assert "\x1b[?1049h" not in captured
-    # /help ran locally and was never sent to the provider as a prompt.
+    # /hotkeys ran locally and was never sent to the provider as a prompt.
     assert prompts == ["begin the turn"]

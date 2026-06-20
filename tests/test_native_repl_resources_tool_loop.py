@@ -170,7 +170,7 @@ def test_tool_loop_menu_command_set_is_honest(tmp_path, monkeypatch):
     names = _tool_loop_command_names(resources)
     # /skill stays; the discovered template and custom command are advertised
     # as their own /<name> entries (Pi shape).
-    for executable in ("/help", "/model", "/skill", "/review", "/deploy"):
+    for executable in ("/hotkeys", "/model", "/skill", "/review", "/deploy"):
         assert executable in names
     # The pipy-only /template wrapper command is gone.
     assert "/template" not in names

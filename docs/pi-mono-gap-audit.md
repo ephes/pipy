@@ -79,10 +79,11 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   (`--extension`, `--skill`, `--prompt-template`, `--theme`, and matching
   `--no-*` cutoffs), `/reload`, `/hotkeys`, `/scoped-models`, `/changelog`,
   settings/keybindings files, and scoped model cycling. The resource-wrapper
-  cleanup partly landed (2026-06-20): the `/template` wrapper was dropped
-  (templates are `/<name>`), while `/skill` and `/theme` are kept pending two
-  follow-ups (system-prompt skill advertisement; theme selection in
-  `/settings`). Still open: tool allow/deny flags, `--verbose`, `--offline`.
+  cleanup landed (2026-06-20): the `/template` wrapper was dropped (templates are
+  `/<name>`); `/clear`, `/status`, `/help`, and `/theme` were removed outright
+  (no aliases); `/skill` is kept and pipy now advertises discovered skills in the
+  system prompt (loaded via the `read` tool); theme selection moved into
+  `/settings`. Still open: tool allow/deny flags, `--verbose`, `--offline`.
 
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the
@@ -240,20 +241,23 @@ code slices:
   `NativeNoToolReplSession`, and `/read` `/ask-file` `/propose-file`
   `/apply-proposal` + their archive-side events), `--native-output json`
   (callers use `--mode json`), the `--archive-transcript` sidecar (the native
-  session tree is the transcript), and the pipy-only `/template` wrapper.
-- **Realigned:** `/clear` → deprecated alias of `/new`; `/status` → deprecated
-  alias of `/session`; `/help` → alias of `/hotkeys`; prompt templates are
-  invokable as their own `/<template-name>` commands.
+  session tree is the transcript), the pipy-only `/template` wrapper, and the
+  pipy-only `/clear`, `/status`, `/help`, and `/theme` commands (removed outright,
+  no deprecation aliases or notices; Pi has none — use `/new`, `/session`,
+  `/hotkeys`, and theme selection in `/settings`).
+- **Templates:** prompt templates are invokable as their own `/<template-name>`
+  commands.
 
-**Two follow-ups remain (deviations from the original plan text):**
+**The two earlier follow-ups are now done:**
 
 - `/skill` is **kept** — Pi advertises skills in the system prompt *and* keeps a
-  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. The real gap
-  is wiring pipy's own advertisement (`compose_skills_system_block` is dead
-  code); that is a dedicated follow-up.
-- `/theme` is **kept** as a plain working command. Moving theme selection into
-  `/settings` (then aliasing/dropping `/theme`) is a follow-up — pipy's
-  `/settings` dialog has no theme row yet.
+  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. pipy now also
+  wires its own advertisement: discovered skills are advertised in the tool-loop
+  system prompt (name + description + absolute location) when the `read` tool is
+  available, and the model loads a skill body on demand via `read` (skill dirs
+  are added to the read-only reference roots).
+- Theme selection moved into the `/settings` dialog (a theme row + picker); the
+  pipy-only `/theme` command was removed outright.
 
 `--read-root(s)`, `--tool-budget`, `--input-runtime`, and the persistent prompt
 history are kept as internal mechanisms (decision 3), de-emphasized in docs as
@@ -274,10 +278,10 @@ adding another bespoke slash command.
    PyPI/npm package source policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
-4. Top-level CLI compatibility and pipy-only surface cleanup — largely shipped
-   (2026-06-20); the two remaining follow-ups are the system-prompt skill
-   advertisement (`/skill` kept) and theme selection in `/settings` (`/theme`
-   kept).
+4. Top-level CLI compatibility and pipy-only surface cleanup — shipped
+   (2026-06-20), including the system-prompt skill advertisement (`/skill` kept),
+   theme selection in `/settings`, and the outright removal of `/clear`,
+   `/status`, `/help`, and `/theme` (no deprecation shims).
 5. Verification/project policy through extension gates, not a revived `/verify`
    command.
 
