@@ -72,7 +72,6 @@ def make_native_run_request(
     root: Path | None = None,
     native_provider: str | None = None,
     native_model: str | None = None,
-    native_output: str | None = None,
     record_file_paths: bool = False,
 ) -> RunRequest:
     """Build a `RunRequest` pre-filled with pipy-native defaults."""
@@ -91,7 +90,6 @@ def make_native_run_request(
         capture_policy=CapturePolicy(record_file_paths=record_file_paths),
         native_provider=native_provider,
         native_model=native_model,
-        native_output=native_output,
     )
 
 

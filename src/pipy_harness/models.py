@@ -135,7 +135,6 @@ class RunRequest:
     capture_policy: CapturePolicy = CapturePolicy()
     native_provider: str | None = None
     native_model: str | None = None
-    native_output: str | None = None
     resume: SessionLineage | None = None
 
 
@@ -150,7 +149,6 @@ class PreparedRun:
     goal: str | None = None
     native_provider: str | None = None
     native_model: str | None = None
-    native_output: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

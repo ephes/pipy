@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,6 @@ from pipy_harness.adapters import (
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import (
     RunRequest,
-    RunResult,
 )
 from pipy_harness.native import (
     DEFAULT_NATIVE_MODELS,
@@ -163,22 +161,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_parser.add_argument(
-        "--native-output",
-        choices=["json"],
-        help=(
-            "DEPRECATED. Emits one final metadata-only object (record paths, "
-            "counters) for --agent pipy-native; it is not a Pi-style event "
-            "stream and has no Pi equivalent. Use 'pipy repl --mode json "
-            "\"<prompt>\"' for the full Pi-shaped session event stream "
-            "(see docs/automation-rpc.md)."
-        ),
-    )
-    run_parser.add_argument(
         "--stream",
         action="store_true",
         help=(
-            "Stream provider-emitted assistant text deltas to stdout in plain "
-            "text mode or stderr in --native-output json mode. Requires "
+            "Stream provider-emitted assistant text deltas to stdout. Requires "
             "--agent pipy-native and a streaming-capable native provider "
             "(openai-codex or fake). Off by default; the final buffered "
             "result is still emitted on completion."
@@ -291,16 +277,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Single positional prompt: the one-shot text for --mode json / "
             "--print, or the seed for the interactive session's first message "
             "(quote it; an @file reference works inside the quoted prompt)."
-        ),
-    )
-    repl_parser.add_argument(
-        "--archive-transcript",
-        action="store_true",
-        help=(
-            "Write raw loop turns to "
-            "~/.local/state/pipy/transcripts/<id>.jsonl as an opt-in sidecar. "
-            "The sidecar is sensitive content and is excluded from "
-            "pipy-session list/search/inspect. Off by default."
         ),
     )
     repl_parser.add_argument(
@@ -747,6 +723,47 @@ def route_argv(
     return ["repl", *argv]
 
 
+# Retired automation flags mapped to a guidance message pointing at the
+# replacement. ``run`` has no extension-flag passthrough (argparse would only say
+# "unrecognized arguments"), and ``repl`` would otherwise route an unknown flag
+# into the extension-flag tail and surface it as an "unknown extension flag", so
+# an explicit guard is needed to produce the migration guidance for each.
+_REMOVED_FLAG_GUIDANCE: dict[str, str] = {
+    "--native-output": (
+        "--native-output was removed; use --mode json for the Pi-shaped session "
+        "event stream (e.g. pipy repl --mode json \"<prompt>\"), or run "
+        "pipy run --agent pipy-native for the metadata-recording one-shot path."
+    ),
+    "--archive-transcript": (
+        "--archive-transcript was removed; the native session tree is the "
+        "transcript. Use /export in-session or the top-level --export to write a "
+        "portable copy."
+    ),
+}
+
+
+def _guard_removed_flags(parser: argparse.ArgumentParser, argv: list[str]) -> None:
+    """Reject retired flags with guidance pointing at the replacement.
+
+    Detects a removed flag token (``--flag`` or ``--flag=value``) in the
+    harness-option region and calls ``parser.error`` so the user gets a
+    migration message instead of a bare "unrecognized arguments" / "unknown
+    extension flag".
+
+    Scanning stops at the first ``--`` separator: ``pipy run`` forwards the
+    tokens after ``--`` to a child command (argparse.REMAINDER), so a child
+    token that happens to be named like a retired pipy flag is left untouched.
+    """
+
+    for token in argv:
+        if token == "--":
+            break
+        name = token.split("=", 1)[0]
+        guidance = _REMOVED_FLAG_GUIDANCE.get(name)
+        if guidance is not None:
+            parser.error(guidance)
+
+
 def _ordered_repl_extension_flag_tokens(
     raw_argv: list[str],
     args: Any,
@@ -806,6 +823,10 @@ def main(argv: list[str] | None = None) -> int:
     # (help/version/export) dispatch unchanged. The injected ``repl`` is what
     # the extension-flag passthrough below composes with.
     raw_argv = route_argv(list(incoming_argv), KNOWN_SUBCOMMANDS)
+    # Retired automation flags (--native-output, --archive-transcript) produce a
+    # migration message instead of argparse's generic "unrecognized arguments" /
+    # the repl extension-flag passthrough's "unknown extension flag".
+    _guard_removed_flags(parser, raw_argv)
     args, unknown_args = parser.parse_known_args(raw_argv)
     if unknown_args and getattr(args, "command", None) != "repl":
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
@@ -849,7 +870,6 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 0
         if args.command == "run":
-            _validate_native_output(args.agent, args.native_output)
             cwd = args.cwd.expanduser().resolve()
             run_settings_manager = (
                 _build_runtime_settings(
@@ -903,9 +923,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("pipy-native runs require --goal")
             stream_sink: StreamChunkSink | None = None
             if args.stream:
-                stream_sink = _build_stream_sink(
-                    native_output=args.native_output
-                )
+                stream_sink = _build_stream_sink()
             adapter = _adapter_for(
                 args.agent,
                 args.native_provider,
@@ -927,7 +945,6 @@ def main(argv: list[str] | None = None) -> int:
                 capture_policy=CapturePolicy(record_file_paths=args.record_files),
                 native_provider=args.native_provider,
                 native_model=args.native_model,
-                native_output=args.native_output,
             )
             result = HarnessRunner(adapter=adapter).run(request)
             if result.error_type is not None:
@@ -942,8 +959,6 @@ def main(argv: list[str] | None = None) -> int:
                     f"pipy: session finalized at {result.record.jsonl_path}",
                     file=sys.stderr,
                 )
-            if args.native_output == "json":
-                print(json.dumps(_native_json_output(request, result), sort_keys=True))
             return result.exit_code
         if args.command == "repl":
             if args.agent != "pipy-native":
@@ -1008,7 +1023,6 @@ def main(argv: list[str] | None = None) -> int:
                 eff_native_model,
                 cwd=cwd,
                 tool_budget=args.tool_budget,
-                archive_transcript=args.archive_transcript,
                 input_runtime=args.input_runtime,
                 reference_roots=reference_roots,
                 resume_context=resume_context,
@@ -1230,11 +1244,6 @@ def _cmd_package_update(args: Any, *, target: str | None) -> int:
     return 1 if failed else 0
 
 
-def _validate_native_output(agent: str, native_output: str | None) -> None:
-    if native_output is not None and agent != "pipy-native":
-        raise ValueError("--native-output requires --agent pipy-native")
-
-
 def _validate_stream(
     agent: str,
     stream: bool,
@@ -1254,12 +1263,10 @@ def _validate_stream(
         )
 
 
-def _build_stream_sink(*, native_output: str | None) -> StreamChunkSink:
-    target = sys.stderr if native_output == "json" else sys.stdout
-
+def _build_stream_sink() -> StreamChunkSink:
     def _sink(chunk: str) -> None:
-        target.write(chunk)
-        target.flush()
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
 
     return _sink
 
@@ -1274,55 +1281,6 @@ def _native_command(command: list[str], *, agent: str) -> list[str]:
     if not command:
         raise ValueError("run requires a command after --")
     return command
-
-
-def _native_json_output(request: RunRequest, result: RunResult) -> dict[str, Any]:
-    metadata = result.metadata or {}
-    output: dict[str, Any] = {
-        "schema": "pipy.native_output",
-        "schema_version": 1,
-        "run_id": result.run_id,
-        "status": result.status.value,
-        "exit_code": result.exit_code,
-        "agent": request.agent,
-        "adapter": _metadata_text(metadata, "adapter") or "pipy-native",
-        "record": {
-            "jsonl_path": str(result.record.jsonl_path),
-            "markdown_path": str(result.record.markdown_path)
-            if result.record.markdown_path is not None
-            else None,
-        },
-        "capture": {
-            "partial": True,
-            "stdout_stored": request.capture_policy.record_stdout,
-            "stderr_stored": request.capture_policy.record_stderr,
-            "prompt_stored": False,
-            "model_output_stored": False,
-            "tool_payloads_stored": False,
-            "raw_transcript_imported": request.capture_policy.import_raw_transcript,
-        },
-    }
-    provider = _metadata_text(metadata, "provider") or request.native_provider or "fake"
-    model_id = (
-        _metadata_text(metadata, "model_id")
-        or request.native_model
-        or ("fake-native-bootstrap" if provider == "fake" else None)
-    )
-    if provider is not None:
-        output["provider"] = provider
-    if model_id is not None:
-        output["model_id"] = model_id
-    if result.duration_seconds is not None:
-        output["duration_seconds"] = result.duration_seconds
-    usage = metadata.get("usage")
-    if isinstance(usage, Mapping) and usage:
-        output["usage"] = dict(usage)
-    return output
-
-
-def _metadata_text(metadata: Mapping[str, Any], key: str) -> str | None:
-    value = metadata.get(key)
-    return value if isinstance(value, str) and value else None
 
 
 def _adapter_for(
@@ -1795,7 +1753,6 @@ def _tool_repl_adapter_for(
     *,
     cwd: Path,
     tool_budget: int,
-    archive_transcript: bool = False,
     input_runtime: str = "auto",
     reference_roots: tuple[Path, ...] = (),
     resume_context: Any = None,
@@ -1848,15 +1805,9 @@ def _tool_repl_adapter_for(
         provider_state.selection = normalize_repl_fake_selection(
             _fallback_default_selection(provider_state)
         )
-    transcript_sink = None
-    if archive_transcript:
-        from pipy_harness.native.transcripts import TranscriptSink
-
-        transcript_sink = TranscriptSink()
     return PipyNativeToolReplAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,
-        transcript_sink=transcript_sink,
         instruction_loader=(
             empty_workspace_instruction_loader
             if no_context_files

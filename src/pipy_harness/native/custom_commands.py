@@ -12,10 +12,9 @@ This module is a pure, dependency-free pipy-owned helper. It mirrors
 the discovery, byte-cap, safety, and symlink-defense conventions
 pinned by `pipy_harness.native.workspace_context` and reuses the
 shared resource loader in `pipy_harness.native._resource_files`. No
-body content is intended to reach the session JSONL, the Markdown
-summary, or the opt-in `--archive-transcript` sidecar; use
-`safe_custom_command_metadata` to project a dataclass to archive-safe
-metadata.
+body content is intended to reach the session JSONL or the Markdown
+summary; use `safe_custom_command_metadata` to project a dataclass to
+archive-safe metadata.
 
 Public API:
 

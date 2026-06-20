@@ -73,7 +73,7 @@ def test_export_returns_metadata_only_by_default(tmp_path):
 
     assert payload["schema"] == SCHEMA_NAME
     assert payload["schema_version"] == SCHEMA_VERSION
-    assert payload["transcript_events"] is None
+    assert "transcript_events" not in payload
 
     record_block = payload["record"]
     assert isinstance(record_block, dict)
@@ -246,64 +246,6 @@ def test_export_omits_raw_model_output(tmp_path):
     assert assistant_event["summary"].startswith("Assistant produced text")
 
 
-def test_export_with_include_transcript_reads_sidecar(tmp_path, monkeypatch):
-    record_path = _make_record(tmp_path, slug="export-include-transcript")
-
-    transcript_dir = tmp_path / "transcripts"
-    transcript_dir.mkdir()
-    sidecar_path = transcript_dir / f"{record_path.stem}.jsonl"
-    transcript_lines = [
-        {
-            "type": "user.message",
-            "recorded_at": "2026-04-30T13:30:01+00:00",
-            "discriminator": "pipy-transcript-sidecar",
-            "payload": {"text": "Hello from the user."},
-        },
-        {
-            "type": "assistant.message",
-            "recorded_at": "2026-04-30T13:30:02+00:00",
-            "discriminator": "pipy-transcript-sidecar",
-            "payload": {"text": "Hello back."},
-        },
-    ]
-    with sidecar_path.open("w", encoding="utf-8") as handle:
-        for entry in transcript_lines:
-            handle.write(json.dumps(entry, sort_keys=True))
-            handle.write("\n")
-
-    monkeypatch.setenv("PIPY_TRANSCRIPT_DIR", str(transcript_dir))
-
-    payload = export_session(
-        record_path.stem,
-        include_transcript=True,
-        session_root=tmp_path,
-    )
-
-    transcript_events = payload["transcript_events"]
-    assert isinstance(transcript_events, list)
-    assert len(transcript_events) == 2
-    assert transcript_events[0]["type"] == "user.message"
-    assert transcript_events[1]["payload"]["text"] == "Hello back."
-    assert payload["transcript_path_label"] == str(sidecar_path)
-
-
-def test_export_with_include_transcript_raises_if_sidecar_missing(
-    tmp_path, monkeypatch
-):
-    record_path = _make_record(tmp_path, slug="export-missing-transcript")
-
-    transcript_dir = tmp_path / "transcripts"
-    transcript_dir.mkdir()
-    monkeypatch.setenv("PIPY_TRANSCRIPT_DIR", str(transcript_dir))
-
-    with pytest.raises(FileNotFoundError):
-        export_session(
-            record_path.stem,
-            include_transcript=True,
-            session_root=tmp_path,
-        )
-
-
 def test_export_unknown_record_raises_lookup_error(tmp_path):
     with pytest.raises(LookupError):
         export_session(
@@ -342,49 +284,10 @@ def test_export_cli_emits_json_to_stdout(tmp_path, capsys):
     parsed = json.loads(captured.out)
     assert parsed["schema"] == SCHEMA_NAME
     assert parsed["schema_version"] == SCHEMA_VERSION
-    assert parsed["transcript_events"] is None
+    assert "transcript_events" not in parsed
     assert parsed["markdown_summary"] == "# Summary\n\nCLI export.\n"
     assert "CLI_SECRET_OUTPUT" not in captured.out
     assert "raw_model_output" not in captured.out
-
-
-def test_export_cli_supports_include_transcript_flag(tmp_path, monkeypatch, capsys):
-    record_path = _make_record(tmp_path, slug="export-cli-transcript")
-
-    transcript_dir = tmp_path / "transcripts"
-    transcript_dir.mkdir()
-    sidecar_path = transcript_dir / f"{record_path.stem}.jsonl"
-    with sidecar_path.open("w", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(
-                {
-                    "type": "user.message",
-                    "recorded_at": "2026-04-30T13:30:03+00:00",
-                    "discriminator": "pipy-transcript-sidecar",
-                    "payload": {"text": "CLI transcript ok."},
-                },
-                sort_keys=True,
-            )
-        )
-        handle.write("\n")
-    monkeypatch.setenv("PIPY_TRANSCRIPT_DIR", str(transcript_dir))
-
-    exit_code = main(
-        [
-            "--root",
-            str(tmp_path),
-            "export",
-            record_path.stem,
-            "--include-transcript",
-        ]
-    )
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    parsed = json.loads(captured.out)
-    transcript_events = parsed["transcript_events"]
-    assert isinstance(transcript_events, list)
-    assert transcript_events[0]["payload"]["text"] == "CLI transcript ok."
 
 
 def test_export_cli_reports_missing_record(tmp_path, capsys):

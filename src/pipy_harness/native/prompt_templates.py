@@ -11,8 +11,7 @@ slash command (Pi shape — there is no `/template` wrapper command).
 This module is a pure, dependency-free pipy-owned helper. It mirrors
 the discovery, byte-cap, safety, and symlink-defense conventions
 pinned by `pipy_harness.native.workspace_context`. No body content is
-intended to reach the session JSONL, the Markdown summary, or the
-opt-in `--archive-transcript` sidecar; use
+intended to reach the session JSONL or the Markdown summary; use
 `safe_prompt_template_metadata` to project the dataclass to
 archive-safe metadata.
 

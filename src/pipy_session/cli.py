@@ -120,14 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Accepted for symmetry. Export always emits JSON to stdout.",
     )
-    export_parser.add_argument(
-        "--include-transcript",
-        action="store_true",
-        help=(
-            "Also include raw transcript events from the opt-in sidecar at "
-            "~/.local/state/pipy/transcripts/<stem>.jsonl. Refuses if missing."
-        ),
-    )
 
     resume_info_parser = subparsers.add_parser(
         "resume-info",
@@ -281,7 +273,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "export":
             export_payload = export_session_from_args(
                 args.record,
-                include_transcript=args.include_transcript,
                 root=args.root,
             )
             print(json.dumps(export_payload, sort_keys=True))

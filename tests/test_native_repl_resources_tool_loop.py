@@ -6,8 +6,8 @@ so no terminal UI) through the real dispatch boundary, proving that:
 - a skill / template / custom command produces the intended bounded
   provider-visible message (the expanded/instruction text);
 - listing and rejection issue no provider turn and fail closed;
-- prompt history, the transcript sidecar, and the returned metadata
-  result never receive the resource body or expanded prompt.
+- prompt history and the returned metadata result never receive the
+  resource body or expanded prompt.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     _tool_loop_command_names,
 )
-from pipy_harness.native.transcripts import TranscriptSink
 
 
 @dataclass
@@ -94,14 +93,13 @@ def _seed(tmp_path: Path) -> None:
     )
 
 
-def _run(tmp_path, monkeypatch, script, *, history=None, sink=None):
+def _run(tmp_path, monkeypatch, script, *, history=None):
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     provider = CapturingToolProvider()
     session = NativeToolReplSession(
         provider=provider,
         tool_registry={},
         prompt_history_store=history,
-        transcript_sink=sink,
     )
     result = session.run(
         workspace_root=tmp_path,
@@ -139,33 +137,22 @@ def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(tmp_path, m
     assert result.user_turn_count == 3
 
 
-def test_tool_loop_resource_runs_never_touch_history_or_sidecar(
+def test_tool_loop_resource_runs_never_touch_history(
     tmp_path, monkeypatch
 ):
     _seed(tmp_path)
     history = PromptHistoryStore(path=tmp_path / "history.txt")
     history.set_enabled(True)
-    sink = TranscriptSink(transcript_id="resource-test", directory=tmp_path)
     script = "/skill lint\n/review X\n/deploy Y\nplain prompt\n"
     _provider, result = _run(
-        tmp_path, monkeypatch, script, history=history, sink=sink
+        tmp_path, monkeypatch, script, history=history
     )
 
     # Only the genuine prompt is persisted to local history; resource
     # invocations are not.
     entries = list(history.entries())
     assert entries == ["plain prompt"]
-
-    # The sidecar records the genuine prompt only — no resource bodies or
-    # expanded text.
-    transcript = sink.path.read_text(encoding="utf-8")
-    assert "plain prompt" in transcript
-    for forbidden in (
-        "SKILL_BODY_lint_rules",
-        "TEMPLATE_review",
-        "COMMAND_deploy_for",
-    ):
-        assert forbidden not in transcript, forbidden
+    assert result.resource_invocation_count == 3
 
     # The returned metadata result carries only the counter — no bodies.
     assert result.resource_invocation_count == 3

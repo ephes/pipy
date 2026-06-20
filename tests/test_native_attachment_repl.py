@@ -1,8 +1,8 @@
 """Parity row D8: ``@image:`` attachments through the real REPL product path.
 
 Proves the tool-loop REPL resolves ``@image:`` references into provider-visible
-image attachments, and that the metadata-first archive / transcript never
-receive the raw image bytes.
+image attachments, and that the metadata-first archive never receives the raw
+image bytes.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
-from pipy_harness.native.transcripts import TranscriptSink
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 _B64 = base64.b64encode(_PNG).decode("ascii")
@@ -57,17 +56,15 @@ class _CapturingProvider:
         )
 
 
-def test_tool_loop_repl_attaches_image_without_leaking_to_transcript(
+def test_tool_loop_repl_attaches_image_without_leaking_bytes(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     (tmp_path / "shot.png").write_bytes(_PNG)
     provider = _CapturingProvider(tool_capable=True)
-    sink = TranscriptSink(transcript_id="d8-tool-loop", directory=tmp_path)
     session = NativeToolReplSession(
         provider=provider,
         tool_registry={},
-        transcript_sink=sink,
     )
     result = session.run(
         workspace_root=tmp_path,
@@ -82,7 +79,3 @@ def test_tool_loop_repl_attaches_image_without_leaking_to_transcript(
     # The result counters are safe; no raw bytes anywhere.
     assert result.image_attachment_loaded_count == 1
     assert _B64 not in repr(result)
-    # The opt-in transcript sidecar records only the literal user text.
-    transcript = sink.path.read_text(encoding="utf-8")
-    assert "describe @image:shot.png" in transcript
-    assert _B64 not in transcript

@@ -13,9 +13,6 @@ from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     OpenAICodexProviderError,
-    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
-    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -75,14 +72,6 @@ def assert_no_structured_status_stdout(stdout: str) -> None:
         )
 
 
-def parse_single_json_stdout(stdout: str) -> dict[str, object]:
-    lines = stdout.splitlines()
-    assert len(lines) == 1
-    parsed = json.loads(lines[0])
-    assert isinstance(parsed, dict)
-    return parsed
-
-
 def test_repl_mode_flag_is_removed() -> None:
     import subprocess
 
@@ -105,6 +94,122 @@ def test_repl_mode_flag_is_removed() -> None:
     )
     assert help_proc.returncode == 0
     assert "--repl-mode" not in help_proc.stdout
+
+
+def test_native_output_flag_removed_points_to_mode_json() -> None:
+    import subprocess
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pipy_harness.cli",
+            "run",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "s",
+            "--native-output",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "--mode json" in (proc.stderr + proc.stdout)
+    # The retired flag is gone from the run help surface.
+    help_proc = subprocess.run(
+        [sys.executable, "-m", "pipy_harness.cli", "run", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert help_proc.returncode == 0
+    assert "--native-output" not in help_proc.stdout
+
+
+def test_archive_transcript_flag_removed_points_to_session_tree() -> None:
+    import subprocess
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pipy_harness.cli",
+            "repl",
+            "--archive-transcript",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    out = proc.stderr + proc.stdout
+    assert "session" in out.lower()
+    # The archive-transcript replacement is the native session tree / --export,
+    # NOT the automation --mode json surface.
+    assert "--mode json" not in out
+    # The retired flag is gone from the repl help surface.
+    help_proc = subprocess.run(
+        [sys.executable, "-m", "pipy_harness.cli", "repl", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert help_proc.returncode == 0
+    assert "--archive-transcript" not in help_proc.stdout
+
+
+def test_removed_flag_guard_ignores_tokens_after_separator() -> None:
+    # The retired-flag guard only scans the harness-option region BEFORE the
+    # ``--`` separator. ``pipy run`` forwards a child command after ``--``
+    # (argparse.REMAINDER), so a child token that happens to be named like a
+    # retired pipy flag must pass through untouched.
+    from pipy_harness.cli import _guard_removed_flags, build_parser
+
+    parser = build_parser()
+    for after_separator in (
+        ["run", "--agent", "custom", "--slug", "s", "--", "some-tool", "--native-output", "json"],
+        ["run", "--agent", "custom", "--slug", "s", "--", "some-tool", "--archive-transcript"],
+    ):
+        # Does not raise SystemExit: the removed token is the child's, not pipy's.
+        _guard_removed_flags(parser, after_separator)
+
+    # The guard still fires when the retired flag is a genuine pipy option
+    # (before any ``--`` separator).
+    with pytest.raises(SystemExit):
+        _guard_removed_flags(parser, ["run", "--native-output", "json"])
+    with pytest.raises(SystemExit):
+        _guard_removed_flags(parser, ["repl", "--archive-transcript"])
+
+
+def test_native_output_after_separator_is_not_rejected_by_guard() -> None:
+    # End-to-end: ``pipy run ... -- <cmd> --native-output json`` must not exit 2
+    # with the removal message. The child command is the subprocess adapter's
+    # concern; the retired-flag guard must not intercept it.
+    import subprocess
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pipy_harness.cli",
+            "run",
+            "--agent",
+            "custom",
+            "--slug",
+            "s",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys; print(sys.argv)",
+            "--native-output",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    combined = proc.stderr + proc.stdout
+    # The removal-guidance message must NOT appear: the token belongs to the
+    # child command, not pipy.
+    assert "--native-output was removed" not in combined
 
 
 def test_cli_openai_codex_auth_login_uses_no_browser_and_reports_success(
@@ -257,191 +362,6 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     inspection = inspect_finalized_session(finalized[0], root=root)
     assert inspection.event_types["native.session.completed"] == 1
     assert "native.tool.completed" not in inspection.event_types
-
-
-def test_cli_native_json_mode_uses_fake_provider_and_finalizes_record(tmp_path, capfd):
-    root = tmp_path / "sessions"
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-output",
-            "json",
-            "--slug",
-            "native-json",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Native JSON smoke",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 0
-    assert output["schema"] == "pipy.native_output"
-    assert output["schema_version"] == 1
-    assert output["status"] == "succeeded"
-    assert output["exit_code"] == 0
-    assert output["agent"] == "pipy-native"
-    assert output["adapter"] == "pipy-native"
-    assert output["provider"] == "fake"
-    assert output["model_id"] == "fake-native-bootstrap"
-    assert output["capture"] == {
-        "partial": True,
-        "stdout_stored": False,
-        "stderr_stored": False,
-        "prompt_stored": False,
-        "model_output_stored": False,
-        "tool_payloads_stored": False,
-        "raw_transcript_imported": False,
-    }
-    record = output["record"]
-    assert isinstance(record, dict)
-    finalized = Path(record["jsonl_path"])
-    assert finalized.exists()
-    markdown_path = record["markdown_path"]
-    assert isinstance(markdown_path, str)
-    assert Path(markdown_path).exists()
-    assert finalized in list((root / "pipy").glob("*/*/*.jsonl"))
-    assert "pipy native fake provider completed." not in captured.out
-    assert "Native JSON smoke" not in captured.out
-    assert "You are the native pipy runtime bootstrap" not in captured.out
-    assert "session finalized" in captured.err
-    assert verify_session_archive(root=root).ok is True
-    assert list_finalized_sessions(root=root)[0].jsonl_path == finalized
-    assert search_finalized_sessions("native.provider.completed", root=root)
-    inspection = inspect_finalized_session(finalized, root=root)
-    assert inspection.event_types["native.session.completed"] == 1
-
-
-def test_cli_native_json_mode_omits_patch_proposal_raw_content(tmp_path, capfd, monkeypatch):
-    root = tmp_path / "sessions"
-    source = tmp_path / "src" / "example.py"
-    source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
-
-    class CliFakeProposalProvider:
-        name = "fake"
-
-        def __init__(self, model_id=None, **_kwargs) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
-            now = datetime.now(UTC)
-            if request.provider_turn_index == 0:
-                metadata = {
-                    PROVIDER_TOOL_INTENT_METADATA_KEY: {
-                        "tool_name": "read_only_repo_inspection",
-                        "tool_kind": "read_only_workspace",
-                        "turn_index": 0,
-                        "intent_source": "fake_provider",
-                        "approval_policy": "required",
-                        "approval_required": True,
-                        "sandbox_policy": "read-only-workspace",
-                        "workspace_read_allowed": True,
-                        "filesystem_mutation_allowed": False,
-                        "shell_execution_allowed": False,
-                        "network_access_allowed": False,
-                        "tool_payloads_stored": False,
-                        "stdout_stored": False,
-                        "stderr_stored": False,
-                        "diffs_stored": False,
-                        "file_contents_stored": False,
-                        "metadata": {
-                            "fixture": "safe-read-only",
-                            "request_kind": "explicit-file-excerpt",
-                        },
-                    },
-                    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY: {
-                        "fixture_source": "pipy_owned_explicit_file_excerpt",
-                        "tool_request_id": "native-tool-0001",
-                        "turn_index": 0,
-                        "request_kind": "explicit-file-excerpt",
-                        "approval_decision": "allowed",
-                        "decision_authority": "pipy-owned",
-                        "workspace_relative_path": "src/example.py",
-                        "target_authority": "pipy-owned",
-                    },
-                }
-                return ProviderResult(
-                    status=HarnessStatus.SUCCEEDED,
-                    provider_name=self.name,
-                    model_id=self.model_id,
-                    started_at=now,
-                    ended_at=now,
-                    final_text="INITIAL_OUTPUT_SHOULD_NOT_PRINT",
-                    metadata=metadata,
-                )
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
-                metadata={
-                    PROVIDER_PATCH_PROPOSAL_METADATA_KEY: {
-                        "proposal_source": "pipy_owned_patch_proposal",
-                        "tool_request_id": "native-tool-0001",
-                        "turn_index": 0,
-                        "status": "proposed",
-                        "reason_label": "structured_proposal_accepted",
-                        "file_count": 1,
-                        "operation_count": 1,
-                        "operation_labels": ["modify"],
-                        "patch_text_stored": False,
-                        "diffs_stored": False,
-                        "file_contents_stored": False,
-                        "raw_patch_text": "SHOULD_NOT_PERSIST",
-                    }
-                },
-            )
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliFakeProposalProvider)
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-output",
-            "json",
-            "--slug",
-            "native-json-proposal",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Native JSON proposal smoke",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 0
-    assert output["status"] == "succeeded"
-    assert "FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
-    assert "SHOULD_NOT_PERSIST" not in captured.out
-    finalized = Path(output["record"]["jsonl_path"])
-    events = read_jsonl(finalized)
-    assert "native.patch.proposal.recorded" in [event["type"] for event in events]
-    assert "native.verification.recorded" not in [event["type"] for event in events]
-    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "SHOULD_NOT_PERSIST" not in combined
-    assert "provider only context" not in combined
-    assert "FOLLOW_UP_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
-    assert "Native JSON proposal smoke" not in captured.out
-    assert verify_session_archive(root=root).ok is True
-
-
 def test_cli_native_rejects_command_after_separator(tmp_path, capsys):
     exit_code = main(
         [
@@ -537,76 +457,6 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
     assert "You are the native pipy runtime bootstrap" not in combined
     assert not search_finalized_sessions("OPENAI_OUTPUT_SHOULD_PRINT_ONLY", root=root)
     assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_openai_provider_json_mode_omits_provider_final_text(
-    tmp_path, capfd, monkeypatch
-):
-    root = tmp_path / "sessions"
-
-    class CliFakeOpenAIProvider:
-        name = "openai"
-        model_id = "gpt-test"
-
-        def __init__(self, model_id=None, **_kwargs) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="OPENAI_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
-                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-                metadata={"provider_response_store_requested": False, "response_status": "completed"},
-            )
-
-    monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFakeOpenAIProvider
-    )
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-provider",
-            "openai",
-            "--native-model",
-            "gpt-test",
-            "--native-output",
-            "json",
-            "--slug",
-            "openai-json",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Say hello briefly",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 0
-    assert output["status"] == "succeeded"
-    assert output["provider"] == "openai"
-    assert output["model_id"] == "gpt-test"
-    assert output["usage"] == {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.err
-    finalized = Path(output["record"]["jsonl_path"])
-    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
 def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
     tmp_path, capfd, monkeypatch
 ):
@@ -690,76 +540,6 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
     assert "You are the native pipy runtime bootstrap" not in combined
     assert not search_finalized_sessions("OPENROUTER_OUTPUT_SHOULD_PRINT_ONLY", root=root)
     assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_openrouter_provider_json_mode_omits_provider_final_text(
-    tmp_path, capfd, monkeypatch
-):
-    root = tmp_path / "sessions"
-
-    class CliFakeOpenRouterProvider:
-        name = "openrouter"
-
-        def __init__(self, model_id=None, **_kwargs) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
-                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-                metadata={"provider_response_store_requested": False},
-            )
-
-    monkeypatch.setattr(
-        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
-        CliFakeOpenRouterProvider,
-    )
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-provider",
-            "openrouter",
-            "--native-model",
-            "openai/gpt-test",
-            "--native-output",
-            "json",
-            "--slug",
-            "openrouter-json",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Say hello briefly",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 0
-    assert output["status"] == "succeeded"
-    assert output["provider"] == "openrouter"
-    assert output["model_id"] == "openai/gpt-test"
-    assert output["usage"] == {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
-    assert "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
-    assert "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.err
-    finalized = Path(output["record"]["jsonl_path"])
-    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
 def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
     tmp_path, capfd, monkeypatch
 ):
@@ -837,74 +617,6 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
     assert "OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY" not in combined
     assert "You are the native pipy runtime bootstrap" not in combined
     assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_openai_codex_provider_json_mode_omits_provider_final_text(
-    tmp_path, capfd, monkeypatch
-):
-    root = tmp_path / "sessions"
-
-    class CliFakeOpenAICodexProvider:
-        name = "openai-codex"
-
-        def __init__(self, model_id: str, retry_policy: object = None) -> None:
-            self.model_id = model_id
-            self.retry_policy = retry_policy
-
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON",
-                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-                metadata={"provider_response_store_requested": False},
-            )
-
-    monkeypatch.setattr("pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider)
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-provider",
-            "openai-codex",
-            "--native-model",
-            "gpt-test",
-            "--native-output",
-            "json",
-            "--slug",
-            "openai-codex-json",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Say hello briefly",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 0
-    assert output["status"] == "succeeded"
-    assert output["provider"] == "openai-codex"
-    assert output["model_id"] == "gpt-test"
-    assert output["usage"] == {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3}
-    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.out
-    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in captured.err
-    finalized = Path(output["record"]["jsonl_path"])
-    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "OPENAI_CODEX_OUTPUT_SHOULD_NOT_PRINT_IN_JSON" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
 def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     tmp_path, capfd, monkeypatch
 ):
@@ -1046,81 +758,6 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
     assert "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE" not in combined
     assert not search_finalized_sessions("OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE", root=root)
     assert verify_session_archive(root=root).ok is True
-
-
-def test_cli_native_provider_failure_json_mode_emits_metadata_only_json(
-    tmp_path, capfd, monkeypatch
-):
-    root = tmp_path / "sessions"
-
-    class CliFailingOpenAIProvider:
-        name = "openai"
-
-        def __init__(self, model_id=None, **_kwargs) -> None:
-            self.model_id = model_id
-
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.FAILED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_JSON_FAILURE",
-                metadata={"provider_response_store_requested": False},
-                error_type="OpenAITestFailure",
-                error_message="provider failed safely",
-            )
-
-    monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFailingOpenAIProvider
-    )
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--native-provider",
-            "openai",
-            "--native-model",
-            "gpt-test",
-            "--native-output",
-            "json",
-            "--slug",
-            "openai-json-failed",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-            "--goal",
-            "Say hello briefly",
-        ]
-    )
-
-    captured = capfd.readouterr()
-    output = parse_single_json_stdout(captured.out)
-    assert exit_code == 1
-    assert output["status"] == "failed"
-    assert output["exit_code"] == 1
-    assert output["provider"] == "openai"
-    assert output["model_id"] == "gpt-test"
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_JSON_FAILURE" not in captured.out
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_JSON_FAILURE" not in captured.err
-    assert "OpenAITestFailure" in captured.err
-    finalized = Path(output["record"]["jsonl_path"])
-    events = read_jsonl(finalized)
-    event_types = [event["type"] for event in events]
-    assert "native.provider.failed" in event_types
-    assert "native.tool.skipped" in event_types
-    combined = finalized.read_text(encoding="utf-8") + finalized.with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
-    assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_JSON_FAILURE" not in combined
-    assert verify_session_archive(root=root).ok is True
-
-
 def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     tmp_path, capfd, monkeypatch
 ):
@@ -1516,36 +1153,6 @@ def test_cli_subprocess_behavior_still_requires_command(tmp_path, capsys):
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "command after --" in captured.err
-
-
-def test_cli_native_output_rejects_non_native_agent_before_creating_record(tmp_path, capsys):
-    root = tmp_path / "sessions"
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "custom",
-            "--native-output",
-            "json",
-            "--slug",
-            "custom-json",
-            "--root",
-            str(root),
-            "--",
-            sys.executable,
-            "-c",
-            "print('should not run')",
-        ]
-    )
-
-    captured = capsys.readouterr()
-    assert exit_code == 2
-    assert "--native-output requires --agent pipy-native" in captured.err
-    assert captured.out == ""
-    assert not root.exists()
-
-
 def test_cli_stream_requires_pipy_native_agent(tmp_path, capsys):
     root = tmp_path / "sessions"
 
@@ -1672,75 +1279,6 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
     assert "STREAM_" not in serialized
     assert "CHUNK_" not in serialized
     assert "STREAM_CHUNK_ABC" not in serialized
-
-
-def test_cli_stream_in_json_output_mode_routes_chunks_to_stderr(
-    tmp_path, capsys, monkeypatch
-):
-    root = tmp_path / "sessions"
-
-    class CliStreamingFakeProvider:
-        name = "fake"
-
-        def __init__(self, model_id=None, **_kwargs) -> None:
-            self.model_id = model_id
-            self.programmable_text_chunks = ("ALPHA", "BETA")
-
-        def complete(
-            self,
-            request: ProviderRequest,
-            *,
-            stream_sink=None,
-            **_kwargs: object,
-        ) -> ProviderResult:
-            now = datetime.now(UTC)
-            final = "".join(self.programmable_text_chunks)
-            if stream_sink is not None:
-                for piece in self.programmable_text_chunks:
-                    stream_sink(piece)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text=final,
-                usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-                metadata=None,
-            )
-
-    monkeypatch.setattr(
-        "pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider
-    )
-
-    exit_code = main(
-        [
-            "run",
-            "--agent",
-            "pipy-native",
-            "--stream",
-            "--native-output",
-            "json",
-            "--goal",
-            "GOAL",
-            "--slug",
-            "fake-stream-json",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "ALPHABETA" in captured.err
-    json_lines = [line for line in captured.out.splitlines() if line.startswith("{")]
-    assert len(json_lines) == 1
-    parsed = json.loads(json_lines[0])
-    assert parsed.get("schema") == "pipy.native_output"
-
-
 def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
     tmp_path, capsys, monkeypatch
 ):

@@ -7,8 +7,8 @@ the following invariants across the native execution surfaces
 - The AGENTS.md content discovered in the workspace reaches
   `ProviderRequest.system_prompt`, so a real model would see it
   end-to-end.
-- The same body never leaks into the finalized session JSONL, the
-  Markdown summary, or the opt-in `--archive-transcript` sidecar.
+- The same body never leaks into the finalized session JSONL or the
+  Markdown summary.
 - The per-file metadata (workspace-relative path label, sha256, byte
   length) reaches the session safe-context events that pipy-session
   surfaces.
@@ -35,7 +35,6 @@ from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
 )
-from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionDiscovery,
     discover_workspace_instructions,
@@ -370,48 +369,6 @@ def test_one_shot_round_trip_AGENTS_md_reaches_system_prompt_and_archive_exclude
     only = instruction_files[0]
     assert only["path_label"] == "AGENTS.md"
     assert only["sha256"] == _expected_agents_md_sha256()
-
-
-# -- transcript sidecar privacy --------------------------------------------
-
-
-def test_tool_loop_transcript_sidecar_does_not_contain_instruction_body(
-    workspace_with_agents_md: Path, tmp_path: Path, monkeypatch
-) -> None:
-    monkeypatch.setenv(
-        "PIPY_TRANSCRIPT_DIR", str(tmp_path / "transcripts")
-    )
-    sink = TranscriptSink(directory=tmp_path / "transcripts")
-    provider = _CapturingToolFakeProvider()
-    adapter = PipyNativeToolReplAdapter(
-        provider=provider,
-        input_stream=io.StringIO("hello\n"),
-        output_stream=io.StringIO(),
-        error_stream=io.StringIO(),
-        transcript_sink=sink,
-        instruction_loader=_hermetic_loader,
-    )
-
-    root = tmp_path / "sessions"
-    HarnessRunner(
-        adapter=adapter,
-        id_factory=lambda: "tool-loop-transcript",
-    ).run(
-        RunRequest(
-            agent="pipy-native",
-            slug="ws-instr-transcript",
-            command=[],
-            cwd=workspace_with_agents_md,
-            root=root,
-            goal="transcript",
-            capture_policy=CapturePolicy(),
-        )
-    )
-
-    assert sink.path.exists()
-    sidecar_text = sink.path.read_text(encoding="utf-8")
-    assert _LEAK_MARKER not in sidecar_text
-    assert "Do not record raw prompts" not in sidecar_text
 
 
 # -- provider metadata privacy regression -----------------------------------

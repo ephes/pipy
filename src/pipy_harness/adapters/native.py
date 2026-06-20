@@ -36,7 +36,6 @@ from pipy_harness.native.tool_loop_session import (
     production_tool_registry,
 )
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
-from pipy_harness.native.transcripts import TranscriptSink
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionLoader,
     compose_system_prompt,
@@ -82,7 +81,6 @@ class PipyNativeAdapter:
             goal=request.goal,
             native_provider=request.native_provider or self.provider.name,
             native_model=request.native_model or self.provider.model_id,
-            native_output=request.native_output,
         )
 
     def run(
@@ -108,17 +106,9 @@ class PipyNativeAdapter:
             ),
             event_sink,
         )
-        if (
-            prepared.native_output != "json"
-            and self.stream_sink is None
-            and run_output.final_text
-        ):
+        if self.stream_sink is None and run_output.final_text:
             print(run_output.final_text, file=sys.stdout)
-        elif (
-            prepared.native_output != "json"
-            and self.stream_sink is not None
-            and run_output.final_text
-        ):
+        elif self.stream_sink is not None and run_output.final_text:
             sys.stdout.write("\n")
             sys.stdout.flush()
 
@@ -165,7 +155,6 @@ class PipyNativeToolReplAdapter:
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         error_stream: TextIO | None = None,
-        transcript_sink: TranscriptSink | None = None,
         instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
         input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
         reference_roots: tuple[Path, ...] = (),
@@ -212,7 +201,6 @@ class PipyNativeToolReplAdapter:
         self.input_stream = input_stream or sys.stdin
         self.output_stream = output_stream or sys.stdout
         self.error_stream = error_stream or sys.stderr
-        self.transcript_sink = transcript_sink
         self.instruction_loader = instruction_loader
         self.input_runtime = input_runtime
         for root in reference_roots:
@@ -308,7 +296,6 @@ class PipyNativeToolReplAdapter:
             provider_state=self.provider_state,
             tool_registry=self.tool_registry,
             tool_budget=self.tool_budget,
-            transcript_sink=self.transcript_sink,
             input_runtime=self.input_runtime,
             reference_roots=self.reference_roots,
             resume_context=self.resume_context,
@@ -320,19 +307,15 @@ class PipyNativeToolReplAdapter:
             resource_options=self.resource_options,
             initial_messages=self.initial_messages,
         )
-        try:
-            run_output = session.run(
-                workspace_root=prepared.cwd,
-                input_stream=self.input_stream,
-                output_stream=self.output_stream,
-                error_stream=self.error_stream,
-                system_prompt=composed_system_prompt,
-                provider_name=prepared.native_provider or provider.name,
-                model_id=prepared.native_model or provider.model_id,
-            )
-        finally:
-            if self.transcript_sink is not None:
-                self.transcript_sink.close()
+        run_output = session.run(
+            workspace_root=prepared.cwd,
+            input_stream=self.input_stream,
+            output_stream=self.output_stream,
+            error_stream=self.error_stream,
+            system_prompt=composed_system_prompt,
+            provider_name=prepared.native_provider or provider.name,
+            model_id=prepared.native_model or provider.model_id,
+        )
         if run_output.compaction_count:
             # Aggregate, metadata-only compaction record for the catalog. The
             # tool-loop session returns counts only; no dropped content leaves
