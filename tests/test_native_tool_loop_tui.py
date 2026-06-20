@@ -788,7 +788,7 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
 
     assert ui.slash_menu_open is True
     assert "→ help" in rendered
-    assert "Show pipy command reference" in rendered
+    assert "Show keyboard shortcuts (alias of /hotkeys)" in rendered
     # The interactive settings dialog is executable in tool-loop mode, so the
     # menu advertises it in the leading rows.
     assert "  settings" in rendered
@@ -1735,18 +1735,22 @@ class _AnswerProvider:
         )
 
 
-def test_tool_loop_help_text_lists_copy_command():
-    help_text = NativeToolReplSession._help_text()
-    for command in (
-        "/help",
-        "/settings",
-        "/login",
-        "/logout",
-        "/copy",
-        "/exit",
-        "/quit",
-    ):
-        assert command in help_text, f"help text omits {command}"
+def test_tool_loop_help_is_alias_of_hotkeys():
+    """`/help` renders the same keyboard-shortcut table as `/hotkeys`."""
+
+    from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+
+    provider = _AnswerProvider("ignored")
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=Path("."),
+        input_stream=io.StringIO("/help\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    hotkeys_text = render_hotkeys(KeybindingsManager.create())
+    assert hotkeys_text in error_stream.getvalue()
 
 
 def test_tui_copy_command_is_local_only_when_nothing_to_copy(

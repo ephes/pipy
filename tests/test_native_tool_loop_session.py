@@ -1244,3 +1244,81 @@ def test_startup_changelog_first_run_records_version_shows_nothing(tmp_path):
     assert "What's New" not in error_stream.getvalue()
     on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
     assert on_disk.get("lastChangelogVersion")  # recorded on first run
+
+
+# --------- Slice 3: deprecated slash-command aliases (no provider turn) -------
+
+
+def _run_local_commands(tmp_path: Path, script: str) -> str:
+    """Drive the tool-loop session over a local-command script, return stderr."""
+
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider)
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(script),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    assert provider._call_counter[0] == 0  # local commands run no provider turn
+    return error_stream.getvalue()
+
+
+def test_clear_is_deprecated_alias_for_new(tmp_path: Path):
+    out = _run_local_commands(tmp_path, "/clear\n/exit\n")
+    # Performs the /new action ...
+    assert "started a new native session" in out
+    # ... and emits exactly one deprecation notice naming /new.
+    assert out.count("/clear` is deprecated") == 1
+    assert "/new" in out
+
+
+def test_status_is_deprecated_alias_for_session(tmp_path: Path):
+    out = _run_local_commands(tmp_path, "/status\n/exit\n")
+    # Performs the /session action (session status header).
+    assert "native session" in out.lower()
+    # Exactly one deprecation notice naming /session.
+    assert out.count("/status` is deprecated") == 1
+    assert "/session" in out
+
+
+def test_clear_matches_new_action_output(tmp_path: Path):
+    """/clear's session-creation line must match what bare /new prints."""
+
+    new_out = _run_local_commands(tmp_path, "/new\n/exit\n")
+    clear_out = _run_local_commands(tmp_path, "/clear\n/exit\n")
+    assert "started a new native session" in new_out
+    assert "started a new native session" in clear_out
+
+
+def test_theme_bare_lists_available_themes(tmp_path: Path):
+    # /theme is a plain working command: bare /theme lists the available
+    # themes. (The /theme->/settings realignment is deferred; /settings has
+    # no theme row yet.)
+    out = _run_local_commands(tmp_path, "/theme\n/exit\n")
+    assert "available" in out
+    # No deprecation notice and no /settings routing.
+    assert "deprecated" not in out.lower()
+
+
+def test_theme_named_applies_without_deprecation_notice(tmp_path: Path):
+    out = _run_local_commands(tmp_path, "/theme default\n/exit\n")
+    # A named theme still applies (no error) and emits no deprecation notice.
+    assert "deprecated" not in out.lower()
+    assert "no theme named" not in out.lower()
+
+
+def test_help_output_matches_hotkeys(tmp_path: Path):
+    from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+
+    help_out = _run_local_commands(tmp_path, "/help\n/exit\n")
+    hotkeys_out = _run_local_commands(tmp_path, "/hotkeys\n/exit\n")
+
+    # /help renders the same keyboard-shortcut table as /hotkeys, so the
+    # whole hotkeys block appears verbatim in both outputs.
+    hotkeys_text = render_hotkeys(KeybindingsManager.create())
+    assert hotkeys_text in hotkeys_out
+    assert hotkeys_text in help_out
+    # The old standalone /help paragraph is gone (it is now an alias).
+    assert "tool-loop mode supports" not in help_out

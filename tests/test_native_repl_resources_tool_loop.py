@@ -114,10 +114,11 @@ def _run(tmp_path, monkeypatch, script, *, history=None, sink=None):
 
 def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(tmp_path, monkeypatch):
     _seed(tmp_path)
+    # The template is invoked by its own name (Pi shape); no /template wrapper.
     script = (
         "/skill\n"
         "/skill lint\n"
-        "/template review the auth module\n"
+        "/review the auth module\n"
         "/deploy staging\n"
         "/skill nope\n"
     )
@@ -145,7 +146,7 @@ def test_tool_loop_resource_runs_never_touch_history_or_sidecar(
     history = PromptHistoryStore(path=tmp_path / "history.txt")
     history.set_enabled(True)
     sink = TranscriptSink(transcript_id="resource-test", directory=tmp_path)
-    script = "/skill lint\n/template review X\n/deploy Y\nplain prompt\n"
+    script = "/skill lint\n/review X\n/deploy Y\nplain prompt\n"
     _provider, result = _run(
         tmp_path, monkeypatch, script, history=history, sink=sink
     )
@@ -180,9 +181,84 @@ def test_tool_loop_menu_command_set_is_honest(tmp_path, monkeypatch):
         tmp_path, config_home_env={}, home_dir=tmp_path
     )
     names = _tool_loop_command_names(resources)
-    # Resource entry points and the discovered custom command are advertised.
-    for executable in ("/help", "/model", "/skill", "/template", "/deploy"):
+    # /skill stays; the discovered template and custom command are advertised
+    # as their own /<name> entries (Pi shape).
+    for executable in ("/help", "/model", "/skill", "/review", "/deploy"):
         assert executable in names
+    # The pipy-only /template wrapper command is gone.
+    assert "/template" not in names
     # No-tool-only commands never appear in the tool-loop menu.
     for absent in ("/read", "/ask-file", "/propose-file", "/apply-proposal", "/verify"):
         assert absent not in names
+
+
+def test_prompt_template_registers_as_its_own_command(tmp_path, monkeypatch):
+    """A discovered prompt template is invokable directly as ``/<name>``."""
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _seed(tmp_path)
+    resources = WorkspaceResources.discover(
+        tmp_path, config_home_env={}, home_dir=tmp_path
+    )
+    names = _tool_loop_command_names(resources)
+    # The seeded "review" template is advertised under its own slash name.
+    assert "/review" in names
+
+
+def test_prompt_template_runs_as_its_own_command(tmp_path, monkeypatch):
+    """Typing ``/review <args>`` expands and runs the template directly."""
+
+    _seed(tmp_path)
+    script = "/review the auth module\n"
+    provider, result = _run(tmp_path, monkeypatch, script)
+    user_prompts = [request.user_prompt for request in provider.requests]
+    assert len(user_prompts) == 1
+    assert user_prompts[0].strip() == "TEMPLATE_review the auth module now"
+    assert result.resource_invocation_count == 1
+
+
+def test_template_custom_command_name_collision_is_dispatch_honest(
+    tmp_path, monkeypatch
+):
+    """For a name shared by a template and a custom command, the menu
+    description must describe what dispatching actually runs (the template),
+    matching ``dispatch_resource_command``'s template-first resolution."""
+
+    from pipy_harness.native.resources import (
+        DISPATCH_TEMPLATE_RUN,
+        WorkspaceResources,
+        dispatch_resource_command,
+    )
+    from pipy_harness.native.tool_loop_session import (
+        _tool_loop_command_descriptions,
+    )
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    # A template and a custom command share the name "foo".
+    _write(
+        tmp_path / ".pipy" / "templates",
+        "foo.md",
+        name="foo",
+        description="TEMPLATE_foo_description",
+        body="TEMPLATE_foo body $ARGUMENTS\n",
+    )
+    _write(
+        tmp_path / ".pipy" / "commands",
+        "foo.md",
+        name="foo",
+        description="COMMAND_foo_description",
+        body="COMMAND_foo body $ARGUMENTS\n",
+    )
+    resources = WorkspaceResources.discover(
+        tmp_path, config_home_env={}, home_dir=tmp_path
+    )
+
+    # The menu description for /foo is the template's, not the command's.
+    descriptions = _tool_loop_command_descriptions(resources)
+    assert descriptions["/foo"] == "TEMPLATE_foo_description"
+
+    # Dispatching /foo runs the template (template wins the collision).
+    dispatch = dispatch_resource_command("/foo bar", resources)
+    assert dispatch is not None and dispatch.kind == DISPATCH_TEMPLATE_RUN
+    assert dispatch.provider_text is not None
+    assert dispatch.provider_text.strip() == "TEMPLATE_foo body bar"

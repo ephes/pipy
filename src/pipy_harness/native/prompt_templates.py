@@ -5,8 +5,8 @@ A `prompt template` is a Markdown file under
 optional YAML frontmatter declaring `name` and `description`. The
 body is the template content the runtime expands (with `$ARGUMENTS`
 / `$1..$9` substitution) and sends as a bounded provider-visible
-message when the user invokes a `/template <name> [args]` slash
-command.
+message when the user invokes the template by its own `/<name> [args]`
+slash command (Pi shape — there is no `/template` wrapper command).
 
 This module is a pure, dependency-free pipy-owned helper. It mirrors
 the discovery, byte-cap, safety, and symlink-defense conventions
@@ -65,7 +65,7 @@ class PromptTemplate:
     `<global>/templates/<name>.md` for files under the global root.
     `name` and `description` come from the optional YAML frontmatter
     (keys `name`, `description`). `body` is the post-frontmatter
-    Markdown the runtime expands on `/template <name>`; it may be
+    Markdown the runtime expands on `/<name>`; it may be
     empty for a frontmatter-only file. `sha256` and `byte_length`
     always describe the file as it exists on disk; `truncated=True`
     means the body in this object only contains the first per-file-cap

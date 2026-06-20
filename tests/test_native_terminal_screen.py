@@ -213,8 +213,8 @@ def test_analyze_frame_files_infers_input_row_when_slash_menu_is_open(
     frame = (
         "────────────\n"
         "/\x1b[7m \x1b[0m\n"
-        "\x1b[38;2;138;190;183m→ help          Show pipy command reference\x1b[0m\n"
-        "  clear\x1b[38;2;128;128;128m         Clear local conversation context\x1b[0m\n"
+        "\x1b[38;2;138;190;183m→ help          Show keyboard shortcuts (alias of /hotkeys)\x1b[0m\n"
+        "  clear\x1b[38;2;128;128;128m         Deprecated: use /new (start a new session)\x1b[0m\n"
         "────────────\n"
         "~/projects/pipy (main)\n"
         "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"

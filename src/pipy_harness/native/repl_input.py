@@ -38,23 +38,22 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/model",
     "/theme",
     "/skill",
-    "/template",
     "/reload",
     "/changelog",
     "/exit",
     "/quit",
 )
 DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
-    "/help": "Show pipy command reference",
+    "/help": "Show keyboard shortcuts (alias of /hotkeys)",
     "/hotkeys": "Show keyboard shortcuts",
     "/reload": "Reload settings, keybindings, and resources",
     "/changelog": "Show the changelog (What's New)",
-    "/clear": "Clear local conversation context",
+    "/clear": "Deprecated: use /new (start a new session)",
     "/compact": "Compact context, keep a safe summary",
     "/export": "Export the native session to HTML or active-branch JSONL",
     "/import": "Import a native session JSONL file",
     "/share": "Upload the native session as a secret GitHub gist",
-    "/status": "Show REPL state (read-only)",
+    "/status": "Deprecated: use /session (show session status)",
     "/settings": "Settings and status",
     "/copy": "Copy the last answer to the clipboard (local)",
     "/login": "Log in (openai-codex OAuth)",
@@ -63,7 +62,6 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/scoped-models": "View/set the Ctrl+P model cycle set",
     "/theme": "Select chrome color theme",
     "/skill": "List or load a workspace/global skill",
-    "/template": "List or run a prompt template",
     "/exit": "Exit the REPL",
     "/quit": "Exit the REPL (alias)",
 }
@@ -894,8 +892,9 @@ def native_repl_input_for(
     """Choose the REPL input adapter while preserving plain-stream fallback.
 
     ``command_names`` / ``command_descriptions`` override the slash-menu
-    completion set so the discovered workspace/global custom commands (and
-    the ``/skill`` / ``/template`` entry points) appear in completion. Only
+    completion set so the discovered workspace/global prompt templates and
+    custom commands (each as ``/<name>``) and the ``/skill`` entry point
+    appear in completion. Only
     the slash-menu adapter (pipy's default TTY runtime) honours the override
     today; the readline / prompt-toolkit fallbacks keep the static built-in
     set and still execute custom commands through the dispatcher.

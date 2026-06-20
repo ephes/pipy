@@ -585,16 +585,20 @@ def _tool_loop_command_names(
 ) -> tuple[str, ...]:
     """Tool-loop slash-menu command set, honest to what can execute.
 
-    The static built-in set is augmented with the ``/skill`` and
-    ``/template`` resource entry points (which always at least list),
-    every discovered, non-reserved custom ``/<name>`` command, and any
-    activated extension ``/<name>`` commands (appended last, never
-    shadowing a built-in or custom command).
+    The static built-in set is augmented with the ``/skill`` resource
+    entry point (which always at least lists), every discovered prompt
+    template registered as its own ``/<name>`` command (Pi shape), every
+    discovered, non-reserved custom ``/<name>`` command, and any activated
+    extension ``/<name>`` commands (appended last, never shadowing a
+    built-in or custom command).
     """
 
     names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
     insert_at = (names.index("/model") + 1) if "/model" in names else len(names)
-    names[insert_at:insert_at] = ["/skill", "/template"]
+    names[insert_at:insert_at] = ["/skill"]
+    for slash_name in resources.template_slash_names():
+        if slash_name not in names:
+            names.append(slash_name)
     for slash_name in resources.custom_command_slash_names():
         if slash_name not in names:
             names.append(slash_name)
@@ -608,10 +612,24 @@ def _tool_loop_command_descriptions(
     resources: WorkspaceResources,
     extension_descriptions: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    descriptions = dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
-    descriptions.update(resources.custom_command_descriptions())
+    """Build the slash-menu descriptions with dispatch-honest precedence.
+
+    The menu description for a name must describe what dispatching that name
+    actually runs. ``dispatch_resource_command`` resolves a colliding name in
+    the order built-in > prompt template > custom command, and extension
+    commands dispatch last (lowest precedence). Descriptions are layered in
+    the reverse order (lowest precedence first) so a later ``update`` for a
+    higher-precedence source wins a collision — i.e. for a name shared by a
+    template and a custom command, the menu shows the *template's*
+    description, matching what runs.
+    """
+
+    descriptions: dict[str, str] = {}
     if extension_descriptions:
         descriptions.update(extension_descriptions)
+    descriptions.update(resources.custom_command_descriptions())
+    descriptions.update(resources.template_descriptions())
+    descriptions.update(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     return descriptions
 
 
@@ -2148,24 +2166,10 @@ class NativeToolReplSession:
                     continue
                 if command_text in {"/exit", "/quit"}:
                     break
-                if command_text == "/help":
-                    if terminal_ui is not None:
-                        terminal_ui.add_notice(self._help_text())
-                    else:
-                        self._print_help(error_stream)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
-                    continue
-                if command_text == "/hotkeys":
-                    # Local-only: render the grouped keyboard-shortcut table from
-                    # the resolved keybinding manager (reflecting any user
+                if command_text in {"/help", "/hotkeys"}:
+                    # ``/help`` is an alias of ``/hotkeys`` (Pi shape): both
+                    # render the grouped keyboard-shortcut table from the
+                    # resolved keybinding manager (reflecting any user
                     # keybindings.json overrides). Runs no provider turn.
                     hotkeys_text = render_hotkeys(keybindings)
                     if terminal_ui is not None:
@@ -2630,9 +2634,15 @@ class NativeToolReplSession:
                             tool_invocation_count=tool_invocation_count,
                         )
                     continue
-                if command_text == "/session":
+                if command_text in {"/session", "/status"}:
                     # Local-only: report safe current native-session status. No
-                    # provider turn, tool call, or transcript content.
+                    # provider turn, tool call, or transcript content. ``/status``
+                    # is a deprecated alias of ``/session`` (Pi shape).
+                    if command_text == "/status":
+                        diag(
+                            "pipy: `/status` is deprecated; use `/session` "
+                            "(showing session status now)."
+                        )
                     diag(format_session_status(session_tree))
                     refresh_legacy_footer()
                     continue
@@ -2652,8 +2662,14 @@ class NativeToolReplSession:
                         diag(f"pipy: session named {argument!r}.")
                     refresh_legacy_footer()
                     continue
-                if command_text == "/new":
+                if command_text in {"/new", "/clear"}:
                     # Start a fresh native product session in the same store.
+                    # ``/clear`` is a deprecated alias of ``/new`` (Pi shape).
+                    if command_text == "/clear":
+                        diag(
+                            "pipy: `/clear` is deprecated; use `/new` "
+                            "(starting a new session now)."
+                        )
                     if not extension_session_allows(
                         extension_session_before_switch_hooks,
                         operation="switch",
@@ -3179,10 +3195,11 @@ class NativeToolReplSession:
                             "/changelog, /model, /scoped-models, /settings, "
                             "/login, /logout, /copy, /compact, /export, /import, "
                             "/share, /session, /name, "
-                            "/new, /tree, /resume, /fork, /clone, /skill, /template, "
+                            "/new, /tree, /resume, /fork, /clone, /skill, "
                             "/exit, /quit "
-                            "(plus any workspace custom commands and activated "
-                            "extension commands). Other prompts are sent to the model."
+                            "(plus any workspace prompt templates and custom "
+                            "commands as /<name>, and activated extension "
+                            "commands). Other prompts are sent to the model."
                         ),
                     )
                     if legacy_footer_enabled():
@@ -4934,46 +4951,6 @@ class NativeToolReplSession:
         except Exception:
             return False
         return bool(getattr(provider, "supports_tool_calls", False))
-
-    def _print_help(self, error_stream: TextIO) -> None:
-        print(self._help_text(), file=error_stream)
-
-    @staticmethod
-    def _help_text() -> str:
-        return (
-            "pipy: tool-loop mode supports `/help`, `/hotkeys`, `/model`, `/settings`, "
-            "`/login`, `/logout`, `/copy`, `/compact`, `/export`, `/import`, "
-            "`/share`, `/session`, `/name`, `/new`, `/tree`, `/resume`, "
-            "`/fork`, `/clone`, `/exit`, `/quit` "
-            "locally. `/session` shows the current native session tree status; "
-            "`/name <name>` names it; `/new` starts a fresh native session; "
-            "`/tree` navigates the session tree in place (select/label/filter); "
-            "`/resume` lists/opens prior native sessions (with `named`, "
-            "`rename <ref> <name>`, and `delete <ref> --yes` subcommands); "
-            "`/fork` and `/clone` "
-            "create new native sessions from an earlier point or the active "
-            "branch. `/compact` reduces provider-visible context while keeping "
-            "recent turns plus a safe summary. `/export` writes full-tree HTML "
-            "or active-branch JSONL; `/import <path.jsonl>` resumes a portable "
-            "native session; `/share` uploads a secret gist. `/model` "
-            "opens an interactive provider/model selector (or "
-            "`/model <provider>/<model>` switches directly); `/settings` opens an "
-            "interactive settings dialog (provider/model, openai-codex auth, and "
-            "persistent prompt history) in the product TUI; `/login [openai-codex]` and "
-            "`/logout [openai-codex]` manage OAuth without a provider turn; "
-            "`/copy` copies the last answer to the clipboard. `/hotkeys` shows "
-            "the resolved keyboard-shortcut table. `/reload` re-reads settings, "
-            "keybindings, and resources. `/changelog` shows the release notes. "
-            "`/scoped-models [next|prev|"
-            "clear|<pattern>…]` views, sets, clears, or cycles the model cycle "
-            "set. `/skill [<name>]` "
-            "lists or loads a workspace/global skill, `/template [<name> [args]]` "
-            "lists or runs a prompt template, and any workspace custom slash "
-            "command runs as a bounded provider turn. Other input is "
-            "sent to the model. The model can call bounded `read`, `ls`, "
-            "`grep`, `find`, `write`, `edit`, `edit_diff`, and `truncate` "
-            "tools (budget per user turn)."
-        )
 
     @staticmethod
     def _emit_diagnostic(

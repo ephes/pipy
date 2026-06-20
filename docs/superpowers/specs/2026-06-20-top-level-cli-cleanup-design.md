@@ -155,19 +155,35 @@ completion/description registries (`native/repl_input.py`):
   error. The alias is removed in a later cycle.
 - `/status` → deprecated alias of `/session` in the product tool-loop session,
   with the same notice and add-if-absent behavior as `/clear`.
-- `/theme` → deprecated alias that routes to theme selection under `/settings`
-  (theme is already reachable via settings; this ensures a single Pi-shaped
-  entry point). The `--theme`/`--no-themes` load flags are unchanged.
-- `/skill` and `/template` wrappers dropped: skills are auto-injected into the
-  system prompt (Pi's model), and prompt templates register as their own
-  `/<template-name>` slash commands rather than going through a `/template`
-  dispatcher.
+- `/theme` is kept as a working command this pass (revised after checking the
+  implementation). Pi has no `/theme` command — theme selection lives in
+  `/settings` — but pipy's `/settings` dialog has no theme row yet, so there is
+  no real target to alias to. Adding theme selection to the `/settings` dialog
+  (then aliasing/dropping `/theme`) is deferred to a follow-up, parallel to the
+  skill-advertisement follow-on. `/theme` (list + `/theme <name>` apply) keeps
+  working with no misleading notice; the `--theme`/`--no-themes` load flags are
+  unchanged.
+- **Prompt templates** register as their own `/<template-name>` slash commands
+  (Pi's model — Pi has no literal `/template` command), and the pipy-only
+  `/template` dispatcher wrapper is dropped now that `/<name>` invocation works.
+- **`/skill` is kept** (revised after checking the Pi reference). Pi is NOT
+  skill-command-free: it advertises skills in the system prompt (name +
+  description + path, "use the read tool to load the file") via
+  `formatSkillsForPrompt`, AND keeps a `/skill:name` expansion. pipy's `/skill`
+  is therefore parity-consistent, not an accidental surface. The genuine gap is
+  that pipy never wired its own advertisement — `compose_skills_system_block`
+  (skills.py) is dead code, so skills are currently reachable only via `/skill`.
+  Wiring the system-prompt skill advertisement (and the read-path access it
+  implies for skills outside cwd) is a behavioral feature deferred to a dedicated
+  follow-up; this CLI-cleanup pass keeps `/skill` working.
 - `/help` kept as an alias of `/hotkeys`.
 
-Tests: each deprecated alias dispatches to its target and emits the deprecation
-notice exactly once; prompt-templates are invokable as `/<name>`; skills appear
-in the system prompt without a `/skill` call; the completion list reflects the
-realigned set.
+Tests: the `/clear`→`/new` and `/status`→`/session` aliases dispatch to their
+targets and emit the deprecation notice exactly once; `/theme` keeps working
+(list + apply); prompt-templates are invokable as `/<name>`; a template/custom
+name collision advertises the template (matching dispatch precedence); the
+`/template` wrapper is gone; `/skill` still loads a skill body; the completion
+list reflects the realigned set.
 
 ### Slice 4 — Retire dead automation flags (hard remove)
 
@@ -220,8 +236,13 @@ metadata-only JSON object.
 - **Slice 1 is a large deletion** touching shared paths in `session.py` and
   `tool_loop_session.py`. Mitigation: do it first, lean on the existing suite,
   and keep `pipy run` (a separate adapter) out of scope.
-- **`/skill` auto-injection is a behavior change** beyond aliasing. It is
-  included in slice 3 per approval; if it proves large it can split into its own
-  slice without changing the rest.
+- **Skill auto-injection is split out** (decided during slice 3). Checking the
+  Pi reference showed pipy's skill advertisement is unwired (`compose_skills_system_block`
+  is dead code) and `/skill` is the only path to skills, while Pi keeps a
+  `/skill:name` command in addition to its system-prompt advertisement. So
+  `/skill` is kept this pass and the system-prompt skill advertisement (pipy's
+  equivalent of Pi's `formatSkillsForPrompt`, including read access to skills
+  outside cwd) is a dedicated follow-up. Only the pipy-only `/template` wrapper
+  is dropped now.
 - **Deprecated-alias churn**: the aliases are transitional and scheduled for
   removal in a later cycle; the deprecation notice makes that explicit.

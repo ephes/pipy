@@ -2488,7 +2488,7 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
         os.write(in_master, b"start multi tool\n")
         assert _wait_for(err_chunks, "first-tool-running"), "bash tool never streamed"
         os.write(in_master, b"/help\n")
-        assert _wait_for(err_chunks, "tool-loop mode supports"), "/help did not run"
+        assert _wait_for(err_chunks, "Keyboard Shortcuts"), "/help did not run"
         os.write(in_master, b"after interrupt\n")
         assert _wait_for_predicate(provider.balanced.is_set), "tool results unbalanced"
         assert _wait_for(err_chunks, "HISTORY_BALANCED"), "follow-up never completed"
@@ -3260,7 +3260,7 @@ def test_pty_local_command_submitted_midturn_runs_locally_not_queued(
         # Type a slash command mid-turn and submit it with a plain Enter.
         os.write(in_master, b"/help")
         os.write(in_master, b"\n")
-        assert _wait_for(chunks, "tool-loop mode supports"), (
+        assert _wait_for(chunks, "Keyboard Shortcuts"), (
             "/help did not run locally mid-turn"
         )
 

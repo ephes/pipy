@@ -36,7 +36,6 @@ def extension_reserved_command_names(
         *DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
         *TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
         "/skill",
-        "/template",
         *custom_command_slash_names,
     ):
         normalized = slash_name.lstrip("/")

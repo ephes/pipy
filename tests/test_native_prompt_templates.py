@@ -3,8 +3,8 @@
 These tests pin the discovery rules and argument expansion listed in
 `pipy_harness.native.prompt_templates`. They never wire the loader
 into a provider, the REPL, or the session archive; the integrator
-wires `find_template_by_name` + `expand_template_body` into the
-`/template <name>` slash command separately.
+wires `find_template_by_name` + `expand_template_body` into each
+template's own `/<name>` slash command separately.
 """
 
 from __future__ import annotations

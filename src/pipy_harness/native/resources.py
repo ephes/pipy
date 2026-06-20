@@ -55,12 +55,14 @@ from pipy_harness.native._resource_files import (
 )
 
 SKILL_RESOURCE_COMMAND = "/skill"
-TEMPLATE_RESOURCE_COMMAND = "/template"
 
 # Built-in slash-command names (without the leading slash) that a custom
-# command may never shadow. The dispatcher is always consulted after the
-# built-in handlers, but excluding collisions keeps custom commands out of
-# slash discovery / the menu so the surface stays honest.
+# command or prompt template may never shadow. The dispatcher is always
+# consulted after the built-in handlers, but excluding collisions keeps
+# resource commands out of slash discovery / the menu so the surface stays
+# honest. ``template`` is intentionally absent: there is no ``/template``
+# built-in (templates are invoked as ``/<name>``), so a template/command may
+# use that name.
 RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
     {
         "help",
@@ -75,7 +77,6 @@ RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
         "exit",
         "quit",
         "skill",
-        "template",
     }
 )
 
@@ -251,6 +252,38 @@ class WorkspaceResources:
     def template_names(self) -> tuple[str, ...]:
         return tuple(template.name for template in self.templates)
 
+    def template_slash_names(self) -> tuple[str, ...]:
+        """Return ``/<name>`` forms for directly-invokable prompt templates.
+
+        A discovered prompt template is invokable as ``/<name> [args]`` (Pi
+        shape). Only templates whose name is a valid single slash token that
+        does not collide with a reserved built-in are advertised, mirroring
+        ``custom_command_slash_names``.
+        """
+
+        names: list[str] = []
+        seen: set[str] = set()
+        for template in self.templates:
+            name = template.name
+            if not _is_executable_command_token(name) or name in seen:
+                continue
+            seen.add(name)
+            names.append(f"/{name}")
+        return tuple(names)
+
+    def template_descriptions(self) -> dict[str, str]:
+        """Map ``/<name>`` to a menu description for directly-invokable templates."""
+
+        descriptions: dict[str, str] = {}
+        for template in self.templates:
+            if not _is_executable_command_token(template.name):
+                continue
+            slash = f"/{template.name}"
+            if slash in descriptions:
+                continue
+            descriptions[slash] = template.description or "Prompt template"
+        return descriptions
+
     def custom_command_slash_names(self) -> tuple[str, ...]:
         """Return ``/<name>`` forms for executable custom commands.
 
@@ -314,23 +347,6 @@ def format_skills_listing(skills: Sequence[SkillFile]) -> str:
             lines.append(f"  {skill.name}: {skill.description}")
         else:
             lines.append(f"  {skill.name}")
-    return "\n".join(lines)
-
-
-def format_templates_listing(templates: Sequence[PromptTemplate]) -> str:
-    """Local listing text for ``/template`` (no provider turn)."""
-
-    if not templates:
-        return (
-            "pipy: no prompt templates found. "
-            "Add Markdown files under .pipy/templates/."
-        )
-    lines = ["pipy: available prompt templates (run with /template <name> [args]):"]
-    for template in templates:
-        if template.description:
-            lines.append(f"  {template.name}: {template.description}")
-        else:
-            lines.append(f"  {template.name}")
     return "\n".join(lines)
 
 
@@ -429,24 +445,21 @@ def dispatch_resource_command(
             message=f"pipy: loaded skill {skill.name!r}.",
         )
 
-    if name_token == "template":
-        if not arguments:
-            return ResourceDispatch(
-                kind=DISPATCH_LIST,
-                message=format_templates_listing(resources.templates),
-            )
-        target, _, template_args = arguments.partition(" ")
-        template = find_template_by_name(resources.templates, target)
-        if template is None:
-            return ResourceDispatch(
-                kind=DISPATCH_REJECT,
-                message=(
-                    f"pipy: no prompt template named {target!r}. "
-                    "Run /template to list available templates."
-                ),
-                resource_label=f"template:{target}",
-            )
-        expanded = expand_template_body(template.body, template_args.strip())
+    # Otherwise: a prompt template or custom command invocation. Only claim
+    # the line when the name resolves to a discovered, non-reserved resource;
+    # otherwise return None so the caller's unknown-command handling fails
+    # closed.
+    if name_token in RESERVED_COMMAND_NAMES or not name_token:
+        return None
+
+    # A discovered prompt template is invokable directly as ``/<name> [args]``
+    # (Pi shape — there is no ``/template`` wrapper command). Templates are
+    # matched before custom commands; a custom command that collides with a
+    # template name can never be invoked via the colliding slash name (the
+    # template wins), matching the slash-discovery order.
+    template = find_template_by_name(resources.templates, name_token)
+    if template is not None:
+        expanded = expand_template_body(template.body, arguments)
         if not expanded.strip():
             return ResourceDispatch(
                 kind=DISPATCH_REJECT,
@@ -465,11 +478,6 @@ def dispatch_resource_command(
             message=f"pipy: ran prompt template {template.name!r}.",
         )
 
-    # Otherwise: a custom command invocation. Only claim the line when the
-    # name resolves to a discovered, non-reserved command; otherwise return
-    # None so the caller's unknown-command handling fails closed.
-    if name_token in RESERVED_COMMAND_NAMES or not name_token:
-        return None
     command = find_custom_command_by_name(resources.commands, name_token)
     if command is None:
         return None

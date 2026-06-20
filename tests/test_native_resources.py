@@ -140,8 +140,10 @@ def test_skill_empty_body_rejects(tmp_path: Path) -> None:
 
 
 def test_template_run_expands_arguments(tmp_path: Path) -> None:
+    # Templates are invoked directly by their own name (Pi shape); there is no
+    # ``/template`` wrapper command.
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/template review the auth module", resources)
+    result = dispatch_resource_command("/review the auth module", resources)
     assert result is not None and result.kind == DISPATCH_TEMPLATE_RUN
     assert result.provider_text is not None
     assert result.provider_text.strip() == "Please review the auth module carefully."
@@ -149,10 +151,12 @@ def test_template_run_expands_arguments(tmp_path: Path) -> None:
     assert result.safe_metadata["name"] == "review"
 
 
-def test_template_unknown_rejects(tmp_path: Path) -> None:
+def test_template_wrapper_command_is_gone(tmp_path: Path) -> None:
+    # ``/template`` is no longer a built-in resource command; with no template
+    # named "template" it passes through to the caller's unknown-command path.
     resources = _resources(tmp_path)
-    result = dispatch_resource_command("/template missing", resources)
-    assert result is not None and result.kind == DISPATCH_REJECT
+    assert dispatch_resource_command("/template", resources) is None
+    assert dispatch_resource_command("/template review", resources) is None
 
 
 def test_custom_command_run_expands(tmp_path: Path) -> None:
@@ -175,11 +179,12 @@ def test_no_resources_dispatch_is_inert(tmp_path: Path) -> None:
         workspace, config_home_env={}, home_dir=workspace
     )
     assert resources.has_any() is False
-    # /skill and /template still respond locally (empty listing), never None.
+    # /skill still responds locally (empty listing), never None.
     skill_result = dispatch_resource_command("/skill", resources)
     assert skill_result is not None and skill_result.kind == DISPATCH_LIST
-    template_result = dispatch_resource_command("/template", resources)
-    assert template_result is not None and template_result.kind == DISPATCH_LIST
+    # /template is no longer a built-in; it passes through like any unknown
+    # command (templates are invoked as /<name>).
+    assert dispatch_resource_command("/template", resources) is None
     # An unknown custom command passes through.
     assert dispatch_resource_command("/whatever", resources) is None
 
