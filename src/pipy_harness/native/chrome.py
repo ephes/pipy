@@ -1,14 +1,13 @@
 """Shared Pi-parity terminal chrome for the native REPL.
 
-Both the bounded no-tool REPL (`NativeNoToolReplSession`) and the
-bounded tool-loop REPL (`NativeToolReplSession`) render the same
+The bounded tool-loop REPL (`NativeToolReplSession`) renders this
 visual frame: title with a single-space indent, dim controls strip,
 loaded `[Context]` listing (workspace + ancestor + global
 ``AGENTS.md`` discovery), separator-framed prompt area, and a two-row
 persistent bottom status block (cwd + status line).
 
-This module owns the helpers so the same rendering ships from both
-REPL surfaces. The styles fall back to plain text when the output
+This module owns the helpers so the same rendering ships from the
+REPL surface. The styles fall back to plain text when the output
 stream is not a TTY or when `NO_COLOR` is set; truecolor codes are
 used when `COLORTERM` advertises 24-bit support, otherwise the
 16-color fallbacks preserve the same intent.

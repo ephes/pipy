@@ -15,6 +15,7 @@ from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
 )
+from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
 from pipy_harness.native.provider_registry import (
     DEFAULT_NATIVE_MODELS,
     NATIVE_PROVIDER_REGISTRY,
@@ -35,6 +36,34 @@ class NativeModelSelection:
     @property
     def reference(self) -> str:
         return f"{self.provider_name}/{self.model_id}"
+
+
+# Last-resort fake selection for the product REPL. The product REPL always
+# builds the tool-loop session, which requires a tool-capable provider, so the
+# fake fallback must advertise tool calls (``fake/fake-tools`` ->
+# ``AutomationFakeProvider``) rather than the inert ``fake-native-bootstrap``
+# used by the one-shot ``pipy run`` path.
+REPL_FAKE_FALLBACK_SELECTION = NativeModelSelection("fake", AUTOMATION_FAKE_MODEL_ID)
+
+
+def normalize_repl_fake_selection(
+    selection: NativeModelSelection,
+) -> NativeModelSelection:
+    """Upgrade a ``fake`` REPL selection to the tool-capable fake.
+
+    The product REPL always builds the tool-loop session, which requires a
+    tool-capable provider. Whenever the resolved provider is ``fake`` — from the
+    no-provider fallback, an explicit ``--native-provider fake`` (with or
+    without the inert ``fake-native-bootstrap`` model), or a stored default —
+    normalize to ``fake/fake-tools`` (``AutomationFakeProvider``). Real
+    (non-fake) providers are returned unchanged so genuinely tool-incapable real
+    providers still error at the session gate. The one-shot ``pipy run`` path
+    does not use this helper and keeps ``fake-native-bootstrap``.
+    """
+
+    if selection.provider_name == "fake":
+        return REPL_FAKE_FALLBACK_SELECTION
+    return selection
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,6 +397,8 @@ class NativeReplProviderState:
             return False, "pipy: unsupported logout provider. Only openai-codex OAuth is supported."
         removed = self.auth_manager_factory().logout()
         if self.selection.provider_name == "openai-codex":
+            # Persist the shared inert default; the product REPL normalizes the
+            # live selection to a tool-capable fake at its consumption point.
             self.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
             self._save_default(self.selection)
         if removed:
@@ -666,6 +697,10 @@ def default_selection_for(
     )
     if auto is not None:
         return auto
+    # Shared default: the inert ``fake-native-bootstrap``. The product REPL
+    # upgrades any ``fake`` selection to the tool-capable ``fake-tools`` at its
+    # own resolution point (see ``normalize_repl_fake_selection``); non-REPL
+    # callers (e.g. one-shot ``pipy run``) keep ``fake-native-bootstrap``.
     return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
 
 

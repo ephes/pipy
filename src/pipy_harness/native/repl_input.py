@@ -39,10 +39,6 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/theme",
     "/skill",
     "/template",
-    "/read",
-    "/ask-file",
-    "/propose-file",
-    "/apply-proposal",
     "/reload",
     "/changelog",
     "/exit",
@@ -68,20 +64,11 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/theme": "Select chrome color theme",
     "/skill": "List or load a workspace/global skill",
     "/template": "List or run a prompt template",
-    "/read": "Read a workspace file excerpt",
-    "/ask-file": "Ask provider about a file (read-only)",
-    "/propose-file": "Propose a patch for a file",
-    "/apply-proposal": "Apply the pending proposal",
     "/exit": "Exit the REPL",
     "/quit": "Exit the REPL (alias)",
 }
-DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS = (
-    "/read",
-    "/ask-file",
-    "/propose-file",
-    "/apply-proposal",
-)
-_FILE_CONTEXT_COMMANDS_WITH_SEPARATOR = frozenset({"/ask-file", "/propose-file"})
+DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS: tuple[str, ...] = ()
+_FILE_CONTEXT_COMMANDS_WITH_SEPARATOR: frozenset[str] = frozenset()
 DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS = tuple(
     sorted(_FILE_CONTEXT_COMMANDS_WITH_SEPARATOR)
 )

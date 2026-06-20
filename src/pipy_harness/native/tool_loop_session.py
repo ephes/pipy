@@ -6,11 +6,10 @@ class that wires the slice 2 contracts (`ToolDefinition`, `ToolRequest`,
 slice 3 provider extension (`ProviderPort.supports_tool_calls`,
 `ProviderToolCall`, `ProviderResult.tool_calls`) into a real turn loop.
 
-The session deliberately ships with an empty production tool registry. Real
-tools (`read`, `ls`, `grep`, `find`, `write`, `edit`) are added in later
-slices; tests inject a `_FixtureTool` through the registry argument to verify
-loop behavior. No CLI mode flip happens in this slice; the existing no-tool
-REPL stays the default surface.
+The session is the product REPL behind `pipy repl --agent pipy-native`. It runs
+the production tool registry (`read`, `ls`, `grep`, `find`, `write`, `edit`,
+`bash`, ...); tests may inject a `_FixtureTool` through the registry argument to
+verify loop behavior in isolation.
 
 Invariants pinned by the focused tests:
 
@@ -81,6 +80,7 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
+    normalize_repl_fake_selection,
     settings_overlay_lines,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
@@ -589,9 +589,7 @@ def _tool_loop_command_names(
     ``/template`` resource entry points (which always at least list),
     every discovered, non-reserved custom ``/<name>`` command, and any
     activated extension ``/<name>`` commands (appended last, never
-    shadowing a built-in or custom command). The no-tool-only commands
-    (``/read``, ``/ask-file``, ...) stay out so the menu never advertises
-    a command that errors in tool-loop mode.
+    shadowing a built-in or custom command).
     """
 
     names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
@@ -1019,7 +1017,7 @@ class NativeToolReplSession:
         if not self.provider.supports_tool_calls:
             raise ValueError(
                 f"provider {self.provider.name!r} does not advertise "
-                "supports_tool_calls=True; --repl-mode tool-loop requires a "
+                "supports_tool_calls=True; the pipy repl requires a "
                 "tool-capable provider"
             )
         if isinstance(self.tool_budget, bool) or not isinstance(
@@ -1504,8 +1502,8 @@ class NativeToolReplSession:
             usage meter, and refreshes the footer/status model label so the next
             provider turn is constructed with the new provider/model. The switch
             is refused (and the previous selection restored) when the chosen
-            provider does not advertise tool-call support, which tool-loop mode
-            requires. No provider turn happens here.
+            provider does not advertise tool-call support, which the product
+            REPL requires. No provider turn happens here.
             """
 
             nonlocal effective_provider_name, effective_model_id
@@ -1601,6 +1599,10 @@ class NativeToolReplSession:
             # Clear context and rebind the live provider regardless of outcome,
             # so a credential change never leaks prior context or leaves a stale
             # provider bound (logout resets the selection to the local default).
+            # The persisted default stays the inert ``fake-native-bootstrap``;
+            # the product REPL upgrades the *live* fake selection to the
+            # tool-capable ``fake-tools`` here so the next turn has tool support.
+            state.selection = normalize_repl_fake_selection(state.current_selection())
             self.provider = state.current_provider()
             selection = state.current_selection()
             effective_provider_name = selection.provider_name

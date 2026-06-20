@@ -133,9 +133,7 @@ def test_archive_transcript_flag_defaults_to_false():
 
 def test_archive_transcript_flag_round_trips():
     parser = build_parser()
-    args = parser.parse_args(
-        ["repl", "--repl-mode", "tool-loop", "--archive-transcript"]
-    )
+    args = parser.parse_args(["repl", "--archive-transcript"])
 
     assert args.archive_transcript is True
 

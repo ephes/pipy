@@ -21,7 +21,7 @@ def extension_reserved_command_names(
 ) -> tuple[str, ...]:
     """Return slash-command names extensions may not register.
 
-    This is intentionally a union of the no-tool and tool-loop built-in command
+    This is intentionally a union of the REPL built-in command
     vocabularies plus resource/custom commands. Provider-only catalog activation
     uses the same reserved set as full extension activation, so an extension is
     not listable as a provider when its activation would later be disabled by a

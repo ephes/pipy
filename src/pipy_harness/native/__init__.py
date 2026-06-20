@@ -128,7 +128,7 @@ from pipy_harness.native.repl_input import (
     ReplInputUnavailableError,
     validate_native_repl_input_runtime,
 )
-from pipy_harness.native.session import NativeAgentSession, NativeNoToolReplSession
+from pipy_harness.native.session import NativeAgentSession
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplResult,
@@ -203,7 +203,6 @@ __all__ = [
     "NativeModelSelection",
     "NativeNoToolReplConversationContext",
     "NativeNoToolReplExchange",
-    "NativeNoToolReplSession",
     "NativeProviderSpec",
     "NativePatchApplyApprovalDecision",
     "NativePatchApplyGateDecision",

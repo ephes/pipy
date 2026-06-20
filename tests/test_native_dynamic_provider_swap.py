@@ -3,10 +3,10 @@
 These product-path tests complement the end-to-end PTY selector test
 (``test_pty_inline_tui_model_selector_selects_and_rebinds``) and the
 parity behaviour check (``scripts/parity_checks/dynamic_provider_behavior``).
-They prove, through the shared ``NativeReplProviderState`` boundary, that both
-REPL paths switch mid-session, surface the change in visible status, clear or
-preserve conversation state as documented, and refuse an unavailable target via
-the availability gate without provider/tool side effects.
+They prove, through the shared ``NativeReplProviderState`` boundary, that the
+tool-loop REPL switches mid-session, surfaces the change in visible status,
+clears or preserves conversation state as documented, and refuses an unavailable
+target via the availability gate without provider/tool side effects.
 """
 
 from __future__ import annotations
@@ -16,70 +16,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.adapters.native import PipyNativeReplAdapter
-from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import HarnessStatus, RunRequest
-from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
 )
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
-from pipy_harness.runner import HarnessRunner
-
-
-def _no_tool_state() -> NativeReplProviderState:
-    return NativeReplProviderState(
-        selection=NativeModelSelection("fake", "model-a"),
-        provider_factory=lambda selection: FakeNativeProvider(
-            model_id=selection.model_id
-        ),
-        defaults_store=None,
-        persist_defaults=False,
-        env={},
-    )
-
-
-def _run_no_tool(script: str, tmp_path: Path) -> tuple[str, NativeReplProviderState]:
-    state = _no_tool_state()
-    error_stream = io.StringIO()
-    adapter = PipyNativeReplAdapter(
-        provider_state=state,
-        input_stream=io.StringIO(script),
-        output_stream=io.StringIO(),
-        error_stream=error_stream,
-    )
-    HarnessRunner(adapter=adapter).run(
-        RunRequest(
-            agent="pipy-native",
-            slug="e5-unit",
-            command=[],
-            cwd=tmp_path,
-            goal="e5 unit",
-            root=tmp_path / "archive",
-            capture_policy=CapturePolicy(),
-        )
-    )
-    return error_stream.getvalue(), state
-
-
-def test_no_tool_switch_updates_visible_settings_status(tmp_path: Path) -> None:
-    stderr, state = _run_no_tool("/model fake/model-b\n/settings\n/exit\n", tmp_path)
-    assert "selected model fake/model-b" in stderr
-    # The visible /settings status reflects the live selection after the switch.
-    assert "active: fake/model-b" in stderr
-    assert state.current_selection() == NativeModelSelection("fake", "model-b")
-
-
-def test_no_tool_unavailable_target_refused_by_gate(tmp_path: Path) -> None:
-    stderr, state = _run_no_tool(
-        "/model fake/model-b\n/model openai/gpt-5.5\n/settings\n/exit\n", tmp_path
-    )
-    # Availability gate refuses the keyless provider; selection stays put.
-    assert "OPENAI_API_KEY is not set" in stderr
-    assert "active: fake/model-b" in stderr
-    assert state.current_selection() == NativeModelSelection("fake", "model-b")
 
 
 @dataclass

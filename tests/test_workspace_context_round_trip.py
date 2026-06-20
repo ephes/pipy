@@ -1,8 +1,8 @@
 """Round-trip tests for the workspace-context system-prompt wiring.
 
 Slice 3 of the Workspace Context Loading Parity Track. These tests pin
-the following invariants across the three native execution surfaces
-(`pipy run` one-shot, `--repl-mode no-tool`, `--repl-mode tool-loop`):
+the following invariants across the native execution surfaces
+(`pipy run` one-shot and the tool-loop product REPL):
 
 - The AGENTS.md content discovered in the workspace reaches
   `ProviderRequest.system_prompt`, so a real model would see it
@@ -27,7 +27,6 @@ import pytest
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
-    PipyNativeReplAdapter,
     PipyNativeToolReplAdapter,
 )
 from pipy_harness.capture import CapturePolicy
@@ -55,7 +54,7 @@ _AGENTS_MD = (
 class _CapturingFakeProvider:
     """A fake provider that records `ProviderRequest` and returns a noop intent.
 
-    Mirrors `pipy_harness.native.fake.FakeNativeProvider` for the no-tool /
+    Mirrors `pipy_harness.native.fake.FakeNativeProvider` for the
     one-shot path; for tool-loop we use the real `FakeNativeProvider` with
     `programmable_tool_calls=()` so the loop terminates on the first call.
     """
@@ -315,66 +314,6 @@ def test_tool_loop_round_trip_AGENTS_md_reaches_system_prompt_and_archive_exclud
     assert only["truncated"] is False
     assert payload.get("workspace_instruction_total_byte_cap_reached") is False
     assert payload.get("repl_mode") == "tool-loop"
-
-
-# -- no-tool REPL -----------------------------------------------------------
-
-
-def test_no_tool_repl_round_trip_AGENTS_md_reaches_system_prompt_and_archive_excludes_body(
-    workspace_with_agents_md: Path, tmp_path: Path
-) -> None:
-    provider = _CapturingFakeProvider()
-    adapter = PipyNativeReplAdapter(
-        provider=provider,
-        input_stream=io.StringIO("hello\n/exit\n"),
-        output_stream=io.StringIO(),
-        error_stream=io.StringIO(),
-        instruction_loader=_hermetic_loader,
-    )
-
-    root = tmp_path / "sessions"
-    result = HarnessRunner(
-        adapter=adapter,
-        id_factory=lambda: "no-tool-repl-round-trip",
-    ).run(
-        RunRequest(
-            agent="pipy-native",
-            slug="ws-instr-round-trip-no-tool",
-            command=[],
-            cwd=workspace_with_agents_md,
-            root=root,
-            goal="round-trip",
-            capture_policy=CapturePolicy(),
-        )
-    )
-
-    assert result.exit_code == 0
-    assert provider.captured_requests
-    first_system_prompt = provider.captured_requests[0].system_prompt
-    assert _LEAK_MARKER in first_system_prompt
-    assert "AGENTS.md" in first_system_prompt
-
-    assert result.record.markdown_path is not None
-    jsonl_text = result.record.jsonl_path.read_text(encoding="utf-8")
-    md_text = result.record.markdown_path.read_text(encoding="utf-8")
-    assert _LEAK_MARKER not in jsonl_text
-    assert _LEAK_MARKER not in md_text
-    assert "Do not record raw prompts" not in jsonl_text
-    assert "Do not record raw prompts" not in md_text
-
-    events = _read_jsonl(result.record.jsonl_path)
-    session_completed = [
-        event for event in events if event["type"] == "native.session.completed"
-    ]
-    assert session_completed
-    payload = session_completed[0]["payload"]
-    instruction_files = payload.get("workspace_instruction_files")
-    assert isinstance(instruction_files, list)
-    assert len(instruction_files) == 1
-    only = instruction_files[0]
-    assert only["path_label"] == "AGENTS.md"
-    assert only["sha256"] == _expected_agents_md_sha256()
-    assert only["byte_length"] == len(_AGENTS_MD.encode("utf-8"))
 
 
 # -- one-shot ---------------------------------------------------------------

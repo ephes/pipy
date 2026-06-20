@@ -1,15 +1,14 @@
 """Product-path integration tests for user-directed ``@file`` context.
 
-These drive the real CLI (`pipy repl --agent pipy-native`) in both the no-tool
-and tool-loop modes, feeding a genuine user prompt that names workspace files
-with ``@path``. They assert the bounded excerpts reach the provider request/
-context and that no file content leaks into the metadata-first archive.
+These drive the tool-loop product REPL (`pipy repl --agent pipy-native`),
+feeding a genuine user prompt that names workspace files with ``@path``. They
+assert the bounded excerpts reach the provider request/context and that no file
+content leaks into the metadata-first archive.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
@@ -21,7 +20,6 @@ from collections.abc import Mapping
 
 from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.tools import UserMessage
@@ -66,85 +64,6 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
     ]
-
-
-def test_no_tool_repl_loads_at_file_context_into_provider_request(
-    tmp_path, monkeypatch
-) -> None:
-    root = tmp_path / "sessions"
-    (tmp_path / "notes.txt").write_text(
-        "ALPHA_FILE_LINE\nBETA_FILE_LINE\n", encoding="utf-8"
-    )
-    captured_requests: list[ProviderRequest] = []
-
-    class CapturingProvider:
-        name = "fake"
-
-        def __init__(self, model_id: str) -> None:
-            self.model_id = model_id
-
-        def complete(
-            self, request: ProviderRequest, **_kwargs: object
-        ) -> ProviderResult:
-            captured_requests.append(request)
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="ANSWER",
-                usage={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
-            )
-
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CapturingProvider)
-    monkeypatch.setattr(
-        sys, "stdin", StringIO("summarize @notes.txt for me\n/exit\n")
-    )
-
-    exit_code = main(
-        [
-            "repl",
-            "--agent",
-            "pipy-native",
-            "--repl-mode",
-            "no-tool",
-            "--slug",
-            "native-at-file",
-            "--root",
-            str(root),
-            "--cwd",
-            str(tmp_path),
-        ]
-    )
-
-    assert exit_code == 0
-    assert len(captured_requests) == 1
-    user_prompt = captured_requests[0].user_prompt
-    # The user's literal text is preserved.
-    assert "summarize @notes.txt for me" in user_prompt
-    # The bounded excerpt content reached the provider request.
-    assert "ALPHA_FILE_LINE" in user_prompt
-    assert "BETA_FILE_LINE" in user_prompt
-
-    finalized = list((root / "pipy").glob("*/*/*.jsonl"))
-    assert len(finalized) == 1
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[
-        0
-    ].with_suffix(".md").read_text(encoding="utf-8")
-    # No file contents or raw prompt body leak into the archive.
-    assert "ALPHA_FILE_LINE" not in combined
-    assert "BETA_FILE_LINE" not in combined
-    assert "summarize @notes.txt for me" not in combined
-    # Safe counters are recorded.
-    events = read_jsonl(finalized[0])
-    completed = [
-        event["payload"]
-        for event in events
-        if event["type"] == "native.session.completed"
-    ][0]
-    assert completed["file_reference_loaded_count"] == 1
 
 
 def test_tool_loop_repl_loads_at_file_context_into_provider_messages(

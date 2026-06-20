@@ -103,6 +103,83 @@ def test_default_selection_for_rows_unknown_provider_raises():
         )
 
 
+def test_shared_default_selection_fallback_stays_fake_native_bootstrap(tmp_path):
+    """The SHARED default resolver keeps the inert ``fake-native-bootstrap``.
+
+    ``default_selection_for`` is shared by non-REPL callers (e.g. one-shot
+    ``pipy run``), so its no-provider fallback must NOT be the tool-loop
+    automation fake. Only the product REPL upgrades fake -> fake-tools, at its
+    own resolution point.
+    """
+
+    selection = default_selection_for(
+        native_provider=None,
+        native_model=None,
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
+
+    assert selection == NativeModelSelection("fake", "fake-native-bootstrap")
+
+
+def test_normalize_repl_fake_selection_upgrades_fake_and_leaves_real():
+    """REPL-only normalization upgrades any ``fake`` selection to fake-tools."""
+
+    from pipy_harness.native.repl_state import (
+        REPL_FAKE_FALLBACK_SELECTION,
+        normalize_repl_fake_selection,
+    )
+
+    assert (
+        normalize_repl_fake_selection(
+            NativeModelSelection("fake", "fake-native-bootstrap")
+        )
+        == REPL_FAKE_FALLBACK_SELECTION
+    )
+    assert REPL_FAKE_FALLBACK_SELECTION == NativeModelSelection("fake", "fake-tools")
+    # Real providers are returned unchanged (so genuinely tool-incapable real
+    # providers still error at the session gate rather than being rewritten).
+    real = NativeModelSelection("openai", "gpt-5.5")
+    assert normalize_repl_fake_selection(real) == real
+
+
+def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):
+    """Logout must persist the inert shared default, not the tool-loop fake.
+
+    The persisted/shared selection after a codex logout must stay
+    ``fake-native-bootstrap`` so it never leaks the automation fake into shared
+    state; the REPL upgrades the *live* selection at its consumption point.
+    """
+
+    from pipy_harness.native.repl_state import (
+        NativeDefaultsStore,
+        normalize_repl_fake_selection,
+    )
+
+    class _StubAuthManager:
+        def logout(self) -> bool:
+            return True
+
+    store = NativeDefaultsStore(tmp_path / "defaults.json")
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("openai-codex", "gpt-5.5"),
+        provider_factory=lambda sel: _StubProvider(),
+        defaults_store=store,
+        auth_manager_factory=lambda: _StubAuthManager(),
+    )
+
+    ok, _msg = state.logout("openai-codex")
+
+    assert ok
+    # Shared/persisted default is the inert bootstrap, NOT fake-tools.
+    assert state.selection == NativeModelSelection("fake", "fake-native-bootstrap")
+    assert store.load() == NativeModelSelection("fake", "fake-native-bootstrap")
+    # The REPL consumption point still yields a tool-capable selection.
+    assert normalize_repl_fake_selection(state.selection) == NativeModelSelection(
+        "fake", "fake-tools"
+    )
+
+
 class _StubProvider:
     name = "fake"
     model_id = "fake-native-bootstrap"

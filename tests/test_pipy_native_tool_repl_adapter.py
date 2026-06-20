@@ -1,9 +1,9 @@
-"""Slice 5 tests: the `--repl-mode tool-loop` adapter and CLI flag.
+"""Tests for the tool-loop product REPL adapter.
 
-These tests pin that `--repl-mode` defaults to `no-tool`, that
-`--repl-mode tool-loop` is rejected when the selected provider has
-`supports_tool_calls=False`, that `--tool-budget` is honored, and that the
-adapter wires `NativeToolReplSession` against the production tool registry.
+These tests pin that `PipyNativeToolReplAdapter` is rejected when the selected
+provider has `supports_tool_calls=False`, that `--tool-budget` is honored, and
+that the adapter wires `NativeToolReplSession` against the production tool
+registry while keeping its archive metadata metadata-only.
 """
 
 from __future__ import annotations
@@ -14,12 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from pipy_harness.adapters import (
-    PipyNativeReplAdapter,
-    PipyNativeToolReplAdapter,
-)
+from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.cli import build_parser
 from pipy_harness.models import RunRequest
 from pipy_harness.native import (
     FakeNativeProvider,
@@ -38,26 +34,36 @@ class _NullEventSink:
         return None
 
 
-def test_repl_mode_defaults_to_auto():
-    parser = build_parser()
-    args = parser.parse_args(["repl"])
+def test_repl_explicit_fake_provider_resolves_to_tool_capable_selection(
+    tmp_path: Path, monkeypatch,
+):
+    """``pipy repl --native-provider fake`` must yield a tool-capable provider.
 
-    assert args.repl_mode == "auto"
-    assert args.tool_budget == 50
+    The product REPL always builds the tool-loop session. Whenever the resolved
+    provider is ``fake`` — from an explicit ``--native-provider fake`` (with or
+    without ``fake-native-bootstrap``), the no-provider fallback, or a stored
+    default — the REPL must normalize to the tool-capable ``fake-tools`` model.
+    The test does NOT inject a tool-capable provider; it proves the resolver
+    upgrades it.
+    """
 
+    from pipy_harness.cli import _tool_repl_adapter_for
 
-def test_repl_mode_tool_loop_flag_round_trips():
-    parser = build_parser()
-    args = parser.parse_args([
-        "repl",
-        "--repl-mode",
-        "tool-loop",
-        "--tool-budget",
-        "5",
-    ])
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "defaults.json"))
 
-    assert args.repl_mode == "tool-loop"
-    assert args.tool_budget == 5
+    for native_model in (None, "fake-native-bootstrap"):
+        adapter = _tool_repl_adapter_for(
+            "fake",
+            native_model,
+            cwd=tmp_path,
+            tool_budget=5,
+        )
+        selection = adapter._current_selection()
+        assert selection.provider_name == "fake"
+        provider = adapter._current_provider()
+        assert provider.supports_tool_calls is True, (
+            f"native_model={native_model!r} resolved to a non-tool-capable provider"
+        )
 
 
 def test_pipy_native_tool_repl_adapter_requires_tool_capable_provider(
@@ -164,87 +170,3 @@ def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path)
         "tool_payload",
     }
     assert forbidden.isdisjoint(metadata.keys())
-
-
-def test_pipy_native_repl_adapter_no_tool_mode_unaffected_by_new_flag():
-    """The existing no-tool REPL adapter does not gain a tool registry."""
-
-    assert not hasattr(PipyNativeReplAdapter, "tool_registry")
-
-
-# --------------------- slice 12: --repl-mode auto resolver -----------------
-
-
-def test_resolve_repl_mode_auto_falls_back_to_no_tool_for_inert_provider():
-    """When the selected provider is statically inert, `auto` uses no-tool."""
-
-    from pipy_harness import cli
-
-    resolved = cli._resolve_repl_mode(
-        "auto", native_provider="fake", native_model="fake-native-bootstrap"
-    )
-
-    assert resolved == "no-tool"
-
-
-def test_resolve_repl_mode_auto_routes_to_tool_loop_for_tool_capable_provider():
-    from pipy_harness import cli
-
-    resolved = cli._resolve_repl_mode(
-        "auto", native_provider="openai", native_model="gpt-5.5"
-    )
-
-    assert resolved == "tool-loop"
-
-
-def test_resolve_repl_mode_explicit_no_tool_overrides_auto():
-    from pipy_harness import cli
-
-    resolved = cli._resolve_repl_mode(
-        "no-tool", native_provider="openai", native_model="gpt-5.5"
-    )
-
-    assert resolved == "no-tool"
-
-
-def test_resolve_repl_mode_auto_probes_extension_provider_capability(tmp_path):
-    from pipy_harness import cli
-    from pipy_harness.native.catalog_state import ProviderCatalogState
-    from pipy_harness.native.extension_runtime import ExtensionProvider, RegisteredProvider
-
-    class _ToolCapableExtensionProvider:
-        supports_tool_calls = True
-
-    catalog_state = ProviderCatalogState(
-        models_json_path=tmp_path / "models.json",
-        extension_providers=(
-            RegisteredProvider(
-                provider=ExtensionProvider(
-                    name="extprov",
-                    default_model="ext-model",
-                    models=("ext-model",),
-                    factory=lambda *_args: _ToolCapableExtensionProvider(),
-                ),
-                extension="test-extension",
-            ),
-        ),
-    )
-
-    resolved = cli._resolve_repl_mode(
-        "auto",
-        native_provider="extprov",
-        native_model="ext-model",
-        catalog_state=catalog_state,
-    )
-
-    assert resolved == "tool-loop"
-
-
-def test_resolve_repl_mode_explicit_tool_loop_overrides_auto():
-    from pipy_harness.cli import _resolve_repl_mode
-
-    resolved = _resolve_repl_mode(
-        "tool-loop", native_provider="openai", native_model="gpt-test"
-    )
-
-    assert resolved == "tool-loop"

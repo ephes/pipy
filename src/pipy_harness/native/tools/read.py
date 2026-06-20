@@ -3,8 +3,8 @@
 `ReadTool` returns a bounded UTF-8 excerpt of a bounded-size workspace-relative file. It
 reuses `pipy_harness.native.read_only_tool` validation helpers (path safety,
 `.git`/`.gitignore` defaults, control-character and secret-looking content
-checks) so the existing `/read`, `/ask-file`, and `/propose-file` boundaries
-and the new model-driven tool loop share the same workspace policy.
+checks) so the model-driven tool loop shares the same workspace policy as the
+other archive-safe read boundaries.
 
 The tool returns provider-visible content through `ToolExecutionResult`. No
 prompts, raw arguments, diffs, or file paths cross the archive boundary from

@@ -1505,8 +1505,8 @@ def test_visible_prompt_foundation_is_not_threaded_into_runtime_paths():
     session_source = (ROOT / "src/pipy_harness/native/session.py").read_text(
         encoding="utf-8"
     )
-    assert "READ_ONLY_REPL_COMMAND" in session_source
-    assert "NativeToolApprovalMode.NOT_REQUIRED" in session_source
+    assert "class NativeAgentSession" in session_source
+    assert "NativeToolApprovalMode.REQUIRED" in session_source
     assert "resolve_read_only_workspace_approval" not in session_source
     assert "NativeInteractiveApprovalPromptResolver" not in session_source
 

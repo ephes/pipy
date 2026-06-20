@@ -30,7 +30,6 @@ from pipy_harness.native.repl_input import (
     _SlashMenuLineEditor,
     native_repl_input_for,
 )
-from pipy_harness.native.session import _REPL_COMMAND_GROUPS
 
 
 class TtyStringIO(StringIO):
@@ -64,6 +63,11 @@ class FakeKeyBindings:
 class FakePromptToolkitOutput:
     def __init__(self) -> None:
         self.enable_cpr = True
+
+
+def test_proposal_commands_absent_from_completions() -> None:
+    for gone in ("/read", "/ask-file", "/propose-file", "/apply-proposal"):
+        assert gone not in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
 
 
 def test_plain_repl_input_prints_prompt_to_stderr_and_reads_line() -> None:
@@ -407,66 +411,6 @@ def test_prompt_toolkit_repl_completer_supports_async_completion_protocol() -> N
     ]
 
 
-def test_prompt_toolkit_repl_completer_suggests_workspace_paths_for_file_commands(
-    tmp_path,
-) -> None:
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
-    (docs / "harness-spec.md").write_text("safe\n", encoding="utf-8")
-    (tmp_path / "src").mkdir()
-    (tmp_path / ".gitignore").write_text(
-        "ignored.txt\nignored-dir/\n", encoding="utf-8"
-    )
-    (tmp_path / "ignored.txt").write_text("safe\n", encoding="utf-8")
-    ignored_dir = tmp_path / "ignored-dir"
-    ignored_dir.mkdir()
-    (ignored_dir / "safe.txt").write_text("safe\n", encoding="utf-8")
-    (tmp_path / "bundle.min.js").write_text("generated\n", encoding="utf-8")
-    (tmp_path / "secret_token.py").write_text("sensitive\n", encoding="utf-8")
-
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    root_matches = list(completer.get_completions(FakeDocument("/read "), None))
-    assert [(match.text, match.start_position) for match in root_matches] == [
-        (".gitignore", 0),
-        ("docs/", 0),
-        ("src/", 0),
-    ]
-
-    docs_matches = list(completer.get_completions(FakeDocument("/read docs/h"), None))
-    assert [(match.text, match.start_position) for match in docs_matches] == [
-        ("docs/harness-spec.md", -6)
-    ]
-
-
-def test_prompt_toolkit_repl_completer_limits_path_completion_to_path_argument(
-    tmp_path,
-) -> None:
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    apply_matches = list(
-        completer.get_completions(FakeDocument("/apply-proposal docs/b"), None)
-    )
-    assert [(match.text, match.start_position) for match in apply_matches] == [
-        ("docs/backlog.md", -6)
-    ]
-
-    assert (
-        list(
-            completer.get_completions(
-                FakeDocument("/ask-file docs/b -- what changed?"),
-                None,
-            )
-        )
-        == []
-    )
-    assert list(completer.get_completions(FakeDocument("read docs/b"), None)) == []
-    assert list(completer.get_completions(FakeDocument("/verify just"), None)) == []
-
-
 def test_prompt_toolkit_repl_completer_suggests_file_references_in_provider_prompts(
     tmp_path: Path,
 ) -> None:
@@ -496,34 +440,6 @@ def test_prompt_toolkit_repl_completer_suggests_file_references_in_provider_prom
     ]
 
 
-def test_prompt_toolkit_repl_completer_suggests_file_references_in_command_free_text(
-    tmp_path: Path,
-) -> None:
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    ask_matches = list(
-        completer.get_completions(
-            FakeDocument("/ask-file README.md -- compare @docs/b"), None
-        )
-    )
-    propose_matches = list(
-        completer.get_completions(
-            FakeDocument("/propose-file README.md -- update using @docs/b"),
-            None,
-        )
-    )
-
-    assert [(match.text, match.start_position) for match in ask_matches] == [
-        ("@docs/backlog.md", -7)
-    ]
-    assert [(match.text, match.start_position) for match in propose_matches] == [
-        ("@docs/backlog.md", -7)
-    ]
-
-
 def test_prompt_toolkit_repl_completer_restricts_file_references_to_safe_contexts(
     tmp_path: Path,
 ) -> None:
@@ -531,11 +447,6 @@ def test_prompt_toolkit_repl_completer_restricts_file_references_to_safe_context
     (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
     completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
 
-    path_matches = list(completer.get_completions(FakeDocument("/read @docs/b"), None))
-    assert path_matches == []
-    assert (
-        list(completer.get_completions(FakeDocument("/ask-file @docs/b"), None)) == []
-    )
     assert list(completer.get_completions(FakeDocument("/verify @docs/b"), None)) == []
     assert list(completer.get_completions(FakeDocument("compare @docs/b "), None)) == []
 
@@ -563,60 +474,6 @@ def test_prompt_toolkit_repl_completer_rejects_unsafe_file_reference_prefixes(
     assert list(completer.get_completions(FakeDocument(text_before_cursor), None)) == []
 
 
-@pytest.mark.parametrize(
-    "text_before_cursor",
-    (
-        "/read /etc/passwd",
-        "/read ~/notes",
-        "/read ../",
-        "/read docs\\backlog.md",
-        "/read docs/*",
-    ),
-)
-def test_prompt_toolkit_repl_completer_rejects_unsafe_path_prefixes(
-    tmp_path: Path,
-    text_before_cursor: str,
-) -> None:
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "backlog.md").write_text("safe\n", encoding="utf-8")
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    assert list(completer.get_completions(FakeDocument(text_before_cursor), None)) == []
-
-
-def test_prompt_toolkit_repl_completer_lists_trailing_slash_directory_contents(
-    tmp_path: Path,
-) -> None:
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "backlog.md").write_text("safe\n", encoding="utf-8")
-    (docs / "session-storage.md").write_text("safe\n", encoding="utf-8")
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    matches = list(completer.get_completions(FakeDocument("/read docs/"), None))
-
-    assert [(match.text, match.start_position) for match in matches] == [
-        ("docs/backlog.md", -5),
-        ("docs/session-storage.md", -5),
-    ]
-
-
-def test_prompt_toolkit_repl_completer_skips_symlinks_outside_workspace(
-    tmp_path: Path,
-) -> None:
-    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
-    outside.write_text("safe\n", encoding="utf-8")
-    (tmp_path / "outside-link.txt").symlink_to(outside)
-    (tmp_path / "visible.txt").write_text("safe\n", encoding="utf-8")
-    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=tmp_path)
-
-    matches = list(completer.get_completions(FakeDocument("/read "), None))
-
-    assert [(match.text, match.start_position) for match in matches] == [
-        ("visible.txt", 0)
-    ]
-
-
 def test_prompt_toolkit_repl_completer_skips_path_completion_without_workspace() -> (
     None
 ):
@@ -626,17 +483,6 @@ def test_prompt_toolkit_repl_completer_skips_path_completion_without_workspace()
     assert [(match.text, match.start_position) for match in command_matches] == [
         ("/model", -2)
     ]
-    assert list(completer.get_completions(FakeDocument("/read docs/b"), None)) == []
-
-
-def test_prompt_toolkit_slash_command_completions_match_repl_help_commands() -> None:
-    expected_commands = tuple(
-        usage.split(maxsplit=1)[0]
-        for group in _REPL_COMMAND_GROUPS
-        for usage in group.usages
-    )
-
-    assert DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS == expected_commands
 
 
 class FakeCompletionWithMeta:
@@ -674,8 +520,8 @@ def test_repl_completer_attaches_descriptions_to_slash_command_completions() -> 
 
     matches = list(completer.get_completions(FakeDocument("/r"), None))
 
-    assert [match.text for match in matches] == ["/read", "/reload"]
-    assert matches[0].display_meta == DEFAULT_REPL_COMMAND_DESCRIPTIONS["/read"]
+    assert [match.text for match in matches] == ["/reload"]
+    assert matches[0].display_meta == DEFAULT_REPL_COMMAND_DESCRIPTIONS["/reload"]
 
 
 def test_repl_completer_descriptions_cover_every_default_command() -> None:
@@ -696,7 +542,7 @@ def test_readline_repl_input_matches_for_slash_prefix_filters_commands() -> None
     instance = ReadlineNativeReplInput(error_stream=StringIO())
     matches = instance.matches_for("/r")
 
-    assert matches == ["/read", "/reload"]
+    assert matches == ["/reload"]
 
 
 def test_readline_repl_input_matches_for_non_command_text_returns_empty() -> None:
@@ -720,13 +566,13 @@ def test_readline_repl_input_display_matches_writes_command_descriptions() -> No
     error_stream = StringIO()
     instance = ReadlineNativeReplInput(error_stream=error_stream)
 
-    instance._display_matches("/", ["/help", "/read"], longest_match_length=5)
+    instance._display_matches("/", ["/help", "/reload"], longest_match_length=5)
 
     rendered = error_stream.getvalue()
     assert "/help" in rendered
     assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/help"] in rendered
-    assert "/read" in rendered
-    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/read"] in rendered
+    assert "/reload" in rendered
+    assert DEFAULT_REPL_COMMAND_DESCRIPTIONS["/reload"] in rendered
 
 
 def test_readline_native_repl_input_rejects_captured_streams() -> None:

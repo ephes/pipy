@@ -682,10 +682,6 @@ def _looks_like_slash_menu_row(stripped: str) -> bool:
         "/login",
         "/logout",
         "/model",
-        "/read",
-        "/ask-file",
-        "/propose-file",
-        "/apply-proposal",
         "/exit",
         "/quit",
     }

@@ -13,7 +13,6 @@ from typing import Any
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
-    PipyNativeReplAdapter,
     PipyNativeToolReplAdapter,
     SubprocessAdapter,
 )
@@ -86,23 +85,6 @@ STREAMING_NATIVE_PROVIDERS = frozenset({"openai-codex", "fake"})
 """Native providers that advertise streaming text deltas through
 `ProviderPort.complete(..., stream_sink=...)`. `--stream` fails closed
 with a stderr diagnostic when the active provider is not in this set."""
-
-TOOL_CAPABLE_NATIVE_APIS = frozenset(
-    {
-        "anthropic-messages",
-        "openai-responses",
-        "openai-completions",
-        "openai-codex-responses",
-        "google-generative-ai",
-        "google-vertex",
-        "amazon-bedrock",
-        "azure-openai-responses",
-        "cloudflare-workers-ai",
-        "mistral",
-    }
-)
-"""Catalog API families whose provider adapters support tool calls."""
-
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -254,26 +236,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     repl_parser.add_argument(
-        "--repl-mode",
-        choices=["auto", "no-tool", "tool-loop"],
-        default="auto",
-        help=(
-            "Native REPL mode. auto (the default) launches the bounded "
-            "model-driven tool loop when the selected provider advertises "
-            "supports_tool_calls=True and falls back to the existing "
-            "line-oriented REPL otherwise. no-tool forces the existing REPL "
-            "with /read, /ask-file, /propose-file, and /apply-proposal. "
-            "tool-loop forces the bounded tool loop and "
-            "errors out when the provider is not tool-capable."
-        ),
-    )
-    repl_parser.add_argument(
         "--tool-budget",
         type=int,
         default=50,
         help=(
-            "Per-user-turn tool invocation budget for --repl-mode tool-loop. "
-            "Default 50, capped at 200."
+            "Per-user-turn tool invocation budget for the model-driven tool "
+            "loop. Default 50, capped at 200."
         ),
     )
     repl_parser.add_argument(
@@ -907,7 +875,7 @@ def main(argv: list[str] | None = None) -> int:
                 input_runtime=args.input_runtime,
                 workspace=args.cwd,
             )
-            repl_adapter: PipyNativeReplAdapter | PipyNativeToolReplAdapter
+            repl_adapter: PipyNativeToolReplAdapter
             # The native product session tree (Pi-style --session/--fork/-c/-r)
             # is the product session source; the old metadata-only --resume
             # RECORD / --branch LABEL repl flags were retired in favour of it.
@@ -938,69 +906,39 @@ def main(argv: list[str] | None = None) -> int:
                 settings_manager=settings_manager,
                 resource_options=resource_options,
             )
-            resolved_repl_mode = _resolve_repl_mode(
-                args.repl_mode,
-                native_provider=eff_native_provider,
-                native_model=eff_native_model,
-                catalog_state=startup_catalog_state,
-            )
-            if resource_options.extension_flag_tokens and resolved_repl_mode != "tool-loop":
-                print(
-                    "pipy: extension flags require tool-loop mode",
-                    file=sys.stderr,
-                )
-                return 2
             # Resolve the Pi-style native product session for this run from the
             # startup flags. ``pipy-session`` is a separate metadata archive and
             # is never the product session source.
             native_session = _resolve_native_startup_session(args)
-            if resolved_repl_mode == "tool-loop":
-                if args.tool_budget < 1 or args.tool_budget > 200:
-                    raise ValueError(
-                        "--tool-budget must be in [1, 200]; got "
-                        f"{args.tool_budget}"
-                    )
-                reference_roots = _resolve_reference_roots(
-                    args.read_root,
-                    cwd=cwd,
+            # The product REPL is always the bounded model-driven tool loop.
+            if args.tool_budget < 1 or args.tool_budget > 200:
+                raise ValueError(
+                    "--tool-budget must be in [1, 200]; got " f"{args.tool_budget}"
                 )
-                repl_adapter = _tool_repl_adapter_for(
-                    eff_native_provider,
-                    eff_native_model,
-                    cwd=cwd,
-                    tool_budget=args.tool_budget,
-                    archive_transcript=args.archive_transcript,
-                    input_runtime=args.input_runtime,
-                    reference_roots=reference_roots,
-                    resume_context=resume_context,
-                    resume_branch_label=resume_branch_label,
-                    native_session=native_session,
-                    thinking=args.thinking,
-                    api_key=args.api_key,
-                    settings_manager=settings_manager,
-                    system_prompt_source=args.system_prompt,
-                    append_system_prompt_sources=args.append_system_prompt,
-                    no_context_files=args.no_context_files,
-                    resource_options=resource_options,
-                    catalog_state=startup_catalog_state,
-                )
-            else:
-                repl_adapter = _repl_adapter_for(
-                    eff_native_provider,
-                    eff_native_model,
-                    cwd=cwd,
-                    input_runtime=args.input_runtime,
-                    resume_context=resume_context,
-                    resume_branch_label=resume_branch_label,
-                    thinking=args.thinking,
-                    api_key=args.api_key,
-                    settings_manager=settings_manager,
-                    system_prompt_source=args.system_prompt,
-                    append_system_prompt_sources=args.append_system_prompt,
-                    no_context_files=args.no_context_files,
-                    resource_options=resource_options,
-                    catalog_state=startup_catalog_state,
-                )
+            reference_roots = _resolve_reference_roots(
+                args.read_root,
+                cwd=cwd,
+            )
+            repl_adapter = _tool_repl_adapter_for(
+                eff_native_provider,
+                eff_native_model,
+                cwd=cwd,
+                tool_budget=args.tool_budget,
+                archive_transcript=args.archive_transcript,
+                input_runtime=args.input_runtime,
+                reference_roots=reference_roots,
+                resume_context=resume_context,
+                resume_branch_label=resume_branch_label,
+                native_session=native_session,
+                thinking=args.thinking,
+                api_key=args.api_key,
+                settings_manager=settings_manager,
+                system_prompt_source=args.system_prompt,
+                append_system_prompt_sources=args.append_system_prompt,
+                no_context_files=args.no_context_files,
+                resource_options=resource_options,
+                catalog_state=startup_catalog_state,
+            )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
             # the long-lived JSONL protocol (rpc). The interactive REPL — which
@@ -1695,66 +1633,6 @@ def _apply_settings_theme_env(file_settings: dict[str, object]) -> None:
         os.environ[THEME_ENV_VAR] = file_theme
 
 
-def _repl_adapter_for(
-    native_provider: str | None,
-    native_model: str | None,
-    *,
-    cwd: Path,
-    input_runtime: str = "auto",
-    resume_context: Any = None,
-    resume_branch_label: str | None = None,
-    thinking: str | None = None,
-    api_key: str | None = None,
-    settings_manager: SettingsManager | None = None,
-    system_prompt_source: str | None = None,
-    append_system_prompt_sources: list[str] | None = None,
-    no_context_files: bool = False,
-    resource_options: RuntimeResourceOptions | None = None,
-    catalog_state: ProviderCatalogState | None = None,
-) -> PipyNativeReplAdapter:
-    defaults_store = NativeDefaultsStore(default_native_defaults_path())
-    if catalog_state is None:
-        catalog_state = _build_catalog_state(
-            runtime_api_key=api_key,
-            cwd=cwd,
-            settings_manager=settings_manager,
-            resource_options=resource_options,
-        )
-    selection = default_selection_for(
-        native_provider=native_provider,
-        native_model=native_model,
-        defaults_store=defaults_store if native_provider is None and native_model is None else None,
-        rows=catalog_state.get_all(),
-    )
-    using_stored_default = native_provider is None and native_model is None
-    provider_state = NativeReplProviderState(
-        selection=selection,
-        provider_factory=_provider_factory_for(settings_manager),
-        defaults_store=defaults_store,
-        auth_manager_factory=OpenAICodexAuthManager,
-        openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=catalog_state,
-        thinking_level=_validated_thinking_level(thinking),
-    )
-    if using_stored_default and not provider_state.provider_available(selection.provider_name):
-        provider_state.selection = _fallback_default_selection(provider_state)
-    return PipyNativeReplAdapter(
-        provider_state=provider_state,
-        input_runtime=input_runtime,
-        instruction_loader=(
-            empty_workspace_instruction_loader
-            if no_context_files
-            else default_workspace_instruction_loader
-        ),
-        resume_context=resume_context,
-        resume_branch_label=resume_branch_label,
-        settings_manager=settings_manager,
-        system_prompt_source=system_prompt_source,
-        append_system_prompt_sources=append_system_prompt_sources,
-        resource_options=resource_options,
-    )
-
-
 def _fallback_default_selection(
     provider_state: NativeReplProviderState,
 ) -> NativeModelSelection:
@@ -1762,10 +1640,14 @@ def _fallback_default_selection(
 
     Mirrors Pi's behavior of surfacing a real provider/model in the footer
     when one is configured, rather than showing the deterministic fake
-    bootstrap. Falls back to fake only when no real provider is reachable.
+    bootstrap. Falls back to the tool-capable fake only when no real provider
+    is reachable, since the product REPL always builds the tool-loop session.
     """
 
-    from pipy_harness.native.repl_state import AUTO_DEFAULT_PROVIDER_PRIORITY
+    from pipy_harness.native.repl_state import (
+        AUTO_DEFAULT_PROVIDER_PRIORITY,
+        REPL_FAKE_FALLBACK_SELECTION,
+    )
 
     for provider_name in AUTO_DEFAULT_PROVIDER_PRIORITY:
         if provider_state.provider_available(provider_name):
@@ -1773,7 +1655,7 @@ def _fallback_default_selection(
                 provider_name=provider_name,
                 model_id=DEFAULT_NATIVE_MODELS[provider_name],
             )
-    return NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+    return REPL_FAKE_FALLBACK_SELECTION
 
 
 def _run_startup_resume_picker(args: Any) -> Path | None:
@@ -1826,71 +1708,6 @@ def _startup_stdin_is_tty() -> bool:
         return False
 
 
-def _resolve_repl_mode(
-    requested: str,
-    *,
-    native_provider: str | None,
-    native_model: str | None,
-    cwd: Path | None = None,
-    settings_manager: SettingsManager | None = None,
-    resource_options: RuntimeResourceOptions | None = None,
-    api_key: str | None = None,
-    catalog_state: ProviderCatalogState | None = None,
-) -> str:
-    """Resolve the effective REPL mode for slice 12 of the parity track.
-
-    `auto` (the default) routes to `tool-loop` when the selected provider
-    advertises `supports_tool_calls=True` and falls back to `no-tool`
-    otherwise. Explicit `no-tool` and `tool-loop` are returned unchanged.
-    """
-
-    if requested != "auto":
-        return requested
-    if catalog_state is None:
-        catalog_state = _build_catalog_state(
-            runtime_api_key=api_key,
-            cwd=cwd,
-            settings_manager=settings_manager,
-            resource_options=resource_options,
-        )
-    try:
-        selection = default_selection_for(
-            native_provider=native_provider,
-            native_model=native_model,
-            defaults_store=None,
-            rows=catalog_state.get_all(),
-        )
-    except ValueError:
-        # Unknown provider/model — the adapter build will surface the error;
-        # default the probe to no-tool.
-        return "no-tool"
-    if selection.provider_name == "fake" and selection.model_id == AUTOMATION_FAKE_MODEL_ID:
-        return "tool-loop"
-    row = catalog_state.find(selection.provider_name, selection.model_id)
-    if row is None:
-        return "no-tool"
-    if row.api == "extension-provider":
-        # Extension provider capabilities are exposed by the extension-built
-        # port rather than the static catalog row. Keep this probe limited to
-        # extension providers so built-in/custom HTTP-capable adapters are not
-        # constructed during startup mode resolution.
-        provider_state = NativeReplProviderState(
-            selection=selection,
-            provider_factory=_native_provider_for_selection,
-            catalog_state=catalog_state,
-            persist_defaults=False,
-        )
-        try:
-            provider = provider_state.current_provider()
-        except Exception:
-            return "no-tool"
-        return "tool-loop" if getattr(provider, "supports_tool_calls", False) else "no-tool"
-    spec = native_provider_spec(row.provider_name)
-    if spec is not None:
-        return "tool-loop" if spec.supports_tool_calls else "no-tool"
-    return "tool-loop" if row.api in TOOL_CAPABLE_NATIVE_APIS else "no-tool"
-
-
 def _tool_repl_adapter_for(
     native_provider: str | None,
     native_model: str | None,
@@ -1920,6 +1737,8 @@ def _tool_repl_adapter_for(
             settings_manager=settings_manager,
             resource_options=resource_options,
         )
+    from pipy_harness.native.repl_state import normalize_repl_fake_selection
+
     selection = default_selection_for(
         native_provider=native_provider,
         native_model=native_model,
@@ -1928,6 +1747,10 @@ def _tool_repl_adapter_for(
         else None,
         rows=catalog_state.get_all(),
     )
+    # The product REPL always builds the tool-loop session, so any ``fake``
+    # selection (explicit ``--native-provider fake``, a stored fake default, or
+    # the no-provider fallback) must use the tool-capable ``fake-tools`` model.
+    selection = normalize_repl_fake_selection(selection)
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
         selection=selection,
@@ -1941,7 +1764,9 @@ def _tool_repl_adapter_for(
     if using_stored_default and not provider_state.provider_available(
         selection.provider_name
     ):
-        provider_state.selection = _fallback_default_selection(provider_state)
+        provider_state.selection = normalize_repl_fake_selection(
+            _fallback_default_selection(provider_state)
+        )
     transcript_sink = None
     if archive_transcript:
         from pipy_harness.native.transcripts import TranscriptSink

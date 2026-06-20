@@ -22,7 +22,6 @@ from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
     NativeAgentSession,
-    NativeNoToolReplSession,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
 )
@@ -139,126 +138,11 @@ class PipyNativeAdapter:
         )
 
 
-class PipyNativeReplAdapter:
-    """Run a bounded native pipy REPL through an injected provider."""
-
-    name = "pipy-native"
-
-    def __init__(
-        self,
-        provider: ProviderPort | None = None,
-        *,
-        provider_state: NativeReplProviderState | None = None,
-        input_stream: TextIO | None = None,
-        output_stream: TextIO | None = None,
-        error_stream: TextIO | None = None,
-        input_runtime: str = REPL_INPUT_RUNTIME_AUTO,
-        instruction_loader: WorkspaceInstructionLoader = empty_workspace_instruction_loader,
-        resume_context: ResumeContext | None = None,
-        resume_branch_label: str | None = None,
-        settings_manager: "SettingsManager | None" = None,
-        system_prompt_source: str | None = None,
-        append_system_prompt_sources: list[str] | None = None,
-        resource_options: RuntimeResourceOptions | None = None,
-    ) -> None:
-        if provider is None and provider_state is None:
-            raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
-        self.provider = provider
-        self.provider_state = provider_state
-        self.input_stream = input_stream or sys.stdin
-        self.output_stream = output_stream or sys.stdout
-        self.error_stream = error_stream or sys.stderr
-        self.input_runtime = input_runtime
-        self.instruction_loader = instruction_loader
-        self.resume_context = resume_context
-        self.resume_branch_label = resume_branch_label
-        self.settings_manager = settings_manager
-        self.system_prompt_source = system_prompt_source
-        self.append_system_prompt_sources = append_system_prompt_sources
-        self.resource_options = resource_options or RuntimeResourceOptions.empty()
-
-    def prepare(self, request: RunRequest) -> PreparedRun:
-        cwd = request.cwd.expanduser().resolve()
-        if not cwd.exists():
-            raise ValueError(f"cwd does not exist: {cwd}")
-        if not cwd.is_dir():
-            raise ValueError(f"cwd is not a directory: {cwd}")
-        if request.command:
-            raise ValueError("pipy-native repl does not accept a command after --")
-
-        selection = self._current_selection()
-        return PreparedRun(
-            command=(),
-            cwd=cwd,
-            adapter=self.name,
-            command_executable=self.name,
-            goal=request.goal or "Native REPL",
-            native_provider=request.native_provider or selection.provider_name,
-            native_model=request.native_model or selection.model_id,
-        )
-
-    def run(
-        self,
-        prepared: PreparedRun,
-        *,
-        event_sink: EventSink,
-        capture_policy: CapturePolicy,
-    ) -> AdapterResult:
-        selection = self._current_selection()
-        run_output = NativeNoToolReplSession(
-            provider=self.provider,
-            provider_state=self.provider_state,
-            input_runtime=self.input_runtime,
-            instruction_loader=self.instruction_loader,
-            resume_context=self.resume_context,
-            resume_branch_label=self.resume_branch_label,
-            settings_manager=self.settings_manager,
-            system_prompt_source=self.system_prompt_source,
-            append_system_prompt_sources=self.append_system_prompt_sources,
-            resource_options=self.resource_options,
-        ).run(
-            NativeRunInput(
-                goal=prepared.goal or "Native REPL",
-                cwd=prepared.cwd,
-                provider_name=prepared.native_provider or selection.provider_name,
-                model_id=prepared.native_model or selection.model_id,
-                system_prompt_id=SYSTEM_PROMPT_ID,
-                system_prompt_version=SYSTEM_PROMPT_VERSION,
-            ),
-            event_sink,
-            input_stream=self.input_stream,
-            output_stream=self.output_stream,
-            error_stream=self.error_stream,
-        )
-
-        return AdapterResult(
-            status=run_output.status,
-            exit_code=run_output.exit_code,
-            started_at=run_output.started_at,
-            ended_at=run_output.ended_at,
-            metadata={
-                "adapter": self.name,
-                "provider": run_output.provider_name,
-                "model_id": run_output.model_id,
-                "usage": run_output.usage or {},
-                "error_type": run_output.error_type,
-                "error_message": run_output.error_message,
-            },
-        )
-
-    def _current_selection(self) -> NativeModelSelection:
-        if self.provider_state is not None:
-            return self.provider_state.current_selection()
-        if self.provider is None:
-            raise ValueError("PipyNativeReplAdapter requires provider or provider_state")
-        return NativeModelSelection(self.provider.name, self.provider.model_id)
-
-
 class PipyNativeToolReplAdapter:
     """Run a bounded native pipy tool-loop REPL through an injected provider.
 
-    Slice 5 of the Tool-Loop Parity Track wires this adapter behind
-    `pipy repl --agent pipy-native --repl-mode tool-loop`. It constructs a
+    This adapter is the product REPL behind `pipy repl --agent pipy-native`.
+    It constructs a
     `NativeToolReplSession` with the current production tool registry (which
     holds only `read` at this slice) and the configured tool budget, and
     runs the loop against an injected provider.
@@ -371,7 +255,7 @@ class PipyNativeToolReplAdapter:
         if not provider.supports_tool_calls:
             raise ValueError(
                 f"provider {provider.name!r} does not advertise "
-                "supports_tool_calls=True; --repl-mode tool-loop requires a "
+                "supports_tool_calls=True; the pipy repl requires a "
                 "tool-capable provider"
             )
         discovery = self.instruction_loader(prepared.cwd)

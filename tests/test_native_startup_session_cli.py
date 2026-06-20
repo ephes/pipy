@@ -24,6 +24,7 @@ from pipy_harness.native.session_tree_commands import (
 
 class _FakeReplProvider:
     name = "fake"
+    supports_tool_calls = True
 
     def __init__(self, model_id: str) -> None:
         self.model_id = model_id
@@ -37,6 +38,7 @@ class _FakeReplProvider:
             started_at=now,
             ended_at=now,
             final_text="OUT",
+            tool_calls=(),
         )
 
 
@@ -340,12 +342,12 @@ def test_empty_fork_with_session_id_does_not_silently_open(tmp_path, monkeypatch
     )
 
 
-def test_retired_flag_rejected_in_no_tool_mode(tmp_path, monkeypatch, capfd) -> None:
+def test_retired_resume_flag_rejected(tmp_path, monkeypatch, capfd) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
         monkeypatch, tmp_path, cwd, "--session-dir", str(tmp_path / "store"),
-        "--repl-mode", "no-tool", "--resume", "rec",
+        "--resume", "rec",
     )
     err = capfd.readouterr().err
     assert code == 2
