@@ -38,7 +38,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.capture import sanitize_text
@@ -661,11 +661,13 @@ class _ExtensionToolPort:
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
         flags: Mapping[str, object] | None = None,
+        render_details_sink: MutableMapping[str, object] | None = None,
     ) -> None:
         self._registered = registered
         self._has_ui = has_ui
         self._notify_sink = notify_sink
         self._flags = dict(flags or {})
+        self._render_details_sink = render_details_sink
         tool = registered.tool
         self._definition = ToolDefinition(
             name=tool.name,
@@ -706,6 +708,14 @@ class _ExtensionToolPort:
         cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
         if len(content) > cap:
             content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
+        if (
+            self._render_details_sink is not None
+            and self._registered.tool.render_result is not None
+        ):
+            details = result.details if isinstance(result, ToolResult) else None
+            self._render_details_sink[request.provider_correlation_id] = (
+                dict(details) if isinstance(details, Mapping) else None
+            )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=content,
