@@ -38,6 +38,11 @@ from pipy_harness.native.editor_completion import (
     extract_path_prefix,
     path_candidates,
 )
+from pipy_harness.native.extension_runtime import FooterData
+from pipy_harness.native.tool_renderers import (
+    build_tool_render_theme,
+    render_chrome_component,
+)
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
@@ -200,6 +205,31 @@ class _FrameLine:
     text: str
     kind: str = "normal"
     meta: dict[str, Any] | None = None
+
+
+_WIDGET_MAX_LINES = 10
+_WIDGET_MAX_COUNT = 16
+_HEADER_MAX_LINES = 8
+_FOOTER_MAX_LINES = 4
+_TITLE_MAX_CHARS = 256
+_INDICATOR_MAX_FRAMES = 32
+_MIN_INPUT_ROWS = 1  # the input region is never starved below this
+
+
+@dataclass(slots=True)
+class _ChromeRegion:
+    """A stored chrome source + its last rendered snapshot.
+
+    ``source`` is a zero-arg factory (already bound to the theme / footer_data)
+    or a pre-coerced lines source. ``component`` is the built component for a
+    factory source (created once), used to call ``dispose()``. ``snapshot`` is
+    the rendered lines; ``width`` is the width they were rendered at."""
+
+    source: object
+    component: object | None
+    snapshot: tuple[str, ...]
+    width: int
+    is_factory: bool
 
 
 class _ExtensionSelectComponent:
@@ -453,6 +483,14 @@ class ToolLoopTerminalUi:
     extension_working_message: str | None = None
     extension_working_visible: bool = True
     extension_status: dict[str, str] = field(default_factory=dict)
+    extension_widgets_above: dict[str, "_ChromeRegion"] = field(default_factory=dict)
+    extension_widgets_below: dict[str, "_ChromeRegion"] = field(default_factory=dict)
+    extension_header: "_ChromeRegion | None" = None
+    extension_footer: "_ChromeRegion | None" = None
+    extension_title: str | None = None
+    _extension_title_pushed: bool = False
+    extension_indicator_frames: tuple[str, ...] | None = None
+    extension_indicator_interval_ms: float | None = None
     assistant_text: str = ""
     reasoning_text: str = ""
     tool_output_text: str = ""
@@ -1582,6 +1620,229 @@ class ToolLoopTerminalUi:
             else:
                 self.extension_status[safe_key] = sanitize_label_text(str(text))
         self.paint()
+
+    def _chrome_theme(self) -> object:
+        return build_tool_render_theme(chrome_style_for(self.terminal_stream))
+
+    def _build_region(
+        self, source: object, *, footer_data: object | None, max_lines: int
+    ) -> "_ChromeRegion | None":
+        """Build a region by rendering ``source`` once at the current width.
+
+        A callable ``source`` is a factory (built once); a bare component object
+        (callable ``render``) is retained directly. BOTH are reactive — their
+        ``render(width)`` is re-called on resize and their optional
+        ``invalidate()``/``dispose()`` run on resize/replace/clear. A
+        ``str``/``Sequence[str]`` source is static."""
+        width, _height = self._dimensions()
+        component: object | None = None
+        is_factory = False
+        render_source: object = source
+        if callable(source) and not isinstance(source, (str, bytes, bytearray)):
+            theme = self._chrome_theme()
+            try:
+                component = (
+                    source(theme, footer_data)
+                    if footer_data is not None
+                    else source(theme)
+                )
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - a bad factory falls back
+                return None
+            is_factory = True
+            render_source = lambda: component  # noqa: E731
+        elif not isinstance(source, (str, bytes, bytearray)) and callable(
+            getattr(source, "render", None)
+        ):
+            # A bare ChromeComponent object: reactive + lifecycle-managed.
+            component = source
+            is_factory = True
+            render_source = lambda: component  # noqa: E731
+        lines = render_chrome_component(render_source, width=width, max_lines=max_lines)
+        if lines is None:
+            return None
+        return _ChromeRegion(
+            source=source,
+            component=component,
+            snapshot=tuple(lines),
+            width=width,
+            is_factory=is_factory,
+        )
+
+    @staticmethod
+    def _dispose_region(region: "_ChromeRegion | None") -> None:
+        if region is None or region.component is None:
+            return
+        dispose = getattr(region.component, "dispose", None)
+        if callable(dispose):
+            try:
+                dispose()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - dispose must not break paint
+                pass
+
+    def set_extension_widget(
+        self, key: str, content: object, *, placement: str = "above_editor"
+    ) -> None:
+        safe_key = _safe_extension_status_key(key)
+        if safe_key is None:
+            return
+        target = (
+            self.extension_widgets_below
+            if placement == "below_editor"
+            else self.extension_widgets_above
+        )
+        other = (
+            self.extension_widgets_above
+            if placement == "below_editor"
+            else self.extension_widgets_below
+        )
+        with self._paint_lock:
+            self._dispose_region(target.get(safe_key))
+            self._dispose_region(other.pop(safe_key, None))
+            if content is None:
+                target.pop(safe_key, None)
+            else:
+                if safe_key not in target and len(target) >= _WIDGET_MAX_COUNT:
+                    return
+                region = self._build_region(
+                    content, footer_data=None, max_lines=_WIDGET_MAX_LINES
+                )
+                if region is None:
+                    target.pop(safe_key, None)
+                else:
+                    target[safe_key] = region
+        self.paint()
+
+    def set_extension_header(self, factory: object | None) -> None:
+        with self._paint_lock:
+            self._dispose_region(self.extension_header)
+            if factory is None:
+                self.extension_header = None
+            else:
+                self.extension_header = self._build_region(
+                    factory, footer_data=None, max_lines=_HEADER_MAX_LINES
+                )
+        self.paint()
+
+    def set_extension_footer(
+        self, factory: object | None, footer_data: object | None = None
+    ) -> None:
+        with self._paint_lock:
+            self._dispose_region(self.extension_footer)
+            if factory is None:
+                self.extension_footer = None
+            else:
+                fd = (
+                    footer_data
+                    if footer_data is not None
+                    else FooterData(
+                        git_branch=None,
+                        extension_statuses=dict(self.extension_status),
+                    )
+                )
+                self.extension_footer = self._build_region(
+                    factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
+                )
+        self.paint()
+
+    def set_extension_title(self, title: str | None) -> None:
+        with self._paint_lock:
+            if title is None:
+                self.extension_title = None
+                self._restore_terminal_title()
+            else:
+                if not self._extension_title_pushed:
+                    self._push_terminal_title()
+                self.extension_title = sanitize_label_text(str(title))[:_TITLE_MAX_CHARS]
+                self._write_terminal_title(self.extension_title)
+        # title is OS-level; no frame repaint needed.
+
+    def set_extension_working_indicator(
+        self, frames: object, interval_ms: object
+    ) -> None:
+        with self._paint_lock:
+            if frames is None:
+                self.extension_indicator_frames = None
+            else:
+                cleaned = tuple(
+                    sanitize_label_text(str(f))
+                    for f in list(cast(Iterable[object], frames))[
+                        :_INDICATOR_MAX_FRAMES
+                    ]
+                )
+                self.extension_indicator_frames = cleaned
+            try:
+                self.extension_indicator_interval_ms = (
+                    None
+                    if interval_ms is None
+                    else max(10.0, float(cast(Any, interval_ms)))
+                )
+            except (TypeError, ValueError):
+                self.extension_indicator_interval_ms = None
+        self.paint()
+
+    def clear_extension_chrome(self) -> None:
+        """Dispose + drop all extension-owned chrome (used on /reload + shutdown)."""
+        with self._paint_lock:
+            for region in (
+                *self.extension_widgets_above.values(),
+                *self.extension_widgets_below.values(),
+                self.extension_header,
+                self.extension_footer,
+            ):
+                self._dispose_region(region)
+            self.extension_widgets_above.clear()
+            self.extension_widgets_below.clear()
+            self.extension_header = None
+            self.extension_footer = None
+            self.extension_title = None
+            self.extension_indicator_frames = None
+            self.extension_indicator_interval_ms = None
+            self._restore_terminal_title()
+        self.paint()
+
+    def _write_terminal_title(self, title: str) -> None:
+        """Write an OSC 0 title sequence to a TTY; no-op for non-TTY streams."""
+        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
+            return
+        safe = sanitize_label_text(title).replace("\x07", "")[:_TITLE_MAX_CHARS]
+        try:
+            self.terminal_stream.write(f"\x1b]0;{safe}\x07")
+            self.terminal_stream.flush()
+        except (OSError, ValueError):
+            return
+
+    def _push_terminal_title(self) -> None:
+        """Save the current terminal title on the xterm title stack (OSC 22)."""
+        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
+            return
+        try:
+            self.terminal_stream.write("\x1b[22;2t")
+            self.terminal_stream.flush()
+        except (OSError, ValueError):
+            return
+        self._extension_title_pushed = True
+
+    def _restore_terminal_title(self) -> None:
+        """Restore the saved title from the xterm title stack (OSC 23).
+
+        Best-effort: this pops the title saved by ``_push_terminal_title`` so the
+        pre-extension title returns (not a blank title). Only acts when a save
+        was pushed; terminals that ignore the title stack simply keep the last
+        title set."""
+        if not self._extension_title_pushed:
+            return
+        self._extension_title_pushed = False
+        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
+            return
+        try:
+            self.terminal_stream.write("\x1b[23;2t")
+            self.terminal_stream.flush()
+        except (OSError, ValueError):
+            return
 
     def set_extension_working_message(self, message: str | None = None) -> None:
         """Set the sticky working label used by future provider turns."""
