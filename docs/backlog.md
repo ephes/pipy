@@ -307,8 +307,8 @@ The highest-impact remaining gaps are now:
    with `+/-pattern` filters. Live-session hooks/controls for `user_bash`,
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls and the first custom session-entry/message-
-   rendering slice now ship. Pi remains ahead on rich TUI extension UI, custom
-   tool rendering, extension state/session-manager helpers, broader dynamic-flag
+   rendering slice now ship. Pi remains ahead on rich TUI extension UI, live
+   tool-render invalidation (render-once tool renderers ship), extension state/session-manager helpers, broader dynamic-flag
    integration, OAuth-provider extension registration, remote PyPI/npm sources,
    and the broader package ecosystem. Managed git
   sources and package `update` now ship behind a pipy-owned cache; the next
@@ -1444,8 +1444,8 @@ Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, custom tool renderers,
-  extension session-manager helpers, broader dynamic-flag integration, or future
+  richer hooks/UI, OAuth-provider extension registration, extension
+  session-manager helpers, broader dynamic-flag integration, or future
   PyPI/npm package sources after supply-chain policy; and
 - keep any future non-git remote source work behind explicit supply-chain
   policy and an isolated cache.
@@ -1594,8 +1594,9 @@ shortcut handlers can call `ctx.append_entry(...)` to write JSON-safe `custom`
 entries to the native product session tree and show the rendered result in the
 product TUI or captured-stream diagnostics. Renderer crashes fail soft, non-JSON
 data is converted before persistence, and the metadata-first archive remains
-unaffected. Rich custom tool renderers and multi-widget message components
-remain follow-ons.
+unaffected. Render-once custom tool renderers now ship (slice 17); live
+(invalidate-driven) tool renderers and multi-widget message components remain
+follow-ons.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1609,7 +1610,8 @@ input/system-prompt hooks, lifecycle observation, minimal UI notices,
 simple `ctx.ui` select/input/confirm/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
-extension APIs: custom tool rendering, richer multi-widget `ctx.ui`
+extension APIs: live (invalidate-driven) tool rendering beyond the landed
+render-once snapshot, richer multi-widget `ctx.ui`
 dialogs/editor/autocomplete/theme controls beyond the simple primitives, richer `appendEntry` replay
 and session-manager access, TypeScript source compatibility, OAuth-provider
 extension registration, broader dynamic extension flag integration, or PyPI/npm
@@ -1756,8 +1758,9 @@ Invariants that must hold for any near-term slice:
   provider-request cancellation now ship. Still deferred are the richer
   extension-owned UI surfaces Pi exposes: dialogs, widgets, editor replacement,
   autocomplete providers, theme controls, custom overlays beyond the narrow
-  Python `ctx.ui.custom` and custom session-entry/message-rendering paths, and
-  custom tool rendering.
+  Python `ctx.ui.custom` and custom session-entry/message-rendering paths.
+  Render-once custom tool rendering now ships; live (invalidate-driven) tool
+  rendering remains deferred.
 - Extension/package platform follow-ons: package runtime composition for
   installed local-path/managed-git packages, package `update`, per-run
   source-loading flags, live-session operation gates, `user_bash`,

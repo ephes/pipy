@@ -233,10 +233,12 @@ plain text when color is unavailable.
    the palettes and implement the helper over `chrome_style_for`. Pure additions;
    unit-tested in isolation (theme degradation truecolor/256/no-color, helper
    reset, `lines_component`).
-2. **Carry `details` + per-call `state`.** Add `render_details` to
-   `ToolExecutionResult`; populate it in `_ExtensionToolPort.invoke`; add the
-   request-id-keyed `state` store in the renderer. Tests: `details` reaches a
-   render context; `state` is shared call→result; nothing new is archived.
+2. **Carry `details` + per-call `state`.** Add a `provider_correlation_id`-keyed
+   in-memory details sink, written by `_ExtensionToolPort.invoke` (no change to
+   `ToolExecutionResult`); the renderer keeps a per-call slot (set in
+   `render_tool_call`, consumed and evicted in `render_tool_result`) holding the
+   shared `state`. Tests: `details` reaches a render context; `state` is shared
+   call→result; the sink entry is evicted on consume; nothing new is archived.
 3. **TTY dispatch + commit.** Wire `_TuiToolLoopRenderer` render paths, the
    `tool_call_custom`/`tool_result_custom` line-kinds, framing, fallback, bounds.
    Real-PTY test at 80×24: a custom result row renders with color and survives a

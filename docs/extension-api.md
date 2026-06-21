@@ -1045,8 +1045,9 @@ and the live `scripts/tmux_answer_verify.sh`.
     `ctx.ui.set_working_message` / `ctx.ui.set_working_visible` control the
     provider-turn working row for subsequent turns until changed again or reset
     by the extension. This is still short of Pi's full widget/component surface:
-    custom tool renderers, custom header/footer/editor, autocomplete providers,
-    and extension state/session-manager helpers remain follow-ons.
+    custom header/footer/editor, autocomplete providers, and extension
+    state/session-manager helpers remain follow-ons. (Custom tool renderers
+    landed in slice 17 below.)
 16. Custom session entries and message renderers — **landed for command/shortcut
     contexts**: `api.register_message_renderer(custom_type, renderer)` accepts a
     bounded synchronous text renderer for JSON-safe custom entries, and handlers can call
