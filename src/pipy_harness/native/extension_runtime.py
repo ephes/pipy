@@ -2029,33 +2029,96 @@ def safe_custom_entry_data(data: object | None) -> object | None:
     }
 
 
+def _renderer_wants_context(renderer: Callable[..., object]) -> bool:
+    """True if ``renderer`` can accept a second positional MessageRenderContext.
+
+    Defaults to False (1-arg slice-16 form) when the signature is unavailable,
+    so back-compat is the safe fallback."""
+
+    try:
+        sig = inspect.signature(renderer)
+    except (TypeError, ValueError):
+        return False
+    positional = 0
+    for param in sig.parameters.values():
+        if param.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            positional += 1
+        elif param.kind is inspect.Parameter.VAR_POSITIONAL:
+            return True
+    return positional >= 2
+
+
 def render_extension_message(
     renderers: Mapping[str, RegisteredMessageRenderer],
     custom_type: str,
     data: object | None,
-) -> tuple[str, ...]:
-    """Render a custom entry through its extension renderer, fail-soft."""
+    *,
+    width: int = 80,
+    expanded: bool = False,
+    theme: object | None = None,
+) -> RenderedCustomEntry:
+    """Render a custom entry through its extension renderer, fail-soft.
+
+    A renderer that accepts a second parameter receives a MessageRenderContext
+    and may return a component (committed SGR-preserving, ``styled=True``).
+    Text/lines returns and any failure fall back to plain rendering
+    (``styled=False``)."""
+
+    def _plain(value: object | None) -> RenderedCustomEntry:
+        if value is None:
+            return RenderedCustomEntry((), False)
+        return RenderedCustomEntry((_bounded_render_text(value),), False)
 
     renderer = renderers.get(custom_type)
     if renderer is None:
-        if data is None:
-            return ()
-        return (_bounded_render_text(data),)
+        return _plain(data)
+    detached = _copy_custom_entry_data(data)
+    wants_context = _renderer_wants_context(renderer.renderer)
     try:
-        # Copy here even when the caller already persisted safe data: the
-        # renderer receives a detached JSON-safe value and cannot mutate the
-        # in-memory CustomEntry object held by the native session tree.
-        rendered = renderer.renderer(_copy_custom_entry_data(data))
+        if wants_context:
+            ctx = MessageRenderContext(
+                custom_type=custom_type,
+                data=detached,
+                expanded=expanded,
+                width=width,
+                theme=theme,
+            )
+            rendered = renderer.renderer(detached, ctx)
+        else:
+            rendered = renderer.renderer(detached)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as err:  # noqa: BLE001 - bound a bad renderer
-        return (f"render error: {_safe_diagnostic(err)}",)
+        return RenderedCustomEntry((f"render error: {_safe_diagnostic(err)}",), False)
+
+    # The component (styled) path is reachable ONLY for context-aware (2-arg)
+    # renderers. A 1-arg renderer(data) keeps exact slice-16 plain-text
+    # behavior even if it returns an object exposing a render() attribute.
+    if wants_context:
+        render = getattr(rendered, "render", None)
+        if callable(render) and not isinstance(rendered, (str, bytes, bytearray)):
+            try:
+                produced = render(width)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as err:  # noqa: BLE001 - a bad render() falls back
+                return RenderedCustomEntry(
+                    (f"render error: {_safe_diagnostic(err)}",), False
+                )
+            coerced = coerce_tool_render_lines(produced)
+            if coerced is None:
+                return _plain(detached)
+            return RenderedCustomEntry(tuple(coerced), True)
+
     try:
-        return _coerce_rendered_lines(rendered)
+        return RenderedCustomEntry(_coerce_rendered_lines(rendered), False)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as err:  # noqa: BLE001 - bound bad renderer output
-        return (f"render error: {_safe_diagnostic(err)}",)
+        return RenderedCustomEntry((f"render error: {_safe_diagnostic(err)}",), False)
 
 
 def _copy_custom_entry_data(data: object | None) -> object | None:

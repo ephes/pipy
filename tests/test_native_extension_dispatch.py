@@ -238,7 +238,7 @@ def test_message_renderer_gets_json_safe_copy(tmp_path: Path) -> None:
     renderers = extension_message_renderers(activate_extensions(descriptors))
     payload = {"text": "original"}
 
-    assert render_extension_message(renderers, "note", payload) == ("done",)
+    assert render_extension_message(renderers, "note", payload).lines == ("done",)
     assert payload == {"text": "original"}
 
 
@@ -256,7 +256,7 @@ def test_message_renderer_output_coercion_fails_soft(tmp_path: Path) -> None:
     descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
     renderers = extension_message_renderers(activate_extensions(descriptors))
 
-    rendered = render_extension_message(renderers, "note", {"text": "hello"})
+    rendered = render_extension_message(renderers, "note", {"text": "hello"}).lines
 
     assert rendered == ("render error: RuntimeError",)
 
@@ -278,7 +278,7 @@ def test_async_message_renderer_fails_soft_without_unawaited_warning(
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        rendered = render_extension_message(renderers, "note", {"text": "hello"})
+        rendered = render_extension_message(renderers, "note", {"text": "hello"}).lines
         gc.collect()
 
     assert rendered == ("render error: unsupported awaitable",)
@@ -305,11 +305,11 @@ def test_message_renderer_fails_soft_and_data_is_json_safe(tmp_path: Path) -> No
     assert isinstance(ordered, dict)
     assert list(ordered) == ["z", "a"]
     assert isinstance(safe_custom_entry_data({"v": float("inf")}), str)
-    assert render_extension_message(renderers, "note", {"text": "hello"}) == (
+    assert render_extension_message(renderers, "note", {"text": "hello"}).lines == (
         "Note",
         "hello",
     )
-    assert render_extension_message(renderers, "boom", {}) == (
+    assert render_extension_message(renderers, "boom", {}).lines == (
         "render error: RuntimeError",
     )
 
