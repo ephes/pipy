@@ -85,6 +85,9 @@ class _ExitOnlyUi:
     def take_pending_command(self) -> str | None:
         return None
 
+    def clear_extension_chrome(self) -> None:
+        pass
+
     def close(self) -> None:
         self.closed = True
 

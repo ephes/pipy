@@ -160,6 +160,7 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
     ExtensionTool,
+    FooterData,
     HookHandler,
     LifecycleEvent,
     QueuedUserMessage,
@@ -547,6 +548,55 @@ def _detect_git_branch(cwd: Path) -> str | None:
             return text[:7]
         return None
     return None
+
+
+class _LiveExtensionUiDriver:
+    """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
+
+    def __init__(self, terminal_ui: "ToolLoopTerminalUi", cwd: Path) -> None:
+        self._terminal_ui = terminal_ui
+        self._cwd = cwd
+
+    def select(self, title: str, options: Sequence[str]) -> str | None:
+        return self._terminal_ui.run_extension_select(title, options)
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None:
+        return self._terminal_ui.run_extension_input(title, placeholder)
+
+    def confirm(self, title: str, message: str) -> bool:
+        return self._terminal_ui.run_extension_confirm(title, message)
+
+    def set_status(self, key: str, text: str | None) -> None:
+        self._terminal_ui.set_extension_status(key, text)
+
+    def set_working_message(self, message: str | None = None) -> None:
+        self._terminal_ui.set_extension_working_message(message)
+
+    def set_working_visible(self, visible: bool) -> None:
+        self._terminal_ui.set_extension_working_visible(visible)
+
+    def set_widget(self, key: str, content: object, placement: str) -> None:
+        self._terminal_ui.set_extension_widget(key, content, placement=placement)
+
+    def set_header(self, factory: object | None) -> None:
+        self._terminal_ui.set_extension_header(factory)
+
+    def set_footer(self, factory: object | None) -> None:
+        footer_data = (
+            None
+            if factory is None
+            else FooterData(
+                git_branch=_detect_git_branch(self._cwd),
+                extension_statuses=dict(self._terminal_ui.extension_status),
+            )
+        )
+        self._terminal_ui.set_extension_footer(factory, footer_data)
+
+    def set_title(self, title: str) -> None:
+        self._terminal_ui.set_extension_title(title)
+
+    def set_working_indicator(self, frames: object, interval_ms: object) -> None:
+        self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
 
 
 def production_tool_registry() -> dict[str, ToolPort]:
@@ -1264,37 +1314,9 @@ class NativeToolReplSession:
                 return None
             return terminal_ui.run_custom_component(factory)
 
-        class _LiveExtensionUiDriver:
-            def select(self, title: str, options: Sequence[str]) -> str | None:
-                if terminal_ui is None:
-                    return None
-                return terminal_ui.run_extension_select(title, options)
-
-            def input(
-                self, title: str, placeholder: str | None = None
-            ) -> str | None:
-                if terminal_ui is None:
-                    return None
-                return terminal_ui.run_extension_input(title, placeholder)
-
-            def confirm(self, title: str, message: str) -> bool:
-                if terminal_ui is None:
-                    return False
-                return terminal_ui.run_extension_confirm(title, message)
-
-            def set_status(self, key: str, text: str | None) -> None:
-                if terminal_ui is not None:
-                    terminal_ui.set_extension_status(key, text)
-
-            def set_working_message(self, message: str | None = None) -> None:
-                if terminal_ui is not None:
-                    terminal_ui.set_extension_working_message(message)
-
-            def set_working_visible(self, visible: bool) -> None:
-                if terminal_ui is not None:
-                    terminal_ui.set_extension_working_visible(visible)
-
-        extension_ui_driver = _LiveExtensionUiDriver() if terminal_ui is not None else None
+        extension_ui_driver = (
+            _LiveExtensionUiDriver(terminal_ui, cwd) if terminal_ui is not None else None
+        )
 
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
@@ -2226,7 +2248,11 @@ class NativeToolReplSession:
                     )
                     # Re-discover + re-activate extensions on reload (Pi
                     # /reload also reloads extensions). A failing extension is
-                    # disabled without affecting the session.
+                    # disabled without affecting the session. Clear any chrome
+                    # set by the prior generation first so a removed/disabled
+                    # extension cannot leave stale widgets/header/footer/title.
+                    if terminal_ui is not None:
+                        terminal_ui.clear_extension_chrome()
                     _ext_runtime = _activate_workspace_extensions(
                         cwd,
                         workspace_resources,
@@ -3687,6 +3713,8 @@ class NativeToolReplSession:
             )
         finally:
             emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+            if terminal_ui is not None:
+                terminal_ui.clear_extension_chrome()
 
     def _build_repl_input(
         self,

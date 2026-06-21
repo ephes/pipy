@@ -1,0 +1,61 @@
+import subprocess
+
+from pipy_harness.native.extension_runtime import FooterData
+from pipy_harness.native.tool_loop_session import _LiveExtensionUiDriver
+
+
+class _FakeUi:
+    """Records the set_extension_* calls the driver delegates."""
+
+    def __init__(self):
+        self.extension_status = {"s": "v"}
+        self.calls = []
+
+    def set_extension_widget(self, key, content, *, placement):
+        self.calls.append(("widget", key, content, placement))
+
+    def set_extension_header(self, factory):
+        self.calls.append(("header", factory))
+
+    def set_extension_footer(self, factory, footer_data):
+        self.calls.append(("footer", factory, footer_data))
+
+    def set_extension_title(self, title):
+        self.calls.append(("title", title))
+
+    def set_extension_working_indicator(self, frames, interval_ms):
+        self.calls.append(("indicator", frames, interval_ms))
+
+
+def test_driver_delegates_all_five(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    factory = lambda theme: None  # noqa: E731
+    driver.set_widget("k", ["a"], "below_editor")
+    driver.set_header(factory)
+    driver.set_title("t")
+    driver.set_working_indicator(["x"], 120)
+    kinds = [c[0] for c in ui.calls]
+    assert kinds == ["widget", "header", "title", "indicator"]
+    assert ui.calls[0] == ("widget", "k", ["a"], "below_editor")
+
+
+def test_driver_footer_builds_footerdata_with_branch_and_statuses(tmp_path):
+    subprocess.run(["git", "init", "-b", "feature-x"], cwd=tmp_path, check=True,
+                   capture_output=True)
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    factory = lambda theme, fd: None  # noqa: E731
+    driver.set_footer(factory)
+    _kind, passed_factory, footer_data = ui.calls[-1]
+    assert passed_factory is factory
+    assert isinstance(footer_data, FooterData)
+    assert footer_data.git_branch == "feature-x"
+    assert footer_data.extension_statuses == {"s": "v"}
+
+
+def test_driver_footer_none_passes_none(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    driver.set_footer(None)
+    assert ui.calls[-1] == ("footer", None, None)
