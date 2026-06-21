@@ -2204,6 +2204,26 @@ class ToolLoopTerminalUi:
         self._history_blocks.append(("tool_result", tuple(rendered or [""])))
         self.paint()
 
+    def add_tool_call_custom(self, lines: Iterable[str]) -> None:
+        """Commit extension-rendered call-row lines (pre-styled, SGR-safe)."""
+        self._settle_reasoning()
+        self.working_text = ""
+        self.tool_output_text = ""
+        self._history_blocks.append(("tool_call_custom", tuple(lines) or ("",)))
+        self.paint()
+
+    def add_tool_result_custom(
+        self, lines: Iterable[str], *, duration_seconds: float | None = None
+    ) -> None:
+        """Commit extension-rendered result-row lines (pre-styled, SGR-safe)."""
+        self._settle_reasoning()
+        self.tool_output_text = ""
+        rendered = list(lines)
+        if duration_seconds is not None:
+            rendered.extend(("", f"Took {duration_seconds:.1f}s"))
+        self._history_blocks.append(("tool_result_custom", tuple(rendered or [""])))
+        self.paint()
+
     def render_lines(
         self,
         *,
@@ -2874,6 +2894,8 @@ class ToolLoopTerminalUi:
             return style.cursor_cell(before, cursor_char, after)
         if line.kind == "user":
             return style.user_message(text, width=width)
+        if line.kind in {"tool_call_custom", "tool_result_custom"}:
+            return style.tool_custom(line.text, width=width)
         return text
 
     def _restore_terminal_mode(self) -> None:
@@ -3019,6 +3041,16 @@ class ToolLoopTerminalUi:
         width: int | None = None,
     ) -> list[_FrameLine]:
         width = width or self._dimensions()[0]
+        if kind in {"tool_call_custom", "tool_result_custom"}:
+            custom_rendered: list[_FrameLine] = [_FrameLine("", "tool_result")]
+            for line in block_lines:
+                custom_rendered.append(
+                    _FrameLine(_clip_custom_overlay_text(f" {line}", width), kind)
+                )
+            custom_rendered.append(_FrameLine("", "tool_result"))
+            if kind == "tool_result_custom":
+                custom_rendered.append(_FrameLine(""))
+            return custom_rendered
         prefix = {
             "user": " ",
             "assistant": " ",
@@ -3028,6 +3060,8 @@ class ToolLoopTerminalUi:
             "tool": " $ ",
             "tool_read": " ",
             "tool_result": " ",
+            "tool_call_custom": " ",
+            "tool_result_custom": " ",
             "settings": " ",
             "custom": " ",
             "notice": "pipy  ",
@@ -3085,6 +3119,8 @@ class ToolLoopTerminalUi:
             "tool": "tool",
             "tool_read": "tool_read",
             "tool_result": "tool_result",
+            "tool_call_custom": "tool_call_custom",
+            "tool_result_custom": "tool_result_custom",
             "settings": "settings",
             "custom": "settings",
         }.get(kind, "normal")

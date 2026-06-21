@@ -159,6 +159,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
+    ExtensionTool,
     HookHandler,
     LifecycleEvent,
     QueuedUserMessage,
@@ -1299,12 +1300,19 @@ class NativeToolReplSession:
         # join the bounded tool loop with the same schema validation +
         # output bounds as built-ins.
         run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
+        extension_render_details: dict[str, object] = {}
+        extension_tool_renderers: dict[str, ExtensionTool] = {
+            rt.tool.name: rt.tool
+            for rt in _ext_runtime.tools
+            if rt.tool.render_call is not None or rt.tool.render_result is not None
+        }
         for _registered_tool in _ext_runtime.tools:
             _port = _ExtensionToolPort(
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
                 flags=extension_flag_values,
+                render_details_sink=extension_render_details,
             )
             run_tool_registry[_port.definition.name] = _port
         active_tool_names: set[str] | None = None
@@ -1338,7 +1346,11 @@ class NativeToolReplSession:
             terminal_ui.input_history = list(prompt_history_store.entries())
         renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
         if terminal_ui is not None:
-            renderer = _TuiToolLoopRenderer(ui=terminal_ui)
+            renderer = _TuiToolLoopRenderer(
+                ui=terminal_ui,
+                tool_renderers=extension_tool_renderers,
+                render_details_sink=extension_render_details,
+            )
         else:
             renderer = _ToolLoopRenderer(
                 output_stream=output_stream, error_stream=error_stream
@@ -6209,12 +6221,21 @@ class _TuiToolLoopRenderer:
     )
     _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 5
 
-    def __init__(self, *, ui: ToolLoopTerminalUi) -> None:
+    def __init__(
+        self,
+        *,
+        ui: ToolLoopTerminalUi,
+        tool_renderers: Mapping[str, ExtensionTool] | None = None,
+        render_details_sink: Mapping[str, object] | None = None,
+    ) -> None:
         self._ui = ui
         self._streamed_any = False
         self._stop_working_event: threading.Event | None = None
         self._working_thread: threading.Thread | None = None
         self._last_tool_name = ""
+        self._tool_renderers = dict(tool_renderers or {})
+        self._render_details_sink = render_details_sink
+        self._pending_render: dict[str, object] | None = None
 
     @property
     def streamed_any(self) -> bool:
@@ -6284,6 +6305,23 @@ class _TuiToolLoopRenderer:
     def render_tool_call(self, call: ProviderToolCall) -> None:
         self._stop_working(clear=True)
         self._last_tool_name = call.tool_name
+        self._pending_render = None
+        tool = self._tool_renderers.get(call.tool_name)
+        if tool is not None:
+            args = _parse_tool_input(call.arguments_json)
+            state: dict[str, object] = {}
+            self._pending_render = {
+                "corr": call.provider_correlation_id,
+                "args": args,
+                "state": state,
+            }
+            if tool.render_call is not None:
+                lines = self._dispatch_render(tool.render_call, args, state,
+                                              is_result=False, content=None,
+                                              details=None, is_error=False)
+                if lines is not None:
+                    self._ui.add_tool_call_custom(lines)
+                    return
         self._ui.add_tool_call(_plain_tool_call_header(call))
 
     def tool_output_sink(self, chunk: str) -> None:
@@ -6296,6 +6334,24 @@ class _TuiToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
     ) -> None:
+        pending = self._pending_render
+        self._pending_render = None
+        if pending is not None:
+            tool = self._tool_renderers.get(self._last_tool_name)
+            if tool is not None and tool.render_result is not None:
+                details = None
+                if self._render_details_sink is not None:
+                    details = self._render_details_sink.get(str(pending["corr"]))
+                lines = self._dispatch_render(
+                    tool.render_result, pending["args"], pending["state"],
+                    is_result=True, content=output_text, details=details,
+                    is_error=is_error,
+                )
+                if lines is not None:
+                    self._ui.add_tool_result_custom(
+                        lines, duration_seconds=duration_seconds
+                    )
+                    return
         if self._last_tool_name == "read" and not is_error:
             return
         lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
@@ -6318,6 +6374,25 @@ class _TuiToolLoopRenderer:
             is_error=is_error,
             duration_seconds=duration_seconds,
         )
+
+    def _dispatch_render(self, renderer, args, state, *, is_result, content,
+                         details, is_error):
+        from pipy_harness.native.chrome import chrome_style_for
+        from pipy_harness.native.tool_renderers import (
+            build_tool_render_theme,
+            render_tool_phase,
+        )
+        from pipy_harness.extensions import ToolRenderContext
+
+        style = chrome_style_for(self._ui.terminal_stream)
+        ctx = ToolRenderContext(
+            tool_name=self._last_tool_name, args=args, is_result=is_result,
+            is_error=is_error, content=content, details=details,
+            expanded=self._ui.tools_expanded,
+            width=self._ui._dimensions()[0],
+            theme=build_tool_render_theme(style), state=state,
+        )
+        return render_tool_phase(renderer, ctx)
 
     def _visible_tool_result_lines(self, lines: list[str]) -> list[str]:
         if self._last_tool_name != "ls":
