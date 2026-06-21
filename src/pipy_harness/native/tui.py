@@ -3060,8 +3060,6 @@ class ToolLoopTerminalUi:
             "tool": " $ ",
             "tool_read": " ",
             "tool_result": " ",
-            "tool_call_custom": " ",
-            "tool_result_custom": " ",
             "settings": " ",
             "custom": " ",
             "notice": "pipy  ",

@@ -6379,6 +6379,10 @@ class _TuiToolLoopRenderer:
 
     def _dispatch_render(self, renderer, args, state, *, is_result, content,
                          details, is_error):
+        # Local imports: the render-theme machinery is only needed on the
+        # rarely-hit custom-renderer branch, so it is imported here rather than
+        # at module top to keep this module's import-time dependency surface
+        # focused on the loop's hot path.
         from pipy_harness.native.chrome import chrome_style_for
         from pipy_harness.native.tool_renderers import (
             build_tool_render_theme,

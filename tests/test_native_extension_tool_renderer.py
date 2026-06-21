@@ -119,3 +119,26 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
     renderer.render_tool_result(output_text="real-output", is_error=False)
     kinds = [b[0] for b in ui._history_blocks]
     assert "tool_result" in kinds and "tool_result_custom" not in kinds
+
+
+def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
+    from pipy_harness.native.models import ProviderToolCall
+
+    def boom(ctx):
+        raise RuntimeError("nope")
+
+    tool = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=boom,
+    )
+    ui = _tui(tmp_path)
+    renderer = _TuiToolLoopRenderer(
+        ui=ui, tool_renderers={"kv": tool}, render_details_sink={},
+    )
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
+                         arguments_json="{}")
+    )
+    kinds = [b[0] for b in ui._history_blocks]
+    assert "tool" in kinds and "tool_call_custom" not in kinds
