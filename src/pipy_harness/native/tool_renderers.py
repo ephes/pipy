@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pipy_harness.native.chrome import ChromeStyle
-from pipy_harness.native.extension_runtime import ThemeColor, ToolRenderTheme
+from pipy_harness.native.extension_runtime import (
+    ThemeColor,
+    ToolRenderContext,
+    ToolRenderTheme,
+    coerce_tool_render_lines,
+)
 
 
 class _PaletteToolRenderTheme:
@@ -41,3 +48,35 @@ class _PaletteToolRenderTheme:
 
 def build_tool_render_theme(style: ChromeStyle) -> ToolRenderTheme:
     return _PaletteToolRenderTheme(style)
+
+
+def render_tool_phase(
+    renderer: Callable[[ToolRenderContext], object],
+    ctx: ToolRenderContext,
+) -> list[str] | None:
+    """Run one extension tool renderer fail-soft.
+
+    Returns the rendered lines, or None to signal the caller should fall back
+    to pipy's default rendering. A renderer that raises, returns a non-
+    component, whose render() raises, or returns an uncoercible value all
+    yield None. KeyboardInterrupt/SystemExit propagate."""
+
+    try:
+        component = renderer(ctx)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - a bad renderer falls back
+        return None
+    render = getattr(component, "render", None)
+    if not callable(render):
+        return None
+    try:
+        produced = render(ctx.width)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - a bad render() falls back
+        return None
+    coerced = coerce_tool_render_lines(produced)
+    if coerced is None:
+        return None
+    return list(coerced)
