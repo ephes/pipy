@@ -21,7 +21,11 @@ from pipy_harness.native.repl_state import NativeModelOption
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
-from pipy_harness.native.tui import SettingsRow, ToolLoopTerminalUi
+from pipy_harness.native.tui import (
+    SettingsRow,
+    ToolLoopTerminalUi,
+    _visible_len_allow_sgr,
+)
 
 
 class _TtyBuffer:
@@ -221,14 +225,24 @@ def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
 def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
     ui = _ui(tmp_path)
 
-    ui.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 50])
+    # The second line is wider than the resolved frame (_MIN_WIDTH == 60), so it
+    # must be clipped by _clip_custom_overlay_text in _block_frame_lines.
+    ui.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 70])
 
     # Committed under the new custom_message_custom kind (the SGR-safe path,
     # NOT the sanitizing add_custom_entry path):
     assert any(kind == "custom_message_custom" for kind, _ in ui._history_blocks)
-    frame = "\n".join(ui.render_lines(width=20, height=14))
+    rendered = ui.render_lines(width=60, height=14, pad=False)
+    frame = "\n".join(rendered)
     assert "\x1b[1m" in frame  # SGR preserved (not sanitized away)
     assert "HELLO" in frame
+
+    # The over-width "x" line is genuinely clipped: its visible width is bounded
+    # to the frame width and it ends with the truncation ellipsis.
+    clipped = next(line for line in rendered if "x" in line)
+    assert _visible_len_allow_sgr(clipped) == 60
+    assert clipped.rstrip().endswith("…")
+    assert "x" * 70 not in clipped
 
 
 def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
