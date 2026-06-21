@@ -1623,6 +1623,35 @@ git commit -m "feat(extension-api): module-level live chrome driver + FooterData
 
 ---
 
+## Task 6b: Thread the live ui_driver into lifecycle-hook dispatch
+
+**Discovered during Task 6 (added 2026-06-21).** Lifecycle hooks (`session_start`,
+`agent_start`, …) build a `_CollectingUi` WITHOUT a `ui_driver`, so chrome set from
+a `session_start` hook records but never reaches the live TUI — only `/command`
+and shortcut dispatch thread the driver. This wires the live driver into lifecycle
+dispatch so the headline use case (pin chrome on session start) renders live.
+**Scope: lifecycle hooks only**; threading the driver into the other event hooks
+(`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) is a documented
+follow-on.
+
+**Files:**
+- Modify: `src/pipy_harness/native/extension_runtime.py` (`dispatch_lifecycle_hooks` ~2415)
+- Modify: `src/pipy_harness/native/tool_loop_session.py` (`_ExtensionAwareEmitter` ~906; emitter construction ~1391)
+- Test: `tests/test_native_extension_chrome_driver.py` (extend) + a `session_start` PTY render test in `tests/test_native_extension_chrome_session.py`
+
+1. `dispatch_lifecycle_hooks`: add an `ui_driver: "ExtensionUiDriver | None" = None`
+   keyword param and build the ctx UI as `_CollectingUi(has_ui, notify_sink, ui_driver=ui_driver)`.
+2. `_ExtensionAwareEmitter.__init__`: add `ui_driver: "ExtensionUiDriver | None" = None`,
+   store `self._lifecycle_ui_driver`, and pass `ui_driver=self._lifecycle_ui_driver`
+   in the `fire_lifecycle` → `dispatch_lifecycle_hooks(...)` call.
+3. Emitter construction site (~1391, which runs AFTER `extension_ui_driver` is built
+   at ~1317): pass `ui_driver=extension_ui_driver`.
+4. Tests: a unit test that `dispatch_lifecycle_hooks(..., ui_driver=fake)` delegates a
+   hook's `ctx.ui.set_widget(...)` to the fake driver; and a real-PTY test where a
+   `session_start` extension sets a widget and it renders live (reusing the Task-6
+   PTY harness — this is the end-to-end proof the gap is closed).
+5. `just`-style checks: `mypy` + `ruff` clean; extension/tool-loop regression green.
+
 ## Task 7: Golden conformance, new gate, example, docs
 
 **Files:**
