@@ -1,3 +1,5 @@
+import pytest
+
 from pipy_harness.extensions import ToolRenderContext, lines_component
 from pipy_harness.native.tool_renderers import render_tool_phase
 
@@ -44,3 +46,18 @@ def test_bare_string_render_is_not_char_per_line():
         def render(self, width):
             return "hello"
     assert render_tool_phase(lambda ctx: S(), _ctx()) == ["hello"]
+
+
+def test_keyboard_interrupt_from_renderer_propagates():
+    def boom(ctx):
+        raise KeyboardInterrupt
+    with pytest.raises(KeyboardInterrupt):
+        render_tool_phase(boom, _ctx())
+
+
+def test_system_exit_from_render_method_propagates():
+    class S:
+        def render(self, width):
+            raise SystemExit
+    with pytest.raises(SystemExit):
+        render_tool_phase(lambda ctx: S(), _ctx())
