@@ -754,6 +754,38 @@ class ToolRenderContext:
     state: MutableMapping[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class MessageRenderContext:
+    """Read-only context passed to a rich extension message renderer.
+
+    A renderer that accepts a second positional parameter receives this; a
+    1-arg ``renderer(data)`` keeps its slice-16 plain-text behavior. ``theme``
+    is a ToolRenderTheme (None only in unit tests / no-color captured runs)."""
+
+    custom_type: str
+    data: object | None
+    expanded: bool
+    width: int
+    theme: object  # ToolRenderTheme | None
+
+
+# A message renderer's component shares the tool-renderer component contract
+# (render(width) -> Sequence[str]); one contract across the rich-UI slices.
+MessageRenderComponent = ToolRenderComponent
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedCustomEntry:
+    """Result of rendering one custom entry.
+
+    ``styled`` True means ``lines`` carry theme SGR and must be committed
+    SGR-preserving (the ``custom_message_custom`` TUI kind); False means the
+    plain, sanitized back-compat path."""
+
+    lines: tuple[str, ...]
+    styled: bool
+
+
 WidgetPlacement = Literal["above_editor", "below_editor"]
 
 
