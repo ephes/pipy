@@ -1092,7 +1092,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     `/reload`** — the renderer is constructed once per session, so renderers added
     or changed by a reloaded extension are not picked up until restart (the
     details sink *is* wired on the reload path). This matches the reload Open
-    Question below.
+    Question below. Known limitation: the captured/non-TTY path dispatches
+    `render_call`/`render_result` with a **fixed width (80 columns) and
+    `expanded=False`** because it has no live terminal width or Ctrl+O expansion
+    state; only the interactive TUI passes the real terminal width and the live
+    expansion state in the `ToolRenderContext`.
 
 ## Open Questions
 

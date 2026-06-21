@@ -32,17 +32,19 @@ def run_checks() -> list[Check]:
         ctx.state["touched"] = True
         seen.update({"details": ctx.details, "is_result": ctx.is_result})
         return lines_component([ctx.theme.fg("success", f"k={ctx.details['k']}")])
+    state: dict[str, object] = {}
     out = render_tool_phase(
         rr,
         ToolRenderContext(
             tool_name="kv", args={}, is_result=True, is_error=False,
             content="x", details={"k": "v"}, expanded=False, width=40,
-            theme=build_tool_render_theme(ChromeStyle(enabled=False)), state={},
+            theme=build_tool_render_theme(ChromeStyle(enabled=False)), state=state,
         ),
     )
-    checks.append(Check("render_result_details", out == ["k=v"]
-                        and seen.get("details") == {"k": "v"},
-                        "render_result sees details + returns themed lines"))
+    checks.append(Check("render_result_details",
+                        out == ["k=v"] and seen.get("details") == {"k": "v"}
+                        and state.get("touched") is True,
+                        "render_result sees details + state + returns themed lines"))
 
     # 2. fail-soft: a crashing renderer yields None (caller falls back).
     def boom(ctx):
