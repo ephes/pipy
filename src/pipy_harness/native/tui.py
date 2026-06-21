@@ -1700,13 +1700,17 @@ class ToolLoopTerminalUi:
             else self.extension_widgets_below
         )
         with self._paint_lock:
+            if (
+                content is not None
+                and safe_key not in target
+                and len(target) >= _WIDGET_MAX_COUNT
+            ):
+                return
             self._dispose_region(target.get(safe_key))
             self._dispose_region(other.pop(safe_key, None))
             if content is None:
                 target.pop(safe_key, None)
             else:
-                if safe_key not in target and len(target) >= _WIDGET_MAX_COUNT:
-                    return
                 region = self._build_region(
                     content, footer_data=None, max_lines=_WIDGET_MAX_LINES
                 )

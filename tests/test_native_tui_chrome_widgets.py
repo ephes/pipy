@@ -81,6 +81,17 @@ def test_dispose_called_on_replace_and_clear():
     assert disposed == [True]
 
 
+def test_widget_move_to_full_placement_keeps_original():
+    ui = _ui()
+    for i in range(16):  # fill above to _WIDGET_MAX_COUNT
+        ui.set_extension_widget(f"a{i}", [f"a{i}"], placement="above_editor")
+    ui.set_extension_widget("m", ["m"], placement="below_editor")
+    # move "m" to the full "above" placement -> rejected, stays in "below"
+    ui.set_extension_widget("m", ["m2"], placement="above_editor")
+    assert "m" in ui.extension_widgets_below
+    assert "m" not in ui.extension_widgets_above
+
+
 def test_clear_extension_chrome_resets_all():
     ui = _ui()
     ui.set_extension_widget("k", ["a"])
