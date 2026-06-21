@@ -6330,6 +6330,20 @@ class _TuiToolLoopRenderer:
         self._streamed_any = False
         self._ui.begin_assistant_turn()
 
+    def _effective_spinner(self) -> tuple[tuple[str, ...], float]:
+        frames = self._ui.extension_indicator_frames
+        interval = self._ui.extension_indicator_interval_ms
+        if frames is None:
+            eff_frames = self._SPINNER_FRAMES
+        elif len(frames) == 0:
+            eff_frames = ("",)  # hide the glyph, keep the message
+        else:
+            eff_frames = tuple(frames)
+        eff_interval = (
+            self._SPINNER_INTERVAL_SECONDS if interval is None else interval / 1000.0
+        )
+        return eff_frames, eff_interval
+
     def show_working(self) -> None:
         self._stop_working(clear=True)
         if not self._ui.extension_working_visible:
@@ -6338,15 +6352,16 @@ class _TuiToolLoopRenderer:
         self._stop_working_event = stop_event
 
         def _animate() -> None:
+            frames, interval = self._effective_spinner()
             frame_index = 0
             while not stop_event.is_set():
-                glyph = self._SPINNER_FRAMES[
-                    frame_index % len(self._SPINNER_FRAMES)
-                ]
+                glyph = frames[frame_index % len(frames)]
                 message = self._ui.extension_working_message or "Working..."
-                self._ui.set_working(f"{glyph} {message}")
+                # An empty glyph hides the spinner: show the message with no
+                # leading space/prefix.
+                self._ui.set_working(message if glyph == "" else f"{glyph} {message}")
                 frame_index += 1
-                stop_event.wait(self._SPINNER_INTERVAL_SECONDS)
+                stop_event.wait(interval)
 
         thread = threading.Thread(
             target=_animate,

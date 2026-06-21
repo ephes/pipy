@@ -3,6 +3,7 @@ import io
 import pytest
 
 from pipy_harness.native.tui import ToolLoopTerminalUi, _ChromeRegion
+from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pathlib import Path
 
 
@@ -209,3 +210,27 @@ def test_live_region_clamp_never_overflows_or_starves(height):
     lines = ui._live_region_lines(width=60, height=height)
     assert len(lines) <= height                          # fits the viewport
     assert any(fl.kind == "input" for fl in lines)       # input never starved
+
+
+def test_indicator_frames_override_used_by_tui_renderer():
+    ui = _ui()
+    ui.set_extension_working_indicator(["★"], 50)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+    frames, interval = renderer._effective_spinner()
+    assert frames == ("★",) and interval == 0.05
+
+
+def test_indicator_default_when_unset():
+    ui = _ui()
+    renderer = _TuiToolLoopRenderer(ui=ui)
+    frames, interval = renderer._effective_spinner()
+    assert frames == _TuiToolLoopRenderer._SPINNER_FRAMES
+    assert interval == _TuiToolLoopRenderer._SPINNER_INTERVAL_SECONDS
+
+
+def test_indicator_empty_frames_hides_glyph():
+    ui = _ui()
+    ui.set_extension_working_indicator([], None)
+    renderer = _TuiToolLoopRenderer(ui=ui)
+    frames, _interval = renderer._effective_spinner()
+    assert frames == ("",)  # blank glyph -> hidden spinner
