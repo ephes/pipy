@@ -5536,7 +5536,7 @@ class _ToolLoopRenderer:
         output_stream: TextIO,
         error_stream: TextIO,
         tool_renderers: "Mapping[str, ExtensionTool] | None" = None,
-        render_details_sink: "Mapping[str, object] | None" = None,
+        render_details_sink: "MutableMapping[str, object] | None" = None,
     ) -> None:
         self._output_stream = output_stream
         self._error_stream = error_stream
@@ -5987,7 +5987,7 @@ class _ToolLoopRenderer:
             if tool is not None and tool.render_result is not None:
                 details = None
                 if self._render_details_sink is not None:
-                    details = self._render_details_sink.get(str(pending["corr"]))
+                    details = self._render_details_sink.pop(str(pending["corr"]), None)
                 lines = self._dispatch_render(
                     tool.render_result, pending["args"], pending["state"],
                     is_result=True, content=output_text, details=details,
@@ -6302,7 +6302,7 @@ class _TuiToolLoopRenderer:
         *,
         ui: ToolLoopTerminalUi,
         tool_renderers: Mapping[str, ExtensionTool] | None = None,
-        render_details_sink: Mapping[str, object] | None = None,
+        render_details_sink: MutableMapping[str, object] | None = None,
     ) -> None:
         self._ui = ui
         self._streamed_any = False
@@ -6417,7 +6417,7 @@ class _TuiToolLoopRenderer:
             if tool is not None and tool.render_result is not None:
                 details = None
                 if self._render_details_sink is not None:
-                    details = self._render_details_sink.get(str(pending["corr"]))
+                    details = self._render_details_sink.pop(str(pending["corr"]), None)
                 lines = self._dispatch_render(
                     tool.render_result, pending["args"], pending["state"],
                     is_result=True, content=output_text, details=details,

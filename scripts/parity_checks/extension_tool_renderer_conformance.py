@@ -1,6 +1,11 @@
 # scripts/parity_checks/extension_tool_renderer_conformance.py
 """Custom-tool-renderer conformance gate.
 
+This gate covers the dispatch/coercion UNITS in isolation (render_tool_phase,
+the theme helper, fail-soft fallback, and the optional ExtensionTool fields).
+The end-to-end session dispatch plus privacy/no-leak guarantees are proven by
+the golden gate ``extension_conformance_gate.py``.
+
 Run: uv run python scripts/parity_checks/extension_tool_renderer_conformance.py --json
 """
 from __future__ import annotations
