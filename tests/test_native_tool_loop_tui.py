@@ -218,6 +218,19 @@ def test_tui_custom_entry_sanitizes_and_renders(tmp_path: Path):
     assert "\r" not in frame
 
 
+def test_add_custom_entry_styled_preserves_sgr_and_clips(tmp_path: Path):
+    ui = _ui(tmp_path)
+
+    ui.add_custom_entry_styled(["\x1b[1mHELLO\x1b[0m", "x" * 50])
+
+    # Committed under the new custom_message_custom kind (the SGR-safe path,
+    # NOT the sanitizing add_custom_entry path):
+    assert any(kind == "custom_message_custom" for kind, _ in ui._history_blocks)
+    frame = "\n".join(ui.render_lines(width=20, height=14))
+    assert "\x1b[1m" in frame  # SGR preserved (not sanitized away)
+    assert "HELLO" in frame
+
+
 def test_tui_notice_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
 

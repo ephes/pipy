@@ -2494,6 +2494,19 @@ class ToolLoopTerminalUi:
         self._history_blocks.append(("tool_result_custom", tuple(rendered or [""])))
         self.paint()
 
+    def add_custom_entry_styled(self, lines: Iterable[str]) -> None:
+        """Commit extension-rendered custom-entry lines (pre-styled, SGR-safe).
+
+        Unlike ``add_custom_entry`` (sanitized + ``[label]`` prefix), the rich
+        renderer's component owns its full styling; no label line is injected
+        (matches Pi's custom-message component replacing the default box)."""
+
+        self._settle_reasoning()
+        self.working_text = ""
+        self.tool_output_text = ""
+        self._history_blocks.append(("custom_message_custom", tuple(lines) or ("",)))
+        self.paint()
+
     def render_lines(
         self,
         *,
@@ -3402,7 +3415,7 @@ class ToolLoopTerminalUi:
             return style.cursor_cell(before, cursor_char, after)
         if line.kind == "user":
             return style.user_message(text, width=width)
-        if line.kind in {"tool_call_custom", "tool_result_custom"}:
+        if line.kind in {"tool_call_custom", "tool_result_custom", "custom_message_custom"}:
             return style.tool_custom(line.text, width=width)
         if line.kind == "chrome_custom":
             return style.tool_custom(line.text, width=width)
@@ -3551,14 +3564,14 @@ class ToolLoopTerminalUi:
         width: int | None = None,
     ) -> list[_FrameLine]:
         width = width or self._dimensions()[0]
-        if kind in {"tool_call_custom", "tool_result_custom"}:
+        if kind in {"tool_call_custom", "tool_result_custom", "custom_message_custom"}:
             custom_rendered: list[_FrameLine] = [_FrameLine("", "tool_result")]
             for line in block_lines:
                 custom_rendered.append(
                     _FrameLine(_clip_custom_overlay_text(f" {line}", width), kind)
                 )
             custom_rendered.append(_FrameLine("", "tool_result"))
-            if kind == "tool_result_custom":
+            if kind in {"tool_result_custom", "custom_message_custom"}:
                 custom_rendered.append(_FrameLine(""))
             return custom_rendered
         prefix = {
@@ -3629,6 +3642,7 @@ class ToolLoopTerminalUi:
             "tool_result": "tool_result",
             "tool_call_custom": "tool_call_custom",
             "tool_result_custom": "tool_result_custom",
+            "custom_message_custom": "custom_message_custom",
             "settings": "settings",
             "custom": "settings",
         }.get(kind, "normal")
