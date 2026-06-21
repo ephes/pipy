@@ -35,6 +35,7 @@ from pipy_harness.extensions import (
     ExtensionTool,
     ToolResult,
     ToolResultTransform,
+    lines_component,
 )
 
 PROOF_ENV = "PIPY_EXTENSION_CONFORMANCE_PROOF"
@@ -107,6 +108,14 @@ def activate(api):
         ctx.ui.notify("conformance probe ran")
         return ToolResult(content="probe-output", details={"ran": True})
 
+    def _render_call(ctx):
+        _proof("render_call", tool_name=ctx.tool_name)
+        return lines_component([f"probe call: {sorted(ctx.args)}"])
+
+    def _render_result(ctx):
+        _proof("render_result", has_details=bool(ctx.details), is_result=ctx.is_result)
+        return lines_component([ctx.theme.fg("success", "probe ok")])
+
     api.register_tool(
         ExtensionTool(
             name="conformance_probe",
@@ -116,6 +125,8 @@ def activate(api):
                 "properties": {"probe_arg": {"type": "string"}},
             },
             handler=_probe,
+            render_call=_render_call,
+            render_result=_render_result,
         )
     )
 

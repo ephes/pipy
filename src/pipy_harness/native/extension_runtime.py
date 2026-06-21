@@ -735,7 +735,7 @@ class ToolRenderComponent(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ToolRenderContext:
-    """Read-once context passed to an extension tool renderer.
+    """Read-only context passed to an extension tool renderer.
 
     `state` is a single mutable mapping shared across render_call ->
     render_result for one tool execution. `details` is the extension's
