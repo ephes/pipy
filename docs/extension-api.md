@@ -34,8 +34,10 @@ custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
 keyboard-shortcut registration `api.register_shortcut(...)`. It is not
 source-compatible with Pi's TypeScript extensions, and it still lacks several
-mature Pi surfaces: a custom editor component and live per-frame chrome
-animation, multi-widget message components,
+mature Pi surfaces: a custom editor component and live per-frame component
+`render()`/`requestRender` re-rendering of chrome components (the working
+indicator already animates via the spinner loop; widget/header/footer
+components are width-reactive snapshots), multi-widget message components,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
 and broader package ecosystem polish. A first custom session-entry/message
 rendering slice has landed: extensions can register a text renderer for a custom
@@ -1116,7 +1118,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     footer factory also receives a `FooterData` (`git_branch`,
     `extension_statuses`). Rendering is a **width-reactive snapshot**: each region
     is re-rendered when the terminal width changes (so factory widgets reflow),
-    but there is no per-frame animation loop yet. Header and footer are
+    but components are not re-rendered per frame (no `render()`/`requestRender`
+    animation loop yet). Header and footer are
     **exclusive single slots** — setting a new one replaces the prior, and passing
     `None` clears it and restores pipy's built-in chrome. Widgets are bounded
     (line/row caps), keyed clears drop a single widget, and all regions are
@@ -1134,8 +1137,12 @@ and the live `scripts/tmux_answer_verify.sh`.
     `/reload` — it stays blank until a later lifecycle event (`agent_start` /
     `turn_start`) re-sets it. A possible follow-on is re-firing `session_start`
     with `reason=reload` so session-start-only chrome is restored immediately.
-    Deferred liveness follow-on: no per-frame indicator animation or reactive
-    `footerData` re-render between width changes, and non-lifecycle event hooks
+    The working indicator **does** animate: custom `frames` cycle through pipy's
+    existing spinner loop at `interval_ms` (default interval otherwise). Deferred
+    liveness follow-on: no per-frame component `render()`/`requestRender`
+    re-rendering of the widget/header/footer components (they are width-reactive
+    snapshots, re-rendered only on resize) and no reactive `footerData` re-render
+    between width changes, and non-lifecycle event hooks
     (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) do not yet thread
     the live `ui_driver`, so chrome calls from those contexts are recorded but
     do not paint until a context that has the live driver runs. Gate

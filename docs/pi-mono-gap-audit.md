@@ -191,8 +191,10 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: a custom editor component and live per-frame chrome
-   animation/reactive `footerData` beyond the landed width-reactive chrome
+1. Richer Pi extension APIs: a custom editor component and live per-frame
+   component `render()`/`requestRender` re-rendering of chrome components (the
+   working indicator already animates via the spinner loop) / reactive
+   `footerData` beyond the landed width-reactive chrome
    snapshot, rich multi-widget message
    components beyond the first `register_message_renderer`/`append_entry`
    slice, live tool-render invalidation beyond the landed render-once snapshot,
