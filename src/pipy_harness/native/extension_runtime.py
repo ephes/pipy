@@ -40,7 +40,7 @@ import importlib.util
 import inspect
 import json
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
@@ -281,13 +281,17 @@ class ExtensionTool:
     `input_schema` is a JSON-schema dict in pipy's supported subset
     (validated at registration). `handler(ctx, input)` receives a
     mode-aware context and the validated input mapping and returns a
-    `ToolResult`.
+    `ToolResult`. `render_call` and `render_result` are optional callables
+    that receive a `ToolRenderContext` and return a `ToolRenderComponent`
+    (or object) controlling how the tool's call and result rows render.
     """
 
     name: str
     description: str
     input_schema: Mapping[str, object]
     handler: Callable[..., object]
+    render_call: Callable[["ToolRenderContext"], object] | None = None
+    render_result: Callable[["ToolRenderContext"], object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,6 +704,95 @@ class CustomComponent(Protocol):
 CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
 # The live driver that takes over the terminal to run a custom component.
 CustomComponentDriver = Callable[[CustomComponentFactory], object]
+
+
+ThemeColor = Literal["text", "accent", "success", "warning", "error", "dim"]
+
+
+@runtime_checkable
+class ToolRenderTheme(Protocol):
+    """Bounded styling helper handed to extension tool renderers.
+
+    Implementations map semantic names onto the active chrome palette and
+    emit plain text when color is disabled (captured / NO_COLOR)."""
+
+    def fg(self, color: ThemeColor, text: str) -> str: ...
+    def bold(self, text: str) -> str: ...
+    def dim(self, text: str) -> str: ...
+
+
+@runtime_checkable
+class ToolRenderComponent(Protocol):
+    """A render-once tool-row component returned by render_call/render_result.
+
+    `render(width)` returns the row's content lines (already theme-styled by
+    the component). Aligned with `CustomComponent`; `invalidate`/`dispose`/
+    `handle_input` are reserved for the later live-runtime slice and are not
+    called here."""
+
+    def render(self, width: int) -> Sequence[str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ToolRenderContext:
+    """Read-once context passed to an extension tool renderer.
+
+    `state` is a single mutable mapping shared across render_call ->
+    render_result for one tool execution. `details` is the extension's
+    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme."""
+
+    tool_name: str
+    args: Mapping[str, object]
+    is_result: bool
+    is_error: bool
+    content: str | None
+    details: Mapping[str, object] | None
+    expanded: bool
+    width: int
+    theme: object  # ToolRenderTheme | None (None only in unit tests)
+    state: MutableMapping[str, object]
+
+
+def coerce_tool_render_lines(value: object) -> tuple[str, ...] | None:
+    """Normalize a render() return (or lines_component input) to lines.
+
+    Special-cases `str` (split on newlines) BEFORE the generic Sequence path,
+    because `str` is itself a `Sequence[str]` and would otherwise render
+    character-per-line. Returns None for unusable types (signals fallback)."""
+
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, (bytes, bytearray)):
+        return None
+    elif isinstance(value, Sequence):
+        try:
+            text = "\n".join(str(item) for item in value)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a bad sequence falls back
+            return None
+    else:
+        return None
+    if len(text) > _CUSTOM_RENDER_MAX_CHARS:
+        text = text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: tool render truncated]"
+    return tuple(text.splitlines() or [""])
+
+
+@dataclass(frozen=True, slots=True)
+class _LinesComponent:
+    _lines: tuple[str, ...]
+
+    def render(self, width: int) -> list[str]:
+        return list(self._lines)
+
+
+def lines_component(lines: str | Sequence[str]) -> ToolRenderComponent:
+    """Convenience: wrap pre-rendered lines as a ToolRenderComponent."""
+
+    coerced = coerce_tool_render_lines(lines)
+    if coerced is None:
+        coerced = (str(lines),)
+    return _LinesComponent(coerced)
 
 
 @runtime_checkable
