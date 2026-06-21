@@ -1,5 +1,7 @@
 import io
 
+import pytest
+
 from pipy_harness.native.tui import ToolLoopTerminalUi, _ChromeRegion
 from pathlib import Path
 
@@ -160,3 +162,50 @@ def test_tall_chrome_clamped_and_input_preserved():
     assert any(fl.kind == "input" for fl in frame)           # input not starved
     assert any(fl.kind == "footer" for fl in frame)          # footer survives
     assert any("chrome clipped" in fl.text for fl in frame)  # truncation marker
+
+
+def _fill_tall_chrome(ui, *, custom_footer=False):
+    ui.set_extension_header(
+        lambda theme: type("C", (), {"render": lambda self, w: [f"H{i}" for i in range(8)]})()
+    )
+    for i in range(16):  # _WIDGET_MAX_COUNT widgets, each _WIDGET_MAX_LINES tall
+        ui.set_extension_widget(
+            f"a{i}", [f"a{i}-{j}" for j in range(10)], placement="above_editor"
+        )
+        ui.set_extension_widget(
+            f"b{i}", [f"b{i}-{j}" for j in range(10)], placement="below_editor"
+        )
+    if custom_footer:
+        # A custom footer taller than the two built-in rows (4 rows).
+        ui.set_extension_footer(
+            lambda theme, fd: type(
+                "C", (), {"render": lambda self, w: [f"F{i}" for i in range(4)]}
+            )()
+        )
+
+
+@pytest.mark.parametrize("height", [12, 16, 24, 40])
+def test_frame_clamp_never_overflows_or_starves(height):
+    ui = _ui()
+    # Include a tall custom footer (>2 rows) in one representative case. When a
+    # custom footer is set its rows carry the "chrome_custom" kind; otherwise the
+    # built-in footer rows carry "footer".
+    custom_footer = height == 24
+    _fill_tall_chrome(ui, custom_footer=custom_footer)
+    frame = ui._frame_lines(width=60, height=height, pad=False)
+    footer_kind = "chrome_custom" if custom_footer else "footer"
+    assert len(frame) <= height                              # fits the viewport
+    assert any(fl.kind == "input" for fl in frame)           # input never starved
+    if custom_footer:
+        assert any(fl.text.startswith("F") for fl in frame)  # custom footer survives
+    else:
+        assert any(fl.kind == footer_kind for fl in frame)   # footer always survives
+
+
+@pytest.mark.parametrize("height", [12, 16, 24, 40])
+def test_live_region_clamp_never_overflows_or_starves(height):
+    ui = _ui()
+    _fill_tall_chrome(ui, custom_footer=(height == 24))
+    lines = ui._live_region_lines(width=60, height=height)
+    assert len(lines) <= height                          # fits the viewport
+    assert any(fl.kind == "input" for fl in lines)       # input never starved

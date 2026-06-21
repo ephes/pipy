@@ -2604,36 +2604,17 @@ class ToolLoopTerminalUi:
             kind in {"tool", "tool_read", "tool_result"}
             for kind, _block_lines in self._history_blocks
         )
-        header_lines = self._extension_header_lines(width)
-        above_widgets = self._extension_widgets_lines("above_editor", width)
-        below_widgets = self._extension_widgets_lines("below_editor", width)
-        custom_footer = self._extension_footer_lines(width)
-        footer_rows = (
-            custom_footer
-            if custom_footer is not None
-            else [
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-            ]
-        )
         # Clamp the extension chrome BEFORE the budget math: the frame is finally
         # truncated with ``frame[:height]``, which would otherwise drop the
         # trailing footer/input rather than the (lower-priority) chrome.
-        chrome_reserved = (
-            2  # input separators
-            + len(menu_lines)
-            + len(pending_lines)
-            + len(status_lines)
-            + len(footer_rows)
-            + _MIN_INPUT_ROWS
-            + 1  # one history/transient row
-        )
-        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
-            header_lines,
-            above_widgets,
-            below_widgets,
-            budget=max(0, height - chrome_reserved),
-            width=width,
+        header_lines, above_widgets, below_widgets, footer_rows = (
+            self._clamped_chrome_for_frame(
+                width=width,
+                height=height,
+                menu_lines=menu_lines,
+                pending_lines=pending_lines,
+                status_lines=status_lines,
+            )
         )
         chrome_extra = (
             len(header_lines)
@@ -2859,33 +2840,14 @@ class ToolLoopTerminalUi:
         )
         pending_lines = self._pending_region_lines(width)
         status_lines = self._extension_status_lines(width)
-        header_lines = self._extension_header_lines(width)
-        above_widgets = self._extension_widgets_lines("above_editor", width)
-        below_widgets = self._extension_widgets_lines("below_editor", width)
-        custom_footer = self._extension_footer_lines(width)
-        footer_rows = (
-            custom_footer
-            if custom_footer is not None
-            else [
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-            ]
-        )
-        chrome_reserved = (
-            2  # input separators
-            + len(menu_lines)
-            + len(pending_lines)
-            + len(status_lines)
-            + len(footer_rows)
-            + _MIN_INPUT_ROWS
-            + 1  # one transient row
-        )
-        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
-            header_lines,
-            above_widgets,
-            below_widgets,
-            budget=max(0, height - chrome_reserved),
-            width=width,
+        header_lines, above_widgets, below_widgets, footer_rows = (
+            self._clamped_chrome_for_frame(
+                width=width,
+                height=height,
+                menu_lines=menu_lines,
+                pending_lines=pending_lines,
+                status_lines=status_lines,
+            )
         )
         input_lines = self._input_frame_lines(
             width,
@@ -3237,6 +3199,54 @@ class ToolLoopTerminalUi:
         else:
             out_header = [marker]
         return out_header, out_above, out_below
+
+    def _clamped_chrome_for_frame(
+        self,
+        *,
+        width: int,
+        height: int,
+        menu_lines: list[_FrameLine],
+        pending_lines: list[_FrameLine],
+        status_lines: list[_FrameLine],
+    ) -> tuple[
+        list[_FrameLine], list[_FrameLine], list[_FrameLine], list[_FrameLine]
+    ]:
+        """Fetch + viewport-clamp the extension chrome for one frame.
+
+        Returns ``(header_lines, above_widgets, below_widgets, footer_rows)``
+        with header/above/below already clamped to fit the viewport (input +
+        footer reserved). The caller does its own list assembly and budget
+        subtraction; this centralizes only the shared, drift-prone fetch +
+        clamp."""
+        header_lines = self._extension_header_lines(width)
+        above_widgets = self._extension_widgets_lines("above_editor", width)
+        below_widgets = self._extension_widgets_lines("below_editor", width)
+        custom_footer = self._extension_footer_lines(width)
+        footer_rows = (
+            custom_footer
+            if custom_footer is not None
+            else [
+                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+            ]
+        )
+        chrome_reserved = (
+            2  # input separators
+            + len(menu_lines)
+            + len(pending_lines)
+            + len(status_lines)
+            + len(footer_rows)
+            + _MIN_INPUT_ROWS
+            + 1  # one transient row
+        )
+        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
+            header_lines,
+            above_widgets,
+            below_widgets,
+            budget=max(0, height - chrome_reserved),
+            width=width,
+        )
+        return header_lines, above_widgets, below_widgets, footer_rows
 
     def _extension_status_lines(self, width: int) -> list[_FrameLine]:
         """Render bounded extension status rows above the footer."""
