@@ -129,9 +129,11 @@ Insert after the `ToolRenderContext` dataclass (after `:755`):
 class MessageRenderContext:
     """Read-only context passed to a rich extension message renderer.
 
-    A renderer that accepts a second positional parameter receives this; a
-    1-arg ``renderer(data)`` keeps its slice-16 plain-text behavior. ``theme``
-    is a ToolRenderTheme (None only in unit tests / no-color captured runs)."""
+    A renderer that requires a second positional parameter receives this; a
+    1-arg ``renderer(data)`` (including the capture-default idiom
+    ``renderer(data, prefix=captured)``) keeps its slice-16 plain-text behavior.
+    ``theme`` is a ToolRenderTheme (None only in unit tests / no-color captured
+    runs)."""
 
     custom_type: str
     data: object | None
@@ -308,8 +310,10 @@ Add above `render_extension_message` (after `extension_message_renderers` ~`:197
 
 ```python
 def _renderer_wants_context(renderer: Callable[..., object]) -> bool:
-    """True if ``renderer`` can accept a second positional MessageRenderContext.
+    """True if ``renderer`` requires a second positional MessageRenderContext.
 
+    Counts only REQUIRED positional params (those without a default), so the
+    capture-default idiom ``renderer(data, prefix=captured)`` stays 1-arg/plain.
     Defaults to False (1-arg slice-16 form) when the signature is unavailable,
     so back-compat is the safe fallback."""
 
@@ -323,7 +327,8 @@ def _renderer_wants_context(renderer: Callable[..., object]) -> bool:
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         ):
-            positional += 1
+            if param.default is inspect.Parameter.empty:
+                positional += 1
         elif param.kind is inspect.Parameter.VAR_POSITIONAL:
             return True
     return positional >= 2

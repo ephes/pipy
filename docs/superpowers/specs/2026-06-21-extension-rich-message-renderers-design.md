@@ -131,9 +131,12 @@ Rendering `CustomMessageEntry` arrives with the deferred `send_message` slice.
 - `render_extension_message(...)` gains keyword params `*, width: int,
   expanded: bool, theme: ToolRenderTheme | None` and returns a small frozen
   `RenderedCustomEntry(lines: tuple[str, ...], styled: bool)`:
-  - **Arity-flex call:** if the renderer accepts ≥2 positional params, call
+  - **Arity-flex call:** if the renderer accepts ≥2 REQUIRED positional params
+    (params without defaults), call
     `renderer(detached_data, MessageRenderContext(...))`; else `renderer(detached_data)`.
     Detection via `inspect.signature`, with a robust fallback to the 1-arg call.
+    The capture-default idiom `renderer(data, prefix=captured)` stays 1-arg/plain
+    so the context never clobbers its default.
   - **Component return** (`render` is callable): render once at `width`, coerce via
     `coerce_tool_render_lines`, length-bound → `styled=True`.
   - **`str`/`Sequence[str]` return:** coerce via the existing text path →

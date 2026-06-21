@@ -108,6 +108,18 @@ def test_expanded_threaded_to_renderer():
     assert out.lines == ("e=True",)
 
 
+def test_capture_default_second_param_treated_as_one_arg():
+    # The slice-16 capture-default idiom (lambda data, prefix=captured: ...) is
+    # semantically 1-arg; the second param has a default, so it must stay on the
+    # plain path and never be bound to the MessageRenderContext.
+    out = render_extension_message(
+        _renderers("note", lambda data, prefix="P:": [prefix + str(data)]),
+        "note", "x", width=10, expanded=False, theme=object(),
+    )
+    assert out.styled is False
+    assert out.lines == ("P:x",)   # default used; ctx did NOT clobber prefix
+
+
 def test_message_render_context_fields():
     ctx = MessageRenderContext(
         custom_type="card",
