@@ -5930,6 +5930,8 @@ class _ToolLoopRenderer:
         )
 
     def render_tool_call(self, call: ProviderToolCall) -> None:
+        self._clear_working()
+        self._close_reasoning()
         self._last_tool_name = call.tool_name
         self._pending_render = None
         tool = self._tool_renderers.get(call.tool_name)
@@ -5944,8 +5946,6 @@ class _ToolLoopRenderer:
                                               is_result=False, content=None,
                                               details=None, is_error=False)
                 if lines is not None:
-                    self._clear_working()
-                    self._close_reasoning()
                     self._error_stream.write(self._tool_panel_blank_line())
                     for line in lines:
                         self._error_stream.write(self._tool_panel_line(line))
@@ -5953,8 +5953,6 @@ class _ToolLoopRenderer:
                     self._error_stream.flush()
                     return
         # --- existing default body ---
-        self._clear_working()
-        self._close_reasoning()
         self._error_stream.write(self._tool_panel_blank_line())
         rendered = self._format_pi_call_header_rich(
             call.tool_name, call.arguments_json

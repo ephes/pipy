@@ -165,3 +165,24 @@ def test_captured_renderer_emits_custom_lines(tmp_path):
     )
     renderer.render_tool_result(output_text="x", is_error=False)
     assert "KV:v" in err.getvalue()
+
+
+def test_captured_renderer_emits_custom_call_lines(tmp_path):
+    from pipy_harness.native.models import ProviderToolCall
+    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    tool = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component(["CALL:kv"]),
+    )
+    renderer = _ToolLoopRenderer(
+        output_stream=out, error_stream=err,
+        tool_renderers={"kv": tool}, render_details_sink={},
+    )
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
+                         arguments_json="{}")
+    )
+    assert "CALL:kv" in err.getvalue()
