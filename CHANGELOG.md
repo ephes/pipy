@@ -68,6 +68,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- feat(extension-api): persistent chrome widgets (set_widget/set_header/
+  set_footer/set_title/set_working_indicator) — slice B. Extensions can pin an
+  above/below-editor widget, an exclusive custom header and footer (with git
+  branch via `FooterData`), the terminal title, and a custom working indicator;
+  chrome re-renders width-reactively, falls back fail-soft, disposes components
+  on replace/clear/reload, and renders live from `session_start` in an
+  interactive TTY.
 - Extensions can render their own tool call/result rows (`render_call`/
   `render_result`) with themed color.
 - Discovered skills are now advertised in the tool-loop system prompt when the

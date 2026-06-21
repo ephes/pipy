@@ -67,6 +67,11 @@ _REQUIRED = {
     "turn_end",
     "agent_end",
     "session_shutdown",
+    "set_widget",
+    "set_header",
+    "set_footer",
+    "set_title",
+    "set_working_indicator",
 }
 
 
@@ -217,6 +222,11 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
                     "before_agent_start",
                     "tool_result",
                     "session_shutdown",
+                    "set_widget",
+                    "set_header",
+                    "set_footer",
+                    "set_title",
+                    "set_working_indicator",
                     str(proof),
                 )
             )

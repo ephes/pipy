@@ -177,6 +177,12 @@ Pipy current state:
   `render_call`/`render_result` callables render an extension's own tool
   call/result rows with themed color (render-once snapshot, fail-soft fallback)
   in both the product TUI and captured output.
+- Extension slice 18 has shipped: persistent chrome widgets —
+  `ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`
+  pin an above/below-editor widget, an exclusive custom header and footer, the
+  terminal title, and a custom working indicator, with a width-reactive snapshot
+  model, fail-soft rendering, dispose-on-replace/clear, and live `session_start`
+  rendering in an interactive TTY.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -185,12 +191,15 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: multi-widget UI/rendering beyond the simple
-   `ctx.ui` primitives, rich multi-widget message
+1. Richer Pi extension APIs: a custom editor component and live per-frame chrome
+   animation/reactive `footerData` beyond the landed width-reactive chrome
+   snapshot, rich multi-widget message
    components beyond the first `register_message_renderer`/`append_entry`
    slice, live tool-render invalidation beyond the landed render-once snapshot,
-   broader dynamic-flag integration beyond the landed tool-loop
-   `ctx.flags` slice, and extension state/session-manager views.
+   threading the live `ui_driver` into non-lifecycle event hooks
+   (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
+   calls paint immediately, broader dynamic-flag integration beyond the landed
+   tool-loop `ctx.flags` slice, and extension state/session-manager views.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.

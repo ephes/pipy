@@ -34,13 +34,17 @@ custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
 keyboard-shortcut registration `api.register_shortcut(...)`. It is not
 source-compatible with Pi's TypeScript extensions, and it still lacks several
-mature Pi surfaces: richer multi-widget TUI,
+mature Pi surfaces: a custom editor component and live per-frame chrome
+animation, multi-widget message components,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
 and broader package ecosystem polish. A first custom session-entry/message
 rendering slice has landed: extensions can register a text renderer for a custom
 entry type and command/shortcut handlers can append JSON-safe custom entries to
 the native product session tree. Extensions can also render their own tool
-call/result rows with themed color (`render_call`/`render_result`).
+call/result rows with themed color (`render_call`/`render_result`), and pin
+persistent chrome — an above/below-editor widget, a custom header, a custom
+footer, the terminal title, and a custom working indicator
+(`ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`).
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
@@ -967,8 +971,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     `docs/examples/extensions/pipy-extension-conformance.py` + product-path proof
     test (`tests/test_native_extension_conformance.py`) + gate
     (`scripts/parity_checks/extension_conformance_gate.py --json`). A single
-    `/pipy-extension-conformance` trigger writes all 12 feature markers and the
-    proof leaks no prompt/tool/UI bodies.
+    `/pipy-extension-conformance` trigger writes all required feature markers
+    (now including the slice-18 chrome markers `set_widget`/`set_header`/
+    `set_footer`/`set_title`/`set_working_indicator`) and the proof leaks no
+    prompt/tool/UI bodies.
 11. Provider registration — **landed**: `api.register_provider`/
     `api.unregister_provider` + `ExtensionProvider`/`ProviderContext`/
     `RegisteredProvider` + `build_extension_provider_port` compose a factory into
@@ -1045,9 +1051,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     `ctx.ui.set_working_message` / `ctx.ui.set_working_visible` control the
     provider-turn working row for subsequent turns until changed again or reset
     by the extension. This is still short of Pi's full widget/component surface:
-    custom header/footer/editor, autocomplete providers, and extension
+    a custom editor component, autocomplete providers, and extension
     state/session-manager helpers remain follow-ons. (Custom tool renderers
-    landed in slice 17 below.)
+    landed in slice 17 below; the persistent chrome widget/header/footer/title/
+    indicator surface landed in slice 18 below.)
 16. Custom session entries and message renderers — **landed for command/shortcut
     contexts**: `api.register_message_renderer(custom_type, renderer)` accepts a
     bounded synchronous text renderer for JSON-safe custom entries, and handlers can call
@@ -1098,6 +1105,38 @@ and the live `scripts/tmux_answer_verify.sh`.
     `expanded=False`** because it has no live terminal width or Ctrl+O expansion
     state; only the interactive TUI passes the real terminal width and the live
     expansion state in the `ToolRenderContext`.
+18. Persistent chrome widgets — **landed**: a command/shortcut/lifecycle context
+    exposes `ctx.ui.set_widget(key, content, placement=...)` (a keyed,
+    insertion-ordered region pinned `"above_editor"` or `"below_editor"`),
+    `ctx.ui.set_header(factory)`, `ctx.ui.set_footer(factory)`,
+    `ctx.ui.set_title(title)`, and `ctx.ui.set_working_indicator(frames,
+    interval_ms)`. Content is plain lines, a `lines_component(...)`, or a
+    zero-arg/`theme`/`(theme, footer_data)` factory returning a component with
+    `render(width)`. The header factory receives the active chrome theme; the
+    footer factory also receives a `FooterData` (`git_branch`,
+    `extension_statuses`). Rendering is a **width-reactive snapshot**: each region
+    is re-rendered when the terminal width changes (so factory widgets reflow),
+    but there is no per-frame animation loop yet. Header and footer are
+    **exclusive single slots** — setting a new one replaces the prior, and passing
+    `None` clears it and restores pipy's built-in chrome. Widgets are bounded
+    (line/row caps), keyed clears drop a single widget, and all regions are
+    disposed (`component.dispose()` if present) on replace, clear, `/reload`, and
+    shutdown. `set_title` writes an OSC 0 title only on a real TTY (a no-op for
+    captured/non-TTY streams) and restores the saved title on clear. Pipy pins
+    the custom header just above the input/working region rather than at the
+    literal screen top (pipy paints a single live frame, not a full-screen
+    alternate buffer, so it cannot own the host terminal's top row); aside from
+    placement it is Pi's `setHeader`. `session_start` chrome renders live in an
+    interactive TTY because lifecycle hooks now receive the live UI driver.
+    Deferred liveness follow-on: no per-frame indicator animation or reactive
+    `footerData` re-render between width changes, and non-lifecycle event hooks
+    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) do not yet thread
+    the live `ui_driver`, so chrome calls from those contexts are recorded but
+    do not paint until a context that has the live driver runs. Gate
+    `scripts/parity_checks/extension_chrome_widgets_conformance.py --json` proves
+    the chrome units; the golden
+    `scripts/parity_checks/extension_conformance_gate.py --json` proves the
+    end-to-end `session_start` dispatch and the no-leak guarantee.
 
 ## Open Questions
 

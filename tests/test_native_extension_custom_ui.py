@@ -212,6 +212,7 @@ class _FakeUiDriver:
         self.status: list[tuple[str, str | None]] = []
         self.working_messages: list[str | None] = []
         self.working_visible: list[bool] = []
+        self.chrome: list[tuple[str, object]] = []
 
     def select(self, title: str, options) -> str | None:
         return f"{title}:{options[1]}"
@@ -230,6 +231,21 @@ class _FakeUiDriver:
 
     def set_working_visible(self, visible: bool) -> None:
         self.working_visible.append(visible)
+
+    def set_widget(self, key: str, content: object, placement: str) -> None:
+        self.chrome.append(("set_widget", (key, content, placement)))
+
+    def set_header(self, factory: object | None) -> None:
+        self.chrome.append(("set_header", factory))
+
+    def set_footer(self, factory: object | None) -> None:
+        self.chrome.append(("set_footer", factory))
+
+    def set_title(self, title: str) -> None:
+        self.chrome.append(("set_title", title))
+
+    def set_working_indicator(self, frames, interval_ms: int | None) -> None:
+        self.chrome.append(("set_working_indicator", (frames, interval_ms)))
 
 
 def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:

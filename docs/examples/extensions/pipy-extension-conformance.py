@@ -60,6 +60,19 @@ def activate(api):
     def _session_start(event, ctx):
         _proof("session_start", reason=event.reason or "")
 
+    @api.on("session_start")
+    def _chrome(event, ctx):
+        ctx.ui.set_widget("conf", ["conformance widget"], placement="above_editor")
+        _proof("set_widget", placement="above_editor")
+        ctx.ui.set_header(lambda theme: lines_component(["conformance header"]))
+        _proof("set_header")
+        ctx.ui.set_footer(lambda theme, fd: lines_component([f"branch={fd.git_branch}"]))
+        _proof("set_footer")
+        ctx.ui.set_title("pipy conformance")
+        _proof("set_title")
+        ctx.ui.set_working_indicator(["*"], interval_ms=120)
+        _proof("set_working_indicator")
+
     @api.on("session_shutdown")
     def _session_shutdown(event, ctx):
         _proof("session_shutdown")
