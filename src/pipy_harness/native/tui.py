@@ -3235,6 +3235,21 @@ class ToolLoopTerminalUi:
                 _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
             ]
         )
+        # The custom footer can be up to _FOOTER_MAX_LINES rows; at tiny
+        # viewports the non-widget chrome (separators + menu + pending + status +
+        # input floor + footer) can itself exceed `height`. Clip the footer so
+        # the assembled frame never overflows and the final frame[:height] cut
+        # never drops the input or a footer row.
+        non_footer_reserved = (
+            2  # input separators
+            + len(menu_lines)
+            + len(pending_lines)
+            + len(status_lines)
+            + _MIN_INPUT_ROWS
+        )
+        footer_budget = max(0, height - non_footer_reserved)
+        if len(footer_rows) > footer_budget:
+            footer_rows = footer_rows[:footer_budget]
         chrome_reserved = (
             2  # input separators
             + len(menu_lines)

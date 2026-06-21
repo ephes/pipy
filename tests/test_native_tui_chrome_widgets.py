@@ -242,3 +242,23 @@ def test_indicator_bad_frames_is_failsoft():
     ui.set_extension_working_indicator(123, None)  # non-iterable frames must not raise
     # left unchanged (still the previously-set frames), and interval handled normally
     assert ui.extension_indicator_frames == ("a",)
+
+
+@pytest.mark.parametrize("h", [12, 13, 14, 16, 20, 24])
+def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
+    ui = _ui()
+    ui.footer_lines = ("a", "b")
+    ui._pending_steering = ["pending one"]
+    for i in range(5):
+        ui.set_extension_status(f"k{i}", f"v{i}")
+    ui.set_extension_footer(
+        lambda theme, fd: type(
+            "C", (), {"render": lambda self, w: ["F1", "F2", "F3", "F4"]}
+        )()
+    )
+    live = ui._live_region_lines(width=80, height=h)
+    assert len(live) <= h                          # live region never exceeds the viewport
+    assert any(fl.kind == "input" for fl in live)  # input survives
+    frame = ui._frame_lines(width=80, height=h, pad=False)
+    assert len(frame) <= h
+    assert any(fl.kind == "input" for fl in frame)
