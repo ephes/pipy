@@ -59,6 +59,10 @@ class ChromePalette:
     tool_command_bg_truecolor: str
     separator_truecolor: str
     separator_fallback: str
+    success_truecolor: str = "38;2;152;195;121"
+    success_fallback: str = "32"
+    warning_truecolor: str = "38;2;229;192;123"
+    warning_fallback: str = "33"
 
 
 # The default "pi" palette reproduces the reference Pi terminal product: a
@@ -83,6 +87,10 @@ _PI_PALETTE = ChromePalette(
     tool_command_bg_truecolor="48;2;40;50;40",
     separator_truecolor="38;2;178;148;187",
     separator_fallback="35",
+    success_truecolor="38;2;152;195;121",
+    success_fallback="32",
+    warning_truecolor="38;2;240;198;116",
+    warning_fallback="1;33",
 )
 
 # A high-contrast scheme for low-vision / bright-terminal users: bold primary
@@ -105,6 +113,10 @@ _HIGH_CONTRAST_PALETTE = ChromePalette(
     tool_command_bg_truecolor="48;2;28;28;28",
     separator_truecolor="1;38;2;0;215;255",
     separator_fallback="1;96",
+    success_truecolor="1;38;2;0;255;0",
+    success_fallback="1;92",
+    warning_truecolor="1;38;2;255;215;0",
+    warning_fallback="1;93",
 )
 
 # A cool "ocean" scheme: teal title, cyan accents, blue separators.
@@ -126,6 +138,10 @@ _OCEAN_PALETTE = ChromePalette(
     tool_command_bg_truecolor="48;2;26;48;52",
     separator_truecolor="38;2;90;160;200",
     separator_fallback="34",
+    success_truecolor="38;2;126;200;160",
+    success_fallback="32",
+    warning_truecolor="38;2;226;192;141",
+    warning_fallback="33",
 )
 
 _THEMES: dict[str, ChromePalette] = {

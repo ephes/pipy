@@ -16,6 +16,7 @@ used when `COLORTERM` advertises 24-bit support, otherwise the
 from __future__ import annotations
 
 import os
+import re as _re
 import shutil
 import textwrap
 from collections.abc import Callable
@@ -38,6 +39,13 @@ from pipy_harness.native.workspace_context import (
     INSTRUCTION_CANDIDATE_FILENAMES,
     resolve_global_instruction_root,
 )
+
+_CHROME_SGR_RE = _re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _visible_len_no_sgr(text: str) -> int:
+    return len(_CHROME_SGR_RE.sub("", text))
+
 
 _STARTUP_CHROME_WIDTH_FALLBACK = 88
 # Pipy is a separate product from Claude Code, Codex, and the other agent
@@ -171,6 +179,26 @@ class ChromeStyle:
             f"\x1b[{text_code}m{text}\x1b[0m"
             f"\x1b[{bg}m{padding}\x1b[0m"
         )
+
+    def palette_code(self, truecolor_code: str, fallback_code: str) -> str:
+        """Pick the truecolor vs 16-color SGR parameter for this style."""
+        return truecolor_code if self.truecolor else fallback_code
+
+    def tool_custom(self, text: str, *, width: int) -> str:
+        """Band-only framing for extension-rendered tool rows.
+
+        Applies the tool background band + right padding but imposes NO
+        foreground color, so the renderer's own SGR is preserved. When color
+        is disabled the renderer already produced plain text, so pass it
+        through unchanged."""
+        if not self.enabled:
+            return text
+        bg = self.palette.tool_command_bg_truecolor
+        visible = _visible_len_no_sgr(text)
+        padding = " " * max(0, width - visible)
+        if visible == 0:
+            return f"\x1b[{bg}m{padding}\x1b[0m"
+        return f"\x1b[{bg}m{text}\x1b[0m\x1b[{bg}m{padding}\x1b[0m"
 
     def tool_read(self, text: str, *, width: int) -> str:
         if not self.enabled:
