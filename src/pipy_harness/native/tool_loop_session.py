@@ -1475,15 +1475,34 @@ class NativeToolReplSession:
                 raise ValueError("invalid custom entry type")
             safe_data = safe_custom_entry_data(data)
             appended = session_tree.append_custom(safe_type, safe_data)
-            rendered = render_extension_message(
-                extension_renderer_map,
-                safe_type,
-                safe_data,
-            )
+            from pipy_harness.native.chrome import chrome_style_for
+            from pipy_harness.native.tool_renderers import build_tool_render_theme
+
             if terminal_ui is not None:
-                terminal_ui.add_custom_entry(safe_type, rendered)
+                style = chrome_style_for(terminal_ui.terminal_stream)
+                rendered = render_extension_message(
+                    extension_renderer_map,
+                    safe_type,
+                    safe_data,
+                    width=terminal_ui._dimensions()[0],
+                    expanded=terminal_ui.tools_expanded,
+                    theme=build_tool_render_theme(style),
+                )
+                if rendered.styled:
+                    terminal_ui.add_custom_entry_styled(rendered.lines)
+                else:
+                    terminal_ui.add_custom_entry(safe_type, rendered.lines)
             else:
-                lines = "\n".join(str(line) for line in rendered)
+                style = chrome_style_for(error_stream)
+                rendered = render_extension_message(
+                    extension_renderer_map,
+                    safe_type,
+                    safe_data,
+                    width=80,
+                    expanded=False,
+                    theme=build_tool_render_theme(style),
+                )
+                lines = "\n".join(str(line) for line in rendered.lines)
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,

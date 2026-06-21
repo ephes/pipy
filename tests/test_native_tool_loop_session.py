@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TextIO, cast
 
 import pytest
 
@@ -42,6 +42,7 @@ from pipy_harness.native.tool_loop_session import _UsageAccumulator
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
+from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -945,7 +946,9 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
         "def activate(api):\n"
         "    marker = Path(__file__).with_name('renderer_prefix.txt')\n"
         "    prefix = marker.read_text(encoding='utf-8') if marker.exists() else 'old'\n"
-        "    api.register_message_renderer('card', lambda data, prefix=prefix: [prefix + ':' + data['title']])\n"
+        "    def render(data):\n"
+        "        return [prefix + ':' + data['title']]\n"
+        "    api.register_message_renderer('card', render)\n"
         "    def card(ctx, args):\n"
         "        ctx.append_entry('card', {'title': args})\n"
         "    def flip(ctx, args):\n"
@@ -970,6 +973,92 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
     assert "old:one" in err
     assert "new:two" in err
     assert "old:two" not in err
+
+
+class _TtyBuffer:
+    """Minimal TTY-like stream so a real ``terminal_ui`` is built for a run."""
+
+    def __init__(self) -> None:
+        self._buffer = io.StringIO()
+
+    def write(self, text: str) -> int:
+        return self._buffer.write(text)
+
+    def flush(self) -> None:
+        self._buffer.flush()
+
+    def isatty(self) -> bool:
+        return True
+
+    def getvalue(self) -> str:
+        return self._buffer.getvalue()
+
+
+def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Product path: a 2-arg component message renderer routes through the live
+    # terminal UI via the SGR-preserving ``custom_message_custom`` block (NOT
+    # the sanitizing/[label] ``custom`` block), the body shows in the committed
+    # frame, and the body never leaks into the archive-safe output stream.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "card.py").write_text(
+        "from pipy_harness.extensions import lines_component\n"
+        "def activate(api):\n"
+        "    def render(data, ctx):\n"
+        "        text = ctx.theme.fg('accent', data['title']) if ctx.theme else data['title']\n"
+        "        return lines_component([text])\n"
+        "    api.register_message_renderer('card', render)\n"
+        "    def cmd(ctx, args):\n"
+        "        ctx.append_entry('card', {'title': 'SECRET_TITLE'})\n"
+        "    api.register_command('mkcard', 'make a card', cmd)\n",
+        encoding="utf-8",
+    )
+    terminal_stream = _TtyBuffer()
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, io.StringIO()),
+        terminal_stream=cast(TextIO, terminal_stream),
+        cwd=tmp_path,
+    )
+    # Feed commands without driving raw-mode reads (StringIO has no usable fd):
+    # ``read_line`` returns the queued line, then "" to end the loop at EOF.
+    queued = ["/mkcard\n", ""]
+
+    def _read_line(self, prompt_label, *, footer=None):
+        del self, prompt_label, footer
+        return queued.pop(0) if queued else ""
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+    )
+    output_stream = io.StringIO()
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, io.StringIO()),
+        output_stream=output_stream,
+        error_stream=io.StringIO(),
+    )
+
+    committed_frame = "\n".join(terminal_ui.render_lines(width=72, height=20, pad=False))
+    archive_text = output_stream.getvalue()
+
+    # Styled route => SGR-safe ``custom_message_custom`` block, not plain custom.
+    assert any(k == "custom_message_custom" for k, _ in terminal_ui._history_blocks)
+    assert not any(k == "custom" for k, _ in terminal_ui._history_blocks)
+    # Body rendered live in the committed scrollback.
+    assert "SECRET_TITLE" in committed_frame
+    # No forced ``[card]`` label injected by the component path (judgment 2).
+    assert "[card]" not in committed_frame
+    # The body never reaches the archive-safe (metadata-only) output stream.
+    assert "SECRET_TITLE" not in archive_text
 
 
 def test_reload_rebinds_active_extension_provider_factory(tmp_path):
