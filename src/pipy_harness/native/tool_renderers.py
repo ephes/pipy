@@ -80,3 +80,58 @@ def render_tool_phase(
     if coerced is None:
         return None
     return list(coerced)
+
+
+_CHROME_TRUNCATION_MARKER = "  … (chrome truncated)"
+
+
+def render_chrome_component(
+    source: object,
+    *,
+    width: int,
+    max_lines: int,
+) -> list[str] | None:
+    """Render a chrome source (lines, str, or zero-arg factory) fail-soft.
+
+    Coercion order mirrors ``coerce_tool_render_lines`` (str special-cased
+    before the generic Sequence path). ``source`` may be:
+      * a callable factory taking no args and returning a component with
+        ``render(width) -> Sequence[str]``;
+      * a bare ``str`` (split on newlines) or any other ``Sequence[str]``.
+    Returns the bounded lines, or ``None`` to signal the caller to fall back
+    (clear the region / use the built-in). KeyboardInterrupt/SystemExit
+    propagate."""
+
+    component: object | None = None
+    if callable(source):
+        try:
+            component = source()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a bad factory falls back
+            return None
+    elif not isinstance(source, (str, bytes, bytearray)) and callable(
+        getattr(source, "render", None)
+    ):
+        # A direct ChromeComponent object (e.g. lines_component(...)).
+        component = source
+    if component is not None:
+        render = getattr(component, "render", None)
+        if not callable(render):
+            return None
+        try:
+            produced = render(width)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a bad render() falls back
+            return None
+    else:
+        produced = source
+    coerced = coerce_tool_render_lines(produced)
+    if coerced is None:
+        return None
+    lines = list(coerced)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines.append(_CHROME_TRUNCATION_MARKER)
+    return lines

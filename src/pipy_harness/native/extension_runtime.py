@@ -43,6 +43,7 @@ import sys
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal, Protocol, runtime_checkable
 
 from pipy_harness.native.extensions import ExtensionDescriptor
@@ -751,6 +752,42 @@ class ToolRenderContext:
     width: int
     theme: object  # ToolRenderTheme | None (None only in unit tests)
     state: MutableMapping[str, object]
+
+
+WidgetPlacement = Literal["above_editor", "below_editor"]
+
+
+@runtime_checkable
+class ChromeComponent(Protocol):
+    """A width-reactive snapshot chrome component.
+
+    Only ``render(width)`` is required (so ``lines_component`` output satisfies
+    it structurally). ``invalidate()`` and ``dispose()`` are OPTIONAL and
+    duck-typed — called if present: ``invalidate()`` before a re-render on
+    resize, ``dispose()`` when the component is replaced/cleared/reloaded or on
+    shutdown. Per-frame repaint and requestRender-driven animation are reserved
+    for the later live slice and never invoked here."""
+
+    def render(self, width: int) -> Sequence[str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class FooterData:
+    """Read-only snapshot handed to a footer factory (Pi's
+    ReadonlyFooterDataProvider, minus the deferred onBranchChange reactivity).
+
+    ``extension_statuses`` is copied into a read-only proxy so a caller-passed
+    ``dict`` cannot be mutated through the snapshot."""
+
+    git_branch: str | None
+    extension_statuses: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "extension_statuses",
+            MappingProxyType(dict(self.extension_statuses)),
+        )
 
 
 def coerce_tool_render_lines(value: object) -> tuple[str, ...] | None:
