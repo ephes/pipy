@@ -160,6 +160,7 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
     ExtensionTool,
+    ExtensionUiDriver,
     FooterData,
     HookHandler,
     LifecycleEvent,
@@ -922,6 +923,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         cwd: Path,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
+        ui_driver: ExtensionUiDriver | None = None,
         flags: Mapping[str, object] | None = None,
     ) -> None:
         super().__init__(sink)  # type: ignore[arg-type]
@@ -929,6 +931,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         self._lifecycle_cwd = str(cwd)
         self._lifecycle_has_ui = has_ui
         self._lifecycle_notify_sink = notify_sink
+        self._lifecycle_ui_driver = ui_driver
         self._lifecycle_flags = dict(flags or {})
 
     def set_lifecycle_hooks(
@@ -949,6 +952,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
             cwd=self._lifecycle_cwd,
             has_ui=self._lifecycle_has_ui,
             notify_sink=self._lifecycle_notify_sink,
+            ui_driver=self._lifecycle_ui_driver,
             flags=self._lifecycle_flags,
         )
 
@@ -1394,6 +1398,7 @@ class NativeToolReplSession:
             cwd=cwd,
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
+            ui_driver=extension_ui_driver,
             flags=extension_flag_values,
         )
         # `session_start` fires once the session is set up (reason "startup");

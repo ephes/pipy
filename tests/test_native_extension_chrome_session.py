@@ -4,8 +4,10 @@
 TTY, so no live driver) never persists chrome content into the on-disk
 session archive. `test_pty_session_renders_then_reload_clears_chrome` boots a
 real PTY-backed session and exercises the LIVE driver end to end: an extension
-*command* sets a widget + title through `ctx.ui` (the only lifecycle path that
-carries the live `ui_driver`), the region renders, then `/reload` clears it.
+*command* sets a widget + title through `ctx.ui`, the region renders, then
+`/reload` clears it. `test_pty_session_start_hook_renders_chrome_live` proves
+that a `session_start` lifecycle hook now also carries the live `ui_driver`, so
+its chrome renders with no command needed (slice B lifecycle wiring).
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ from pipy_harness.native.tui import ToolLoopTerminalUi
 
 # Sets a widget + title on session_start. In a captured-stream run there is no
 # live ui_driver, so this never reaches the screen/archive (the no-leak case).
+# Over a real PTY the live driver is wired into lifecycle dispatch, so the same
+# hook renders the widget (the session_start render case).
 _EXT = '''
 def activate(api):
     @api.on("session_start")
@@ -219,6 +223,76 @@ def test_pty_session_renders_then_reload_clears_chrome(
         assert _wait_until_absent(
             err_chunks, "DEMO_WIDGET", columns=100, rows=40
         ), "widget still on screen after /reload cleared chrome"
+
+        os.write(in_master, b"\x03")  # ctrl-c exits the prompt
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x03")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_session_start_hook_renders_chrome_live(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A PTY-backed session builds a real terminal_ui. A `session_start`
+    # lifecycle hook now carries the live ui_driver, so the widget it sets
+    # renders with NO command issued -- proving the lifecycle gap is closed.
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "sessions"))
+
+    ext_dir = tmp_path / ".pipy" / "extensions"
+    ext_dir.mkdir(parents=True)
+    ext_file = ext_dir / "chrome-demo.py"
+    ext_file.write_text(_EXT, encoding="utf-8")
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "escape interrupt"), "startup never painted"
+        # No command issued: the session_start hook alone must render the widget.
+        assert _wait_for(err_chunks, "DEMO_WIDGET"), (
+            "session_start widget never painted -- live ui_driver not wired "
+            "into lifecycle dispatch"
+        )
 
         os.write(in_master, b"\x03")  # ctrl-c exits the prompt
         worker.join(timeout=8.0)

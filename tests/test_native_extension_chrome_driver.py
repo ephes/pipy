@@ -1,7 +1,21 @@
 import subprocess
 
-from pipy_harness.native.extension_runtime import FooterData
+from pipy_harness.native.extension_runtime import (
+    FooterData,
+    LifecycleEvent,
+    dispatch_lifecycle_hooks,
+)
 from pipy_harness.native.tool_loop_session import _LiveExtensionUiDriver
+
+
+class _FakeDriver:
+    """Records the ExtensionUiDriver calls _CollectingUi delegates."""
+
+    def __init__(self):
+        self.calls = []
+
+    def set_widget(self, key, content, placement):
+        self.calls.append(("widget", key, content, placement))
 
 
 class _FakeUi:
@@ -59,3 +73,37 @@ def test_driver_footer_none_passes_none(tmp_path):
     driver = _LiveExtensionUiDriver(ui, tmp_path)
     driver.set_footer(None)
     assert ui.calls[-1] == ("footer", None, None)
+
+
+def test_lifecycle_hook_reaches_live_ui_driver(tmp_path):
+    driver = _FakeDriver()
+    captured = {}
+
+    def hook(event, ctx):
+        captured["name"] = event.name
+        ctx.ui.set_widget("hdr", ["LIVE"], placement="above_editor")
+
+    dispatch_lifecycle_hooks(
+        [hook],
+        LifecycleEvent(name="session_start", reason="startup"),
+        cwd=str(tmp_path),
+        has_ui=True,
+        notify_sink=None,
+        ui_driver=driver,
+    )
+    assert captured["name"] == "session_start"
+    assert driver.calls == [("widget", "hdr", ["LIVE"], "above_editor")]
+
+
+def test_lifecycle_hook_no_driver_records_but_does_not_raise(tmp_path):
+    # Without a ui_driver the hook still runs (records into _CollectingUi),
+    # no error.
+    def hook(event, ctx):
+        ctx.ui.set_widget("hdr", ["LIVE"], placement="above_editor")
+
+    dispatch_lifecycle_hooks(
+        [hook],
+        LifecycleEvent(name="session_start", reason="startup"),
+        cwd=str(tmp_path),
+        has_ui=False,
+    )  # must not raise

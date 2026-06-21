@@ -2419,6 +2419,7 @@ def dispatch_lifecycle_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -2438,7 +2439,7 @@ def dispatch_lifecycle_hooks(
         return
     ctx = _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
