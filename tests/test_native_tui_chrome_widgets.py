@@ -101,3 +101,62 @@ def test_clear_extension_chrome_resets_all():
     assert ui.extension_widgets_above == {}
     assert ui.extension_header is None
     assert ui.extension_title is None
+
+
+def _frame_text(ui, width=60, height=24):
+    return [fl.text for fl in ui._frame_lines(width=width, height=height, pad=False)]
+
+
+def test_header_renders_above_pending_and_input():
+    ui = _ui()
+    ui.set_extension_header(lambda theme: type("C", (), {"render": lambda self, w: ["HEADER_ROW"]})())
+    text = "\n".join(_frame_text(ui))
+    assert "HEADER_ROW" in text
+
+
+def test_above_widget_renders_in_frame():
+    ui = _ui()
+    ui.set_extension_widget("k", ["ABOVE_ROW"], placement="above_editor")
+    assert any("ABOVE_ROW" in line for line in _frame_text(ui))
+
+
+def test_below_widget_renders_in_frame():
+    ui = _ui()
+    ui.set_extension_widget("k", ["BELOW_ROW"], placement="below_editor")
+    assert any("BELOW_ROW" in line for line in _frame_text(ui))
+
+
+def test_footer_replaces_builtin_rows():
+    ui = _ui()
+    ui.footer_lines = ("builtin-a", "builtin-b")
+    ui.set_extension_footer(lambda theme, fd: type("C", (), {"render": lambda self, w: ["EXT_FOOTER"]})())
+    text = "\n".join(_frame_text(ui))
+    assert "EXT_FOOTER" in text and "builtin-a" not in text
+
+
+def test_factory_widget_rerenders_on_width_change():
+    ui = _ui()
+
+    class _Comp:
+        def render(self, width):
+            return [f"W{width}"]
+
+    # Widths must stay at/above the _MIN_WIDTH=60 floor that _dimensions clamps
+    # to (anything narrower renders at 60), so use 65/70 to exercise re-render.
+    ui.set_extension_widget("k", lambda theme: _Comp())
+    _frame_text(ui, width=65)
+    assert any("W65" in line for line in _frame_text(ui, width=65))
+    assert any("W70" in line for line in _frame_text(ui, width=70))
+
+
+def test_tall_chrome_clamped_and_input_preserved():
+    ui = _ui()
+    for i in range(16):  # _WIDGET_MAX_COUNT widgets, each _WIDGET_MAX_LINES tall
+        ui.set_extension_widget(
+            f"w{i}", [f"r{i}-{j}" for j in range(10)], placement="above_editor"
+        )
+    frame = ui._frame_lines(width=60, height=24, pad=False)
+    assert len(frame) <= 24                                  # fits the viewport
+    assert any(fl.kind == "input" for fl in frame)           # input not starved
+    assert any(fl.kind == "footer" for fl in frame)          # footer survives
+    assert any("chrome clipped" in fl.text for fl in frame)  # truncation marker

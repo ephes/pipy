@@ -2604,6 +2604,43 @@ class ToolLoopTerminalUi:
             kind in {"tool", "tool_read", "tool_result"}
             for kind, _block_lines in self._history_blocks
         )
+        header_lines = self._extension_header_lines(width)
+        above_widgets = self._extension_widgets_lines("above_editor", width)
+        below_widgets = self._extension_widgets_lines("below_editor", width)
+        custom_footer = self._extension_footer_lines(width)
+        footer_rows = (
+            custom_footer
+            if custom_footer is not None
+            else [
+                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+            ]
+        )
+        # Clamp the extension chrome BEFORE the budget math: the frame is finally
+        # truncated with ``frame[:height]``, which would otherwise drop the
+        # trailing footer/input rather than the (lower-priority) chrome.
+        chrome_reserved = (
+            2  # input separators
+            + len(menu_lines)
+            + len(pending_lines)
+            + len(status_lines)
+            + len(footer_rows)
+            + _MIN_INPUT_ROWS
+            + 1  # one history/transient row
+        )
+        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
+            header_lines,
+            above_widgets,
+            below_widgets,
+            budget=max(0, height - chrome_reserved),
+            width=width,
+        )
+        chrome_extra = (
+            len(header_lines)
+            + len(above_widgets)
+            + len(below_widgets)
+            + max(0, len(footer_rows) - 2)
+        )
         input_lines = self._input_frame_lines(
             width,
             max_rows=max(
@@ -2612,6 +2649,7 @@ class ToolLoopTerminalUi:
                 - len(menu_lines)
                 - len(pending_lines)
                 - len(status_lines)
+                - chrome_extra
                 - 4,
             ),
         )
@@ -2622,7 +2660,8 @@ class ToolLoopTerminalUi:
             - 4
             - len(menu_lines)
             - len(pending_lines)
-            - len(status_lines),
+            - len(status_lines)
+            - chrome_extra,
         )
         if has_tool_panel:
             max_history_lines = min(
@@ -2651,25 +2690,29 @@ class ToolLoopTerminalUi:
         if menu_lines:
             frame = [
                 *history_lines,
+                *header_lines,
                 *pending_lines,
+                *above_widgets,
                 top_separator,
                 *input_lines,
                 bottom_separator,
                 *menu_lines,
+                *below_widgets,
                 *status_lines,
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+                *footer_rows,
             ]
         else:
             frame = [
                 *history_lines,
+                *header_lines,
                 *pending_lines,
+                *above_widgets,
                 top_separator,
                 *input_lines,
                 bottom_separator,
+                *below_widgets,
                 *status_lines,
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+                *footer_rows,
             ]
         if pad:
             padded = [
@@ -2816,6 +2859,34 @@ class ToolLoopTerminalUi:
         )
         pending_lines = self._pending_region_lines(width)
         status_lines = self._extension_status_lines(width)
+        header_lines = self._extension_header_lines(width)
+        above_widgets = self._extension_widgets_lines("above_editor", width)
+        below_widgets = self._extension_widgets_lines("below_editor", width)
+        custom_footer = self._extension_footer_lines(width)
+        footer_rows = (
+            custom_footer
+            if custom_footer is not None
+            else [
+                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+            ]
+        )
+        chrome_reserved = (
+            2  # input separators
+            + len(menu_lines)
+            + len(pending_lines)
+            + len(status_lines)
+            + len(footer_rows)
+            + _MIN_INPUT_ROWS
+            + 1  # one transient row
+        )
+        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
+            header_lines,
+            above_widgets,
+            below_widgets,
+            budget=max(0, height - chrome_reserved),
+            width=width,
+        )
         input_lines = self._input_frame_lines(
             width,
             max_rows=max(
@@ -2824,18 +2895,23 @@ class ToolLoopTerminalUi:
                 - len(menu_lines)
                 - len(pending_lines)
                 - len(status_lines)
+                - len(header_lines)
+                - len(above_widgets)
+                - len(below_widgets)
+                - max(0, len(footer_rows) - 2)
                 - 4,
             ),
         )
-        # Chrome below the transient tail: pending region + two separators +
-        # wrapped input rows + menu rows + extension status + two footer rows.
         chrome_height = (
             len(input_lines)
             + 2
             + len(menu_lines)
             + len(pending_lines)
             + len(status_lines)
-            + 2
+            + len(header_lines)
+            + len(above_widgets)
+            + len(below_widgets)
+            + len(footer_rows)
         )
         transient_budget = max(0, height - chrome_height - 1)
         transient = self._transient_tail_lines(width)
@@ -2843,14 +2919,16 @@ class ToolLoopTerminalUi:
             transient = transient[len(transient) - transient_budget :]
         lines: list[_FrameLine] = [
             *transient,
+            *header_lines,
             *pending_lines,
+            *above_widgets,
             self._input_frame_separator(width, label=False),
             *input_lines,
             self._input_frame_separator(width, label=True),
             *menu_lines,
+            *below_widgets,
             *status_lines,
-            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
+            *footer_rows,
         ]
         return lines
 
@@ -3025,6 +3103,141 @@ class ToolLoopTerminalUi:
         )
         return lines
 
+    def _render_region_lines(
+        self, region: "_ChromeRegion", *, width: int, max_lines: int
+    ) -> tuple[str, ...] | None:
+        """Return the region's snapshot lines (UNCLIPPED; the caller width-clips
+        each line at frame-build time), or ``None`` when a factory re-render
+        failed (the caller then drops the region — fail soft). A factory region
+        re-renders when the width changes (component retained, not re-invoked); a
+        static region keeps its original lines unchanged, so narrowing-then-
+        widening is non-lossy."""
+        if not region.is_factory:
+            return region.snapshot
+        if region.width == width or region.component is None:
+            return region.snapshot
+        invalidate = getattr(region.component, "invalidate", None)
+        if callable(invalidate):
+            try:
+                invalidate()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001
+                pass
+        lines = render_chrome_component(
+            lambda: region.component, width=width, max_lines=max_lines
+        )
+        if lines is None:
+            return None
+        region.snapshot = tuple(lines)
+        region.width = width
+        return region.snapshot
+
+    def _clip_custom(self, text: str, width: int) -> str:
+        cleaned = _sanitize_custom_overlay_text(text)
+        if _visible_len_allow_sgr(cleaned) <= width:
+            return cleaned
+        return _clip_custom_overlay_text(cleaned, width)
+
+    def _extension_header_lines(self, width: int) -> list[_FrameLine]:
+        if self.extension_header is None:
+            return []
+        with self._paint_lock:
+            lines = self._render_region_lines(
+                self.extension_header, width=width, max_lines=_HEADER_MAX_LINES
+            )
+            if lines is None:
+                self._dispose_region(self.extension_header)
+                self.extension_header = None
+                return []
+        return [
+            _FrameLine(self._clip_custom(line, width), "chrome_custom")
+            for line in lines
+        ]
+
+    def _extension_widgets_lines(
+        self, placement: str, width: int
+    ) -> list[_FrameLine]:
+        regions = (
+            self.extension_widgets_below
+            if placement == "below_editor"
+            else self.extension_widgets_above
+        )
+        if not regions:
+            return []
+        out: list[_FrameLine] = []
+        failed: list[str] = []
+        with self._paint_lock:
+            for key, region in regions.items():  # insertion order
+                lines = self._render_region_lines(
+                    region, width=width, max_lines=_WIDGET_MAX_LINES
+                )
+                if lines is None:
+                    failed.append(key)
+                    continue
+                for line in lines:
+                    out.append(
+                        _FrameLine(self._clip_custom(line, width), "chrome_custom")
+                    )
+            for key in failed:
+                self._dispose_region(regions.pop(key, None))
+        return out
+
+    def _extension_footer_lines(self, width: int) -> list[_FrameLine] | None:
+        """Return custom footer rows, or None to fall back to the built-in footer."""
+        if self.extension_footer is None:
+            return None
+        with self._paint_lock:
+            lines = self._render_region_lines(
+                self.extension_footer, width=width, max_lines=_FOOTER_MAX_LINES
+            )
+            if lines is None:
+                self._dispose_region(self.extension_footer)
+                self.extension_footer = None
+                return None
+        return [
+            _FrameLine(self._clip_custom(line, width), "chrome_custom")
+            for line in lines
+        ]
+
+    def _clamp_chrome_lines(
+        self,
+        header: list[_FrameLine],
+        above: list[_FrameLine],
+        below: list[_FrameLine],
+        *,
+        budget: int,
+        width: int,
+    ) -> tuple[list[_FrameLine], list[_FrameLine], list[_FrameLine]]:
+        """Clip the combined extension-chrome rows (header + above + below) so the
+        whole frame fits the viewport. Priority: header > above_editor >
+        below_editor; the input region and footer are reserved by the caller and
+        never clipped here. A truncation marker replaces the last kept row when
+        anything is dropped."""
+        budget = max(0, budget)
+        if budget == 0:
+            return [], [], []
+        if len(header) + len(above) + len(below) <= budget:
+            return header, above, below
+        marker = _FrameLine(
+            self._clip("  … (chrome clipped)", width), "slash_menu_scroll"
+        )
+        keep = max(0, budget - 1)  # reserve one row for the marker
+        out_header = header[:keep]
+        keep -= len(out_header)
+        out_above = above[:keep]
+        keep -= len(out_above)
+        out_below = below[:keep]
+        if out_below:
+            out_below = out_below + [marker]
+        elif out_above:
+            out_above = out_above + [marker]
+        elif out_header:
+            out_header = out_header + [marker]
+        else:
+            out_header = [marker]
+        return out_header, out_above, out_below
+
     def _extension_status_lines(self, width: int) -> list[_FrameLine]:
         """Render bounded extension status rows above the footer."""
 
@@ -3160,6 +3373,8 @@ class ToolLoopTerminalUi:
         if line.kind == "user":
             return style.user_message(text, width=width)
         if line.kind in {"tool_call_custom", "tool_result_custom"}:
+            return style.tool_custom(line.text, width=width)
+        if line.kind == "chrome_custom":
             return style.tool_custom(line.text, width=width)
         return text
 
