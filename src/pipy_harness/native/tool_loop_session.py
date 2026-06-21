@@ -712,6 +712,7 @@ class _ExtensionToolPort:
         if (
             self._render_details_sink is not None
             and self._registered.tool.render_result is not None
+            and request.provider_correlation_id is not None
         ):
             details = result.details if isinstance(result, ToolResult) else None
             self._render_details_sink[request.provider_correlation_id] = (
@@ -2381,6 +2382,7 @@ class NativeToolReplSession:
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
                             flags=extension_flag_values,
+                            render_details_sink=extension_render_details,
                         )
                         run_tool_registry[_port.definition.name] = _port
                     if active_tool_names is not None:
