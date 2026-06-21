@@ -848,6 +848,20 @@ class ExtensionUiDriver(Protocol):
 
     def set_working_visible(self, visible: bool) -> None: ...
 
+    def set_widget(
+        self, key: str, content: object, placement: str
+    ) -> None: ...
+
+    def set_header(self, factory: object | None) -> None: ...
+
+    def set_footer(self, factory: object | None) -> None: ...
+
+    def set_title(self, title: str) -> None: ...
+
+    def set_working_indicator(
+        self, frames: Sequence[str] | None, interval_ms: int | None
+    ) -> None: ...
+
 
 @runtime_checkable
 class ExtensionUi(Protocol):
@@ -877,6 +891,27 @@ class ExtensionUi(Protocol):
     def set_working_visible(self, visible: bool) -> None: ...
 
     def custom(self, factory: CustomComponentFactory) -> object: ...
+
+    def set_widget(
+        self,
+        key: str,
+        content: object,
+        *,
+        placement: WidgetPlacement = "above_editor",
+    ) -> None: ...
+
+    def set_header(self, factory: object | None) -> None: ...
+
+    def set_footer(self, factory: object | None) -> None: ...
+
+    def set_title(self, title: str) -> None: ...
+
+    def set_working_indicator(
+        self,
+        frames: Sequence[str] | None = None,
+        *,
+        interval_ms: int | None = None,
+    ) -> None: ...
 
 
 class ExtensionCapabilityError(RuntimeError):
@@ -998,6 +1033,11 @@ class _CollectingUi:
         self.statuses: dict[str, str] = {}
         self.working_message: str | None = None
         self.working_visible: bool = True
+        self.widgets: dict[str, tuple[object, str]] = {}
+        self.header: object | None = None
+        self.footer: object | None = None
+        self.title: str | None = None
+        self.indicator: tuple[Sequence[str] | None, int | None] | None = None
         self._notify_sink = notify_sink
         self._custom_driver = custom_driver
         self._ui_driver = ui_driver
@@ -1067,6 +1107,69 @@ class _CollectingUi:
         if self._ui_driver is not None and self.has_ui:
             try:
                 self._ui_driver.set_working_visible(self.working_visible)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_widget(
+        self,
+        key: str,
+        content: object,
+        *,
+        placement: WidgetPlacement = "above_editor",
+    ) -> None:
+        safe_key = _safe_ui_key(key)
+        if safe_key is None:
+            return
+        place = (
+            placement
+            if placement in ("above_editor", "below_editor")
+            else "above_editor"
+        )
+        if content is None:
+            self.widgets.pop(safe_key, None)
+        else:
+            self.widgets[safe_key] = (content, place)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_widget(safe_key, content, place)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_header(self, factory: object | None) -> None:
+        self.header = factory
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_header(factory)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_footer(self, factory: object | None) -> None:
+        self.footer = factory
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_footer(factory)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_title(self, title: str) -> None:
+        self.title = str(title)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_title(self.title)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def set_working_indicator(
+        self,
+        frames: Sequence[str] | None = None,
+        *,
+        interval_ms: int | None = None,
+    ) -> None:
+        safe_frames = None if frames is None else [str(f) for f in frames]
+        self.indicator = (safe_frames, interval_ms)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                self._ui_driver.set_working_indicator(safe_frames, interval_ms)
             except Exception:  # noqa: BLE001 - a UI driver must not break the handler
                 pass
 
