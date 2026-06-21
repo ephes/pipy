@@ -1128,6 +1128,12 @@ and the live `scripts/tmux_answer_verify.sh`.
     alternate buffer, so it cannot own the host terminal's top row); aside from
     placement it is Pi's `setHeader`. `session_start` chrome renders live in an
     interactive TTY because lifecycle hooks now receive the live UI driver.
+    `/reload` clears all extension chrome before re-activating extensions, and
+    `session_start` does **not** re-fire on reload (it fires once at startup), so
+    chrome an extension sets only in a `session_start` hook is **not** restored by
+    `/reload` — it stays blank until a later lifecycle event (`agent_start` /
+    `turn_start`) re-sets it. A possible follow-on is re-firing `session_start`
+    with `reason=reload` so session-start-only chrome is restored immediately.
     Deferred liveness follow-on: no per-frame indicator animation or reactive
     `footerData` re-render between width changes, and non-lifecycle event hooks
     (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) do not yet thread

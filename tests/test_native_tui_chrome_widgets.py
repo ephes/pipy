@@ -234,3 +234,11 @@ def test_indicator_empty_frames_hides_glyph():
     renderer = _TuiToolLoopRenderer(ui=ui)
     frames, _interval = renderer._effective_spinner()
     assert frames == ("",)  # blank glyph -> hidden spinner
+
+
+def test_indicator_bad_frames_is_failsoft():
+    ui = _ui()
+    ui.set_extension_working_indicator(["a"], 50)  # establish a known value
+    ui.set_extension_working_indicator(123, None)  # non-iterable frames must not raise
+    # left unchanged (still the previously-set frames), and interval handled normally
+    assert ui.extension_indicator_frames == ("a",)

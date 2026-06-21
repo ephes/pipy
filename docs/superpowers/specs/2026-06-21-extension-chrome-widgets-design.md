@@ -323,10 +323,15 @@ The popup has no Pi equivalent, so this precedence is a pipy-local adaptation.
   header/footer is replaced/restored, on `/reload` (all extension chrome cleared
   before re-activation), and on session shutdown (chrome cleared, terminal title
   restored). Pure `Sequence[str]` widgets have no dispose.
-- **`/reload`:** clears all extension-owned chrome (disposing components) and the
-  re-activated extensions re-set what they want — avoids stale chrome from an
-  unloaded extension. (Unlike the slice-17 renderer-map, chrome state is rebuilt
-  from re-activation, so there is no "built once" staleness here.)
+- **`/reload`:** clears all extension-owned chrome (disposing components) — this
+  avoids stale chrome from an unloaded extension. Note that `session_start` does
+  **not** re-fire on `/reload` (it fires exactly once at startup), so chrome that
+  an extension sets only in a `session_start` hook is **not** restored by the
+  reload; it stays blank until a subsequent lifecycle event (e.g. `agent_start` /
+  `turn_start`) re-sets it. (Unlike the slice-17 renderer-map, chrome state is
+  rebuilt from those lifecycle re-sets, so there is no "built once" staleness
+  here.) Future follow-on: re-fire `session_start` with `reason=reload` on
+  `/reload` so session-start-only chrome is restored immediately.
 
 ## Implementation slices
 

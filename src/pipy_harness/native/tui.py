@@ -1771,13 +1771,18 @@ class ToolLoopTerminalUi:
             if frames is None:
                 self.extension_indicator_frames = None
             else:
-                cleaned = tuple(
-                    sanitize_label_text(str(f))
-                    for f in list(cast(Iterable[object], frames))[
-                        :_INDICATOR_MAX_FRAMES
-                    ]
-                )
-                self.extension_indicator_frames = cleaned
+                try:
+                    cleaned = tuple(
+                        sanitize_label_text(str(f))
+                        for f in list(cast(Iterable[object], frames))[
+                            :_INDICATOR_MAX_FRAMES
+                        ]
+                    )
+                    self.extension_indicator_frames = cleaned
+                except (TypeError, ValueError):
+                    # A non-iterable / bad frames leaves the current indicator
+                    # unchanged rather than raising into the extension handler.
+                    pass
             try:
                 self.extension_indicator_interval_ms = (
                     None
