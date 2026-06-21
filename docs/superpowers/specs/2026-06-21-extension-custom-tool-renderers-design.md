@@ -150,35 +150,43 @@ the new keys fall back to a sane default for those two names.
 
 Three touch points:
 
-1. **Carry `details` to render time (local-only).** Add an optional
-   `render_details: Mapping[str, Any] | None` to `ToolExecutionResult` (or a
-   sibling carrier), populated by `_ExtensionToolPort.invoke` from
-   `ToolResult.details`. It is **never archived and never sent to the provider** —
-   it exists only to reach the renderer for the just-executed call. `content`
-   continues to bound and feed the model exactly as today.
+1. **Carry `details` to render time (local-only).** *Implemented:* rather than
+   adding a field to `ToolExecutionResult`, `_ExtensionToolPort.invoke` writes
+   `ToolResult.details` into a small in-memory **details sink** — a
+   `MutableMapping` keyed by the call's `provider_correlation_id` — and only for
+   tools that actually declare a `render_result`. The renderer reads that sink by
+   the same key at result time. The sink is **never archived and never sent to the
+   provider** — it exists only to reach the renderer for the just-executed call,
+   and `provider_correlation_id` is never surfaced to extension code. `content`
+   continues to bound and feed the model exactly as today. (The earlier draft
+   proposed `render_details` on `ToolExecutionResult`; the sink avoids changing
+   that result type and the `render_tool_result` signature.)
 
 2. **Dispatch at render time.** `_TuiToolLoopRenderer.render_tool_call` /
    `render_tool_result` (and the captured `_ToolLoopRenderer` equivalents) look
    up the per-run extension-tool registry by `tool_name`. If the tool defines the
    matching renderer, build a `ToolRenderContext` (creating/reusing the per-call
    `state`), call the renderer, call `component.render(width)` once, and use the
-   returned lines instead of the default header/result lines. This requires
-   threading the `tool_request_id` (already on `ProviderToolCall` /
-   `ToolExecutionResult`) and the new `render_details` into the renderer
-   signatures — `render_tool_result(*, output_text, is_error, duration_seconds)`
-   gains `tool_request_id` and `render_details`; `render_tool_call` already
-   receives the `ProviderToolCall` (carrying the id and `arguments_json`).
+   returned lines instead of the default header/result lines. *Implemented:* the
+   renderer signatures are **unchanged** — `render_tool_result(*, output_text,
+   is_error, duration_seconds)` keeps its existing shape and `render_tool_call`
+   still just receives the `ProviderToolCall` (carrying the
+   `provider_correlation_id` and `arguments_json`). The `details` reach
+   `render_result` via the correlation-keyed details sink (point 1), not via a new
+   parameter.
 
-   **Per-call render store (keyed by `tool_request_id`).** Because
+   **Per-call render slot (single, sequential).** *Implemented:* because
    `ToolRenderContext.args` and `state` are required in **both** phases but the
-   result path does not otherwise carry the parsed args, the dispatch records, at
-   call time, a per-call entry holding the **parsed call args** and the shared
-   **`state`** dict. This entry is created for **every** extension-tool call —
-   **even when `render_call` is omitted** — so `render_result` can populate
-   `ctx.args` and reuse the same `ctx.state`. Parsing once at call time also
-   avoids re-parsing `arguments_json` at result time. The entry is evicted after
-   the result row renders, or when the tool errors/terminates without a rendered
-   result, so the store cannot grow unbounded.
+   result path does not otherwise carry the parsed args, `render_tool_call`
+   stashes a single **pending-render slot** holding the call's
+   `provider_correlation_id`, the **parsed call args**, and the shared **`state`**
+   dict; `render_tool_result` consumes and clears it. This relies on the same
+   sequential call→result ordering the existing `_last_tool_name` field already
+   assumes (one tool call is rendered immediately before its result), so a single
+   slot suffices instead of a `provider_correlation_id`-keyed store. The slot is
+   cleared at the start of the next call and when a result renders, so it cannot
+   grow. If parallel tool rendering is added later, replace the single slot with a
+   correlation-keyed store.
 
 3. **Commit pre-styled lines.** Renderer lines already carry the helper's SGR, so
    they commit under a new line-kind `tool_result_custom` (and a call-phase
@@ -213,9 +221,9 @@ plain text when color is unavailable.
   block. `expanded` lets a renderer choose compact vs full output itself
   (it is *informed by* the Ctrl+O state; this slice does not add a new toggle).
 - **Privacy (unchanged rules):** renderer output is UI text → **not archived**;
-  `details`/`render_details`/`state` are local-only → not archived, not sent to
-  the provider. Archive metadata stays the existing safe set (tool name, safe
-  counts, policy outcomes).
+  `details` (carried via the in-memory correlation-keyed sink) and `state` are
+  local-only → not archived, not sent to the provider. Archive metadata stays the
+  existing safe set (tool name, safe counts, policy outcomes).
 
 ## Implementation slices
 
@@ -268,6 +276,13 @@ review loop per slice, commit only on CLEAN; final slice also runs
 - The other rich-UI siblings (chrome widgets, rich message renderers, editor
   integration, theme controls, extension state/session-manager views).
 
+**Known assumption (implemented):** the extension tool-renderer **map is built
+once per session** and is **not refreshed across `/reload`** — the renderer is
+constructed when the session starts, so renderers added or changed by a reloaded
+extension are not picked up until restart (the details sink *is* wired on the
+reload path). This is consistent with the reload Open Question in
+`docs/extension-api.md`; refreshing the renderer map on reload is a follow-on.
+
 ## Risks
 
 - **Embedded SGR through the block pipeline.** Custom lines carry SGR into
@@ -275,9 +290,11 @@ review loop per slice, commit only on CLEAN; final slice also runs
   outer style. Mitigation: a dedicated `*_custom` line-kind that applies only the
   band/prefix and trusts `_visible_len_allow_sgr` for width; cover wrap/clip with
   embedded SGR in unit tests.
-- **Per-call `state` lifetime.** Keyed by tool request id; must be created at
-  call (or first render) and dropped after result to avoid unbounded growth.
-  Mitigation: explicit lifecycle tied to the tool execution; tested for cleanup.
+- **Per-call `state` lifetime.** *Implemented* as a single pending-render slot
+  (not a keyed store): created at call and cleared after result / at the next
+  call, relying on the existing sequential call→result ordering, so it cannot grow
+  unbounded. Tested for cleanup. Parallel tool rendering would require a
+  correlation-keyed store instead.
 - **Palette additions.** Adding `success`/`warning` touches the three built-in
   palettes and the theme-file loader. Mitigation: default fallback for theme
   files missing the keys; snapshot the three built-ins in tests.

@@ -34,12 +34,13 @@ custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
 keyboard-shortcut registration `api.register_shortcut(...)`. It is not
 source-compatible with Pi's TypeScript extensions, and it still lacks several
-mature Pi surfaces: richer multi-widget TUI, custom tool rendering,
+mature Pi surfaces: richer multi-widget TUI,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
 and broader package ecosystem polish. A first custom session-entry/message
 rendering slice has landed: extensions can register a text renderer for a custom
 entry type and command/shortcut handlers can append JSON-safe custom entries to
-the native product session tree.
+the native product session tree. Extensions can also render their own tool
+call/result rows with themed color (`render_call`/`render_result`).
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
@@ -1063,9 +1064,35 @@ and the live `scripts/tmux_answer_verify.sh`.
     render through the bounded generic fallback. This first slice renders custom
     entries when they are appended; replaying custom entries into a resumed TUI
     session is a later session-manager/rendering follow-on. This is the first
-    Pi-shaped `appendEntry` / `registerMessageRenderer` slice. Rich custom tool
-    renderers, multi-widget message components, and extension session-manager
-    helpers remain follow-ons.
+    Pi-shaped `appendEntry` / `registerMessageRenderer` slice. Multi-widget
+    message components and extension session-manager helpers remain follow-ons.
+17. Custom tool renderers — **landed**: an `ExtensionTool` may carry optional
+    `render_call(ctx)` and `render_result(ctx)` callables that return a
+    `ToolRenderComponent` (use the `lines_component(...)` convenience to wrap
+    pre-rendered lines). pipy dispatches them when rendering that extension's own
+    tool rows — in the product TUI and in captured (non-TTY) output — and commits
+    the pre-styled lines under dedicated `tool_call_custom`/`tool_result_custom`
+    line-kinds with default band framing. The renderer receives a read-only
+    `ToolRenderContext` (`tool_name`, `args`, `is_result`, `is_error`, `content`,
+    `details`, `expanded`, `width`, `theme`, and a `state` mapping shared from
+    `render_call` to `render_result` for one tool execution); the extension's
+    `ToolResult.details` reaches `render_result` through an in-memory,
+    correlation-keyed sink that is never archived or sent to the provider. A
+    bounded `ToolRenderTheme` (`theme.fg(color, text)` / `theme.bold` /
+    `theme.dim`, with semantic colors `text`/`accent`/`success`/`warning`/`error`/
+    `dim`) maps onto the active chrome palette and emits plain text when color is
+    disabled (captured / `NO_COLOR`). Rendering is **render-once / snapshot**: the
+    component's `render(width)` is called once per phase, output is coerced and
+    length-bounded, and there is no live `invalidate`/re-render runtime yet. The
+    whole path is **fail-soft**: a renderer (or its `render()`) that raises,
+    returns a non-component, or returns an uncoercible value falls back to pipy's
+    default tool-row rendering. Deferred: live invalidation/partial updates,
+    `renderShell:"self"` self-framing, and overriding built-in tool renderers.
+    Known follow-on: the extension tool-renderer **map is not refreshed across
+    `/reload`** — the renderer is constructed once per session, so renderers added
+    or changed by a reloaded extension are not picked up until restart (the
+    details sink *is* wired on the reload path). This matches the reload Open
+    Question below.
 
 ## Open Questions
 

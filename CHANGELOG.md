@@ -68,6 +68,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Extensions can render their own tool call/result rows (`render_call`/
+  `render_result`) with themed color.
 - Discovered skills are now advertised in the tool-loop system prompt when the
   `read` tool is available, matching Pi's skill model: each skill contributes an
   `<available_skills>` entry (name, description, and absolute location), and the

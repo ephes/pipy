@@ -14,7 +14,7 @@
 
 ## File Structure
 
-- **Create** `src/pipy_harness/native/tool_renderers.py` — concrete `_PaletteToolRenderTheme` + `build_tool_render_theme`, the shared `coerce_tool_render_lines`, and `render_tool_phase` (fail-soft dispatch). One responsibility: turn an extension renderer + context into safe lines, and turn a `ChromeStyle` into a `ToolRenderTheme`.
+- **Create** `src/pipy_harness/native/tool_renderers.py` — concrete `_PaletteToolRenderTheme` + `build_tool_render_theme` (theme helper) and `render_tool_phase` (fail-soft dispatch). One responsibility: turn an extension renderer + context into safe lines, and turn a `ChromeStyle` into a `ToolRenderTheme`. (The shared `coerce_tool_render_lines` lives in `extension_runtime.py` instead, so `lines_component` can call it without a cross-module import cycle; `render_tool_phase` imports it from there.)
 - **Modify** `src/pipy_harness/native/extension_runtime.py` — add the public contract types (`ToolRenderComponent`, `ToolRenderContext`, `ToolRenderTheme`, `ThemeColor`, `lines_component`, `_LinesComponent`) and the two `ExtensionTool` fields.
 - **Modify** `src/pipy_harness/extensions.py` — re-export the new public symbols.
 - **Modify** `src/pipy_harness/native/themes.py` — add `success`/`warning` palette fields (with defaults) + values in the three built-in palettes.

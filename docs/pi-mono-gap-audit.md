@@ -173,6 +173,10 @@ Pipy current state:
   (`ctx.ui.select`/`input`/`confirm`/`set_status`/`set_working_*`), and the
   first custom session-entry/message-rendering slice
   (`api.register_message_renderer` + `ctx.append_entry`).
+- Extension slice 17 has shipped: custom tool renderers — `ExtensionTool`
+  `render_call`/`render_result` callables render an extension's own tool
+  call/result rows with themed color (render-once snapshot, fail-soft fallback)
+  in both the product TUI and captured output.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -182,9 +186,10 @@ Pipy current state:
 Follow-ons:
 
 1. Richer Pi extension APIs: multi-widget UI/rendering beyond the simple
-   `ctx.ui` primitives, custom tool renderers and rich multi-widget message
+   `ctx.ui` primitives, rich multi-widget message
    components beyond the first `register_message_renderer`/`append_entry`
-   slice, broader dynamic-flag integration beyond the landed tool-loop
+   slice, live tool-render invalidation beyond the landed render-once snapshot,
+   broader dynamic-flag integration beyond the landed tool-loop
    `ctx.flags` slice, and extension state/session-manager views.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
@@ -273,9 +278,10 @@ adding another bespoke slash command.
 ## Recommended implementation order
 
 1. Extension/package platform follow-ons: richer multi-widget UI/rendering,
-   extension state/session-manager helpers, custom tool renderers, broader
-   dynamic-flag integration, OAuth-provider extension registration, and future
-   PyPI/npm package source policy.
+   extension state/session-manager helpers, live tool-render invalidation beyond
+   the landed render-once snapshot, broader dynamic-flag integration,
+   OAuth-provider extension registration, and future PyPI/npm package source
+   policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.
 4. Top-level CLI compatibility and pipy-only surface cleanup — shipped
