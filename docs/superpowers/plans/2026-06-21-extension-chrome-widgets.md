@@ -93,7 +93,7 @@ def test_render_chrome_component_direct_component_object():
 def test_render_chrome_component_truncates_to_max_lines():
     out = render_chrome_component([f"l{i}" for i in range(20)], width=40, max_lines=3)
     assert len(out) == 4  # 3 lines + a truncation marker
-    assert "more" in out[-1]
+    assert "truncated" in out[-1]
 
 
 def test_lines_component_is_a_chrome_component():
