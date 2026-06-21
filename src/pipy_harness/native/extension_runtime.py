@@ -1165,7 +1165,15 @@ class _CollectingUi:
         *,
         interval_ms: int | None = None,
     ) -> None:
-        safe_frames = None if frames is None else [str(f) for f in frames]
+        if frames is None:
+            safe_frames: list[str] | None = None
+        else:
+            try:
+                safe_frames = [str(f) for f in frames]
+            except TypeError:
+                # A non-iterable frames is ignored rather than raising into the
+                # extension handler (fail-soft, like the other ctx.ui setters).
+                return
         self.indicator = (safe_frames, interval_ms)
         if self._ui_driver is not None and self.has_ui:
             try:
