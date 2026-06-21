@@ -142,3 +142,26 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
     )
     kinds = [b[0] for b in ui._history_blocks]
     assert "tool" in kinds and "tool_call_custom" not in kinds
+
+
+def test_captured_renderer_emits_custom_lines(tmp_path):
+    from pipy_harness.native.models import ProviderToolCall
+    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    tool = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x", details={"k": "v"}),
+        render_result=lambda ctx: lines_component([f"KV:{ctx.details['k']}"]),
+    )
+    renderer = _ToolLoopRenderer(
+        output_stream=out, error_stream=err,
+        tool_renderers={"kv": tool},
+        render_details_sink={"c": {"k": "v"}},
+    )
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
+                         arguments_json="{}")
+    )
+    renderer.render_tool_result(output_text="x", is_error=False)
+    assert "KV:v" in err.getvalue()
