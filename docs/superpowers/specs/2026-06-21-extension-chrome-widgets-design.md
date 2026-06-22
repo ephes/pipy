@@ -7,7 +7,8 @@ remaining area). Tracked as extension-api **slice B** (rich-UI item B, after
 slice 17 = custom tool renderers = item A). This spec covers the persistent
 chrome surface only; the other rich-UI siblings (rich message renderers C,
 editor integration D, theme controls E, extension state/session-manager views F)
-are separate slices.
+are separate slices. (Update: rich message renderers C shipped as slice 19;
+D/E/F remain.)
 
 ## Decisions locked during brainstorming (2026-06-21)
 

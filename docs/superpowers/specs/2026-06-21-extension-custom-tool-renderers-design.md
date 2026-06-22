@@ -6,7 +6,8 @@ extension-platform **rich-UI layer** follow-on
 remaining area). Tracked as extension-api **slice 17**. This spec covers
 extension-owned tool rendering only; the other rich-UI siblings (chrome widgets,
 rich message renderers, editor integration, theme controls, extension
-state/session-manager views) are separate slices.
+state/session-manager views) are separate slices. (Update: chrome widgets
+shipped as slice 18, and rich message renderers shipped as slice 19.)
 
 ## Decisions locked during brainstorming (2026-06-21)
 
