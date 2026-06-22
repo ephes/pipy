@@ -68,6 +68,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- feat(extension-api): rich message renderers — slice C. A
+  `register_message_renderer` renderer may now return a themed component via a
+  required second `(data, ctx)` parameter (a `MessageRenderContext` with
+  `custom_type`/`data`/`expanded`/`width`/`theme`); the component is committed
+  SGR-preserving with no forced `[custom_type]` label, render-once at the
+  append-time width, and fail-soft to the plain path. A 1-arg `renderer(data)`
+  (including the capture-default idiom) keeps its existing plain-text behavior;
+  the context parameter must be required (`def render(data, ctx)`, not
+  `ctx=None`). The rendered body is live-only and never archived. Deferred:
+  replay-on-resume, `send_message`/`deliverAs`/`triggerTurn`, and rendering a
+  `CustomMessageEntry`.
 - feat(extension-api): persistent chrome widgets (set_widget/set_header/
   set_footer/set_title/set_working_indicator) — slice B. Extensions can pin an
   above/below-editor widget, an exclusive custom header and footer (with git

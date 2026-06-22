@@ -39,10 +39,15 @@ mature Pi surfaces: a custom editor component and live per-frame component
 indicator already animates via the spinner loop; widget/header/footer
 components are width-reactive snapshots), multi-widget message components,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
-and broader package ecosystem polish. A first custom session-entry/message
-rendering slice has landed: extensions can register a text renderer for a custom
-entry type and command/shortcut handlers can append JSON-safe custom entries to
-the native product session tree. Extensions can also render their own tool
+and broader package ecosystem polish. The custom session-entry/message
+rendering surface has landed, including **rich message renderers**: extensions
+register a renderer for a custom entry type and command/shortcut handlers append
+JSON-safe custom entries to the native product session tree; a renderer that
+requires a second `(data, ctx)` parameter receives a `MessageRenderContext` and
+may return a themed component (committed SGR-preserving with no forced label),
+while a 1-arg renderer stays plain text. Replaying custom entries into a resumed
+TUI session, `send_message`/`deliverAs`/`triggerTurn`, and rendering a
+`CustomMessageEntry` remain deferred. Extensions can also render their own tool
 call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
@@ -1076,6 +1081,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     session is a later session-manager/rendering follow-on. This is the first
     Pi-shaped `appendEntry` / `registerMessageRenderer` slice. Multi-widget
     message components and extension session-manager helpers remain follow-ons.
+    The rich **Component** upgrade landed in slice 19 below (rich-UI item C): a
+    renderer that **requires** a second positional parameter `(data, ctx)`
+    receives a `MessageRenderContext` and may return a component, committed
+    SGR-preserving under the `custom_message_custom` kind with no forced
+    `[custom_type]` label; a 1-arg `renderer(data)` keeps the slice-16 plain
+    behavior described above. See slice 19 for the required-param rule and
+    the fail-soft semantics.
 17. Custom tool renderers — **landed**: an `ExtensionTool` may carry optional
     `render_call(ctx)` and `render_result(ctx)` callables that return a
     `ToolRenderComponent` (use the `lines_component(...)` convenience to wrap
@@ -1150,6 +1162,40 @@ and the live `scripts/tmux_answer_verify.sh`.
     the chrome units; the golden
     `scripts/parity_checks/extension_conformance_gate.py --json` proves the
     end-to-end `session_start` dispatch and the no-leak guarantee.
+19. Rich message renderers — **landed** (rich-UI item C): a
+    `register_message_renderer` renderer may now return a themed
+    `ToolRenderComponent` (use `lines_component(...)`). Back-compat is **by
+    arity**: a renderer that **requires** a second positional parameter
+    (`def render(data, ctx)` — a second positional parameter WITHOUT a default)
+    receives a read-only `MessageRenderContext` (`custom_type`, `data`,
+    `expanded`, `width`, `theme`) and may return a component; a 1-arg
+    `renderer(data)` — including the capture-default idiom
+    `renderer(data, prefix=captured)`, which still counts as 1-arg — keeps the
+    exact slice-16 plain-text behavior. **The context parameter must be
+    REQUIRED**: write `def render(data, ctx)`, *not* `def render(data, ctx=None)`
+    — a defaulted second parameter is treated as the 1-arg plain path and the
+    renderer never receives a context. When a component is returned its
+    `render(width)` lines may carry `ctx.theme` SGR (a bounded `ToolRenderTheme`,
+    plain text when color is disabled / `NO_COLOR` / captured) and are committed
+    SGR-preserving under the dedicated `custom_message_custom` TUI line-kind with
+    **no forced `[custom_type]` label** (the component owns its box, matching
+    Pi's custom-message component replacing the default box). Rendering is
+    **render-once / snapshot** at the append-time width (no live
+    `invalidate`/re-render runtime), length-bounded, and **fail-soft**: a
+    renderer (or its `render()`) that raises, returns a `str`/`Sequence[str]`, or
+    returns an uncoercible value falls back to the slice-16 plain, sanitized
+    path; a raising renderer surfaces only a bounded `render error:` diagnostic
+    (no message body, data, or exception text leaked). The rendered body is
+    **live-only** — it is never archived; only the JSON-safe entry `data` lives
+    in the native product session tree. Deferred (unchanged): replaying custom
+    entries into a resumed TUI session (replay-on-resume),
+    `send_message`/`deliverAs`/`triggerTurn`, rendering a `CustomMessageEntry`,
+    multi-widget message components, and live per-frame `invalidate`. Gate
+    `scripts/parity_checks/extension_message_renderer_conformance.py --json`
+    proves the dispatch/coercion units; the golden
+    `scripts/parity_checks/extension_conformance_gate.py --json` records the
+    `message_renderer_component` marker proving the rich renderer ran end to end
+    with no leak.
 
 ## Open Questions
 

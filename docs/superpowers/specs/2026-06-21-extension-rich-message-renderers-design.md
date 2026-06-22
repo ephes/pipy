@@ -31,9 +31,11 @@ replay-on-resume.
    extension-facing contract is still the end-state contract (`render(width)`),
    so the deferred liveness pieces are additive later.
 4. **Back-compat by arity.** A 1-argument `renderer(data)` keeps its exact
-   slice-16 behavior. A renderer that accepts a **second parameter** receives a
+   slice-16 behavior. A renderer that **requires** a second positional
+   parameter (a second positional parameter WITHOUT a default; the
+   capture-default idiom `renderer(data, prefix=x)` stays 1-arg) receives a
    `MessageRenderContext` and may return a component. Arity is detected with
-   `inspect.signature`.
+   `inspect.signature`, counting only required positional parameters.
 5. **Judgment call ① — text stays plain; color only via a Component.** A
    `str`/`Sequence[str]` return is committed through today's sanitized path (no
    color), exactly as in slice 16. **Only** a returned component (whose

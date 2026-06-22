@@ -183,6 +183,13 @@ Pipy current state:
   terminal title, and a custom working indicator, with a width-reactive snapshot
   model, fail-soft rendering, dispose-on-replace/clear, and live `session_start`
   rendering in an interactive TTY.
+- Extension slice 19 has shipped: rich message renderers (rich-UI item C) — a
+  `register_message_renderer` renderer that requires a second `(data, ctx)`
+  parameter receives a `MessageRenderContext` and may return a themed component,
+  committed SGR-preserving with no forced `[custom_type]` label (render-once
+  snapshot at append width, fail-soft to the plain path); a 1-arg
+  `renderer(data)` keeps slice-16 plain behavior. The rendered body is live-only
+  and never archived.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -191,14 +198,15 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: a custom editor component and live per-frame
-   component `render()`/`requestRender` re-rendering of chrome components (the
-   working indicator already animates via the spinner loop) / reactive
-   `footerData` beyond the landed width-reactive chrome
-   snapshot, rich multi-widget message
-   components beyond the first `register_message_renderer`/`append_entry`
-   slice, live tool-render invalidation beyond the landed render-once snapshot,
-   threading the live `ui_driver` into non-lifecycle event hooks
+1. Richer Pi extension APIs: a custom editor component (rich-UI item D) and live
+   per-frame component `render()`/`requestRender` re-rendering of chrome
+   components (the working indicator already animates via the spinner loop) /
+   reactive `footerData` beyond the landed width-reactive chrome snapshot,
+   *multi-widget* message components beyond the landed single-component rich
+   message renderer (item C), and the deferred message-entry surface itself
+   (replay-on-resume, `send_message`/`deliverAs`/`triggerTurn`, rendering a
+   `CustomMessageEntry`), live tool-render invalidation beyond the landed
+   render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed
    tool-loop `ctx.flags` slice, and extension state/session-manager views.

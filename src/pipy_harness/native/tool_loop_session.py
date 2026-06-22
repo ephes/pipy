@@ -1475,6 +1475,9 @@ class NativeToolReplSession:
                 raise ValueError("invalid custom entry type")
             safe_data = safe_custom_entry_data(data)
             appended = session_tree.append_custom(safe_type, safe_data)
+            # Local import: the render-theme machinery is only needed on the
+            # rarely hit append-entry path, so keep it off this module's hot
+            # import path (mirrors the tool-renderer ``_dispatch_render`` sites).
             from pipy_harness.native.chrome import chrome_style_for
             from pipy_harness.native.tool_renderers import build_tool_render_theme
 
