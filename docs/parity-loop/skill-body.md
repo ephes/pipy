@@ -14,7 +14,8 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
 - **Never weaken or delete tests** to pass a gate.
 - **The commit gate requires the last CLEAN review to cover the exact diff being
   committed.** If any fix (including docs) changes files after a CLEAN verdict,
-  re-run `just check`, pre-commit, and the review gate before committing.
+  re-run `just check`, prek (only if a `.pre-commit-config.yaml` is present), and
+  the review gate before committing.
 - **Operator override is an escalation, not a pass.** A CLEAN different-family
   review is mandatory; nothing marks a gap "done" without one. The only override
   is when the reviewer CLI is genuinely *unavailable* after retries — and then
@@ -63,13 +64,15 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
    complete. *Done-when:* docs reflect behavior; the gap is struck from the gap
    source.
 7. **Code-review loop until CLEAN (over the complete diff).** Each iteration: run
-   `just check` + pre-commit, and only when both are green run the
-   different-family review over the **full diff — code and docs together**. On an
-   ISSUES verdict, fix and **return to the top of this iteration** (re-run `just
-   check` + pre-commit before the next review), so every review — including the
-   final CLEAN one — is taken over a diff whose gates currently pass.
-   *Done-when:* `just check` green, pre-commit green, and review CLEAN over the
-   complete diff in the *same* iteration.
+   `just check` (and `prek run --all-files` only if a `.pre-commit-config.yaml`
+   is present — `just check` is pipy's real gate; `pre-commit` is not installed),
+   and only when green run the different-family review over the **full diff —
+   code and docs together**. On an ISSUES verdict, fix and **return to the top of
+   this iteration** (re-run `just check` and prek before the next review), so
+   every review — including the final CLEAN one — is taken over a diff whose
+   gates currently pass.
+   *Done-when:* `just check` green, prek green (or absent), and review CLEAN over
+   the complete diff in the *same* iteration.
 8. **Mark done & report.** Commit (trunk; clean message, no self-reference).
    Record an evidence summary: what changed, gates passed, review verdict.
    *Done-when:* committed, gap marked complete.

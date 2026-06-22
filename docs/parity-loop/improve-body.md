@@ -22,8 +22,10 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
    materializes the lesson — most often editing `docs/parity-loop/skill-body.md`
    or `docs/parity-loop/improve-body.md`, but also wrappers, docs, tests, or
    harness/helper code under `src/` or `scripts/`.
-3. **Gate the edits (different model family).** Run `just check` + pre-commit;
-   only when both are green, run the **different-family** review over the edit
+3. **Gate the edits (different model family).** Run `just check` (and `prek run
+   --all-files` only if a `.pre-commit-config.yaml` is present — `just check` is
+   pipy's real gate; `pre-commit` is not installed); only when green, run the
+   **different-family** review over the edit
    diff (`pi-review-loop` if you are Opus, `opus-review-loop` if you are GPT)
    until the verdict is CLEAN. On ISSUES, fix and re-run the gates.
 4. **Sign-off gate.** Any edit to `skill-body.md`, `improve-body.md`, or a

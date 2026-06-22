@@ -22,7 +22,7 @@ BODY = REPO_ROOT / "docs" / "parity-loop" / "skill-body.md"
 # Tokens the canonical body MUST name so the gates/gap-sources stay explicit.
 REQUIRED_BODY_TOKENS = (
     "just check",
-    "pre-commit",
+    "prek",
     "docs/pi-mono-gap-audit.md",
     "docs/parity-plan.md",
     "docs/backlog.md",
