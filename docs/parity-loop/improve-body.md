@@ -36,8 +36,10 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
 5. **Commit the edits, naming the lesson ids.** Commit with a message that names
    the lesson id(s) it materializes (e.g. `Closes lessons: 2026-06-22-a3f9c1`),
    then capture the full commit SHA with `git rev-parse HEAD`.
-6. **Record resolutions.** For each consumed lesson:
-   `python3 scripts/parity_lessons.py mark <id> applied --sha <SHA> --repo .`
+6. **Record resolutions.** Run from the repo root (the default `--repo` is the
+   CWD). **Global options `--repo`/`--ledger` must come *before* the subcommand**
+   (argparse rejects them after `mark`). For each consumed lesson:
+   `python3 scripts/parity_lessons.py mark <id> applied --sha <SHA>`
    (add `--signed-off-by <human|judge>` for instruction-area lessons —
    `target_area: skill-body` or `wrapper`; note that edits to BOTH instruction
    bodies, `skill-body.md` AND `improve-body.md`, are recorded under
