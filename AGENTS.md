@@ -88,3 +88,14 @@ body is wrapped per-agent under `.claude/skills/`, `.pipy/skills/`, and
 deferred). Honor the body's hard rules: never self-grade, the review gate is a
 mandatory different-family CLEAN, and an operator override is an escalation/stop —
 never a pass.
+
+## Parity improve
+
+To consume captured parity-loop lessons and materialize them into gated edits
+(skills/docs/tests/harness), follow the canonical workflow in
+`docs/parity-loop/improve-body.md`. This is the `parity-improve` skill; the same
+body is wrapped per-agent under `.claude/skills/`, `.pipy/skills/`, and
+`.pi/skills/`. Application is gated: `just check` + a different-family review
+CLEAN + human/judge sign-off for instruction edits. The ledger helper
+`scripts/parity_lessons.py` refuses to mark a lesson `applied` without a real
+materializing commit, so lessons cannot be closed without being acted on.

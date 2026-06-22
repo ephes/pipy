@@ -24,6 +24,15 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
 
 ## Phases
 
+0. **Load context & drain the lesson backlog.** Read this body (it now carries
+   applied improvements) and run
+   `python3 scripts/parity_lessons.py list --status open`. **If the open-lesson
+   count is ≥ the threshold (default 5), you MUST run the `parity-improve` skill
+   to drain ALL open lessons to zero before selecting a new gap** — each open
+   lesson must end `applied` or `rejected`. If the count is below threshold, note
+   the open lessons and proceed; the run-end backstop drains the rest.
+   *Done-when:* either the count was below threshold (noted, proceeding), or it
+   met the threshold and `parity-improve` drove the open count to zero.
 1. **Select the gap.** Read `docs/pi-mono-gap-audit.md` (ranked) and
    `docs/backlog.md`; pick the highest-value incomplete slice, or accept an
    operator-supplied gap. Confirm it is a single reviewable slice (decompose if
@@ -64,6 +73,42 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
 8. **Mark done & report.** Commit (trunk; clean message, no self-reference).
    Record an evidence summary: what changed, gates passed, review verdict.
    *Done-when:* committed, gap marked complete.
+9. **Reflect (capture lessons).** Locate this session's transcript with the
+   per-agent locator below, then read it with the gap's diff, the review
+   verdicts, and how many review rounds it took. Distill 0–N reusable,
+   summary-safe lessons (a recurring review finding, a gate failure, a wrong turn
+   that cost time, or a better approach — never raw transcript or secrets) and
+   append each (after checking `list` to avoid duplicates):
+
+   ```bash
+   python3 scripts/parity_lessons.py append --json \
+     '{"skill":"pipy-parity-loop","gap":"<gap>",
+       "agent":"<host agent: claude|codex|pi|pipy>",
+       "trigger":"recurring-review-finding","lesson":"<distilled, summary-safe>",
+       "target_area":"<skill-body|wrapper|docs|tests|harness>"}'
+   ```
+
+   Set `agent` to the host agent actually running this loop (not a literal), and
+   set `target_area` to the artifact the lesson is about — it decides the sign-off
+   path and which file a later `applied` commit must touch, so do not leave it as
+   `skill-body` by default. The helper assigns the `id` and `status: open` and
+   refuses near-duplicates.
+   Commit the ledger change as a small `chore(lessons): …` commit. *Done-when:*
+   lessons appended (or none worth keeping) and committed.
+
+   **Per-agent transcript locator** (the host agent is known — it is the one
+   running this loop):
+   - claude: newest `*.jsonl` in `~/.claude/projects/-Users-jochen-projects-pipy/`.
+   - pi: newest `*.jsonl` in `~/.pi/agent/sessions/--Users-jochen-projects-pipy--/`.
+   - pipy: newest `*.jsonl` in `~/.local/state/pipy/native-sessions/--<cwd>--/`.
+   - codex: `~/.codex/history.jsonl` is a single global, untyped log — extract the
+     contiguous tail of records sharing the last record's `session_id` (coarser;
+     documented limitation).
+
+**Run-end backstop.** A parity-loop run must not conclude with any `open`
+lessons. Before finishing, run `parity-improve` until
+`python3 scripts/parity_lessons.py list --status open` is empty, so every
+captured lesson is consumed (materialized or, with sign-off, rejected).
 
 ## Reuse
 
