@@ -136,6 +136,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "tool_call",
         "tool_execute",
         "tool_result",
+        "message_renderer_component",
         "turn_end",
         "agent_end",
         "session_shutdown",
@@ -175,6 +176,8 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "probe-output",  # tool result content the extension produced
         "PATCHED::",  # tool_result transform
         "CONFORMANCE_CONTEXT",  # before_agent_start injection
+        "PIPY_MSGBODY_9f3a2c",  # rich renderer body (live-only)
+        "PIPY_MSGDATA_7b1e44",  # append_entry data payload (archive-excluded)
         str(proof),  # the proof file path itself
     )
     archive_blob = _archive_blob(sessions_root)
@@ -195,6 +198,8 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "CONFORMANCE_CONTEXT",
         "conformance probe ran",
         "conformance command ran",
+        "PIPY_MSGBODY_9f3a2c",  # rich renderer body (live-only)
+        "PIPY_MSGDATA_7b1e44",  # append_entry data payload
     ):
         assert leaked not in proof_text
 

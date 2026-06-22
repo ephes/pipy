@@ -40,6 +40,13 @@ from pipy_harness.extensions import (
 
 PROOF_ENV = "PIPY_EXTENSION_CONFORMANCE_PROOF"
 
+# Unique leak canaries: must never reach the proof file or the metadata
+# archive (the rendered body is live-only; entry data is archive-excluded).
+# Module-level so both the renderer and the command handler closure reference
+# the same values. The custom_type "conformance-card" is safe metadata.
+_MSG_BODY_SENTINEL = "PIPY_MSGBODY_9f3a2c"
+_MSG_DATA_SENTINEL = "PIPY_MSGDATA_7b1e44"
+
 
 def _proof(feature: str, **fields: object) -> None:
     """Append one metadata-only feature marker to the proof file."""
@@ -143,9 +150,26 @@ def activate(api):
         )
     )
 
+    def _render_card(data, ctx):
+        # Metadata-only marker: records THAT a rich (context-aware) renderer ran
+        # and whether a theme was available -- never the rendered body or data.
+        _proof("message_renderer_component", styled=ctx.theme is not None)
+        body = (
+            ctx.theme.fg("accent", _MSG_BODY_SENTINEL)
+            if ctx.theme
+            else _MSG_BODY_SENTINEL
+        )
+        return lines_component([body])
+
+    api.register_message_renderer("conformance-card", _render_card)
+
     def _command(ctx, args):
         _proof("command_handler")
         ctx.ui.notify("conformance command ran")
+        # Append a custom entry whose data carries a unique sentinel; the
+        # registered rich renderer runs synchronously and emits the body
+        # sentinel live-only. Neither sentinel may reach proof/archive.
+        ctx.append_entry("conformance-card", {"sentinel": _MSG_DATA_SENTINEL})
         api.send_user_message("run conformance probe")
 
     api.register_command(

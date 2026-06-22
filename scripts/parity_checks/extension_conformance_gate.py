@@ -64,6 +64,7 @@ _REQUIRED = {
     "tool_execute",
     "tool_result",
     "render_result",
+    "message_renderer_component",
     "turn_end",
     "agent_end",
     "session_shutdown",
@@ -210,6 +211,13 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
                     "CONFORMANCE_CONTEXT",  # before_agent_start injection
                     "conformance probe ran",  # ctx.ui.notify text
                     "conformance command ran",
+                    # Rich message renderer (slice C): the styled body sentinel
+                    # is live-only and the entry-data sentinel is excluded from
+                    # the metadata archive; neither may reach proof/archive. The
+                    # data sentinel legitimately lives in the native
+                    # session-tree product store, which this gate does not scan.
+                    "PIPY_MSGBODY_9f3a2c",  # rendered message-renderer body
+                    "PIPY_MSGDATA_7b1e44",  # append_entry data payload
                 )
             )
             # Proof markers + the proof path are a side channel: present in
