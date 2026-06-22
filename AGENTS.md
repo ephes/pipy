@@ -37,7 +37,7 @@ This file is for coding agents working in this repository. It records local proj
   to `main` before making changes when the worktree is clean. If the branch
   already contains completed work, merge it back to `main` promptly, validate
   `main`, and continue from `main`.
-- Respect pre-commit hooks and keep each commit's tests/lint/typecheck green so `main` stays releasable.
+- Run `just check` (and `prek` hooks if a `.pre-commit-config.yaml` is present — `pre-commit` is not installed) and keep each commit's tests/lint/typecheck green so `main` stays releasable.
 
 ## Session Capture
 - Store durable raw coding-agent session records outside git by default, under `~/.local/state/pipy/sessions/<project>/`.
