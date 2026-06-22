@@ -189,7 +189,9 @@ Pipy current state:
   committed SGR-preserving with no forced `[custom_type]` label (render-once
   snapshot at append width, fail-soft to the plain path); a 1-arg
   `renderer(data)` keeps slice-16 plain behavior. The rendered body is live-only
-  and never archived.
+  and never archived. Active-branch custom entries now replay into
+  startup-opened TUI sessions through the same renderer dispatch without
+  mutating the session file.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -204,8 +206,9 @@ Follow-ons:
    reactive `footerData` beyond the landed width-reactive chrome snapshot,
    *multi-widget* message components beyond the landed single-component rich
    message renderer (item C), and the deferred message-entry surface itself
-   (replay-on-resume, `send_message`/`deliverAs`/`triggerTurn`, rendering a
-   `CustomMessageEntry`), live tool-render invalidation beyond the landed
+   (`send_message`/`deliverAs`/`triggerTurn`, in-session full-history redraw on
+   `/resume` switches, rendering a `CustomMessageEntry` beyond stored display
+   replay), live tool-render invalidation beyond the landed
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed

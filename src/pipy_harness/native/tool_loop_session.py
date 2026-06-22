@@ -119,6 +119,12 @@ from pipy_harness.native.session_tree import (
     CompactionEntry as _CompactionEntry,
 )
 from pipy_harness.native.session_tree import (
+    CustomEntry as _CustomEntry,
+)
+from pipy_harness.native.session_tree import (
+    CustomMessageEntry as _CustomMessageEntry,
+)
+from pipy_harness.native.session_tree import (
     MessageEntry as _MessageEntry,
 )
 from pipy_harness.native.session_tree import (
@@ -171,6 +177,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredProvider,
     RegisteredShortcut,
     RegisteredTool,
+    RenderedCustomEntry,
     ToolResult,
     activate_extensions,
     dispatch_before_agent_start_hooks,
@@ -1469,41 +1476,76 @@ class NativeToolReplSession:
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
+        def render_extension_custom_entry(
+            custom_type: str,
+            data: object | None,
+            *,
+            width: int,
+            expanded: bool,
+            stream: TextIO,
+        ) -> RenderedCustomEntry:
+            # Local import: the render-theme machinery is only needed on the
+            # rarely hit custom-entry path, so keep it off this module's hot
+            # import path (mirrors the tool-renderer ``_dispatch_render`` sites).
+            from pipy_harness.native.chrome import chrome_style_for
+            from pipy_harness.native.tool_renderers import build_tool_render_theme
+
+            style = chrome_style_for(stream)
+            return render_extension_message(
+                extension_renderer_map,
+                custom_type,
+                data,
+                width=width,
+                expanded=expanded,
+                theme=build_tool_render_theme(style),
+            )
+
+        def add_rendered_custom_entry_to_terminal(
+            custom_type: str,
+            data: object | None,
+        ) -> None:
+            if terminal_ui is None:
+                return
+            rendered = render_extension_custom_entry(
+                custom_type,
+                data,
+                width=terminal_ui._dimensions()[0],
+                expanded=terminal_ui.tools_expanded,
+                stream=terminal_ui.terminal_stream,
+            )
+            if rendered.styled:
+                terminal_ui.add_custom_entry_styled(rendered.lines)
+            else:
+                terminal_ui.add_custom_entry(custom_type, rendered.lines)
+
+        def replay_custom_entries_to_terminal() -> None:
+            if terminal_ui is not None:
+                for entry in session_tree.get_branch():
+                    if isinstance(entry, _CustomEntry):
+                        add_rendered_custom_entry_to_terminal(
+                            entry.custom_type, safe_custom_entry_data(entry.data)
+                        )
+                    elif isinstance(entry, _CustomMessageEntry) and entry.display:
+                        terminal_ui.add_custom_entry(
+                            entry.custom_type,
+                            entry.content.splitlines() or [""],
+                        )
+
         def extension_append_entry(custom_type: str, data: object | None = None) -> object:
             safe_type = str(custom_type).strip()
             if not is_valid_custom_entry_type(safe_type):
                 raise ValueError("invalid custom entry type")
             safe_data = safe_custom_entry_data(data)
             appended = session_tree.append_custom(safe_type, safe_data)
-            # Local import: the render-theme machinery is only needed on the
-            # rarely hit append-entry path, so keep it off this module's hot
-            # import path (mirrors the tool-renderer ``_dispatch_render`` sites).
-            from pipy_harness.native.chrome import chrome_style_for
-            from pipy_harness.native.tool_renderers import build_tool_render_theme
-
             if terminal_ui is not None:
-                style = chrome_style_for(terminal_ui.terminal_stream)
-                rendered = render_extension_message(
-                    extension_renderer_map,
-                    safe_type,
-                    safe_data,
-                    width=terminal_ui._dimensions()[0],
-                    expanded=terminal_ui.tools_expanded,
-                    theme=build_tool_render_theme(style),
-                )
-                if rendered.styled:
-                    terminal_ui.add_custom_entry_styled(rendered.lines)
-                else:
-                    terminal_ui.add_custom_entry(safe_type, rendered.lines)
+                add_rendered_custom_entry_to_terminal(safe_type, safe_data)
             else:
-                style = chrome_style_for(error_stream)
-                rendered = render_extension_message(
-                    extension_renderer_map,
+                rendered = render_extension_custom_entry(
                     safe_type,
                     safe_data,
                     width=80,
                     expanded=False,
-                    theme=build_tool_render_theme(style),
+                    stream=error_stream,
                 )
                 lines = "\n".join(str(line) for line in rendered.lines)
                 self._emit_diagnostic(
@@ -1828,6 +1870,7 @@ class NativeToolReplSession:
                         branch_label=self.resume_branch_label,
                     )
                 )
+            replay_custom_entries_to_terminal()
 
         # Startup changelog: on a fresh session, show the entries new since the
         # stored lastChangelogVersion (or a condensed line under collapseChangelog)

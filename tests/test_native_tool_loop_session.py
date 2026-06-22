@@ -41,6 +41,8 @@ from pipy_harness.native.extension_provider_catalog import (
 from pipy_harness.native.tool_loop_session import _UsageAccumulator
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.session_resume import ResumeContext
+from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tools import (
@@ -990,6 +992,97 @@ class _TtyBuffer:
 
     def getvalue(self) -> str:
         return self._buffer.getvalue()
+
+
+def test_reopened_session_replays_extension_custom_entries_live_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "cards.py").write_text(
+        "from pipy_harness.extensions import lines_component\n"
+        "def activate(api):\n"
+        "    api.register_message_renderer('plain-card', lambda data: ['PLAIN:' + data['title']])\n"
+        "    def render_rich(data, ctx):\n"
+        "        text = ctx.theme.fg('accent', 'RICH:' + data['title']) if ctx.theme else 'RICH:' + data['title']\n"
+        "        return lines_component([text])\n"
+        "    api.register_message_renderer('rich-card', render_rich)\n",
+        encoding="utf-8",
+    )
+    session_dir = tmp_path / "sessions"
+    tree = NativeSessionTree.create(tmp_path, session_dir=session_dir)
+    plain = tree.append_custom("plain-card", {"title": "ROOT"})
+    tree.append_custom("rich-card", {"title": "OFF_BRANCH"})
+    tree.branch(plain.id)
+    tree.append_custom("rich-card", {"title": "ACTIVE"})
+    tree.append_custom("unknown-card", {"title": "FALLBACK"})
+    tree.append_custom_message("legacy-card", "LEGACY_SHOW", display=True)
+    tree.append_custom_message("legacy-card", "LEGACY_HIDE", display=False)
+    assert tree.path is not None
+    before = tree.path.read_text(encoding="utf-8")
+
+    reopened = NativeSessionTree.open(tree.path)
+    terminal_stream = _TtyBuffer()
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, io.StringIO()),
+        terminal_stream=cast(TextIO, terminal_stream),
+        cwd=tmp_path,
+    )
+    queued = [""]
+
+    def _read_line(self, prompt_label, *, footer=None):
+        del self, prompt_label, footer
+        return queued.pop(0) if queued else ""
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=reopened,
+        resume_context=ResumeContext(
+            prior_session_id="parent-session",
+            prior_provider_name="fake",
+            prior_model_id="fake-native-bootstrap",
+            prior_turn_count=1,
+            prior_workspace_hash="HASH",
+            prior_started_at="2026-06-22T00:00:00+00:00",
+            prior_ended_at="2026-06-22T00:01:00+00:00",
+            prior_summary=None,
+        ),
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, io.StringIO()),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    committed_frame = "\n".join(
+        terminal_ui.render_lines(width=72, height=24, pad=False)
+    )
+    history = terminal_ui._history_blocks
+
+    notice_index = next(i for i, (kind, _) in enumerate(history) if kind == "notice")
+    first_custom_index = next(
+        i for i, (kind, _) in enumerate(history) if kind.startswith("custom")
+    )
+    assert notice_index < first_custom_index
+    assert any(kind == "custom_message_custom" for kind, _ in history)
+    assert "PLAIN:ROOT" in committed_frame
+    assert "RICH:ACTIVE" in committed_frame
+    assert "FALLBACK" in committed_frame
+    assert "LEGACY_SHOW" in committed_frame
+    assert "OFF_BRANCH" not in committed_frame
+    assert "LEGACY_HIDE" not in committed_frame
+    assert tree.path.read_text(encoding="utf-8") == before
 
 
 def test_rich_message_renderer_styles_scrollback_and_does_not_leak(

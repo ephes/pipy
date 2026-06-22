@@ -1437,8 +1437,10 @@ The first custom session-entry/message-rendering slice has shipped:
 `api.register_message_renderer(custom_type, renderer)` registers a bounded text
 renderer, and command/shortcut handlers can call `ctx.append_entry(custom_type,
 data)` to persist JSON-safe custom entries in the native product session tree
-and render them locally without a provider turn. The next largest remaining
-parity topic is still the broader extension/package platform follow-on area.
+and render them locally without a provider turn. Active-branch custom entries
+now replay into startup-opened TUI sessions through the registered renderer
+available for that run. The next largest remaining parity topic is still the
+broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 
@@ -1592,11 +1594,13 @@ Custom session-entry/message-rendering follow-on: extensions can now register a
 bounded text renderer with `api.register_message_renderer(...)`; command and
 shortcut handlers can call `ctx.append_entry(...)` to write JSON-safe `custom`
 entries to the native product session tree and show the rendered result in the
-product TUI or captured-stream diagnostics. Renderer crashes fail soft, non-JSON
-data is converted before persistence, and the metadata-first archive remains
-unaffected. Render-once custom tool renderers now ship (slice 17); live
-(invalidate-driven) tool renderers and multi-widget message components remain
-follow-ons.
+product TUI or captured-stream diagnostics. Active-branch custom entries replay
+into startup-opened TUI sessions without mutating the session file. Renderer
+crashes fail soft, non-JSON data is converted before persistence, and the
+metadata-first archive remains unaffected. Render-once custom tool renderers now
+ship (slice 17); live (invalidate-driven) tool renderers, in-session
+full-history redraw on `/resume` switches, and multi-widget message components
+remain follow-ons.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1612,10 +1616,10 @@ live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
 extension APIs: live (invalidate-driven) tool rendering beyond the landed
 render-once snapshot, richer multi-widget `ctx.ui`
-dialogs/editor/autocomplete/theme controls beyond the simple primitives, richer `appendEntry` replay
-and session-manager access, TypeScript source compatibility, OAuth-provider
-extension registration, broader dynamic extension flag integration, or PyPI/npm
-package distribution. Managed git sources
+dialogs/editor/autocomplete/theme controls beyond the simple primitives,
+session-manager access and message-entry APIs beyond append/startup replay,
+TypeScript source compatibility, OAuth-provider extension registration, broader
+dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources
 and package `update` now ship; broader remote package sources remain deferred.
 
 Acceptance criteria:

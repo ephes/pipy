@@ -45,9 +45,12 @@ register a renderer for a custom entry type and command/shortcut handlers append
 JSON-safe custom entries to the native product session tree; a renderer that
 requires a second `(data, ctx)` parameter receives a `MessageRenderContext` and
 may return a themed component (committed SGR-preserving with no forced label),
-while a 1-arg renderer stays plain text. Replaying custom entries into a resumed
-TUI session, `send_message`/`deliverAs`/`triggerTurn`, and rendering a
-`CustomMessageEntry` remain deferred. Extensions can also render their own tool
+while a 1-arg renderer stays plain text. Custom entries on the active branch
+are replayed into startup-opened TUI sessions, including
+`--session`/`--continue`/`--resume-session` opens, with the best available
+registered renderer. `send_message`/`deliverAs`/`triggerTurn`, in-session
+full-history redraw on `/resume` switches, and rendering a `CustomMessageEntry`
+remain deferred. Extensions can also render their own tool
 call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
@@ -1077,10 +1080,12 @@ and the live `scripts/tmux_answer_verify.sh`.
     marker object. `custom_type` must be the same command-shaped, lowercase
     identifier registered with the renderer (1-200 characters); unknown or differently-cased types
     render through the bounded generic fallback. This first slice renders custom
-    entries when they are appended; replaying custom entries into a resumed TUI
-    session is a later session-manager/rendering follow-on. This is the first
-    Pi-shaped `appendEntry` / `registerMessageRenderer` slice. Multi-widget
-    message components and extension session-manager helpers remain follow-ons.
+    entries when they are appended; active-branch custom entries are also
+    replayed into startup-opened TUI sessions with the registered renderer
+    available for the new run. This is the first Pi-shaped `appendEntry` /
+    `registerMessageRenderer` slice. Multi-widget message components,
+    in-session full-history redraw on `/resume` switches, and extension
+    session-manager helpers remain follow-ons.
     The rich **Component** upgrade landed in slice 19 below (rich-UI item C): a
     renderer that **requires** a second positional parameter `(data, ctx)`
     receives a `MessageRenderContext` and may return a component, committed
@@ -1187,10 +1192,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     path; a raising renderer surfaces only a bounded `render error:` diagnostic
     (no message body, data, or exception text leaked). The rendered body is
     **live-only** — it is never archived; only the JSON-safe entry `data` lives
-    in the native product session tree. Deferred (unchanged): replaying custom
-    entries into a resumed TUI session (replay-on-resume),
-    `send_message`/`deliverAs`/`triggerTurn`, rendering a `CustomMessageEntry`,
-    multi-widget message components, and live per-frame `invalidate`. Gate
+    in the native product session tree. Active-branch custom entries replay into
+    startup-opened TUI sessions through the same renderer dispatch; if the
+    renderer is absent or fails, pipy falls back to the plain sanitized path, and
+    replay itself never mutates the session file. Deferred:
+    `send_message`/`deliverAs`/`triggerTurn`, in-session full-history redraw on
+    `/resume` switches, rendering a `CustomMessageEntry`, multi-widget message
+    components, and live per-frame `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
     proves the dispatch/coercion units; the golden
     `scripts/parity_checks/extension_conformance_gate.py --json` records the
