@@ -76,3 +76,15 @@ This file is for coding agents working in this repository. It records local proj
   or skills rather than relying on memory.
 - Treat one-off session anecdotes as weak signal unless they are supported by
   multiple review outcomes, workflow evaluations, or explicit decisions.
+
+## Parity loop
+
+To drive one pi-mono parity gap end to end (select gap → plan → different-family
+plan review → implementation plan → implement → docs → code-review loop until
+CLEAN → commit), follow the canonical workflow in
+`docs/parity-loop/skill-body.md`. This is the `pipy-parity-loop` skill; the same
+body is wrapped per-agent under `.claude/skills/`, `.pipy/skills/`, and
+`.pi/skills/`. Drive exactly one gap per invocation (the unattended outer loop is
+deferred). Honor the body's hard rules: never self-grade, the review gate is a
+mandatory different-family CLEAN, and an operator override is an escalation/stop —
+never a pass.
