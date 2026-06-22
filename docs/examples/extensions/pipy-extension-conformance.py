@@ -40,8 +40,11 @@ from pipy_harness.extensions import (
 
 PROOF_ENV = "PIPY_EXTENSION_CONFORMANCE_PROOF"
 
-# Unique leak canaries: must never reach the proof file or the metadata
-# archive (the rendered body is live-only; entry data is archive-excluded).
+# Unique leak canaries. _MSG_BODY_SENTINEL is the rendered component body: it
+# is live-only and must never reach the proof file, the metadata archive, or the
+# provider payload. _MSG_DATA_SENTINEL is the ctx.append_entry payload: it is
+# product data that legitimately persists in the native session-tree store, but
+# must never leak into the proof/metadata side-channel or the provider payload.
 # Module-level so both the renderer and the command handler closure reference
 # the same values. The custom_type "conformance-card" is safe metadata.
 _MSG_BODY_SENTINEL = "PIPY_MSGBODY_9f3a2c"
@@ -168,7 +171,9 @@ def activate(api):
         ctx.ui.notify("conformance command ran")
         # Append a custom entry whose data carries a unique sentinel; the
         # registered rich renderer runs synchronously and emits the body
-        # sentinel live-only. Neither sentinel may reach proof/archive.
+        # sentinel live-only. The body sentinel must never reach proof/archive;
+        # the data sentinel may persist in the session-tree store but must not
+        # leak into the proof/metadata side-channel.
         ctx.append_entry("conformance-card", {"sentinel": _MSG_DATA_SENTINEL})
         api.send_user_message("run conformance probe")
 
