@@ -80,9 +80,36 @@ claude-yolo -p --model opus  <prompt>
 ```
 
 where `<prompt>` instructs: *"Run the `pipy-parity-loop` skill for exactly ONE
-gap, in this repo, on `main`. Do not push. When finished, print exactly one final
-line: `PARITY_RESULT: COMMITTED <sha>` or `PARITY_RESULT: NO_GAPS` or
-`PARITY_RESULT: BLOCKED <reason>`."*
+gap, in this repo, on `main`, in **runner single-gap mode** (see below). Do not
+push. When finished, print exactly one final line: `PARITY_RESULT: COMMITTED
+<sha>` or `PARITY_RESULT: NO_GAPS` or `PARITY_RESULT: BLOCKED <reason>`."*
+
+**Runner single-gap mode — defer lesson application to the runner.** The skill's
+Phase 0 drain-enforcement and the run-end backstop both require draining the open
+lesson backlog to zero, which an unattended child *cannot* do for instruction-area
+lessons (they need human/judge sign-off). If the child ran them, a single captured
+sign-off-needing lesson would make it block or time out, stopping the batch and
+starving the runner's batch-level `lessons_backlog` (exit 3) path. So the spawn
+prompt tells the child to run Phases 1–8 (the gap) **and Phase 9 capture** as
+usual, but to **skip Phase 0's drain-enforcement, the `parity-improve` step, and
+the run-end backstop** — lesson *application* and the batch-level drain are owned
+by the **runner** (its safety net + exit-3 handling). The child still *captures*
+lessons (Phase 9 append), which is exactly what feeds the runner's safety net.
+This is the only behavioral divergence from a hand-run gap.
+
+**Implementation prerequisite (hard, not an assumption).** The canonical
+`docs/parity-loop/skill-body.md` currently mandates the Phase 0 drain and run-end
+backstop *unconditionally*, so the runner is **incorrect until** the skill body
+gains the keyed exception. Therefore the **first implementation task** of this
+design is to add to `skill-body.md`: *"When the invocation prompt contains the
+marker `runner single-gap mode`, run only the single gap (Phases 1–8) plus Phase 9
+capture, and defer Phase 0's drain-enforcement, the `parity-improve` step, and the
+run-end backstop to the caller (the parity-runner)."* The runner activates it by
+including that exact marker phrase in the spawn prompt (it already does). Until
+this clause lands, a child spawned while open lessons exist would follow the
+unconditional skill and block in `parity-improve` instead of returning through the
+runner's `lessons_backlog` (exit 3) path — so the clause and the runner ship
+together.
 
 The spawn command itself is a small per-agent adapter (v1: only the `opus`
 adapter, which shells `claude-yolo -p --model opus`). The runner captures the
@@ -132,10 +159,16 @@ accepting it:
 ### Bounded loop + stop conditions
 
 ```
-assert --run-dir is gitignored-or-outside-worktree (else exit 2)
-assert clean tree and branch==main; acquire per-repo single-run lock
+# Startup order matters: reserve the run label LAST, only after lock + preconditions pass,
+# so a failed/parallel start never burns a label or leaves a stray run dir.
+assert per-run path <run-dir>/run-<label>/ is gitignored-or-outside-worktree (else exit 2)
+assert clean tree and branch==main (else exit 2)
+acquire per-repo single-run lock (else exit 2)
+create per-run dir EXCLUSIVELY (else exit 2: duplicate_run_label)   # AFTER lock + preconditions
 install no-push guards (pre-push hook + blocked pushurl); ensure restore on exit
-head = HEAD; gaps_done = 0; start = <injected clock>; stop = None
+start = <injected clock>
+lesson_gate("preflight")   # never start new gaps over a prior run's undrained backlog (below)
+head = HEAD; gaps_done = 0; stop = None
 while gaps_done < max_gaps:
     remaining = time_budget - (now - start)
     if remaining < min_gap_slice:                      # not enough time for a useful gap
@@ -149,21 +182,27 @@ while gaps_done < max_gaps:
         stop = result; break
 else:
     stop = "cap_reached"                               # max_gaps reached
-# Safety net ONLY on a clean stop, clean tree on main, AND budget remaining.
+# Lesson gate ONLY on a clean stop, clean tree on main (same routine as pre-flight).
 clean_stop = stop in ("no_gaps", "cap_reached")
 if clean_stop and tree_clean() and branch_is_main():
-    if remaining_budget() >= min_gap_slice:
-        spawn parity-improve (ref-aware postconditions; may set exit 1)
-    else:
-        record safety_net_skipped="budget"             # no time to spawn; next run's Phase 0 drains
-    # Cheap LOCAL ledger checks ALWAYS run on a clean stop (excluded from the ceiling):
-    if parity_lessons.validate() != 0:
-        stop="ledger_invalid"; exit 1                  # hard: corrupt/unmaterialized ledger
-    if open_lessons_remain():
-        record lessons_backlog warning                 # soft: still exits 0
+    lesson_gate("postloop")
 else:
     record needs_human_cleanup=true                    # do NOT spawn anything over partial work
 write run summary; restore no-push guards; release lock
+
+# Shared lesson gate — run at pre-flight (before the first gap) AND post-loop:
+def lesson_gate(phase):
+    if parity_lessons.validate() != 0:                 # hard, cheap, always
+        stop="ledger_invalid"; exit 1
+    if open_lessons_remain():
+        if remaining_budget() >= min_gap_slice:        # drain what's gateable unattended
+            spawn parity-improve (ref-aware postconditions; may set exit 1)
+        else:
+            record safety_net_skipped="budget"
+        if parity_lessons.validate() != 0: stop="ledger_invalid"; exit 1
+        if open_lessons_remain():                      # sign-off-needing lessons remain
+            record needs_human_review; stop="lessons_backlog"; exit 3
+    # preflight: exit 3 here means ZERO gaps ran (refused to pile on an undrained backlog)
 ```
 
 A gap's **effective timeout** is `min(per_gap_timeout, remaining_budget)`, so
@@ -184,14 +223,46 @@ the lesson ledger. This is the Ralph principle that prevents drift on long runs.
 
 ### Lessons safety net
 
-The skill already runs Phase 0 (drain when ≥ threshold) and the run-end backstop.
-As defence in depth, **only when the loop ended on a clean stop** (`NO_GAPS` or a
-cap was reached) **with a clean tree on `main` and at least `min_gap_slice`
-remaining in the time budget**, the runner spawns `parity-improve` once (fresh
-process; timeout = `min(per_gap_timeout, remaining_budget)`). If the budget is
+Because the child runs in **runner single-gap mode** (it defers Phase 0 drain,
+`parity-improve`, and the run-end backstop), the **runner is the sole owner of
+draining lessons** — this is the runner-level equivalent of the skill's Phase 0 +
+run-end backstop. The runner runs one shared **lesson gate** routine at **two**
+points:
+
+- **Pre-flight (before the first gap):** so a scheduled retry never piles new gaps
+  on a backlog a prior `exit 3` left for human drainage. If open lessons survive the
+  gate here, the run **exits 3 having started zero gaps**.
+- **Post-loop (after a clean stop):** to drain lessons captured *this* run.
+
+The gate (see pseudocode) is: cheap `validate` (hard, `ledger_invalid` exit 1);
+if open lessons remain, spawn `parity-improve` once when budget allows
+(`remaining_budget ≥ min_gap_slice`, fresh process, timeout
+`min(per_gap_timeout, remaining_budget)`) to drain what's gateable unattended
+(docs/tests/harness lessons need only a Pi-CLEAN review); then if open lessons
+*still* remain (instruction-area / rejections needing human sign-off), record
+`needs_human_review` and **exit 3**.
+
+**Unattended improve mode (hard prerequisite, like single-gap mode).** The
+canonical `parity-improve` processes *every* open lesson and requires human/judge
+sign-off for instruction-area applies and for **any** rejection — which the runner
+does not have. So the runner spawns `parity-improve` with the marker `runner
+unattended mode`, under which it must: **apply only lessons gateable without
+sign-off** (`target_area` ∈ {`docs`,`tests`,`harness`}, gated by a Pi-CLEAN
+review), and **leave every instruction-area lesson (`skill-body`/`wrapper`) and
+every rejection candidate untouched and `open`** — never blocking on, waiting for,
+or faking sign-off. This requires a one-clause addition to
+`docs/parity-loop/improve-body.md` keyed on that marker, **shipped with the runner**
+(an implementation prerequisite alongside the skill-body single-gap clause). With
+it, the unattended `parity-improve` returns promptly having drained the
+auto-gateable lessons, leaving the sign-off-needing ones open so the gate cleanly
+reaches `exit 3` instead of blocking or timing out.
+
+When the post-loop spawn runs, it has explicit **postconditions**: If the budget is
 exhausted (`remaining_budget < min_gap_slice`), the safety net is **skipped** and
 recorded as `safety_net_skipped: budget` — the runner never overruns
-`--time-budget` to drain lessons (the next scheduled run's Phase 0 will). **The cheap local ledger checks below (`validate` + `list`) always run on a clean
+`--time-budget` to drain lessons. Because open lessons then remain, the gate still
+exits 3 (work-complete, lessons-pending), and the **next scheduled run's pre-flight
+gate** refuses to start new gaps until they are drained. **The cheap local ledger checks below (`validate` + `list`) always run on a clean
 stop — even when the `parity-improve` spawn was skipped for budget** — because they
 are sub-second and excluded from the time ceiling; only the *spawn* is
 budget-gated. When the spawn does run, it has explicit **postconditions**:
@@ -207,14 +278,24 @@ budget-gated. When the spawn does run, it has explicit **postconditions**:
   `needs_human_cleanup` + `safety_net_dirtied` and **exit 1** (do not pretend the
   run is clean). This is the same ref contract used to verify a gap.
 
-Then it checks the ledger two ways with distinct severities:
-- **Hard (fails the run):** `python3 scripts/parity_lessons.py --repo . validate`
-  must exit 0. A corrupt or unmaterialized ledger is a real defect → set
+Then it checks the ledger two ways:
+- **Hard (`ledger_invalid`, exit 1):** `python3 scripts/parity_lessons.py --repo .
+  validate` must exit 0. A corrupt or unmaterialized ledger is a real defect → set
   `stop_reason = ledger_invalid` and exit 1.
-- **Soft (warning only):** `list --status open` being non-empty is recorded as a
-  `lessons_backlog` warning in the summary, **not** a failure — an unattended run
-  legitimately may be unable to drain instruction-edit lessons that require human
-  sign-off. The run still exits 0 if everything else was clean.
+- **Open backlog (`lessons_backlog`, needs human, exit 3):** the safety-net
+  `parity-improve` *does* drain the lessons it can gate unattended — docs/tests/
+  harness lessons need only a Pi-CLEAN review, no sign-off. But instruction-area
+  lessons (`skill-body`/`wrapper`) and rejections require human/judge sign-off,
+  which an unattended run does not have, so they legitimately remain `open`. The
+  canonical parity-loop run-end backstop requires draining open lessons to **zero**,
+  and an unattended run cannot silently violate that. Therefore a non-empty
+  `list --status open` after the safety net is **not** an exit-0 warning: record
+  `needs_human_review` + `lessons_backlog` and **exit 3** ("work complete, lessons
+  pending"). The gated commits already made are valid; exit 3 tells the operator
+  the learning loop is not fully closed and they must drain the remainder (apply or
+  reject the open lessons with sign-off). This keeps the canonical
+  drain-to-zero/consumption guarantee intact rather than letting below-threshold
+  lessons linger.
 
 **On any unclean stop** (BLOCKED,
 failure, dirty tree, or non-`main` branch) the safety net is **skipped entirely**
@@ -226,11 +307,24 @@ work; it records `needs_human_cleanup` and surfaces it.
 A **per-run directory** `docs/parity-loop/runs/run-<runlabel>/` (gitignored)
 holding `run.jsonl` (the append-only event log) plus the raw child logs, so
 sequential runs sharing a `--run-dir` never overwrite each other's audit trail.
-**Precondition:** `--run-dir` must be **git-ignored or outside the worktree**, so
-the runner's own log writes never dirty `git status --porcelain` (which would
-break the clean-tree gap verification). The default `docs/parity-loop/runs/` is
-gitignored; the runner checks any in-worktree `--run-dir` with `git check-ignore`
-at startup and **exits 2** if it is tracked/not ignored, before writing anything.
+The runner creates this directory **exclusively** (atomic `os.mkdir` that fails if
+it already exists), and — critically — **only after the per-repo lock is held and
+all preconditions (clean tree, branch `main`, per-run path ignored) have passed**,
+so a failed or parallel start never reserves a label or leaves a stray empty run
+dir. A **reused `<runlabel>`** that survives to this point (manual retry or a
+timestamp collision) **exits 2** (`duplicate_run_label`) before writing anything,
+rather than overwriting or mingling a prior run's `run.jsonl` / `gap-<n>.log` /
+`improve.log`.
+**Precondition:** the runner writes only under the concrete per-run path
+`<run-dir>/run-<runlabel>/`, and **that path** must be git-ignored or outside the
+worktree, so its writes never dirty `git status --porcelain` (which would break
+the clean-tree gap verification). The check must target the **per-run path, not
+the base `--run-dir`**: the default ignore rule is `docs/parity-loop/runs/*`, so
+`git check-ignore docs/parity-loop/runs` (the base dir) returns *not-ignored*
+while `git check-ignore docs/parity-loop/runs/run-<label>` returns *ignored* — so
+checking the base dir would wrongly fail the default run. The runner runs
+`git check-ignore` on the per-run path (for in-worktree run dirs) at startup and
+**exits 2** if it is tracked/not ignored, before writing anything.
 `run.jsonl` has one object per event: `run.started` (caps, head_before, agent),
 `gap.completed` (index, sentinel, sha, elapsed_s, verified), `gap.failed`
 (reason), `lessons.safety_net` (open_before/after), `run.finished`
@@ -313,11 +407,12 @@ uv run python scripts/parity_runner.py \
 ```
 
 `--dry-run` spawns nothing; it validates preconditions (clean tree, branch
-`main`, `--run-dir` gitignored-or-outside-worktree, lock available, gap docs
-present) and prints what it would do. Exit codes:
-`0` clean stop (gaps done, cap reached, or NO_GAPS — a soft `lessons_backlog`
-warning still exits 0), `1` stopped on failure/blocked/dirty/non-main/
-`ledger_invalid`, `2` precondition/lock error.
+`main`, the per-run path gitignored-or-outside-worktree, the per-run dir does not
+already exist, lock available, gap docs present) and prints what it would do. Exit codes:
+`0` fully clean stop (gaps done, cap reached, or NO_GAPS, **with no open lessons
+remaining**), `1` stopped on failure/blocked/dirty/non-main/`ledger_invalid`/
+`safety_net_dirtied`, `2` precondition/lock error, `3` work complete but
+`lessons_backlog` remains (open lessons need human sign-off to drain).
 
 ## Testing strategy
 
@@ -356,6 +451,21 @@ commit in a tmp git repo. No real LLM calls. Cover:
   `.githooks/`) or shared/global, the hook is **skipped** (no tracked file is
   touched) and only the `pushurl` guard is asserted — verify the skip leaves the
   tree clean.
+- **Lessons backlog exit code:** after a clean stop, if the (fake) ledger still
+  has `open` lessons, the run records `needs_human_review`/`lessons_backlog` and
+  exits **3**; with no open lessons it exits **0**. A failing `validate` exits 1
+  (`ledger_invalid`).
+- **Pre-flight backlog gate:** starting a run while the ledger already has `open`
+  lessons drains what the fake `parity-improve` can, and if any remain, exits **3**
+  with **zero gaps started** (the gap-spawn seam is never called) — a scheduled
+  retry refuses to pile new gaps on an undrained backlog.
+- **Duplicate run label:** a run whose `<run-dir>/run-<label>/` already exists
+  exits **2** (`duplicate_run_label`) at startup and overwrites no existing file.
+- **Run-dir precondition (per-run path):** an in-worktree `--run-dir` whose per-run
+  path `<run-dir>/run-<label>/` is **not** ignored → exit 2; the default
+  `docs/parity-loop/runs/` passes because the per-run path matches the
+  `docs/parity-loop/runs/*` ignore rule (the base dir alone does not — assert the
+  check targets the per-run path, not the base).
 - **Run log:** events written in order with the expected shape; the log JSONL
   parses.
 - **No real LLM / no network** asserted by construction (the fake-agent seam).
