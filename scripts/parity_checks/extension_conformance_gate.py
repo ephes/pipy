@@ -211,13 +211,22 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
                     "CONFORMANCE_CONTEXT",  # before_agent_start injection
                     "conformance probe ran",  # ctx.ui.notify text
                     "conformance command ran",
-                    # Rich message renderer (slice C): the styled body sentinel
-                    # is live-only and the entry-data sentinel is excluded from
-                    # the metadata archive; neither may reach proof/archive. The
-                    # data sentinel legitimately lives in the native
-                    # session-tree product store, which this gate does not scan.
-                    "PIPY_MSGBODY_9f3a2c",  # rendered message-renderer body
-                    "PIPY_MSGDATA_7b1e44",  # append_entry data payload
+                    # Rich message renderer (slice C), two sentinels with
+                    # different guarantees:
+                    #
+                    # BODY: the live-rendered component output. It is never
+                    # archived and never written to any store -- a real privacy
+                    # guarantee; its absence from proof + archive is meaningful.
+                    "PIPY_MSGBODY_9f3a2c",
+                    # DATA: the ctx.append_entry PAYLOAD = product data that
+                    # legitimately lives in the native session-tree store when a
+                    # session persists. The meaningful guarantee is that it must
+                    # NOT leak into the PROOF/metadata side-channel. This
+                    # conformance session is non-persisting
+                    # (NativeSessionTree.create(persist=False)), so its absence
+                    # from the archive scan is incidental defense-in-depth here,
+                    # NOT proof of an archive exclusion.
+                    "PIPY_MSGDATA_7b1e44",
                 )
             )
             # Proof markers + the proof path are a side channel: present in

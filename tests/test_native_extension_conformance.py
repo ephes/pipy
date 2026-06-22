@@ -176,8 +176,15 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "probe-output",  # tool result content the extension produced
         "PATCHED::",  # tool_result transform
         "CONFORMANCE_CONTEXT",  # before_agent_start injection
-        "PIPY_MSGBODY_9f3a2c",  # rich renderer body (live-only)
-        "PIPY_MSGDATA_7b1e44",  # append_entry data payload (archive-excluded)
+        # Rich renderer BODY: live-rendered output, never archived / never
+        # written to any store -- a real privacy guarantee.
+        "PIPY_MSGBODY_9f3a2c",
+        # Rich renderer DATA: the append_entry payload is product data that
+        # lives in the native session-tree store when a session persists; the
+        # real guarantee is it must not leak to the proof side-channel. This
+        # session is non-persisting (persist=False), so its absence from the
+        # archive scan is incidental defense-in-depth, not an archive exclusion.
+        "PIPY_MSGDATA_7b1e44",
         str(proof),  # the proof file path itself
     )
     archive_blob = _archive_blob(sessions_root)
@@ -198,8 +205,11 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "CONFORMANCE_CONTEXT",
         "conformance probe ran",
         "conformance command ran",
-        "PIPY_MSGBODY_9f3a2c",  # rich renderer body (live-only)
-        "PIPY_MSGDATA_7b1e44",  # append_entry data payload
+        # BODY: live-rendered output, never on any store. DATA: append_entry
+        # payload -- product data that may live in the persisted session-tree
+        # store, but must never leak into the proof/metadata side-channel.
+        "PIPY_MSGBODY_9f3a2c",
+        "PIPY_MSGDATA_7b1e44",
     ):
         assert leaked not in proof_text
 
