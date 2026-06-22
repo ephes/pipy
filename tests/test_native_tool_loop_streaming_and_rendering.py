@@ -257,6 +257,44 @@ def test_renderer_enables_ansi_on_tty_with_color(monkeypatch: pytest.MonkeyPatch
     assert "\x1b[" in err.getvalue()
 
 
+def test_renderer_uses_fallback_backgrounds_for_plain_256color(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("COLORTERM", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.render_user_message("hello world!")
+    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+
+    rendered = err.getvalue()
+    assert "\x1b[48;5;237m" in rendered
+    assert "\x1b[48;5;235m" in rendered
+    assert "\x1b[48;2;52;53;65m" not in rendered
+    assert "\x1b[48;2;28;42;30m" not in rendered
+
+
+def test_renderer_uses_truecolor_backgrounds_when_advertised(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
+    out = _StreamingStub(isatty=True)
+    err = _StreamingStub(isatty=True)
+    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+
+    renderer.render_user_message("hello world!")
+    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+
+    rendered = err.getvalue()
+    assert "\x1b[48;2;52;53;65m" in rendered
+    assert "\x1b[48;2;28;42;30m" in rendered
+
+
 def test_renderer_renders_read_resource_for_absolute_path():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)

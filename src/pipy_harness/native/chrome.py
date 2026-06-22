@@ -9,8 +9,8 @@ persistent bottom status block (cwd + status line).
 This module owns the helpers so the same rendering ships from the
 REPL surface. The styles fall back to plain text when the output
 stream is not a TTY or when `NO_COLOR` is set; truecolor codes are
-used when `COLORTERM` advertises 24-bit support, otherwise the
-16-color fallbacks preserve the same intent.
+used when the terminal explicitly advertises 24-bit support, otherwise
+fallback SGR codes preserve the same intent.
 """
 
 from __future__ import annotations
@@ -115,7 +115,9 @@ class ChromeStyle:
 
     def secondary_dim(self, text: str) -> str:
         return self._wrap(
-            text, self.palette.secondary_dim_truecolor, self.palette.dim_fallback
+            text,
+            self.palette.secondary_dim_truecolor,
+            self.palette.secondary_dim_fallback,
         )
 
     def dim_italic(self, text: str) -> str:
@@ -126,7 +128,7 @@ class ChromeStyle:
         code = (
             self.palette.secondary_dim_truecolor
             if self.truecolor
-            else self.palette.dim_fallback
+            else self.palette.secondary_dim_fallback
         )
         return f"\x1b[3;{code}m{text}\x1b[0m"
 
@@ -141,7 +143,10 @@ class ChromeStyle:
     def user_message(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        bg = self.palette.user_message_bg_truecolor
+        bg = self.palette_code(
+            self.palette.user_message_bg_truecolor,
+            self.palette.user_message_bg_fallback,
+        )
         padded = text + (" " * max(0, width - len(text)))
         if text == "":
             return f"\x1b[{bg}m{padded}\x1b[0m"
@@ -153,7 +158,10 @@ class ChromeStyle:
     def tool_command(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        bg = self.palette.tool_command_bg_truecolor
+        bg = self.palette_code(
+            self.palette.tool_command_bg_truecolor,
+            self.palette.tool_command_bg_fallback,
+        )
         text_code = (
             self.palette.user_message_text_truecolor if self.truecolor else "37"
         )
@@ -169,7 +177,10 @@ class ChromeStyle:
     def tool_result(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        bg = self.palette.tool_command_bg_truecolor
+        bg = self.palette_code(
+            self.palette.tool_command_bg_truecolor,
+            self.palette.tool_command_bg_fallback,
+        )
         padding = " " * max(0, width - len(text))
         if text == "":
             return f"\x1b[{bg}m{padding}\x1b[0m"
@@ -181,7 +192,7 @@ class ChromeStyle:
         )
 
     def palette_code(self, truecolor_code: str, fallback_code: str) -> str:
-        """Pick the truecolor vs 16-color SGR parameter for this style."""
+        """Pick the truecolor vs fallback SGR parameter for this style."""
         return truecolor_code if self.truecolor else fallback_code
 
     def tool_custom(self, text: str, *, width: int) -> str:
@@ -193,7 +204,10 @@ class ChromeStyle:
         through unchanged."""
         if not self.enabled:
             return text
-        bg = self.palette.tool_command_bg_truecolor
+        bg = self.palette_code(
+            self.palette.tool_command_bg_truecolor,
+            self.palette.tool_command_bg_fallback,
+        )
         visible = _visible_len_no_sgr(text)
         padding = " " * max(0, width - visible)
         if visible == 0:
@@ -203,7 +217,10 @@ class ChromeStyle:
     def tool_read(self, text: str, *, width: int) -> str:
         if not self.enabled:
             return text
-        bg = self.palette.tool_command_bg_truecolor
+        bg = self.palette_code(
+            self.palette.tool_command_bg_truecolor,
+            self.palette.tool_command_bg_fallback,
+        )
         leading = text[: len(text) - len(text.lstrip(" "))]
         visible = text[len(leading) :]
         verb, separator, rest = visible.partition(" ")
@@ -255,11 +272,7 @@ def chrome_style_for(
     term = os.environ.get("TERM", "")
     enabled = is_tty and "NO_COLOR" not in os.environ and term.lower() != "dumb"
     colorterm = os.environ.get("COLORTERM", "").lower()
-    truecolor = enabled and (
-        colorterm in {"truecolor", "24bit"}
-        or "256color" in term.lower()
-        or "direct" in term.lower()
-    )
+    truecolor = enabled and terminal_supports_truecolor(term, colorterm)
     resolved = (
         theme_name
         if theme_name is not None
@@ -267,6 +280,16 @@ def chrome_style_for(
     )
     return ChromeStyle(
         enabled=enabled, truecolor=truecolor, palette=resolve_palette(resolved)
+    )
+
+
+def terminal_supports_truecolor(term: str, colorterm: str) -> bool:
+    """Return whether the terminal explicitly advertises RGB SGR support."""
+
+    normalized_term = term.lower()
+    normalized_colorterm = colorterm.lower()
+    return normalized_colorterm in {"truecolor", "24bit"} or any(
+        marker in normalized_term for marker in ("truecolor", "24bit", "direct")
     )
 
 

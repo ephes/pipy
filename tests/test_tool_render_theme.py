@@ -20,12 +20,12 @@ def test_truecolor_success_emits_palette_code_and_resets():
     assert out.startswith("\x1b[") and out.endswith("\x1b[0m") and "ok" in out
 
 
-def test_fallback_uses_16color_code_when_not_truecolor():
+def test_fallback_uses_indexed_color_code_when_not_truecolor():
     theme = build_tool_render_theme(
         ChromeStyle(enabled=True, truecolor=False, palette=DEFAULT_PALETTE)
     )
     out = theme.fg("error", "bad")
-    # 16-color error fallback is "31"; truecolor "38;2;..." must NOT appear.
+    # Indexed-color error fallback is used; truecolor "38;2;..." must NOT appear.
     assert "38;2;" not in out and "bad" in out
 
 

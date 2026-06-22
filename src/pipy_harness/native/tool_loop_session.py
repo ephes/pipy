@@ -56,6 +56,7 @@ from pipy_harness.native.chrome import (
     print_bottom_status_block,
     print_input_separator,
     print_startup_chrome,
+    terminal_supports_truecolor,
 )
 from pipy_harness.native.models import (
     ProviderRequest,
@@ -5687,17 +5688,13 @@ class _ToolLoopRenderer:
 
         Truecolor lets us pin Pi's exact muted-olive panel RGB. Falls
         back to a 256-color near-black on TERM strings that only carry
-        eight or sixteen color slots. We treat `xterm-256color` and any
-        explicit `COLORTERM=truecolor`/`24bit` as truecolor-capable.
+        eight, sixteen, or 256 color slots. RGB is used only when
+        COLORTERM or TERM explicitly advertises truecolor/direct color.
         """
 
-        colorterm = os.environ.get("COLORTERM", "").lower()
-        if colorterm in {"truecolor", "24bit"}:
-            return True
-        term = os.environ.get("TERM", "").lower()
-        if "256color" in term or "direct" in term:
-            return True
-        return False
+        return terminal_supports_truecolor(
+            os.environ.get("TERM", ""), os.environ.get("COLORTERM", "")
+        )
 
     @property
     def streamed_any(self) -> bool:

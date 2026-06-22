@@ -43,6 +43,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Terminal color detection now uses truecolor RGB styling only when the
+  terminal explicitly advertises it (`COLORTERM=truecolor`/`24bit` or a
+  direct-color `TERM`), so ordinary `*-256color` sessions use Pi's 256-color
+  fallback palette instead of displaying wrong chrome colors.
 - Slash/local commands such as `/quit` now remain editable and submittable while
   a `!` shell shortcut or model-driven bash tool is streaming output, so
   long-running tests no longer trap the user in the product TUI.

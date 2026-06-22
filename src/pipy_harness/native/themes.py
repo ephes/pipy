@@ -38,7 +38,8 @@ class ChromePalette:
     """The full set of ANSI color codes one chrome theme emits.
 
     Truecolor codes are used when the terminal advertises 24-bit support;
-    the ``*_fallback`` codes preserve the same intent on 16-color terminals.
+    the ``*_fallback`` codes preserve the same intent when only indexed SGR
+    colors are available.
     Codes are SGR parameter strings (without the ``\\x1b[`` / ``m`` wrapper).
     """
 
@@ -52,11 +53,14 @@ class ChromePalette:
     dim_truecolor: str
     dim_fallback: str
     secondary_dim_truecolor: str
+    secondary_dim_fallback: str
     error_truecolor: str
     error_fallback: str
     user_message_bg_truecolor: str
+    user_message_bg_fallback: str
     user_message_text_truecolor: str
     tool_command_bg_truecolor: str
+    tool_command_bg_fallback: str
     separator_truecolor: str
     separator_fallback: str
     success_truecolor: str = "38;2;152;195;121"
@@ -72,21 +76,24 @@ class ChromePalette:
 _PI_PALETTE = ChromePalette(
     name="pi",
     title_truecolor="1;38;2;138;190;183",
-    title_fallback="1;36",
+    title_fallback="38;5;109",
     accent_truecolor="38;2;138;190;183",
-    accent_fallback="36",
+    accent_fallback="38;5;109",
     section_truecolor="38;2;240;198;116",
-    section_fallback="1;33",
+    section_fallback="38;5;222",
     dim_truecolor="38;2;102;102;102",
-    dim_fallback="2",
+    dim_fallback="38;5;241",
     secondary_dim_truecolor="38;2;128;128;128",
+    secondary_dim_fallback="38;5;244",
     error_truecolor="38;2;204;102;102",
-    error_fallback="31",
+    error_fallback="38;5;167",
     user_message_bg_truecolor="48;2;52;53;65",
+    user_message_bg_fallback="48;5;237",
     user_message_text_truecolor="38;2;212;212;212",
     tool_command_bg_truecolor="48;2;40;50;40",
+    tool_command_bg_fallback="48;5;235",
     separator_truecolor="38;2;178;148;187",
-    separator_fallback="35",
+    separator_fallback="38;5;139",
     success_truecolor="38;2;152;195;121",
     success_fallback="32",
     warning_truecolor="38;2;240;198;116",
@@ -106,11 +113,14 @@ _HIGH_CONTRAST_PALETTE = ChromePalette(
     dim_truecolor="38;2;200;200;200",
     dim_fallback="37",
     secondary_dim_truecolor="38;2;170;170;170",
+    secondary_dim_fallback="37",
     error_truecolor="1;38;2;255;85;85",
     error_fallback="1;91",
     user_message_bg_truecolor="48;2;0;0;0",
+    user_message_bg_fallback="40",
     user_message_text_truecolor="38;2;255;255;255",
     tool_command_bg_truecolor="48;2;28;28;28",
+    tool_command_bg_fallback="48;5;235",
     separator_truecolor="1;38;2;0;215;255",
     separator_fallback="1;96",
     success_truecolor="1;38;2;0;255;0",
@@ -131,11 +141,14 @@ _OCEAN_PALETTE = ChromePalette(
     dim_truecolor="38;2;110;130;140",
     dim_fallback="2",
     secondary_dim_truecolor="38;2;130;150;160",
+    secondary_dim_fallback="2",
     error_truecolor="38;2;233;105;134",
     error_fallback="31",
     user_message_bg_truecolor="48;2;30;44;54",
+    user_message_bg_fallback="48;5;236",
     user_message_text_truecolor="38;2;214;230;236",
     tool_command_bg_truecolor="48;2;26;48;52",
+    tool_command_bg_fallback="48;5;235",
     separator_truecolor="38;2;90;160;200",
     separator_fallback="34",
     success_truecolor="38;2;126;200;160",

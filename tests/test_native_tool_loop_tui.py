@@ -135,8 +135,8 @@ def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
         width=40,
     )
 
-    assert styled.startswith("\x1b[2m \x1b[0m\x1b[36m⠋\x1b[0m")
-    assert "\x1b[2m Working...\x1b[0m" in styled
+    assert styled.startswith("\x1b[38;5;244m \x1b[0m\x1b[38;5;109m⠋\x1b[0m")
+    assert "\x1b[38;5;244m Working...\x1b[0m" in styled
 
 
 def test_tui_keeps_input_row_stable_when_working_line_settles(
@@ -548,6 +548,7 @@ def test_tui_user_message_background_matches_pi_three_row_band(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
     ui.footer_lines = (
         "~/projects/pipy (main)",
@@ -580,6 +581,7 @@ def test_tui_user_message_band_fills_last_column(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
     ui.footer_lines = (
         "~/projects/pipy (main)",
@@ -642,6 +644,7 @@ def test_tui_tool_command_band_fills_last_column(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
     ui.footer_lines = ("~/projects/pipy (main)", "x")
     ui._history_blocks.append(("tool", ('bash(command="ls")',)))
@@ -716,6 +719,7 @@ def test_tui_reasoning_row_emits_italic_escape(
     # secondary-dim color, matching the captured-stream fallback renderer.
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
     ui.append_reasoning("Thinking about this.")
@@ -749,6 +753,7 @@ def test_tui_tool_call_uses_pi_command_background(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
     ui.add_tool_call("ls")
@@ -758,11 +763,28 @@ def test_tui_tool_call_uses_pi_command_background(
     assert "\x1b[48;2;40;50;40m" in output
 
 
+def test_tui_tool_call_uses_fallback_background_for_plain_256color(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("COLORTERM", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui = _ui(tmp_path)
+
+    ui.add_tool_call("ls")
+    ui.paint()
+
+    output = cast(_TtyBuffer, ui.terminal_stream).getvalue()
+    assert "\x1b[48;5;235m" in output
+    assert "\x1b[48;2;40;50;40m" not in output
+
+
 def test_tui_tool_result_uses_pi_command_background(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
     ui.add_tool_result(lines=["result line"], is_error=False, duration_seconds=0.1)
@@ -783,6 +805,7 @@ def test_tui_tool_panel_matches_pi_spacing_and_text_spans(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
     ui = _ui(tmp_path)
 
     ui.add_tool_call("ls")
