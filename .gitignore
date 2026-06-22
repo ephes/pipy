@@ -1,4 +1,7 @@
-.pipy/
+.pipy/*
+!.pipy/skills/
+docs/parity-loop/runs/*
+!docs/parity-loop/runs/.gitkeep
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .envrc
