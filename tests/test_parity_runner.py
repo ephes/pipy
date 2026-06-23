@@ -592,3 +592,12 @@ def test_cli_rejects_bad_label(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 2
+
+
+def test_agent_cmd_uses_codex_exec_adapter() -> None:
+    assert pr._agent_cmd("codex") == [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+    ]
+    assert pr._agent_cmd("claude") == ["claude", "-p", "--model", "opus"]

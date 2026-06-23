@@ -526,7 +526,13 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
 
 
 def _agent_cmd(agent: str) -> list[str]:
-    return ["claude-yolo", "-p", "--model", "opus"] if agent == "opus" else [agent, "-p"]
+    if agent == "opus":
+        return ["claude-yolo", "-p", "--model", "opus"]
+    if agent == "claude":
+        return ["claude", "-p", "--model", "opus"]
+    if agent == "codex":
+        return ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"]
+    return [agent, "-p"]
 
 
 def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
