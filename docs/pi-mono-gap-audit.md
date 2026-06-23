@@ -196,7 +196,10 @@ Pipy current state:
   helper opens a focused multi-line product-TUI overlay, returns `None`
   headlessly like Pi's no-op UI context, submits on Enter, accepts Shift+Enter
   where decoded plus Alt+Enter as pipy's portable newline fallback, and cancels
-  on Esc/Ctrl-C. Pi's external-editor handoff remains deferred.
+  on Esc/Ctrl-C. The editor also matches Pi's Ctrl+G `$VISUAL`/`$EDITOR`
+  handoff: it restores normal terminal mode while the external editor owns
+  stdio, reloads the temp markdown file only on a successful exit, and keeps the
+  prior buffer on failure.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -205,8 +208,8 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: external-editor handoff and a custom editor
-   component (rich-UI item D), autocomplete providers, and live per-frame
+1. Richer Pi extension APIs: a custom editor component (rich-UI item D),
+   autocomplete providers, and live per-frame
    component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /
    reactive `footerData` beyond the landed width-reactive chrome snapshot,

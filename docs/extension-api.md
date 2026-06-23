@@ -32,10 +32,11 @@ bounded one-shot `ctx.complete(system_prompt, user_text)`, a full-screen
 custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 (`ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.editor`,
 `ctx.ui.set_status`, `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
-keyboard-shortcut registration `api.register_shortcut(...)`. It is not
-source-compatible with Pi's TypeScript extensions, and it still lacks several
-mature Pi surfaces: external-editor handoff from the extension editor, a custom
-editor component, autocomplete providers, and live per-frame component
+keyboard-shortcut registration `api.register_shortcut(...)`. The extension
+editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
+Ctrl+G. It is not source-compatible with Pi's TypeScript extensions, and it
+still lacks several mature Pi surfaces: a custom editor component,
+autocomplete providers, and live per-frame component
 `render()`/`requestRender` re-rendering of chrome components (the working
 indicator already animates via the spinner loop; widget/header/footer
 components are width-reactive snapshots), multi-widget message components,
@@ -485,7 +486,8 @@ so Pi extensions translate naturally:
   `select(title, options) -> str | None`,
   `input(title, placeholder) -> str | None`, and a multi-line
   `editor(title, prefill) -> str | None`. These simple command/shortcut
-  primitives now ship; external-editor handoff from `editor` remains deferred.
+  primitives now ship; `editor` also supports Pi's Ctrl+G `$VISUAL`/`$EDITOR`
+  external-editor handoff in interactive TTY sessions.
 - Status and indicators: `set_status(key, text)`, working-message and
   working-indicator controls, and a hidden-thinking label, mirroring Pi's
   `setStatus` / `setWorkingMessage` / `setWorkingIndicator` /
@@ -1213,11 +1215,14 @@ and the live `scripts/tmux_answer_verify.sh`.
     overlay in interactive sessions and returns `None` deterministically in
     headless/non-interactive contexts. The editor submits on Enter, inserts a
     newline on Shift+Enter where the terminal reports it and on Alt+Enter as
-    pipy's portable fallback, supports basic cursor movement/backspace, and
-    cancels on Esc/Ctrl-C. The returned text is live command-handler data; it is
-    not written to the metadata-first archive by default. Deferred editor
-    polish: Pi's `$VISUAL`/`$EDITOR` external-editor handoff, read/write/paste
-    helpers for the main prompt, and `setEditorComponent`.
+    pipy's portable fallback, supports basic cursor movement/backspace, cancels
+    on Esc/Ctrl-C, and opens `$VISUAL`/`$EDITOR` on Ctrl+G when configured. The
+    external editor receives a private temp markdown file, the TUI restores
+    normal terminal mode while the editor owns stdio, successful exits replace
+    the in-frame buffer, and failed exits keep the prior text. The returned text
+    is live command-handler data; it is not written to the metadata-first
+    archive by default. Deferred editor polish: read/write/paste helpers for the
+    main prompt and `setEditorComponent`.
 
 ## Open Questions
 

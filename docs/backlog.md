@@ -1610,9 +1610,10 @@ Extension UI editor follow-on: command/shortcut handlers can call
 in the product TUI; headless/non-interactive dispatch returns `None` like Pi's
 no-op UI context. The overlay submits on Enter, inserts newlines with
 Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
-basic cursor movement/backspace, and cancels on Esc/Ctrl-C. Pi's external-editor
-handoff, main-prompt read/write/paste helpers, custom editor component, and
-autocomplete provider APIs remain follow-ons.
+basic cursor movement/backspace, cancels on Esc/Ctrl-C, and opens `$VISUAL` or
+`$EDITOR` on Ctrl+G like Pi; successful editor exits replace the buffer and
+failed exits keep the prior text. Main-prompt read/write/paste helpers, custom
+editor component, and autocomplete provider APIs remain follow-ons.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1627,7 +1628,7 @@ simple `ctx.ui` select/input/confirm/editor/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
 extension APIs: live (invalidate-driven) tool rendering beyond the landed
-render-once snapshot, external-editor handoff, richer multi-widget `ctx.ui`
+render-once snapshot, richer multi-widget `ctx.ui`
 dialogs/custom-editor/autocomplete/theme controls beyond the simple primitives,
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader

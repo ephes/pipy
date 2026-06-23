@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import pty
 import struct
+import sys
 import termios
 import threading
 import time
@@ -188,6 +189,116 @@ def test_pty_extension_editor_accepts_newline_and_submits(
     assert result == ["seed\nnext"]
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured, "editor overlay must not use alt screen"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_extension_editor_external_editor_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    state_path = tmp_path / "termios-state.txt"
+    editor_script = tmp_path / "editor.py"
+    editor_script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "import termios\n"
+        f"Path({str(state_path)!r}).write_text(str(termios.tcgetattr(0)[3]), encoding='utf-8')\n"
+        "Path(sys.argv[1]).write_text('edited from external\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
+    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    result: list[object] = []
+
+    def _run() -> None:
+        result.append(ui.run_extension_editor("Draft", "seed"))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
+        os.write(in_master, b"\x07")  # Ctrl+G -> external editor.
+        assert _wait_for(err_chunks, "edited from external"), "edited text never rendered"
+        os.write(in_master, b"\r")  # Enter -> submit edited text.
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "editor worker did not exit"
+    finally:
+        _teardown(stdin, terminal, in_master, err_master)
+
+    assert result == ["edited from external"]
+    assert state_path.exists(), "external editor did not run"
+    assert int(state_path.read_text(encoding="utf-8")) & termios.ICANON
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_extension_editor_external_editor_failure_keeps_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    editor_script = tmp_path / "editor.py"
+    editor_script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[1]).write_text('should not load\\n', encoding='utf-8')\n"
+        "raise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
+    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    result: list[object] = []
+
+    def _run() -> None:
+        result.append(ui.run_extension_editor("Draft", "seed"))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
+        os.write(in_master, b"\x07")  # Ctrl+G -> failing external editor.
+        assert _wait_for(err_chunks, "Launching external editor"), "editor never launched"
+        time.sleep(0.2)
+        os.write(in_master, b"\r")  # Enter -> submit original text.
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "editor worker did not exit"
+    finally:
+        _teardown(stdin, terminal, in_master, err_master)
+
+    assert result == ["seed"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    editor_script = tmp_path / "editor.py"
+    editor_script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "Path(sys.argv[1]).write_bytes(b'\\xff')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
+    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    result: list[object] = []
+
+    def _run() -> None:
+        result.append(ui.run_extension_editor("Draft", "seed"))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
+        os.write(in_master, b"\x07")  # Ctrl+G -> invalid UTF-8 save.
+        assert _wait_for(err_chunks, "Launching external editor"), "editor never launched"
+        time.sleep(0.2)
+        os.write(in_master, b"\r")  # Enter -> submit original text.
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "editor worker did not exit"
+    finally:
+        _teardown(stdin, terminal, in_master, err_master)
+
+    assert result == ["seed"]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")

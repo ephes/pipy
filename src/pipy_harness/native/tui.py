@@ -13,10 +13,13 @@ from __future__ import annotations
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
+import subprocess
 import sys
 import termios
+import tempfile
 import textwrap
 import threading
 import tty
@@ -383,17 +386,25 @@ class _ExtensionEditorComponent:
     _MAX_VISIBLE_LINES = 10
 
     def __init__(
-        self, title: str, prefill: str | None, done: Callable[..., None]
+        self,
+        title: str,
+        prefill: str | None,
+        done: Callable[..., None],
+        external_editor: Callable[[str], str | None] | None = None,
     ) -> None:
         self.title = title
         self.text = "" if prefill is None else str(prefill)
         self.cursor = len(self.text)
         self._done = done
+        self._external_editor = external_editor
 
     def render(self, width: int) -> list[str]:
+        hint = "enter submit, shift/alt-enter newline, esc cancel"
+        if self._external_editor is not None:
+            hint += ", ctrl-g external editor"
         lines = [
             _clip_plain(
-                f" {sanitize_label_text(self.title)} - enter submit, shift/alt-enter newline, esc cancel",
+                f" {sanitize_label_text(self.title)} - {hint}",
                 width,
             )
         ]
@@ -425,6 +436,12 @@ class _ExtensionEditorComponent:
             return
         if key in {"shift-enter", "alt-enter"}:
             self._insert("\n")
+            return
+        if key == "ctrl-g" and self._external_editor is not None:
+            edited = self._external_editor(self.text)
+            if edited is not None:
+                self.text = edited
+                self.cursor = len(self.text)
             return
         if key == "backspace":
             if self.cursor > 0:
@@ -1708,10 +1725,89 @@ class ToolLoopTerminalUi:
     ) -> str | None:
         """Run a Pi-shaped extension multi-line editor overlay."""
 
+        external_editor = self._extension_external_editor_callback()
         result = self.run_custom_component(
-            lambda done: _ExtensionEditorComponent(str(title), prefill, done)
+            lambda done: _ExtensionEditorComponent(
+                str(title), prefill, done, external_editor
+            )
         )
         return result if isinstance(result, str) else None
+
+    def _extension_external_editor_callback(
+        self,
+    ) -> Callable[[str], str | None] | None:
+        editor_cmd = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+        if not editor_cmd:
+            return None
+
+        def run_external_editor(current_text: str) -> str | None:
+            return self._run_extension_external_editor(editor_cmd, current_text)
+
+        return run_external_editor
+
+    def _run_extension_external_editor(
+        self, editor_cmd: str, current_text: str
+    ) -> str | None:
+        try:
+            argv = shlex.split(editor_cmd)
+        except ValueError:
+            return None
+        if not argv:
+            return None
+
+        path = ""
+        try:
+            fd, path = tempfile.mkstemp(
+                prefix="pipy-extension-editor-", suffix=".md", text=True
+            )
+            try:
+                os.fchmod(fd, 0o600)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(current_text)
+
+            try:
+                self._restore_terminal_mode()
+            except (OSError, termios.error, ValueError):
+                pass
+            try:
+                self.terminal_stream.write(
+                    f"Launching external editor: {editor_cmd}\n"
+                    "Pipy will resume when the editor exits.\n"
+                )
+                self.terminal_stream.flush()
+            except (OSError, ValueError):
+                pass
+            try:
+                completed = subprocess.run(
+                    [*argv, path],
+                    stdin=self.input_stream,
+                    stdout=self.terminal_stream,
+                    stderr=self.terminal_stream,
+                    check=False,
+                )
+            finally:
+                try:
+                    self._enter_raw_mode()
+                except (OSError, termios.error, ValueError):
+                    pass
+                self.paint()
+            if completed.returncode != 0:
+                return None
+            try:
+                updated = Path(path).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                return None
+            return updated.removesuffix("\n")
+        except OSError:
+            return None
+        finally:
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
     def run_extension_confirm(self, title: str, message: str) -> bool:
         """Run a Pi-shaped extension confirmation dialog."""
