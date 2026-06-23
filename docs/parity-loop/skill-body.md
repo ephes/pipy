@@ -113,6 +113,17 @@ lessons. Before finishing, run `parity-improve` until
 `python3 scripts/parity_lessons.py list --status open` is empty, so every
 captured lesson is consumed (materialized or, with sign-off, rejected).
 
+## Runner single-gap mode
+
+When the invocation prompt contains the marker `runner single-gap mode` (the
+parity-runner sets it), run only the single gap — Phases 1–8 plus the **Phase 9
+capture** — and **defer Phase 0's drain-enforcement, the `parity-improve` step,
+and the run-end backstop to the caller** (the parity-runner owns batch-level
+lesson draining). Still capture lessons in Phase 9 as usual; do **not** apply,
+drain, or reject them in this mode. Everything else (gates, different-family
+review, commit) is unchanged. This exists so an unattended single-gap run never
+blocks on a sign-off-needing lesson; lesson application is the runner's job.
+
 ## Reuse
 
 - Plan/review/impl framing: the `goal-handoff`, `handoff-impl`, `handoff-review`

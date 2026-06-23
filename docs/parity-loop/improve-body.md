@@ -53,6 +53,16 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
    into `just check`) gates it, so a malformed or unmaterialized ledger fails the
    gate.
 
+## Runner unattended mode
+
+When the invocation prompt contains the marker `runner unattended mode` (the
+parity-runner sets it), apply **only** lessons that are gateable without sign-off —
+`target_area` ∈ {`docs`, `tests`, `harness`}, gated by a Pi-CLEAN review as usual —
+and **leave every instruction-area lesson (`skill-body`/`wrapper`) and every
+rejection candidate untouched and `open`**. Never block on, wait for, or fake
+human/judge sign-off in this mode. The runner surfaces the remaining open lessons
+to the operator afterward; do not attempt to drain them here.
+
 ## Hard rules
 
 - **Never self-grade** — the review is always a fresh, different-family context.

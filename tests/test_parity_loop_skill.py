@@ -37,6 +37,8 @@ REQUIRED_BODY_TOKENS = (
     "Reflect",
     "transcript",
     "Run-end backstop",
+    # Runner (Phase 2) single-gap mode marker:
+    "runner single-gap mode",
 )
 
 PLACEHOLDER_TOKENS = ("TODO", "TBD", "FIXME", "XXX", "<placeholder>")
@@ -132,6 +134,7 @@ IMPROVE_REQUIRED_TOKENS = (
     "mark",               # mark applied/rejected
     "validate",
     "materializ",         # materialization language
+    "runner unattended mode",
 )
 
 
