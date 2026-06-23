@@ -1,16 +1,17 @@
 # Extension UI Editor Design
 
-Status: draft for parity-loop review, 2026-06-23.
+Status: shipped through the parity loop, 2026-06-23. Pi's external-editor
+handoff remains deferred.
 
 ## Gap
 
 Pi exposes `ctx.ui.editor(title, prefill)` for extension commands that need a
-focused multi-line text editor. Pipy already has Pi-shaped extension command UI
-primitives (`select`, `input`, `confirm`, `custom`) and a raw-mode custom
-overlay driver, but no first-class editor helper. Extension authors must either
-hand-roll a custom component or fall back to single-line `input`, which leaves a
-remaining gap in the richer extension UI surface tracked in
-`docs/extension-api.md`.
+focused multi-line text editor. At the time of this design, pipy already had
+Pi-shaped extension command UI primitives (`select`, `input`, `confirm`,
+`custom`) and a raw-mode custom overlay driver, but no first-class editor
+helper. Extension authors had to either hand-roll a custom component or fall
+back to single-line `input`, which left a remaining gap in the richer extension
+UI surface tracked in `docs/extension-api.md`.
 
 Reference paths:
 

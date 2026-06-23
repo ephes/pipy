@@ -1057,20 +1057,18 @@ and the live `scripts/tmux_answer_verify.sh`.
     to commands, shortcuts, extension tools, and hook contexts. Product-path
     tests cover `pipy repl --extension <file> --plan --ticket PIPY-123`.
 15. Simple extension UI primitives — **landed for command/shortcut contexts**:
-    `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`, and
-    `ctx.ui.editor` run simple product-TUI overlays and return cancel/default
-    values in headless mode; the editor is multi-line, submits on Enter,
-    accepts Shift+Enter where decoded and Alt+Enter as pipy's portable newline
-    fallback, and cancels on Esc/Ctrl-C. Pi's `$VISUAL`/`$EDITOR` temp-file
-    handoff remains deferred.
+    `ctx.ui.select`, `ctx.ui.input`, and `ctx.ui.confirm` run simple
+    product-TUI overlays and return cancel/default values in headless mode.
     `ctx.ui.set_status` renders bounded live status rows; and
     `ctx.ui.set_working_message` / `ctx.ui.set_working_visible` control the
     provider-turn working row for subsequent turns until changed again or reset
-    by the extension. This is still short of Pi's full widget/component surface:
+    by the extension. This slice was still short of Pi's full
+    widget/component surface:
     a custom editor component, autocomplete providers, and extension
-    state/session-manager helpers remain follow-ons. (Custom tool renderers
-    landed in slice 17 below; the persistent chrome widget/header/footer/title/
-    indicator surface landed in slice 18 below.)
+    state/session-manager helpers remain follow-ons.
+    (Custom tool renderers landed in slice 17 below; the persistent chrome
+    widget/header/footer/title/indicator surface landed in slice 18 below; the
+    first-class editor helper landed separately in slice 20.)
 16. Custom session entries and message renderers — **landed for command/shortcut
     contexts**: `api.register_message_renderer(custom_type, renderer)` accepts a
     bounded synchronous text renderer for JSON-safe custom entries, and handlers can call
