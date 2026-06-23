@@ -378,6 +378,14 @@ def _run_events(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def _write_run_events(path: Path, events: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+
 def _ok_ledger_hooks(**over: Any) -> Any:
     base: dict[str, Any] = {
         "run_gap": lambda *a: (0, ""),
@@ -430,8 +438,10 @@ def test_run_does_one_verified_gap_then_no_gaps(tmp_path: Path) -> None:
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0, 2.0, 3.0]))
     assert code == 0
     assert calls["n"] == 2
-    runlog = (tmp_path / "runs" / "run-L1" / "run.jsonl").read_text(encoding="utf-8")
-    assert "gap.completed" in runlog
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    completed = next(event for event in events if event["type"] == "gap.completed")
+    assert completed["head_before"]
+    assert completed["head_after"] == _git(repo, "rev-parse", "HEAD")
 
 
 def test_run_stops_on_unverified_committed(tmp_path: Path) -> None:
@@ -657,3 +667,294 @@ def test_agent_cmd_uses_codex_exec_adapter() -> None:
         "--dangerously-bypass-approvals-and-sandbox",
     ]
     assert pr._agent_cmd("claude") == ["claude", "-p", "--model", "opus"]
+
+
+def test_generate_slice_report_pins_recorded_sha_not_live_head(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "docs/gap.md", "feat(demo): add gap")
+    short_gap = gap_sha[:7]
+    _commit(repo, "docs/later.md", "feat(demo): later unrelated")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {
+                "type": "run.started",
+                "agent": "codex",
+                "head_before": start,
+                "max_gaps": 1,
+            },
+            {"type": "gap.completed", "index": 1, "sha": short_gap},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert "feat(demo): add gap" in text
+    assert "feat(demo): later unrelated" not in text
+    assert f"`{gap_sha[:12]}`" in text
+
+
+def test_generate_slice_report_uses_head_after_for_multi_commit_gap(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    cited_sha = _commit(repo, "docs/first.md", "feat(demo): first commit")
+    head_after = _commit(repo, "docs/second.md", "test(demo): second commit")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {
+                "type": "gap.completed",
+                "index": 1,
+                "sha": cited_sha[:7],
+                "head_after": head_after,
+            },
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert "feat(demo): first commit" in text
+    assert "test(demo): second commit" in text
+    assert "docs/second.md" in text
+    assert f"`{head_after[:12]}`" in text
+
+
+def test_generate_slice_report_refuses_incomplete_or_failed_runs(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-incomplete" / "run.jsonl",
+        [{"type": "run.started", "agent": "codex", "head_before": start}],
+    )
+    _write_run_events(
+        run_dir / "run-failed" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {"type": "run.finished", "exit_code": 1, "gaps_done": 0, "stop_reason": "failure"},
+        ],
+    )
+
+    for label in ("incomplete", "failed"):
+        try:
+            pr.generate_slice_report(repo, run_dir, report_dir, label=label)
+        except pr.ReportError:
+            pass
+        else:
+            raise AssertionError(f"{label} run should not produce a report")
+
+    assert not report_dir.exists()
+
+
+def test_generate_slice_report_refuses_incomplete_sentinel_block(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "docs/gap.md", "feat(demo): add gap")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    existing = report_dir / "custom-name.md"
+    original = (
+        "# Hand Report\n\n"
+        "<!-- parity-run-label: L1 -->\n\n"
+        "<!-- BEGIN GENERATED:facts -->\n"
+        "old facts\n"
+    )
+    existing.write_text(original, encoding="utf-8")
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {"type": "gap.completed", "index": 1, "sha": gap_sha},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    try:
+        pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    except pr.ReportError:
+        pass
+    else:
+        raise AssertionError("incomplete generated block should be refused")
+
+    assert existing.read_text(encoding="utf-8") == original
+
+
+def test_generate_slice_report_appends_facts_when_existing_report_has_no_sentinel(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "docs/gap.md", "feat(demo): add gap")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    existing = report_dir / "custom-name.md"
+    existing.write_text(
+        "# Hand Report\n\n"
+        "<!-- parity-run-label: L1 -->\n\n"
+        "Human-written body with no generated block.\n",
+        encoding="utf-8",
+    )
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {"type": "gap.completed", "index": 1, "sha": gap_sha},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert report == existing
+    assert "Human-written body with no generated block." in text
+    assert "<!-- BEGIN GENERATED:facts -->" in text
+
+
+def test_generate_slice_report_regenerates_only_sentinel_block(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "src/demo.py", "feat(demo): add source")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    existing = report_dir / "custom-name.md"
+    existing.write_text(
+        "# Hand Report\n\n"
+        "<!-- parity-run-label: L1 -->\n\n"
+        "<!-- BEGIN GENERATED:facts -->\n"
+        "old facts\n"
+        "<!-- END GENERATED:facts -->\n\n"
+        "## Visualization\n\n"
+        "```mermaid\n"
+        "flowchart TD\n"
+        "A --> B\n"
+        "```\n\n"
+        "<!-- harmless comment outside generated block -->\n",
+        encoding="utf-8",
+    )
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {"type": "gap.completed", "index": 1, "sha": gap_sha[:8]},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    first = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    first_text = first.read_text(encoding="utf-8")
+    second = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    second_text = second.read_text(encoding="utf-8")
+
+    assert first == existing
+    assert second == existing
+    assert first_text == second_text
+    assert "old facts" not in second_text
+    assert "```mermaid\nflowchart TD\nA --> B\n```" in second_text
+    assert "<!-- harmless comment outside generated block -->" in second_text
+
+
+def test_generate_slice_report_handles_zero_gap_run(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 0,
+                "stop_reason": "no_gaps",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert "No commits were recorded for this run." in text
+    assert "No changed files were recorded for this run." in text
+
+
+def test_report_slice_cli_writes_latest_report(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "docs/gap.md", "feat(demo): cli report")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {"type": "gap.completed", "index": 1, "sha": gap_sha},
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(_MOD_PATH),
+            "--repo",
+            str(repo),
+            "--run-dir",
+            str(run_dir),
+            "--report-dir",
+            str(report_dir),
+            "--report-slice",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report_path = Path(result.stdout.strip())
+    assert report_path.is_file()
+    assert "<!-- parity-run-label: L1 -->" in report_path.read_text(encoding="utf-8")

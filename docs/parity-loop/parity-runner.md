@@ -11,7 +11,11 @@ commits stay local on `main` for review. See the design at
     just parity-run my-label
     just parity-run-codex-dry
     just parity-run-codex
+    just parity-run-codex-report
+    just parity-report-last
+    just parity-report parity-20260623T102740Z
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
+    uv run python scripts/parity_runner.py --report-slice
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
 
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
@@ -21,6 +25,9 @@ commits stay local on `main` for review. See the design at
 The `just parity-run-codex-dry` recipe validates startup preconditions without
 spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
 the conservative one-hour budget used for manual unattended batches.
+`just parity-run-codex-report` does the same and writes a slice report after a
+clean run. `just parity-report-last` refreshes the latest completed run report,
+and `just parity-report <label>` refreshes a named run.
 
 ## Run artifacts
 
@@ -31,11 +38,46 @@ post-run remote-tracking refs and a `remote_tracking_changed` boolean. This make
 the no-push audit explicit even if a child process changed `origin/main` through
 fetching or other ref updates.
 
+Successful `gap.completed` events record the child-reported commit plus
+`head_before` and `head_after` for that gap. Older run logs may only contain the
+commit field; report generation still works from `run.started.head_before` and
+the last recorded gap commit.
+
 When the lesson safety net spawns `parity-improve`, child output stays in
 `improve-<phase>.log`. If that log contains warning, skipped, incomplete, blocked,
 or failed-work caveats, the runner also emits a `safety_net_child_caveats` event
 with the phase, log filename, and bounded caveat lines so post-loop caveats are
 visible from `run.jsonl` without opening the child log first.
+
+## Slice reports
+
+`--report-slice [label]` creates or refreshes a Markdown report under
+`docs/parity-loop/reports/`. Without a label it uses the newest
+`docs/parity-loop/runs/run-*` directory. Report generation requires a
+`run.finished` event with exit code `0`; failed or incomplete runs stay in the
+raw run artifacts until a human decides what to do with them.
+
+The generated report deliberately separates facts from interpretation. The
+runner updates only the block between:
+
+    <!-- BEGIN GENERATED:facts -->
+    <!-- END GENERATED:facts -->
+
+That block contains the run label, agent, stop reason, pinned recorded commit
+range, commit subjects, changed-file stats, and recorded caveats. For current
+logs the range is `run.started.head_before..last gap.completed.head_after`; for
+older logs without `head_after`, it falls back to the last recorded
+`gap.completed.sha`. It is not live `HEAD`, so refreshing an old report does not
+accidentally absorb later commits. It is also not an authoritative semantic
+commit list: review fixes or manual follow-ups may land after `run.finished`,
+and an already-dirty commit range would still need human curation.
+
+Everything outside the generated block is for the person or agent explaining the
+slice: `What Changed`, `Visualization`, `Boundaries`, and optional
+`Comprehension Check`. Add slice-specific diagrams and questions only when they
+clarify the actual behavior shipped. Generic runner diagrams and trivia-style
+quizzes are noise; prefer questions that test the reader's understanding of the
+new behavior and the remaining parity boundary.
 
 ## Exit codes
 

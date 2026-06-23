@@ -38,6 +38,18 @@ parity-run-codex-dry label="":
 parity-run-codex label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label"
 
+# Run one Codex-driven unattended parity gap and write a slice report on success.
+parity-run-codex-report label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
+# Generate or refresh a slice report for the latest parity run.
+parity-report-last:
+    uv run python scripts/parity_runner.py --report-slice
+
+# Generate or refresh a slice report for a named parity run label.
+parity-report label:
+    uv run python scripts/parity_runner.py --report-slice "{{label}}"
+
 # Count repository lines with language, area, and directory summaries.
 loc:
     uv run --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .

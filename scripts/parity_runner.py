@@ -17,6 +17,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,9 @@ SINGLE_GAP_MARKER = "runner single-gap mode"
 UNATTENDED_MARKER = "runner unattended mode"
 BLOCKED_PUSHURL = "blocked://parity-runner-no-push"
 LEDGER_REL = "docs/parity-loop/lessons/lessons.jsonl"
+REPORT_BEGIN = "<!-- BEGIN GENERATED:facts -->"
+REPORT_END = "<!-- END GENERATED:facts -->"
+REPORT_LABEL_PREFIX = "<!-- parity-run-label: "
 CAVEAT_RE = re.compile(
     r"\b(caveat|warning|warn|incomplete|partial|skipped|blocked|remaining|"
     r"unable|failed|failure|not run|not complete|could not|couldn't|did not|didn't)\b",
@@ -61,6 +65,10 @@ class Hooks:
     run_improve: Callable[[str, float, Path], int]
     ledger_validate: Callable[[Path], int]
     ledger_open_count: Callable[[Path], int]
+
+
+class ReportError(RuntimeError):
+    """Raised when a parity run cannot be rendered as a slice report."""
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -358,6 +366,332 @@ def improve_log_caveats(log_path: Path, *, max_lines: int = 12, max_chars: int =
     return caveats
 
 
+def _read_run_events(run_log: Path) -> list[dict[str, object]]:
+    try:
+        lines = run_log.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ReportError(f"could not read run log: {run_log}") from exc
+
+    events: list[dict[str, object]] = []
+    for line_no, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ReportError(f"invalid JSON in {run_log}:{line_no}") from exc
+        if not isinstance(parsed, dict):
+            raise ReportError(f"run event is not an object in {run_log}:{line_no}")
+        events.append(parsed)
+    return events
+
+
+def _latest_run_dir(run_dir: Path) -> Path:
+    candidates = [
+        path
+        for path in run_dir.glob("run-*")
+        if path.is_dir() and (path / "run.jsonl").is_file()
+    ]
+    if not candidates:
+        raise ReportError(f"no run logs found under {run_dir}")
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
+
+
+def _run_dir_for_label(run_dir: Path, label: str | None) -> Path:
+    if label:
+        if not valid_run_label(label):
+            raise ReportError(f"invalid run label: {label}")
+        path = per_run_dir(run_dir, label)
+        if not (path / "run.jsonl").is_file():
+            raise ReportError(f"run log not found for label: {label}")
+        return path
+    return _latest_run_dir(run_dir)
+
+
+def _run_label_from_dir(per_run: Path) -> str:
+    name = per_run.name
+    return name[len("run-") :] if name.startswith("run-") else name
+
+
+def _event_type(event: dict[str, object]) -> str:
+    value = event.get("type")
+    return value if isinstance(value, str) else ""
+
+
+def _require_event(events: list[dict[str, object]], event_type: str) -> dict[str, object]:
+    for event in events:
+        if _event_type(event) == event_type:
+            return event
+    raise ReportError(f"run log is missing {event_type}")
+
+
+def _completed_gap_events(events: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [event for event in events if _event_type(event) == "gap.completed"]
+
+
+def _event_str(event: dict[str, object], key: str) -> str:
+    value = event.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _event_int(event: dict[str, object], key: str, default: int = 0) -> int:
+    value = event.get(key)
+    return value if isinstance(value, int) else default
+
+
+def _resolve_required(repo: Path, rev: str, label: str) -> str:
+    resolved = _resolve(repo, rev)
+    if resolved is None:
+        raise ReportError(f"{label} does not resolve to a commit: {rev}")
+    return resolved
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip().lower()).strip("-._")
+    return slug or "parity-slice"
+
+
+def _find_report_for_label(report_dir: Path, label: str) -> Path | None:
+    marker = f"{REPORT_LABEL_PREFIX}{label} -->"
+    for path in sorted(report_dir.glob("*.md")):
+        try:
+            if marker in path.read_text(encoding="utf-8", errors="replace"):
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def _report_path_for_label(report_dir: Path, label: str) -> Path:
+    existing = _find_report_for_label(report_dir, label)
+    if existing is not None:
+        return existing
+    return report_dir / f"{_slugify(label)}.md"
+
+
+def _git_stdout(repo: Path, *args: str) -> str:
+    cp = _git(repo, *args)
+    if cp.returncode != 0:
+        raise ReportError(f"git {' '.join(args)} failed: {cp.stderr.strip()}")
+    return cp.stdout
+
+
+def _range_commits(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, str]]:
+    if start_sha == end_sha:
+        return []
+    out = _git_stdout(repo, "log", "--reverse", "--format=%h%x09%s", f"{start_sha}..{end_sha}")
+    commits: list[tuple[str, str]] = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        short, _, subject = line.partition("\t")
+        commits.append((short, subject))
+    return commits
+
+
+def _diff_numstat(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, int, int]]:
+    if start_sha == end_sha:
+        return []
+    out = _git_stdout(repo, "diff", "--numstat", f"{start_sha}..{end_sha}")
+    stats: list[tuple[str, int, int]] = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added = 0 if parts[0] == "-" else int(parts[0])
+        deleted = 0 if parts[1] == "-" else int(parts[1])
+        stats.append((parts[2], added, deleted))
+    return stats
+
+
+def _area_for_path(path: str) -> str:
+    parts = path.split("/")
+    if not parts:
+        return "."
+    if parts[0] == "docs" and len(parts) > 2:
+        return f"docs/{parts[1]}"
+    return parts[0]
+
+
+def _changed_area_rows(stats: list[tuple[str, int, int]]) -> list[tuple[str, int, int, int]]:
+    areas: dict[str, tuple[int, int, int]] = {}
+    for path, added, deleted in stats:
+        area = _area_for_path(path)
+        files, adds, dels = areas.get(area, (0, 0, 0))
+        areas[area] = (files + 1, adds + added, dels + deleted)
+    return [(area, *values) for area, values in sorted(areas.items())]
+
+
+def _format_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
+    return "\n".join(lines)
+
+
+def _caveat_rows(events: list[dict[str, object]]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for event in events:
+        if _event_type(event) == "safety_net_child_caveats":
+            caveats = event.get("caveats")
+            if isinstance(caveats, list):
+                for caveat in caveats:
+                    if isinstance(caveat, str):
+                        rows.append([
+                            _event_str(event, "phase") or "-",
+                            _event_str(event, "log_path") or "-",
+                            caveat.replace("|", "\\|"),
+                        ])
+    return rows
+
+
+def _render_generated_facts(
+    *,
+    label: str,
+    started: dict[str, object],
+    finished: dict[str, object],
+    start_sha: str,
+    end_sha: str,
+    commits: list[tuple[str, str]],
+    stats: list[tuple[str, int, int]],
+    caveats: list[list[str]],
+) -> str:
+    fact_rows = [
+        ["Run label", f"`{label}`"],
+        ["Agent", f"`{_event_str(started, 'agent') or '-'}`"],
+        ["Recorded start", f"`{start_sha[:12]}`"],
+        ["Recorded end", f"`{end_sha[:12]}`"],
+        ["Gaps done", str(_event_int(finished, "gaps_done"))],
+        ["Stop reason", f"`{_event_str(finished, 'stop_reason') or '-'}`"],
+        ["Exit code", str(_event_int(finished, "exit_code", -1))],
+        ["Range note", "`head_before..recorded_end`; this is factual, not curated semantic membership."],
+    ]
+
+    commit_rows = [[f"`{short}`", subject.replace("|", "\\|")] for short, subject in commits]
+    area_rows = [
+        [area, str(files), str(added), str(deleted)]
+        for area, files, added, deleted in _changed_area_rows(stats)
+    ]
+    file_rows = [
+        [path.replace("|", "\\|"), str(added), str(deleted)]
+        for path, added, deleted in stats
+    ]
+
+    chunks = [
+        REPORT_BEGIN,
+        "## Generated Facts",
+        "",
+        _format_markdown_table(["Field", "Value"], fact_rows),
+        "",
+        "### Recorded Range Commits",
+        "",
+        _format_markdown_table(["Commit", "Subject"], commit_rows)
+        if commit_rows
+        else "No commits were recorded for this run.",
+        "",
+        "### Change Shape",
+        "",
+        _format_markdown_table(["Area", "Files", "Added", "Deleted"], area_rows)
+        if area_rows
+        else "No changed files were recorded for this run.",
+        "",
+        "### Changed Files",
+        "",
+        _format_markdown_table(["File", "Added", "Deleted"], file_rows)
+        if file_rows
+        else "No changed files were recorded for this run.",
+        "",
+        "### Recorded Caveats",
+        "",
+        _format_markdown_table(["Phase", "Log", "Caveat"], caveats)
+        if caveats
+        else "None recorded in `run.jsonl`.",
+        "",
+        REPORT_END,
+    ]
+    return "\n".join(chunks)
+
+
+def _replace_generated_facts(existing: str, generated: str) -> str:
+    begin = existing.find(REPORT_BEGIN)
+    end = existing.find(REPORT_END)
+    if begin == -1 and end == -1:
+        return existing.rstrip() + "\n\n" + generated + "\n"
+    if begin == -1 or end == -1 or end < begin:
+        raise ReportError("report has an incomplete generated facts sentinel block")
+    end += len(REPORT_END)
+    return existing[:begin].rstrip() + "\n\n" + generated + "\n" + existing[end:].lstrip()
+
+
+def _new_report_template(label: str, generated: str) -> str:
+    return (
+        f"# Parity Slice Report: {label}\n\n"
+        f"{REPORT_LABEL_PREFIX}{label} -->\n\n"
+        f"{generated}\n\n"
+        "## What Changed\n\n"
+        "Fill this in after reading the generated facts and the relevant diffs. "
+        "Name the user-visible behavior that changed, not just the files touched.\n\n"
+        "## Visualization\n\n"
+        "Add a slice-specific Mermaid diagram only when it clarifies the behavior or "
+        "workflow. Avoid generic runner diagrams that repeat across every slice.\n\n"
+        "## Boundaries\n\n"
+        "List what this slice deliberately did not ship, especially nearby parity "
+        "gaps that remain deferred.\n\n"
+        "## Comprehension Check\n\n"
+        "Add two or three semantic questions with collapsible answers when a reader "
+        "would benefit from testing their understanding of the slice.\n"
+    )
+
+
+def generate_slice_report(
+    repo: Path,
+    run_dir: Path,
+    report_dir: Path,
+    *,
+    label: str | None = None,
+) -> Path:
+    per_run = _run_dir_for_label(run_dir, label)
+    actual_label = _run_label_from_dir(per_run)
+    events = _read_run_events(per_run / "run.jsonl")
+    started = _require_event(events, "run.started")
+    finished = _require_event(events, "run.finished")
+    if _event_int(finished, "exit_code", -1) != 0:
+        raise ReportError(f"run did not finish cleanly: {actual_label}")
+
+    start_sha = _resolve_required(repo, _event_str(started, "head_before"), "head_before")
+    gaps = _completed_gap_events(events)
+    if gaps:
+        end_rev = _event_str(gaps[-1], "head_after") or _event_str(gaps[-1], "sha")
+        end_sha = _resolve_required(repo, end_rev, "last completed gap")
+    else:
+        end_sha = start_sha
+
+    commits = _range_commits(repo, start_sha, end_sha)
+    stats = _diff_numstat(repo, start_sha, end_sha)
+    generated = _render_generated_facts(
+        label=actual_label,
+        started=started,
+        finished=finished,
+        start_sha=start_sha,
+        end_sha=end_sha,
+        commits=commits,
+        stats=stats,
+        caveats=_caveat_rows(events),
+    )
+
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = _report_path_for_label(report_dir, actual_label)
+    if report_path.exists():
+        existing = report_path.read_text(encoding="utf-8")
+        updated = _replace_generated_facts(existing, generated)
+    else:
+        updated = _new_report_template(actual_label, generated)
+    report_path.write_text(updated, encoding="utf-8")
+    return report_path
+
+
 def lesson_gate(
     repo: Path,
     phase: str,
@@ -517,8 +851,15 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                 if exit_code == 0 and kind == "COMMITTED":
                     ok, reason = verify_committed(repo, head_before, refs_before, arg)
                     if ok:
+                        head_after = head(repo)
                         gaps_done += 1
-                        log.event("gap.completed", index=gaps_done, sha=arg)
+                        log.event(
+                            "gap.completed",
+                            index=gaps_done,
+                            sha=arg,
+                            head_before=head_before,
+                            head_after=head_after,
+                        )
                         continue
                     stop = f"verify_failed:{reason}"
                     log.event("gap.failed", reason=stop)
@@ -656,6 +997,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="bounded unattended parity-loop runner")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--run-dir", default="docs/parity-loop/runs")
+    parser.add_argument("--report-dir", default="docs/parity-loop/reports")
     parser.add_argument("--run-label", default=None)
     parser.add_argument("--agent", default="opus")
     parser.add_argument("--max-gaps", type=int, default=DEFAULTS["max_gaps"])
@@ -663,6 +1005,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--per-gap-timeout", type=float, default=DEFAULTS["per_gap_timeout"])
     parser.add_argument("--min-gap-slice", type=float, default=DEFAULTS["min_gap_slice"])
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--report-slice",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="LABEL",
+        help="generate a slice report for LABEL, or for the latest run when omitted",
+    )
+    parser.add_argument(
+        "--write-report",
+        action="store_true",
+        help="generate a slice report after a clean non-dry run",
+    )
     args = parser.parse_args(argv)
 
     label = args.run_label or time.strftime("%Y-%m-%dT%H%M%SZ", time.gmtime())
@@ -670,6 +1025,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     run_dir = Path(args.run_dir)
     if not run_dir.is_absolute():
         run_dir = repo_path / run_dir
+    report_dir = Path(args.report_dir)
+    if not report_dir.is_absolute():
+        report_dir = repo_path / report_dir
+    if args.report_slice is not None:
+        try:
+            report_path = generate_slice_report(
+                repo_path,
+                run_dir,
+                report_dir,
+                label=args.report_slice or None,
+            )
+        except ReportError as exc:
+            print(f"parity-runner: {exc}", file=sys.stderr)
+            return 1
+        print(report_path)
+        return 0
     opts = Opts(
         repo=repo_path,
         run_dir=run_dir,
@@ -681,7 +1052,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         min_gap_slice=args.min_gap_slice,
         dry_run=args.dry_run,
     )
-    return run(opts, default_hooks(opts), clock=time.monotonic)
+    exit_code = run(opts, default_hooks(opts), clock=time.monotonic)
+    if args.write_report and exit_code == 0 and not args.dry_run:
+        try:
+            report_path = generate_slice_report(repo_path, run_dir, report_dir, label=label)
+        except ReportError as exc:
+            print(f"parity-runner: report generation failed: {exc}", file=sys.stderr)
+            return exit_code
+        print(report_path)
+    return exit_code
 
 
 if __name__ == "__main__":
