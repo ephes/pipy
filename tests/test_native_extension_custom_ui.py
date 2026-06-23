@@ -12,6 +12,7 @@ test.
 from __future__ import annotations
 
 import io
+import subprocess
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -72,6 +73,34 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
         terminal_stream=cast(TextIO, _TtyBuffer()),
         cwd=tmp_path,
     )
+
+
+def test_extension_external_editor_guards_exact_mode_transition_calls(
+    monkeypatch, tmp_path: Path
+) -> None:
+    ui = _ui(tmp_path)
+    mode_calls: list[str] = []
+
+    def raise_restore(_self: ToolLoopTerminalUi) -> None:
+        mode_calls.append("restore")
+        raise OSError("restore unavailable")
+
+    def raise_enter(_self: ToolLoopTerminalUi) -> None:
+        mode_calls.append("enter")
+        raise OSError("raw mode unavailable")
+
+    def fake_run(argv, **_kwargs):
+        path = Path(argv[-1])
+        assert path.read_text(encoding="utf-8") == "seed"
+        path.write_text("edited\n", encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", raise_restore)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", raise_enter)
+    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+
+    assert ui._run_extension_external_editor("fake-editor", "seed") == "edited"
+    assert mode_calls == ["restore", "enter"]
 
 
 def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
