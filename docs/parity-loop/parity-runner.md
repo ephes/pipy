@@ -9,12 +9,18 @@ commits stay local on `main` for review. See the design at
 
     just parity-run
     just parity-run my-label
+    just parity-run-codex-dry
+    just parity-run-codex
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
 
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
 `--agent claude` uses `claude -p --model opus`. The default `opus` adapter uses
 `claude-yolo -p --model opus`.
+
+The `just parity-run-codex-dry` recipe validates startup preconditions without
+spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
+the conservative one-hour budget used for manual unattended batches.
 
 ## Exit codes
 
