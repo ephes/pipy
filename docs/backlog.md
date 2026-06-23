@@ -1439,8 +1439,11 @@ renderer, and command/shortcut handlers can call `ctx.append_entry(custom_type,
 data)` to persist JSON-safe custom entries in the native product session tree
 and render them locally without a provider turn. Active-branch custom entries
 now replay into startup-opened TUI sessions through the registered renderer
-available for that run. The next largest remaining parity topic is still the
-broader extension/package platform follow-on area.
+available for that run. The extension UI editor helper has also shipped:
+`ctx.ui.editor(...)` opens a focused multi-line product-TUI overlay in
+interactive command/shortcut contexts and returns `None` headlessly. The next
+largest remaining parity topic is still the broader extension/package platform
+follow-on area.
 
 Initial slice boundaries for the next topic:
 
@@ -1602,6 +1605,15 @@ ship (slice 17); live (invalidate-driven) tool renderers, in-session
 full-history redraw on `/resume` switches, and multi-widget message components
 remain follow-ons.
 
+Extension UI editor follow-on: command/shortcut handlers can call
+`ctx.ui.editor(title, prefill=None)` to open a focused multi-line editor overlay
+in the product TUI; headless/non-interactive dispatch returns `None` like Pi's
+no-op UI context. The overlay submits on Enter, inserts newlines with
+Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
+basic cursor movement/backspace, and cancels on Esc/Ctrl-C. Pi's external-editor
+handoff, main-prompt read/write/paste helpers, custom editor component, and
+autocomplete provider APIs remain follow-ons.
+
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
 `update` now ship.
@@ -1611,12 +1623,12 @@ Compatibility assessment for slice selection: treat Pipy's extension support as
 extension platform**. The landed slices cover the high-value Python equivalents
 of Pi permission gates, custom slash commands, simple model-visible tools,
 input/system-prompt hooks, lifecycle observation, minimal UI notices,
-simple `ctx.ui` select/input/confirm/status/working primitives,
+simple `ctx.ui` select/input/confirm/editor/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
 extension APIs: live (invalidate-driven) tool rendering beyond the landed
-render-once snapshot, richer multi-widget `ctx.ui`
-dialogs/editor/autocomplete/theme controls beyond the simple primitives,
+render-once snapshot, external-editor handoff, richer multi-widget `ctx.ui`
+dialogs/custom-editor/autocomplete/theme controls beyond the simple primitives,
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader
 dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources

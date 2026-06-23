@@ -192,6 +192,11 @@ Pipy current state:
   and never archived. Active-branch custom entries now replay into
   startup-opened TUI sessions through the same renderer dispatch without
   mutating the session file.
+- Extension slice 20 has shipped: the command/shortcut `ctx.ui.editor(...)`
+  helper opens a focused multi-line product-TUI overlay, returns `None`
+  headlessly like Pi's no-op UI context, submits on Enter, accepts Shift+Enter
+  where decoded plus Alt+Enter as pipy's portable newline fallback, and cancels
+  on Esc/Ctrl-C. Pi's external-editor handoff remains deferred.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -200,8 +205,9 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: a custom editor component (rich-UI item D) and live
-   per-frame component `render()`/`requestRender` re-rendering of chrome
+1. Richer Pi extension APIs: external-editor handoff and a custom editor
+   component (rich-UI item D), autocomplete providers, and live per-frame
+   component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /
    reactive `footerData` beyond the landed width-reactive chrome snapshot,
    *multi-widget* message components beyond the landed single-component rich

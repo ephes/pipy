@@ -162,6 +162,35 @@ def test_pty_custom_component_esc_cancels(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_extension_editor_accepts_newline_and_submits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    result: list[object] = []
+
+    def _run() -> None:
+        result.append(ui.run_extension_editor("Draft", "seed"))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "Draft"), "editor overlay never rendered"
+        os.write(in_master, b"\x1b\r")  # Alt+Enter -> newline fallback.
+        time.sleep(0.1)
+        os.write(in_master, b"next")
+        assert _wait_for(err_chunks, "next"), "typed second line never rendered"
+        os.write(in_master, b"\r")  # Enter -> submit
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "editor worker did not exit"
+    finally:
+        _teardown(stdin, terminal, in_master, err_master)
+    assert result == ["seed\nnext"]
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    assert "\x1b[?1049h" not in captured, "editor overlay must not use alt screen"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_extension_shortcut_returns_sentinel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

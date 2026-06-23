@@ -169,6 +169,10 @@ def activate(api):
     def _command(ctx, args):
         _proof("command_handler")
         ctx.ui.notify("conformance command ran")
+        _proof(
+            "editor_noop",
+            returned_none=ctx.ui.editor("conformance editor", "prefill") is None,
+        )
         # Append a custom entry whose data carries a unique sentinel; the
         # registered rich renderer runs synchronously and emits the body
         # sentinel live-only. The body sentinel must never reach proof/archive;

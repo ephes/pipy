@@ -16,7 +16,8 @@ The activation API supports command and keyboard-shortcut registration
 provider registration (`register_tool`, `register_provider` /
 `unregister_provider`), and `send_user_message`. Command/shortcut handlers
 receive a mode-aware context exposing the workspace root, `ui` (`notify` and
-`custom` interactive overlays), a read-only `conversation` view
+`custom` interactive overlays, simple dialogs, and a multi-line `editor`), a
+read-only `conversation` view
 (`last_assistant_message`), and a bounded `complete(system_prompt, user_text)`
 one-shot completion.
 """

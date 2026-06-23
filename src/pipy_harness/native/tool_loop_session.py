@@ -572,6 +572,9 @@ class _LiveExtensionUiDriver:
     def input(self, title: str, placeholder: str | None = None) -> str | None:
         return self._terminal_ui.run_extension_input(title, placeholder)
 
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        return self._terminal_ui.run_extension_editor(title, prefill)
+
     def confirm(self, title: str, message: str) -> bool:
         return self._terminal_ui.run_extension_confirm(title, message)
 

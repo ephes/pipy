@@ -137,6 +137,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "tool_execute",
         "tool_result",
         "message_renderer_component",
+        "editor_noop",
         "turn_end",
         "agent_end",
         "session_shutdown",

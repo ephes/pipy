@@ -25,6 +25,7 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tui import (
     _ExtensionConfirmComponent,
+    _ExtensionEditorComponent,
     _ExtensionInputComponent,
     _ExtensionSelectComponent,
 )
@@ -167,6 +168,46 @@ def test_extension_input_component_edits_sanitizes_display_and_submits_raw() -> 
     assert result == ["a"]
 
 
+def test_extension_editor_component_edits_multiline_and_submits_raw() -> None:
+    result: list[object] = []
+    component = _ExtensionEditorComponent(
+        "Draft\x1b[31m",
+        "alpha\nbeta",
+        lambda value=None: result.append(value),
+    )
+
+    rendered = "\n".join(component.render(80))
+    assert "Draft [31m" in rendered
+    assert "> alpha" not in rendered
+    assert "> beta" in rendered
+
+    component.handle_input("home")
+    component.handle_input("shift-enter")
+    component.handle_input("x")
+    component.handle_input("up")
+    component.handle_input("z")
+    component.handle_input("down")
+    component.handle_input("end")
+    component.handle_input("alt-enter")
+    component.handle_input("y")
+    component.handle_input("left")
+    component.handle_input("backspace")
+    component.handle_input("enter")
+
+    assert result == ["alpha\nz\nxbetay"]
+
+
+def test_extension_editor_component_cancels() -> None:
+    result: list[object] = []
+    component = _ExtensionEditorComponent(
+        "Draft", "prefill", lambda value=None: result.append(value)
+    )
+
+    component.handle_input("esc")
+
+    assert result == [None]
+
+
 def test_collecting_ui_custom_delegates_to_driver() -> None:
     captured: dict[str, object] = {}
 
@@ -220,6 +261,9 @@ class _FakeUiDriver:
     def input(self, title: str, placeholder: str | None = None) -> str | None:
         return f"{title}:{placeholder}"
 
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        return f"{title}:{prefill}"
+
     def confirm(self, title: str, message: str) -> bool:
         return title == "confirm" and bool(message)
 
@@ -254,6 +298,7 @@ def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
 
     assert ui.select("pick", ["a", "b"]) == "pick:b"
     assert ui.input("name", "placeholder") == "name:placeholder"
+    assert ui.editor("draft", "prefill") == "draft:prefill"
     assert ui.confirm("confirm", "continue?") is True
     ui.set_status("build status", "green")
     ui.set_status("build status", None)
@@ -278,6 +323,7 @@ def test_collecting_ui_dialogs_are_deterministic_without_ui() -> None:
 
     assert ui.select("pick", ["a"]) is None
     assert ui.input("name") is None
+    assert ui.editor("draft", "prefill") is None
     assert ui.confirm("confirm", "continue?") is False
     ui.set_status("build", "green")
 
@@ -292,6 +338,7 @@ def test_extension_command_ui_methods_reach_driver(tmp_path: Path) -> None:
     def handler(ctx, _args):
         seen["selected"] = ctx.ui.select("pick", ["a", "b"])
         seen["answer"] = ctx.ui.input("name", "default")
+        seen["draft"] = ctx.ui.editor("draft", "prefill")
         seen["confirmed"] = ctx.ui.confirm("confirm", "continue?")
         ctx.ui.set_status("task", "running")
         ctx.ui.set_working_message("Custom work")
@@ -311,6 +358,7 @@ def test_extension_command_ui_methods_reach_driver(tmp_path: Path) -> None:
     assert seen == {
         "selected": "pick:b",
         "answer": "name:default",
+        "draft": "draft:prefill",
         "confirmed": True,
     }
     assert driver.status == [("task", "running")]

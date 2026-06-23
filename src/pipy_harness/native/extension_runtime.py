@@ -874,6 +874,8 @@ class ExtensionUiDriver(Protocol):
 
     def input(self, title: str, placeholder: str | None = None) -> str | None: ...
 
+    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
+
     def confirm(self, title: str, message: str) -> bool: ...
 
     def set_status(self, key: str, text: str | None) -> None: ...
@@ -915,6 +917,8 @@ class ExtensionUi(Protocol):
     def select(self, title: str, options: Sequence[str]) -> str | None: ...
 
     def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
 
     def confirm(self, title: str, message: str) -> bool: ...
 
@@ -1101,6 +1105,14 @@ class _CollectingUi:
             return None
         try:
             return self._ui_driver.input(str(title), placeholder)
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return None
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        if self._ui_driver is None or not self.has_ui:
+            return None
+        try:
+            return self._ui_driver.editor(str(title), prefill)
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return None
 

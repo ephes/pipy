@@ -377,6 +377,109 @@ class _ExtensionInputComponent:
             self.text += key
 
 
+class _ExtensionEditorComponent:
+    """Multi-line editor overlay used by extension `ctx.ui.editor`."""
+
+    _MAX_VISIBLE_LINES = 10
+
+    def __init__(
+        self, title: str, prefill: str | None, done: Callable[..., None]
+    ) -> None:
+        self.title = title
+        self.text = "" if prefill is None else str(prefill)
+        self.cursor = len(self.text)
+        self._done = done
+
+    def render(self, width: int) -> list[str]:
+        lines = [
+            _clip_plain(
+                f" {sanitize_label_text(self.title)} - enter submit, shift/alt-enter newline, esc cancel",
+                width,
+            )
+        ]
+        rows, cursor_row, cursor_col = self._rows()
+        start = max(
+            0,
+            min(
+                cursor_row - (self._MAX_VISIBLE_LINES // 2),
+                max(0, len(rows) - self._MAX_VISIBLE_LINES),
+            ),
+        )
+        end = start + self._MAX_VISIBLE_LINES
+        for row_index, row in enumerate(rows[start:end], start=start):
+            marker = ">" if row_index == cursor_row else " "
+            safe = sanitize_label_text(row)
+            if row_index == cursor_row:
+                safe = safe[:cursor_col] + "▏" + safe[cursor_col:]
+            lines.append(_clip_plain(f"{marker} {safe}", width))
+        if start > 0 or end < len(rows):
+            lines.append(_clip_plain(f"  ({cursor_row + 1}/{len(rows)})", width))
+        return lines
+
+    def handle_input(self, key: str) -> None:
+        if key in {"esc", "ctrl-c"}:
+            self._done(None)
+            return
+        if key == "enter":
+            self._done(self.text)
+            return
+        if key in {"shift-enter", "alt-enter"}:
+            self._insert("\n")
+            return
+        if key == "backspace":
+            if self.cursor > 0:
+                self.text = self.text[: self.cursor - 1] + self.text[self.cursor :]
+                self.cursor -= 1
+            return
+        if key == "left":
+            self.cursor = max(0, self.cursor - 1)
+            return
+        if key == "right":
+            self.cursor = min(len(self.text), self.cursor + 1)
+            return
+        if key == "home":
+            self.cursor = self._index_for_row_col(self._cursor_row_col()[0], 0)
+            return
+        if key == "end":
+            row, _col = self._cursor_row_col()
+            self.cursor = self._index_for_row_col(row, len(self._rows()[0][row]))
+            return
+        if key in {"up", "down"}:
+            row, col = self._cursor_row_col()
+            target_row = row - 1 if key == "up" else row + 1
+            self.cursor = self._index_for_row_col(target_row, col)
+            return
+        if len(key) == 1 and key.isprintable():
+            self._insert(key)
+
+    def _insert(self, value: str) -> None:
+        self.text = self.text[: self.cursor] + value + self.text[self.cursor :]
+        self.cursor += len(value)
+
+    def _rows(self) -> tuple[list[str], int, int]:
+        rows = self.text.split("\n")
+        if not rows:
+            rows = [""]
+        row, col = self._cursor_row_col(rows)
+        return rows, row, col
+
+    def _cursor_row_col(self, rows: list[str] | None = None) -> tuple[int, int]:
+        if rows is None:
+            rows = self.text.split("\n") or [""]
+        remaining = max(0, min(self.cursor, len(self.text)))
+        for index, row in enumerate(rows):
+            if remaining <= len(row):
+                return index, remaining
+            remaining -= len(row) + 1
+        return len(rows) - 1, len(rows[-1])
+
+    def _index_for_row_col(self, target_row: int, target_col: int) -> int:
+        rows = self.text.split("\n") or [""]
+        row = min(max(0, target_row), len(rows) - 1)
+        index = sum(len(item) + 1 for item in rows[:row])
+        return min(index + max(0, min(target_col, len(rows[row]))), len(self.text))
+
+
 def _clip_plain(text: str, width: int) -> str:
     return sanitize_label_text(text)[: max(0, width)]
 
@@ -1597,6 +1700,16 @@ class ToolLoopTerminalUi:
 
         result = self.run_custom_component(
             lambda done: _ExtensionInputComponent(str(title), placeholder, done)
+        )
+        return result if isinstance(result, str) else None
+
+    def run_extension_editor(
+        self, title: str, prefill: str | None = None
+    ) -> str | None:
+        """Run a Pi-shaped extension multi-line editor overlay."""
+
+        result = self.run_custom_component(
+            lambda done: _ExtensionEditorComponent(str(title), prefill, done)
         )
         return result if isinstance(result, str) else None
 
@@ -3971,6 +4084,8 @@ class ToolLoopTerminalUi:
         # ``/scoped-models prev`` (documented limit).
         if sequence == "Z":
             return "shift-tab"
+        if sequence in {"13;2u", "27;2;13~"}:
+            return "shift-enter"
         if sequence in {"112;6u", "27;6;112~", "80;6u", "27;6;80~"}:
             return "shift-ctrl-p"
         return {
