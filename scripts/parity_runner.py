@@ -28,6 +28,11 @@ SINGLE_GAP_MARKER = "runner single-gap mode"
 UNATTENDED_MARKER = "runner unattended mode"
 BLOCKED_PUSHURL = "blocked://parity-runner-no-push"
 LEDGER_REL = "docs/parity-loop/lessons/lessons.jsonl"
+CAVEAT_RE = re.compile(
+    r"\b(caveat|warning|warn|incomplete|partial|skipped|blocked|remaining|"
+    r"unable|failed|failure|not run|not complete|could not|couldn't|did not|didn't)\b",
+    re.IGNORECASE,
+)
 DEFAULTS = {
     "max_gaps": 3,
     "time_budget": 7200,
@@ -88,6 +93,14 @@ def ref_snapshot(repo: Path) -> dict[str, str]:
         name, sha = line.split(" ", 1)
         snap[name] = sha.strip()
     return snap
+
+
+def remote_tracking_snapshot(repo: Path) -> dict[str, str]:
+    return {
+        name: sha
+        for name, sha in ref_snapshot(repo).items()
+        if name.startswith("refs/remotes/")
+    }
 
 
 def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
@@ -323,6 +336,28 @@ def _improve_prompt() -> str:
     )
 
 
+def improve_log_caveats(log_path: Path, *, max_lines: int = 12, max_chars: int = 500) -> list[str]:
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    caveats: list[str] = []
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        line = re.sub(r"^\s*(?:[-*]\s+|>\s*)", "", raw).strip()
+        if not line or line == "--- stderr ---" or not CAVEAT_RE.search(line):
+            continue
+        clipped = line[:max_chars]
+        if clipped in seen:
+            continue
+        caveats.append(clipped)
+        seen.add(clipped)
+        if len(caveats) >= max_lines:
+            break
+    return caveats
+
+
 def lesson_gate(
     repo: Path,
     phase: str,
@@ -348,7 +383,11 @@ def lesson_gate(
         head_before = head(repo)
         refs_before = ref_snapshot(repo)
         timeout = min(per_gap_timeout, remaining_budget)
-        rc = hooks.run_improve(_improve_prompt(), timeout, Path(run_dir) / f"improve-{phase}.log")
+        improve_log = Path(run_dir) / f"improve-{phase}.log"
+        rc = hooks.run_improve(_improve_prompt(), timeout, improve_log)
+        caveats = improve_log_caveats(improve_log)
+        if caveats:
+            log("safety_net_child_caveats", phase=phase, log_path=improve_log.name, caveats=caveats)
         if rc != 0:
             log("safety_net_failed", phase=phase, exit_code=rc)
         if (
@@ -421,15 +460,31 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
         restore_guards = install_no_push_guards(repo)
         try:
             start = clock()
+            remote_refs_before = remote_tracking_snapshot(repo)
 
             def remaining() -> float:
                 return opts.time_budget - (clock() - start)
+
+            def finish(gaps_done: int, stop_reason: str, exit_code: int, **fields: object) -> int:
+                remote_refs_after = remote_tracking_snapshot(repo)
+                log.event(
+                    "run.finished",
+                    gaps_done=gaps_done,
+                    stop_reason=stop_reason,
+                    exit_code=exit_code,
+                    remote_tracking_before=remote_refs_before,
+                    remote_tracking_after=remote_refs_after,
+                    remote_tracking_changed=remote_refs_after != remote_refs_before,
+                    **fields,
+                )
+                return exit_code
 
             log.event(
                 "run.started",
                 agent=opts.agent,
                 head_before=head(repo),
                 max_gaps=opts.max_gaps,
+                remote_tracking_before=remote_refs_before,
             )
             code = lesson_gate(
                 repo,
@@ -442,8 +497,7 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                 log=log.event,
             )
             if code is not None:
-                log.event("run.finished", gaps_done=0, stop_reason="preflight", exit_code=code)
-                return code
+                return finish(0, "preflight", code)
 
             gaps_done = 0
             stop = "cap_reached"
@@ -502,23 +556,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                     log=log.event,
                 )
                 if code is not None:
-                    log.event(
-                        "run.finished",
-                        gaps_done=gaps_done,
-                        stop_reason=stop,
-                        exit_code=code,
-                    )
-                    return code
-                log.event("run.finished", gaps_done=gaps_done, stop_reason=stop, exit_code=0)
-                return 0
-            log.event(
-                "run.finished",
-                gaps_done=gaps_done,
-                stop_reason=stop,
-                exit_code=1,
-                needs_human_cleanup=True,
-            )
-            return 1
+                    return finish(gaps_done, stop, code)
+                return finish(gaps_done, stop, 0)
+            return finish(gaps_done, stop, 1, needs_human_cleanup=True)
         finally:
             restore_guards()
     finally:

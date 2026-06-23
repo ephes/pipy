@@ -22,6 +22,21 @@ The `just parity-run-codex-dry` recipe validates startup preconditions without
 spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
 the conservative one-hour budget used for manual unattended batches.
 
+## Run artifacts
+
+Each run writes `run.jsonl` plus child logs under `docs/parity-loop/runs/run-<label>/`
+by default. `run.started` records the starting `HEAD` and remote-tracking refs,
+and `run.finished` records the same pre-run remote-tracking refs alongside the
+post-run remote-tracking refs and a `remote_tracking_changed` boolean. This makes
+the no-push audit explicit even if a child process changed `origin/main` through
+fetching or other ref updates.
+
+When the lesson safety net spawns `parity-improve`, child output stays in
+`improve-<phase>.log`. If that log contains warning, skipped, incomplete, blocked,
+or failed-work caveats, the runner also emits a `safety_net_child_caveats` event
+with the phase, log filename, and bounded caveat lines so post-loop caveats are
+visible from `run.jsonl` without opening the child log first.
+
 ## Exit codes
 
 - `0` — clean stop, no open lessons remaining.

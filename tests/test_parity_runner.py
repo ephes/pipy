@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -373,6 +374,10 @@ def _clock_seq(values: list[float]) -> Any:
     return clock
 
 
+def _run_events(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
 def _ok_ledger_hooks(**over: Any) -> Any:
     base: dict[str, Any] = {
         "run_gap": lambda *a: (0, ""),
@@ -389,6 +394,24 @@ def test_run_stops_on_no_gaps(tmp_path: Path) -> None:
     hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
     assert code == 0
+
+
+def test_run_records_remote_tracking_ref_audit(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    remote_main = pr.head(repo)
+    _git(repo, "update-ref", "refs/remotes/origin/main", remote_main)
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
+
+    code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
+
+    assert code == 0
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    started = next(event for event in events if event["type"] == "run.started")
+    finished = next(event for event in events if event["type"] == "run.finished")
+    assert started["remote_tracking_before"] == {"refs/remotes/origin/main": remote_main}
+    assert finished["remote_tracking_before"] == {"refs/remotes/origin/main": remote_main}
+    assert finished["remote_tracking_after"] == {"refs/remotes/origin/main": remote_main}
+    assert finished["remote_tracking_changed"] is False
 
 
 def test_run_does_one_verified_gap_then_no_gaps(tmp_path: Path) -> None:
@@ -525,6 +548,39 @@ def test_run_postloop_backlog_exit3_after_improve(tmp_path: Path) -> None:
     assert state["improve_calls"] == 1
     runlog = (tmp_path / "runs" / "run-L1" / "run.jsonl").read_text(encoding="utf-8")
     assert "needs_human_review" in runlog
+
+
+def test_run_postloop_surfaces_improve_child_caveats(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    state = {"open": 0}
+
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+        state["open"] = 1
+        return 0, "PARITY_RESULT: NO_GAPS\n"
+
+    def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
+        state["open"] = 0
+        log_path.write_text(
+            "Applied harness lesson.\n"
+            "Verification incomplete: full gate did not run before timeout.\n",
+            encoding="utf-8",
+        )
+        return 0
+
+    hooks = _ok_ledger_hooks(
+        run_gap=run_gap,
+        run_improve=run_improve,
+        ledger_open_count=lambda _r: state["open"],
+    )
+
+    code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0, 2.0, 3.0]))
+
+    assert code == 0
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    caveat = next(event for event in events if event["type"] == "safety_net_child_caveats")
+    assert caveat["phase"] == "postloop"
+    assert caveat["log_path"] == "improve-postloop.log"
+    assert caveat["caveats"] == ["Verification incomplete: full gate did not run before timeout."]
 
 
 def test_cli_dry_run(tmp_path: Path) -> None:
