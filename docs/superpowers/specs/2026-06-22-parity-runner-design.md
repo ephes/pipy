@@ -45,8 +45,9 @@ lessons safety net.
   provided, but cron/launchd ownership is the operator's.
 - No bespoke orchestration of the phases — the runner spawns the agent and lets
   the skill orchestrate; the runner owns only the outer loop and safety.
-- Default driver is `claude-yolo --model opus`; other agents are a later
-  `--agent` extension, out of scope here.
+- The runner supports per-agent adapters (`opus`, `claude`, `codex`, and a
+  generic `-p` fallback); the normal just recipes use one-gap Codex or Claude
+  runs with slice reports.
 
 ## Background (shipped pieces it builds on)
 
@@ -55,8 +56,8 @@ lessons safety net.
   `just check` + prek (if configured) + different-family code review CLEAN →
   commit → Phase 9 reflect. Phase 0 drains the lesson backlog; a run-end backstop
   drains the rest.
-- **Driver/review pairing:** default `claude-yolo -p --model opus` implements;
-  the skill's review gate uses `pi-review-loop` (GPT, different family).
+- **Driver/review pairing:** the selected adapter implements; the skill's review
+  gate must use a different model family.
 - **Lessons:** `scripts/parity_lessons.py` (validate/append/list/mark) over
   `docs/parity-loop/lessons/lessons.jsonl`; `parity-improve` materializes them.
 - **Run scratch dir:** `docs/parity-loop/runs/` already exists and is gitignored
@@ -76,7 +77,7 @@ verification, caps, checkpointing, and stop conditions.
 For each iteration the runner spawns a **fresh** agent process:
 
 ```
-claude-yolo -p --model opus  <prompt>
+<agent-adapter> -- <prompt>
 ```
 
 where `<prompt>` instructs: *"Run the `pipy-parity-loop` skill for exactly ONE
@@ -111,9 +112,14 @@ unconditional skill and block in `parity-improve` instead of returning through t
 runner's `lessons_backlog` (exit 3) path — so the clause and the runner ship
 together.
 
-The spawn command itself is a small per-agent adapter (v1: only the `opus`
-adapter, which shells `claude-yolo -p --model opus`). The runner captures the
-child's stdout/stderr to the run dir and parses the **last** line matching
+The spawn command itself is a small per-agent adapter. The default `opus`
+adapter invokes the user's fish `claude-yolo` function through
+`fish -lc 'set args $argv; ...; claude-yolo -p --model opus -- $args'` so shell
+functions are visible while the prompt still travels as an argv value. The
+runner passes the prompt after an explicit `--` delimiter; the fish wrapper
+normalizes that delimiter and inserts a fresh `--` at the `claude-yolo` boundary.
+The runner closes child stdin with `/dev/null`, captures the child's
+stdout/stderr to the run dir, and parses the **last** line matching
 `^PARITY_RESULT: (COMMITTED \S+|NO_GAPS|BLOCKED .*)$`.
 
 ### Independent verification (do not trust the sentinel alone)
@@ -217,9 +223,9 @@ every gap is independently gated/committed so at most the *current* gap is parti
 
 ### Fresh context per gap
 
-Each gap is a new `claude-yolo -p` process — no shared/long-lived context. Durable
-state is git (commits), the gap docs (`pi-mono-gap-audit.md` / `backlog.md`), and
-the lesson ledger. This is the Ralph principle that prevents drift on long runs.
+Each gap is a new agent process — no shared/long-lived context. Durable state is
+git (commits), the gap docs (`pi-mono-gap-audit.md` / `backlog.md`), and the
+lesson ledger. This is the Ralph principle that prevents drift on long runs.
 
 ### Lessons safety net
 

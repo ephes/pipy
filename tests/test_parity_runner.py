@@ -397,6 +397,59 @@ def _ok_ledger_hooks(**over: Any) -> Any:
     return pr.Hooks(**base)
 
 
+def test_spawn_capture_closes_child_stdin(monkeypatch: Any, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeProc:
+        pid = 999999
+        returncode = 0
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+            return ("ok\n", "")
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> FakeProc:
+        captured["cmd"] = cmd
+        captured.update(kwargs)
+        return FakeProc()
+
+    monkeypatch.setattr(pr.subprocess, "Popen", fake_popen)
+
+    rc, out = pr._spawn_capture(["fake-agent"], tmp_path, 10.0, tmp_path / "agent.log")
+
+    assert rc == 0
+    assert out == "ok\n"
+    assert captured["stdin"] is pr.subprocess.DEVNULL
+
+
+def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
+        calls.append(cmd)
+        return 0, ""
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    pr._real_run_gap(tmp_path, "claude")("gap prompt", 10.0, tmp_path / "gap.log")
+    rc = pr._real_run_improve(tmp_path, "claude")("improve prompt", 10.0, tmp_path / "improve.log")
+    pr._real_run_gap(tmp_path, "opus")("opus prompt", 10.0, tmp_path / "opus.log")
+
+    assert rc == 0
+    assert calls[0][-2:] == ["--", "gap prompt"]
+    assert calls[1][-2:] == ["--", "improve prompt"]
+    assert "--dangerously-skip-permissions" in calls[0]
+    assert calls[2] == [
+        "fish",
+        "-lc",
+        (
+            'set args $argv; if test (count $args) -gt 0; and test "$args[1]" = "--"; '
+            "set args $args[2..-1]; end; claude-yolo -p --model opus -- $args"
+        ),
+        "--",
+        "opus prompt",
+    ]
+
+
 def test_run_stops_on_no_gaps(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
@@ -661,6 +714,14 @@ def test_cli_rejects_bad_label(tmp_path: Path) -> None:
 
 
 def test_agent_cmd_uses_codex_exec_adapter() -> None:
+    assert pr._agent_cmd("opus") == [
+        "fish",
+        "-lc",
+        (
+            'set args $argv; if test (count $args) -gt 0; and test "$args[1]" = "--"; '
+            "set args $args[2..-1]; end; claude-yolo -p --model opus -- $args"
+        ),
+    ]
     assert pr._agent_cmd("codex") == [
         "codex",
         "exec",

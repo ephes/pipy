@@ -130,3 +130,24 @@ blocks on a sign-off-needing lesson; lesson application is the runner's job.
   skills.
 - The different-family review gate: `pi-review-loop` (review with Pi/GPT) or
   `opus-review-loop` (review with Opus).
+
+## Claude Code CLI Hygiene
+
+When invoking Claude Code noninteractively, be explicit about the prompt channel:
+
+- If the prompt is a positional argument, put it after `--` and close child stdin
+  with `/dev/null` (for example:
+  `claude -p --model opus --no-session-persistence --tools "" --disable-slash-commands -- "$PROMPT" </dev/null`).
+- If the prompt is piped or supplied as a prompt file on stdin, do not also pass a
+  positional prompt; the pipe/file must be the only prompt source.
+- Never place a positional prompt immediately after variadic flags such as
+  `--tools ""`; without `--`, Claude may treat the prompt as another tool value.
+- For read-only Opus reviews, prefer the `opus-review-loop` harness or direct
+  `claude -p` with tools disabled. Do not use `claude-yolo` solely for a
+  read-only review.
+- For write-capable unattended implementation runners, do not replace permission
+  bypass with a weaker mode such as `default`, `plan`, or `acceptEdits` unless
+  that exact runner has been verified to perform edits, shell commands, and
+  commits without prompting.
+- Bound availability checks: after a small fixed number of smoke-test/retry
+  attempts, stop and report the reviewer CLI as unavailable instead of looping.

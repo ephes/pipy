@@ -23,7 +23,17 @@ commits stay local on `main` for review. See the design at
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
 `--agent claude` uses
 `claude -p --model opus --dangerously-skip-permissions`. The default `opus`
-adapter uses `claude-yolo -p --model opus`.
+adapter invokes the fish `claude-yolo` function with
+`fish -lc 'set args $argv; ...; claude-yolo -p --model opus -- $args'`.
+
+For every spawned gap or lesson-improve child, the runner appends the prompt
+after an explicit `--` delimiter and closes child stdin with `/dev/null`. This
+prevents noninteractive Claude Code from waiting on an inherited terminal and
+keeps the prompt out of adapter option parsing. For the fish-backed `opus`
+adapter, the wrapper strips the runner-level delimiter if present, then inserts
+a fresh `--` at the `claude-yolo` command boundary. The related `--tools ""`
+variadic parsing hazard applies to read-only Claude review commands and is
+covered in the parity-loop CLI hygiene notes.
 
 The normal `just parity-run`, `just parity-run-codex`, and
 `just parity-run-claude` recipes write a slice report after a clean run. The

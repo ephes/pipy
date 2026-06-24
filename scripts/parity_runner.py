@@ -908,7 +908,14 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
 
 def _agent_cmd(agent: str) -> list[str]:
     if agent == "opus":
-        return ["claude-yolo", "-p", "--model", "opus"]
+        return [
+            "fish",
+            "-lc",
+            (
+                'set args $argv; if test (count $args) -gt 0; and test "$args[1]" = "--"; '
+                "set args $args[2..-1]; end; claude-yolo -p --model opus -- $args"
+            ),
+        ]
     if agent == "claude":
         return ["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"]
     if agent == "codex":
@@ -920,6 +927,7 @@ def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) ->
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -941,14 +949,14 @@ def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) ->
 
 def _real_run_gap(repo: Path, agent: str) -> Callable[[str, float, Path], tuple[int, str]]:
     def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
-        return _spawn_capture([*_agent_cmd(agent), prompt], repo, timeout, log_path)
+        return _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path)
 
     return run_gap
 
 
 def _real_run_improve(repo: Path, agent: str) -> Callable[[str, float, Path], int]:
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
-        rc, _ = _spawn_capture([*_agent_cmd(agent), prompt], repo, timeout, log_path)
+        rc, _ = _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path)
         return rc
 
     return run_improve
