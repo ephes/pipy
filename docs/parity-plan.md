@@ -262,7 +262,10 @@ topics.
 2. **User documentation parity** ([user-documentation.md](user-documentation.md))
    — run in parallel with implementation. Pipy needs outside-in product docs,
    not only internal specs, and those docs should track shipped behavior rather
-   than planned parity.
+   than planned parity. Terminal setup and tmux/platform caveats now have
+   shipped user pages ([terminal-setup.md](terminal-setup.md),
+   [tmux.md](tmux.md)); quickstart, usage, provider/model, session,
+   customization, automation, and SDK/RPC docs remain.
 3. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version

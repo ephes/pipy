@@ -15,32 +15,34 @@ latest comparison snapshot against `/Users/jochen/src/pi-mono` is
 
 Read these documents in order to learn the project from the outside in:
 
-1. [Architecture](architecture.md): the current runtime, diagrams, codebase
+1. User-facing terminal setup: [Terminal Setup](terminal-setup.md) and
+   [tmux Setup](tmux.md).
+2. [Architecture](architecture.md): the current runtime, diagrams, codebase
    map, and the isolation boundary between domain logic and adapters.
-2. [Pi Parity](pi-parity.md): what has already been slopforked from Pi, what
+3. [Pi Parity](pi-parity.md): what has already been slopforked from Pi, what
    remains, and how pipy's architecture differs from Pi's.
-3. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —
+4. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —
    command/flag matrices, accidental-surface cleanup, and big-topic spec index.
-4. [Pi-Mono Gap Audit](pi-mono-gap-audit.md): the latest ranked comparison
+5. [Pi-Mono Gap Audit](pi-mono-gap-audit.md): the latest ranked comparison
    against the local Pi checkout, with implementation contracts for the largest
    remaining gaps.
-5. [Harness Spec](harness-spec.md): detailed design rationale, event
+6. [Harness Spec](harness-spec.md): detailed design rationale, event
    vocabulary, native runtime direction, adapter boundaries, and deferred
    design.
-6. [Python SDK and Headless Embedding](sdk.md): the current in-process Python
-   embedding surface and how it relates to future JSON/RPC automation.
-7. Big-topic parity specs (target designs, one per large surface):
+7. [Python SDK and Headless Embedding](sdk.md): the current in-process Python
+   embedding surface and how it relates to JSON/RPC automation.
+8. Big-topic parity specs (target designs, one per large surface):
    [Session Tree](session-tree.md), [Extension API](extension-api.md),
    [Provider Catalog](provider-catalog.md), [Settings & Config](settings-config.md),
    [Automation & RPC](automation-rpc.md), [TUI Workflow](tui-workflow.md),
    [Export & Distribution](export-distribution.md), and
    [User Documentation](user-documentation.md).
-8. [Session Storage](session-storage.md): the metadata-only catalog utility.
+9. [Session Storage](session-storage.md): the metadata-only catalog utility.
    Note: this is a pipy-specific layer, **not** the product session store — the
    full-transcript [Session Tree](session-tree.md) is the shipped product
    session source of truth (`pipy_harness.native.session_tree`), proven by
    `scripts/parity_checks/session_tree_conformance.py --json`.
-9. [Backlog](backlog.md): current product planning, completed slices,
+10. [Backlog](backlog.md): current product planning, completed slices,
    near-term priorities, and deferred boundaries.
 
 The short version: pipy is no longer just a session recorder. The repository now

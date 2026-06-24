@@ -251,8 +251,9 @@ customization, automation, SDK/RPC, and terminal/platform setup.
 Implement in pipy:
 
 1. Add user-facing quickstart, usage, providers/models, sessions, settings,
-   keybindings, customization, automation, terminal setup, tmux, SDK/RPC, and
-   install/update pages.
+   keybindings, customization, automation, SDK/RPC, and install/update pages.
+   Terminal setup and tmux pages now ship:
+   [terminal-setup.md](terminal-setup.md), [tmux.md](tmux.md).
 2. Keep README short and outside-in.
 3. Separate shipped behavior from target specs; do not present pipy-only
    divergences as parity.

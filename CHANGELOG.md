@@ -309,6 +309,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
   - New gate `scripts/parity_checks/tui_workflow_conformance.py --json` drives
     the real product PTY path and proves all of the above (plus non-TTY
     fallbacks and archive privacy) deterministically.
+- User-facing terminal setup and tmux setup docs now cover pipy's inline TUI,
+  modified-key expectations, bracketed paste, file/image drops, clipboard
+  behavior, scrollback, and common platform caveats.
 
 ### Fixed
 

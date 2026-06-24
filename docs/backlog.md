@@ -316,8 +316,10 @@ The highest-impact remaining gaps are now:
   source kinds after a broader supply-chain policy.
 2. **User documentation parity.** Pipy still has mostly maintainer/agent specs
    rather than Pi-like product docs for quickstart, usage, providers, settings,
-   keybindings, sessions, customization, automation, SDK/RPC, terminal setup,
-   tmux, and platforms. This can run in parallel with implementation tracks.
+   keybindings, sessions, customization, automation, and SDK/RPC. Terminal setup,
+   tmux, and platform caveats now have user-facing pages:
+   [terminal-setup.md](terminal-setup.md), [tmux.md](tmux.md). The remaining
+   docs work can run in parallel with implementation tracks.
    Spec: [user-documentation.md](user-documentation.md).
 3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
