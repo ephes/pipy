@@ -222,7 +222,7 @@ def test_openai_codex_assembles_function_call_from_sse_deltas(tmp_path: Path):
     assert len(result.tool_calls) == 1
     call = result.tool_calls[0]
     assert isinstance(call, ProviderToolCall)
-    assert call.provider_correlation_id == "call_abc"
+    assert call.provider_correlation_id == "call_abc|fc_abc"
     assert call.tool_name == "read"
     # The `.done` arguments win over accumulated deltas.
     assert call.arguments_json == '{"path": "README.md"}'
@@ -289,8 +289,57 @@ def test_openai_codex_finalizes_function_call_on_output_item_done(tmp_path: Path
     )
 
     assert len(result.tool_calls) == 1
-    assert result.tool_calls[0].provider_correlation_id == "call_b"
+    assert result.tool_calls[0].provider_correlation_id == "call_b|fc_b"
     assert result.tool_calls[0].arguments_json == '{"path": "x.py"}'
+
+
+def test_openai_codex_uses_item_id_when_stream_omits_call_id(tmp_path: Path):
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_only",
+                            "name": "read",
+                        },
+                    },
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "item_id": "fc_only",
+                        "arguments": '{"path": "x.py"}',
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {"status": "completed"},
+                    },
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="go",
+            provider_name="openai-codex",
+            model_id="gpt-test",
+            cwd=tmp_path,
+            messages=(UserMessage(content="go"),),
+            available_tools=(ReadTool().definition,),
+        )
+    )
+
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].provider_correlation_id == "fc_only"
 
 
 def test_openai_codex_assembles_multiple_function_calls_in_order(tmp_path: Path):
@@ -354,8 +403,8 @@ def test_openai_codex_assembles_multiple_function_calls_in_order(tmp_path: Path)
     )
 
     assert [call.provider_correlation_id for call in result.tool_calls] == [
-        "call_1",
-        "call_2",
+        "call_1|fc_1",
+        "call_2|fc_2",
     ]
 
 
@@ -422,7 +471,7 @@ def test_openai_codex_merges_added_metadata_into_delta_placeholder(
     assert result.final_text is None
     assert len(result.tool_calls) == 1
     call = result.tool_calls[0]
-    assert call.provider_correlation_id == "call_late"
+    assert call.provider_correlation_id == "call_late|fc_late"
     assert call.tool_name == "read"
     assert call.arguments_json == '{"path": "README.md"}'
 
@@ -480,7 +529,10 @@ def test_openai_codex_merges_added_metadata_into_done_placeholder(
     )
 
     assert len(result.tool_calls) == 1
-    assert result.tool_calls[0].provider_correlation_id == "call_done_first"
+    assert (
+        result.tool_calls[0].provider_correlation_id
+        == "call_done_first|fc_done_first"
+    )
     assert result.tool_calls[0].arguments_json == '{"path": "x.py"}'
 
 
@@ -516,7 +568,7 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
             AssistantMessage(
                 tool_calls=(
                     ProviderToolCall(
-                        provider_correlation_id="call_abc",
+                        provider_correlation_id="call_abc|fc_abc",
                         tool_name="read",
                         arguments_json='{"path": "README.md"}',
                     ),
@@ -525,7 +577,7 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
             ToolResultMessage(
                 tool_request_id=request_id,
                 output_text="<file contents>",
-                provider_correlation_id="call_abc",
+                provider_correlation_id="call_abc|fc_abc",
             ),
         ),
         available_tools=(ReadTool().definition,),
@@ -541,6 +593,7 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
     }
     assert items[1] == {
         "type": "function_call",
+        "id": "fc_abc",
         "call_id": "call_abc",
         "name": "read",
         "arguments": '{"path": "README.md"}',
@@ -548,6 +601,69 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
     assert items[2] == {
         "type": "function_call_output",
         "call_id": "call_abc",
+        "output": "<file contents>",
+    }
+
+
+def test_openai_codex_replays_legacy_call_id_without_item_id(tmp_path: Path):
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {"type": "response.output_text.delta", "delta": "done"},
+                    {
+                        "type": "response.completed",
+                        "response": {"status": "completed"},
+                    },
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+    request_id = make_tool_request_id()
+    request = ProviderRequest(
+        system_prompt="SYS",
+        user_prompt="follow up",
+        provider_name="openai-codex",
+        model_id="gpt-test",
+        cwd=tmp_path,
+        messages=(
+            AssistantMessage(
+                tool_calls=(
+                    ProviderToolCall(
+                        provider_correlation_id="call_legacy",
+                        tool_name="read",
+                        arguments_json='{"path": "README.md"}',
+                    ),
+                ),
+            ),
+            ToolResultMessage(
+                tool_request_id=request_id,
+                output_text="<file contents>",
+                provider_correlation_id="call_legacy",
+            ),
+        ),
+        available_tools=(ReadTool().definition,),
+    )
+
+    result = provider.complete(request)
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    items = client.requests[0]["body"]["input"]
+    assert items[0] == {
+        "type": "function_call",
+        "call_id": "call_legacy",
+        "name": "read",
+        "arguments": '{"path": "README.md"}',
+    }
+    assert items[1] == {
+        "type": "function_call_output",
+        "call_id": "call_legacy",
         "output": "<file contents>",
     }
 

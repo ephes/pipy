@@ -653,11 +653,11 @@ def _responses_input_messages(request: ProviderRequest) -> list[dict[str, object
 def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
     """Translate one LoopMessage into one or more Responses streaming items.
 
-    Mirrors the OpenAI Platform Responses serialization in
-    `openai_provider._envelope_to_input_items`: user/assistant text rides as
-    `{"role": ..., "content": [{"type": "input_text" | "output_text", ...}]}`
-    items, assistant tool intents ride as `function_call` items keyed by
-    `call_id`, and tool results ride as `function_call_output` items.
+    Mirrors the Pi OpenAI Codex Responses serialization: user/assistant text
+    rides as `{"role": ..., "content": [{"type": "input_text" |
+    "output_text", ...}]}` items, assistant tool intents preserve both
+    Responses IDs (`call_id` and `id`) when available, and tool results ride as
+    `function_call_output` items keyed by `call_id`.
     """
 
     if isinstance(envelope, UserMessage):
@@ -679,20 +679,24 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
                 }
             )
         for call in envelope.tool_calls:
-            items.append(
-                {
-                    "type": "function_call",
-                    "call_id": call.provider_correlation_id,
-                    "name": call.tool_name,
-                    "arguments": call.arguments_json,
-                }
+            call_id, item_id = _split_responses_tool_correlation(
+                call.provider_correlation_id
             )
+            item: dict[str, object] = {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": call.tool_name,
+                "arguments": call.arguments_json,
+            }
+            if item_id is not None:
+                item["id"] = item_id
+            items.append(item)
         return items
     if isinstance(envelope, ToolResultMessage):
         return [
             {
                 "type": "function_call_output",
-                "call_id": _require_provider_correlation_id(envelope),
+                "call_id": _require_responses_tool_call_id(envelope),
                 "output": envelope.output_text,
             }
         ]
@@ -707,6 +711,27 @@ def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
     raise OpenAICodexProviderError(
         "ToolResultMessage is missing provider_correlation_id."
     )
+
+
+def _require_responses_tool_call_id(envelope: ToolResultMessage) -> str:
+    return _split_responses_tool_correlation(
+        _require_provider_correlation_id(envelope)
+    )[0]
+
+
+def _split_responses_tool_correlation(correlation: str) -> tuple[str, str | None]:
+    call_id, sep, item_id = correlation.partition("|")
+    if sep and item_id:
+        return call_id, item_id
+    return correlation, None
+
+
+def _join_responses_tool_correlation(
+    call_id: str | None, item_id: str | None
+) -> str | None:
+    if call_id and item_id:
+        return f"{call_id}|{item_id}"
+    return call_id or item_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -1068,7 +1093,7 @@ def _finalize_streaming_function_calls(
     for call in sorted(items.values(), key=lambda entry: entry.order_index):
         if not call.name:
             continue
-        correlation = call.call_id or call.item_id
+        correlation = _join_responses_tool_correlation(call.call_id, call.item_id)
         if not correlation:
             continue
         arguments_json = call.arguments_json()
