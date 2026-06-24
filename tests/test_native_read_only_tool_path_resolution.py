@@ -95,6 +95,26 @@ def test_resolve_tool_path_prefers_ignored_workspace_reference_root(
     assert resolved.display_label == "skills/parity-improve.md"
 
 
+def test_resolve_tool_path_allows_relative_under_ignored_reference_root(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    skills = workspace / ".pipy" / "skills"
+    skills.mkdir(parents=True)
+    target = skills / "parity-improve.md"
+    target.write_text("skill body\n", encoding="utf-8")
+
+    resolved = resolve_tool_path(
+        ".pipy/skills/parity-improve.md",
+        workspace_root=workspace,
+        reference_roots=(skills,),
+    )
+
+    assert resolved.is_workspace is False
+    assert resolved.root == skills.resolve()
+    assert resolved.relative_label == "parity-improve.md"
+
+
 def test_resolve_tool_path_keeps_workspace_for_nonignored_nested_reference_root(
     tmp_path: Path,
 ):

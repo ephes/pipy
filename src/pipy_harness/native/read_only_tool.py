@@ -661,19 +661,15 @@ def resolve_tool_path(
         candidate = Path(expanded).resolve()
         return _resolve_against_roots(candidate, workspace, refs)
 
-    # Relative path: workspace-only.
+    # Relative path: workspace-contained, but still allow a discovered
+    # read-only reference root (for example an advertised `.pipy/skills`
+    # directory) to own the resolved file when that root lives under an
+    # otherwise ignored/generated workspace path.
     _validate_workspace_relative_path(path_arg)
     candidate = (workspace / path_arg).resolve()
     if not _is_relative_to(candidate, workspace):
         raise ValueError("path escapes the workspace")
-    relative = candidate.relative_to(workspace).as_posix()
-    return ResolvedToolPath(
-        resolved=candidate,
-        root=workspace,
-        relative_label=relative,
-        display_label=relative,
-        is_workspace=True,
-    )
+    return _resolve_against_roots(candidate, workspace, refs)
 
 
 def _resolve_against_roots(

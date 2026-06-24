@@ -91,19 +91,27 @@ def test_read_tool_allows_absolute_advertised_skill_reference_root(
         reference_roots=(skills.resolve(),),
     )
 
-    allowed = tool.invoke(
+    allowed_absolute = tool.invoke(
         _make_request({"path": str(target.resolve())}),
         context,
     )
-    denied = tool.invoke(
+    allowed_relative = tool.invoke(
         _make_request({"path": ".pipy/skills/parity-improve.md"}),
         context,
     )
+    other_ignored = tmp_path / ".pipy" / "cache.txt"
+    other_ignored.write_text("still blocked\n", encoding="utf-8")
+    denied_other_ignored = tool.invoke(
+        _make_request({"path": ".pipy/cache.txt"}),
+        context,
+    )
 
-    assert allowed.is_error is False
-    assert allowed.output_text == "skill body\n"
-    assert denied.is_error is True
-    assert "ignored or under .git" in denied.output_text
+    assert allowed_absolute.is_error is False
+    assert allowed_absolute.output_text == "skill body\n"
+    assert allowed_relative.is_error is False
+    assert allowed_relative.output_text == "skill body\n"
+    assert denied_other_ignored.is_error is True
+    assert "ignored or under .git" in denied_other_ignored.output_text
 
 
 def test_read_tool_refuses_absolute_path_via_argument_error(tmp_path: Path):
