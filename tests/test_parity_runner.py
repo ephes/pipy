@@ -666,7 +666,13 @@ def test_agent_cmd_uses_codex_exec_adapter() -> None:
         "exec",
         "--dangerously-bypass-approvals-and-sandbox",
     ]
-    assert pr._agent_cmd("claude") == ["claude", "-p", "--model", "opus"]
+    assert pr._agent_cmd("claude") == [
+        "claude",
+        "-p",
+        "--model",
+        "opus",
+        "--dangerously-skip-permissions",
+    ]
 
 
 def test_generate_slice_report_pins_recorded_sha_not_live_head(tmp_path: Path) -> None:

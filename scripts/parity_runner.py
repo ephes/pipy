@@ -910,7 +910,7 @@ def _agent_cmd(agent: str) -> list[str]:
     if agent == "opus":
         return ["claude-yolo", "-p", "--model", "opus"]
     if agent == "claude":
-        return ["claude", "-p", "--model", "opus"]
+        return ["claude", "-p", "--model", "opus", "--dangerously-skip-permissions"]
     if agent == "codex":
         return ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"]
     return [agent, "-p"]

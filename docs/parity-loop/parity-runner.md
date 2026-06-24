@@ -21,15 +21,17 @@ commits stay local on `main` for review. See the design at
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
 
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
-`--agent claude` uses `claude -p --model opus`. The default `opus` adapter uses
-`claude-yolo -p --model opus`.
+`--agent claude` uses
+`claude -p --model opus --dangerously-skip-permissions`. The default `opus`
+adapter uses `claude-yolo -p --model opus`.
 
 The `just parity-run-codex-dry` recipe validates startup preconditions without
 spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
 the conservative one-hour budget used for manual unattended batches.
 `just parity-run-codex-report` does the same and writes a slice report after a
 clean run. The `just parity-run-claude` and `just parity-run-claude-report`
-recipes are the same one-gap flow through `claude -p --model opus`.
+recipes are the same one-gap flow through Claude Code's unattended permission
+bypass adapter.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 
