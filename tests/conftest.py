@@ -39,8 +39,8 @@ def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyp
 
 
 @pytest.fixture(autouse=True)
-def _isolated_chrome_theme():  # type: ignore[no-untyped-def]
-    """Keep the chrome theme selection from leaking across tests.
+def _isolated_chrome_theme(tmp_path_factory):  # type: ignore[no-untyped-def]
+    """Pin chrome theme resolution to a deterministic, empty baseline per test.
 
     The theme picker (the ``/settings`` Theme row, via ``select_theme``)
     intentionally mutates ``os.environ["PIPY_THEME"]`` so the next chrome render
@@ -49,12 +49,26 @@ def _isolated_chrome_theme():  # type: ignore[no-untyped-def]
     so a test that switches the theme would otherwise leak the selected palette
     into every later test's rendered ANSI. Snapshot and restore the relevant env
     vars around each test to contain that.
+
+    Snapshotting alone is not enough for default-theme assertions, though:
+    ``resolve_active_theme_name`` consults ``PIPY_THEME``, then the persisted
+    ``NativeThemeStore``, then the built-in default, and extension ``ctx.ui``
+    theme reads go through that same path. An exported ``PIPY_THEME`` or
+    ``PIPY_NATIVE_THEME_PATH`` (or a developer/CI store under ``$HOME``) would
+    therefore make "resolves to the default theme" flaky and let a test mutate
+    real chrome state. So clear ``PIPY_THEME`` and redirect the store at a fresh,
+    nonexistent tmp file: resolution deterministically falls through to the
+    default and nothing persists. A test that needs a specific theme/store sets
+    these itself — its ``monkeypatch`` runs after this autouse fixture and wins.
     """
 
     saved = {
         key: os.environ.get(key)
         for key in ("PIPY_THEME", "PIPY_NATIVE_THEME_PATH")
     }
+    os.environ.pop("PIPY_THEME", None)
+    fresh_store = tmp_path_factory.mktemp("native-theme") / "native-theme.json"
+    os.environ["PIPY_NATIVE_THEME_PATH"] = str(fresh_store)
     try:
         yield
     finally:

@@ -103,20 +103,25 @@ def package_theme(tmp_path: Path) -> Iterator[str]:
         set_active_theme_registry(None)
 
 
-@pytest.fixture(autouse=True)
-def _isolated_theme_state(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Isolate ambient theme resolution from the developer/CI chrome store.
+# Ambient theme resolution (`PIPY_THEME` + the persisted `NativeThemeStore`) is
+# pinned to a deterministic empty baseline suite-wide by the autouse
+# `_isolated_chrome_theme` fixture in `conftest.py`, so default-theme assertions
+# here are stable without a per-file fixture.
 
-    `ctx.ui.theme`/`get_*`/`set_theme` resolve `PIPY_THEME` plus the persisted
-    `NativeThemeStore`, so without isolation default-theme assertions would
-    depend on (and could mutate) the real chrome store. Clearing the env var and
-    pointing the store at a fresh, nonexistent tmp file makes resolution
-    deterministically fall through to the built-in default.
+
+def test_base_driver_is_complete_extension_ui_driver() -> None:
+    """Guard: the canonical no-op stub stays a structural `ExtensionUiDriver`.
+
+    `ExtensionUiDriver` is a `@runtime_checkable` Protocol; growing it (adding a
+    member) silently breaks every *fully typed* fake that must now implement the
+    new method, while untyped fakes are exempt from mypy's structural-
+    completeness check. Partial/live fakes here extend `_BaseDriver`, so this
+    pins the base complete: a new protocol member the base forgets to implement
+    fails this `isinstance` check immediately, pointing to the one place to fix.
     """
-    monkeypatch.delenv(THEME_ENV_VAR, raising=False)
-    monkeypatch.setenv("PIPY_NATIVE_THEME_PATH", str(tmp_path / "theme.json"))
+    from pipy_harness.native.extension_runtime import ExtensionUiDriver
+
+    assert isinstance(_BaseDriver(), ExtensionUiDriver)
 
 
 # --- reads are ambient / deterministic (work headless) ---------------------
