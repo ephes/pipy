@@ -42,6 +42,14 @@ parity-run-codex label="":
 parity-run-codex-report label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
+# Run one Claude Code-driven unattended parity gap.
+parity-run-claude label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label"
+
+# Run one Claude Code-driven unattended parity gap and write a slice report on success.
+parity-run-claude-report label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
 # Generate or refresh a slice report for the latest parity run.
 parity-report-last:
     uv run python scripts/parity_runner.py --report-slice

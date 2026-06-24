@@ -12,6 +12,8 @@ commits stay local on `main` for review. See the design at
     just parity-run-codex-dry
     just parity-run-codex
     just parity-run-codex-report
+    just parity-run-claude
+    just parity-run-claude-report
     just parity-report-last
     just parity-report parity-20260623T102740Z
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
@@ -26,8 +28,10 @@ The `just parity-run-codex-dry` recipe validates startup preconditions without
 spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
 the conservative one-hour budget used for manual unattended batches.
 `just parity-run-codex-report` does the same and writes a slice report after a
-clean run. `just parity-report-last` refreshes the latest completed run report,
-and `just parity-report <label>` refreshes a named run.
+clean run. The `just parity-run-claude` and `just parity-run-claude-report`
+recipes are the same one-gap flow through `claude -p --model opus`.
+`just parity-report-last` refreshes the latest completed run report, and
+`just parity-report <label>` refreshes a named run.
 
 ## Run artifacts
 
