@@ -25,28 +25,27 @@ check: lint typecheck test
 parity-score:
     bash scripts/parity_score.sh
 
-# Run one bounded unattended parity-loop batch (claude-yolo opus driver).
-# Defaults the run label to a UTC timestamp when none is given.
+# Run one bounded unattended parity-loop batch and write a slice report on success.
 parity-run label="":
-    label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label"
+    label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label" --write-report
 
 # Dry-run the Codex unattended parity runner without spawning a gap.
 parity-run-codex-dry label="":
     label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --dry-run
 
-# Run one Codex-driven unattended parity gap.
-parity-run-codex label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label"
-
 # Run one Codex-driven unattended parity gap and write a slice report on success.
+parity-run-codex label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
+# Alias for the report-writing Codex parity run.
 parity-run-codex-report label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
-# Run one Claude Code-driven unattended parity gap.
-parity-run-claude label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label"
-
 # Run one Claude Code-driven unattended parity gap and write a slice report on success.
+parity-run-claude label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
+# Alias for the report-writing Claude Code parity run.
 parity-run-claude-report label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 

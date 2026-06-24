@@ -25,13 +25,13 @@ commits stay local on `main` for review. See the design at
 `claude -p --model opus --dangerously-skip-permissions`. The default `opus`
 adapter uses `claude-yolo -p --model opus`.
 
-The `just parity-run-codex-dry` recipe validates startup preconditions without
-spawning a gap. The `just parity-run-codex` recipe runs one Codex-driven gap with
-the conservative one-hour budget used for manual unattended batches.
-`just parity-run-codex-report` does the same and writes a slice report after a
-clean run. The `just parity-run-claude` and `just parity-run-claude-report`
-recipes are the same one-gap flow through Claude Code's unattended permission
-bypass adapter.
+The normal `just parity-run`, `just parity-run-codex`, and
+`just parity-run-claude` recipes write a slice report after a clean run. The
+`just parity-run-codex-dry` recipe validates startup preconditions without
+spawning a gap. The Codex and Claude recipes run one gap with the conservative
+one-hour budget used for manual unattended batches; Claude uses Claude Code's
+unattended permission bypass adapter. The `*-report` recipe names are retained
+as explicit aliases for the same report-writing behavior.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 
