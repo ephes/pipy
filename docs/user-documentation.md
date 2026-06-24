@@ -66,6 +66,16 @@ them only for deeper design detail.
 - User docs must not include secrets, tokens, raw transcripts, or local private
   paths except as placeholders.
 
+## Maintenance Checklist
+
+- When adding or renaming a user-facing page under `docs/`, update
+  `zensical.toml` in the same slice so `just docs-build` sees the page in the
+  site navigation instead of reporting cross-links to an unwired page.
+- When adding `CHANGELOG.md` entries for a new slice, append them after older
+  entries in the relevant `[Unreleased]` subsection. The product `/changelog`
+  renders entries oldest-first, so prepending newer notes reverses the displayed
+  order.
+
 ## Implementation Slices
 
 1. **Docs map and navigation.** Add this spec, link it from `docs/index.md`, and
