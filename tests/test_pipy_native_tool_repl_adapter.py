@@ -346,6 +346,48 @@ def test_model_can_read_global_skill_body_via_reference_roots(
     assert str(skill_path.resolve()) not in flat
 
 
+def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
+    tmp_path: Path, monkeypatch
+):
+    from pipy_harness.native.tools import ToolContext, ToolRequest
+    from pipy_harness.native.tools.read import ReadTool
+
+    skills_dir = tmp_path / ".pipy" / "skills"
+    skill_path = _write_skill(
+        skills_dir,
+        name="parity-improve",
+        description="Improve parity loop",
+        body="WORKSPACE SKILL BODY: drain lessons",
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"read": ReadTool()},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+    init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    reference_roots = init_kwargs["reference_roots"]
+    assert skills_dir.resolve() in reference_roots
+
+    result = ReadTool().invoke(
+        ToolRequest(
+            tool_request_id="pipy-tool-workspace-skill-read",
+            tool_name="read",
+            arguments={"path": str(skill_path.resolve())},
+        ),
+        ToolContext(
+            workspace_root=tmp_path.resolve(),
+            reference_roots=reference_roots,
+        ),
+    )
+
+    assert result.is_error is False
+    assert "WORKSPACE SKILL BODY" in result.output_text
+
+
 def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path):
     provider = FakeNativeProvider(supports_tool_calls=True)
     adapter = PipyNativeToolReplAdapter(

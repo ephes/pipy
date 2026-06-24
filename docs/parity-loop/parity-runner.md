@@ -14,6 +14,7 @@ commits stay local on `main` for review. See the design at
     just parity-run-codex-report
     just parity-run-claude
     just parity-run-claude-report
+    just parity-improve-pipy-dry
     just parity-report-last
     just parity-report parity-20260623T102740Z
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
@@ -44,6 +45,13 @@ unattended permission bypass adapter. The `*-report` recipe names are retained
 as explicit aliases for the same report-writing behavior.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
+
+`just parity-improve-pipy-dry` is the current pipy-native dogfood health check:
+it asks pipy itself to run the `parity-improve` skill and stop without inventing
+work when there are no safely applicable open lessons. This is intentionally
+improve-only, not a full unattended `parity-run-pipy`; it exercises skill
+advertisement, skill-body loading through the `read` tool, repo checks, and the
+lesson ledger before pipy-native is trusted with full parity-loop slices.
 
 ## Run artifacts
 

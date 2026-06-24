@@ -681,7 +681,24 @@ def _resolve_against_roots(
     workspace: Path,
     reference_roots: tuple[Path, ...],
 ) -> ResolvedToolPath:
+    matching_reference_roots = tuple(
+        sorted(
+            (
+                ref_root
+                for ref_root in reference_roots
+                if _is_relative_to(candidate, ref_root)
+            ),
+            key=lambda root: len(root.parts),
+            reverse=True,
+        )
+    )
     if _is_relative_to(candidate, workspace):
+        for ref_root in matching_reference_roots:
+            if not _is_relative_to(ref_root, workspace):
+                continue
+            ref_relative = ref_root.relative_to(workspace).as_posix()
+            if _is_ignored_or_generated(ref_relative, workspace):
+                return _resolved_reference_path(candidate, ref_root)
         relative = candidate.relative_to(workspace).as_posix()
         return ResolvedToolPath(
             resolved=candidate,
@@ -690,24 +707,27 @@ def _resolve_against_roots(
             display_label=relative,
             is_workspace=True,
         )
-    for ref_root in reference_roots:
-        if _is_relative_to(candidate, ref_root):
-            relative = candidate.relative_to(ref_root).as_posix()
-            root_label = ref_root.name or "reference-root"
-            display = (
-                f"{root_label}/{relative}"
-                if relative not in {"", "."}
-                else root_label
-            )
-            return ResolvedToolPath(
-                resolved=candidate,
-                root=ref_root,
-                relative_label=relative,
-                display_label=display,
-                is_workspace=False,
-            )
+    if matching_reference_roots:
+        return _resolved_reference_path(candidate, matching_reference_roots[0])
     raise ValueError(
         "path is outside the workspace and any configured reference root"
+    )
+
+
+def _resolved_reference_path(candidate: Path, ref_root: Path) -> ResolvedToolPath:
+    relative = candidate.relative_to(ref_root).as_posix()
+    root_label = ref_root.name or "reference-root"
+    display = (
+        f"{root_label}/{relative}"
+        if relative not in {"", "."}
+        else root_label
+    )
+    return ResolvedToolPath(
+        resolved=candidate,
+        root=ref_root,
+        relative_label=relative,
+        display_label=display,
+        is_workspace=False,
     )
 
 

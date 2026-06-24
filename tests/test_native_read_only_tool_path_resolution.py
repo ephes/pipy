@@ -74,6 +74,47 @@ def test_resolve_tool_path_accepts_absolute_under_reference_root(tmp_path: Path)
     assert resolved.display_label == "ref-project/README.md"
 
 
+def test_resolve_tool_path_prefers_ignored_workspace_reference_root(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    skills = workspace / ".pipy" / "skills"
+    skills.mkdir(parents=True)
+    target = skills / "parity-improve.md"
+    target.write_text("skill body\n", encoding="utf-8")
+
+    resolved = resolve_tool_path(
+        str(target),
+        workspace_root=workspace,
+        reference_roots=(skills,),
+    )
+
+    assert resolved.is_workspace is False
+    assert resolved.root == skills.resolve()
+    assert resolved.relative_label == "parity-improve.md"
+    assert resolved.display_label == "skills/parity-improve.md"
+
+
+def test_resolve_tool_path_keeps_workspace_for_nonignored_nested_reference_root(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    docs = workspace / "docs"
+    docs.mkdir(parents=True)
+    target = docs / "guide.md"
+    target.write_text("docs\n", encoding="utf-8")
+
+    resolved = resolve_tool_path(
+        str(target),
+        workspace_root=workspace,
+        reference_roots=(docs,),
+    )
+
+    assert resolved.is_workspace is True
+    assert resolved.root == workspace.resolve()
+    assert resolved.relative_label == "docs/guide.md"
+
+
 def test_resolve_tool_path_rejects_path_outside_any_root(tmp_path: Path):
     workspace = tmp_path / "ws"
     workspace.mkdir()

@@ -49,6 +49,10 @@ parity-run-claude label="":
 parity-run-claude-report label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
+# Dogfood pipy-native against the parity-improve workflow without inventing work.
+parity-improve-pipy-dry:
+    uv run pipy -p 'Run the parity-improve skill in this repo. Drain only open lessons that can be applied safely, run the required checks, and stop before committing unless the workflow says to commit.'
+
 # Generate or refresh a slice report for the latest parity run.
 parity-report-last:
     uv run python scripts/parity_runner.py --report-slice

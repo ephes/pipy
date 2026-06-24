@@ -78,6 +78,34 @@ def test_read_tool_refuses_path_under_dot_git(tmp_path: Path):
     assert "ignored or under .git" in result.output_text
 
 
+def test_read_tool_allows_absolute_advertised_skill_reference_root(
+    tmp_path: Path,
+):
+    skills = tmp_path / ".pipy" / "skills"
+    skills.mkdir(parents=True)
+    target = skills / "parity-improve.md"
+    target.write_text("skill body\n", encoding="utf-8")
+    tool = ReadTool()
+    context = ToolContext(
+        workspace_root=tmp_path,
+        reference_roots=(skills.resolve(),),
+    )
+
+    allowed = tool.invoke(
+        _make_request({"path": str(target.resolve())}),
+        context,
+    )
+    denied = tool.invoke(
+        _make_request({"path": ".pipy/skills/parity-improve.md"}),
+        context,
+    )
+
+    assert allowed.is_error is False
+    assert allowed.output_text == "skill body\n"
+    assert denied.is_error is True
+    assert "ignored or under .git" in denied.output_text
+
+
 def test_read_tool_refuses_absolute_path_via_argument_error(tmp_path: Path):
     tool = ReadTool()
     context = ToolContext(workspace_root=tmp_path)
