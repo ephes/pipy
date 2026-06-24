@@ -47,6 +47,14 @@ from types import MappingProxyType
 from typing import Literal, Protocol, runtime_checkable
 
 from pipy_harness.native.extensions import ExtensionDescriptor
+from pipy_harness.native.themes import (
+    ChromePalette,
+    NativeThemeStore,
+    available_theme_names,
+    is_known_theme,
+    resolve_active_theme_name,
+    resolve_palette,
+)
 from pipy_harness.native.tools.base import ToolDefinition
 
 CommandHandler = Callable[..., object]
@@ -898,6 +906,8 @@ class ExtensionUiDriver(Protocol):
         self, frames: Sequence[str] | None, interval_ms: int | None
     ) -> None: ...
 
+    def apply_theme(self, name: str) -> tuple[bool, str | None]: ...
+
 
 @runtime_checkable
 class ExtensionUi(Protocol):
@@ -950,6 +960,15 @@ class ExtensionUi(Protocol):
         *,
         interval_ms: int | None = None,
     ) -> None: ...
+
+    @property
+    def theme(self) -> ChromePalette: ...
+
+    def get_all_themes(self) -> list[dict[str, str | None]]: ...
+
+    def get_theme(self, name: str) -> ChromePalette | None: ...
+
+    def set_theme(self, theme: "str | ChromePalette") -> dict[str, object]: ...
 
 
 class ExtensionCapabilityError(RuntimeError):
@@ -1236,6 +1255,56 @@ class _CollectingUi:
                 self._notify_sink(safe_kind, text)
             except Exception:  # noqa: BLE001 - a UI sink must not break the handler
                 pass
+
+    # --- theme controls (rich-UI item E) -----------------------------------
+    #
+    # Reads are ambient: `available_theme_names`/`resolve_palette`/
+    # `resolve_active_theme_name` consult the globally-installed package theme
+    # registry plus `PIPY_THEME`/the store, so they are correct and
+    # deterministic even headless (more capable than Pi's headless `[]`/
+    # `undefined` no-ops, while still side-effect-free). Only `set_theme`
+    # mutates the live theme, so it is gated on a live driver + `has_ui` like
+    # every other mutating `ctx.ui` method.
+
+    @property
+    def theme(self) -> ChromePalette:
+        """The current active palette (env override, then store, then default)."""
+        name = resolve_active_theme_name(store=NativeThemeStore())
+        return resolve_palette(name)
+
+    def get_all_themes(self) -> list[dict[str, str | None]]:
+        """Available themes as ``{"name", "path"}`` dicts, default first.
+
+        ``path`` is intentionally always ``None``: the session theme registry
+        retains only ``name -> palette`` (theme files state "only the palette
+        name reaches any persisted state"), and pipy does not leak package
+        theme file paths to extension code. The dict *shape* matches Pi's
+        ``getAllThemes`` so Pi extensions translate.
+        """
+        return [{"name": name, "path": None} for name in available_theme_names()]
+
+    def get_theme(self, name: str) -> ChromePalette | None:
+        """Load a palette by name without switching; ``None`` when unknown."""
+        text = str(name).strip()
+        if not text or not is_known_theme(text):
+            return None
+        return resolve_palette(text)
+
+    def set_theme(self, theme: "str | ChromePalette") -> dict[str, object]:
+        """Switch the live theme by name or palette.
+
+        Returns ``{"success": bool, "error": str | None}``. Headless (no live
+        driver) returns ``{"success": False, "error": "UI not available"}``
+        without touching process state, matching Pi's headless ``setTheme``.
+        """
+        name = theme.name if isinstance(theme, ChromePalette) else str(theme)
+        if self._ui_driver is None or not self.has_ui:
+            return {"success": False, "error": "UI not available"}
+        try:
+            ok, error = self._ui_driver.apply_theme(name)
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return {"success": False, "error": "theme switch failed"}
+        return {"success": bool(ok), "error": None if ok else (error or "theme switch failed")}
 
 
 def _safe_ui_key(key: object) -> str | None:

@@ -72,6 +72,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- feat(extension-api): theme controls for command/shortcut contexts (rich-UI
+  item E). Extensions can read and switch the chrome theme via `ctx.ui.theme`
+  (the active `ChromePalette`), `ctx.ui.get_all_themes()` (`{"name", "path"}`
+  per available theme, default first), `ctx.ui.get_theme(name)` (load a palette
+  without switching; `None` when unknown), and
+  `ctx.ui.set_theme(name_or_palette)` (`{"success", "error"}`), mirroring Pi's
+  `theme`/`getAllThemes`/`getTheme`/`setTheme`. Reads are ambient (the global
+  package theme registry plus `PIPY_THEME`/the chrome store) and work
+  deterministically even headless; `set_theme` requires a live UI and returns
+  `{"success": False, "error": "UI not available"}` headless without mutating
+  process state, while a live call reuses the `/settings` `select_theme`
+  mechanism so the next frame repaints. `get_all_themes()` keeps Pi's
+  `{name, path}` shape but `path` is always `None` (the session theme registry
+  retains only `name -> palette`; package theme file paths are not exposed to
+  extension code).
 - feat(extension-api): rich message renderers — slice C. A
   `register_message_renderer` renderer may now return a themed component via a
   required second `(data, ctx)` parameter (a `MessageRenderContext` with

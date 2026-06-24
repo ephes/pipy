@@ -1629,7 +1629,8 @@ live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
 extension APIs: live (invalidate-driven) tool rendering beyond the landed
 render-once snapshot, richer multi-widget `ctx.ui`
-dialogs/custom-editor/autocomplete/theme controls beyond the simple primitives,
+dialogs/custom-editor/autocomplete beyond the simple primitives (theme controls
+— `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — now ship),
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader
 dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources
@@ -1772,10 +1773,12 @@ Invariants that must hold for any near-term slice:
   `@` file picker/path completion, clipboard/drag image paste, `!`/`!!`,
   thinking/model hotkeys, output/thinking folding, queued steering/follow-up,
   `/scoped-models`, `/hotkeys`, mouse-selection invariants, and true
-  provider-request cancellation now ship. Still deferred are the richer
-  extension-owned UI surfaces Pi exposes: dialogs, widgets, editor replacement,
-  autocomplete providers, theme controls, custom overlays beyond the narrow
-  Python `ctx.ui.custom` and custom session-entry/message-rendering paths.
+  provider-request cancellation now ship. Theme controls
+  (`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme`) also ship. Still
+  deferred are the remaining richer extension-owned UI surfaces Pi exposes:
+  editor replacement (`setEditorComponent`), autocomplete providers, and
+  multi-widget custom overlays beyond the narrow Python `ctx.ui.custom` and
+  custom session-entry/message-rendering paths.
   Render-once custom tool rendering now ships; live (invalidate-driven) tool
   rendering remains deferred.
 - Extension/package platform follow-ons: package runtime composition for

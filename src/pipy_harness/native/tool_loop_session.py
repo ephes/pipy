@@ -610,6 +610,20 @@ class _LiveExtensionUiDriver:
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
         self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
 
+    def apply_theme(self, name: str) -> tuple[bool, str | None]:
+        """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
+
+        Reuses ``select_theme`` — the exact mechanism the ``/settings`` theme
+        row uses — which validates the name (fail-closed on unknown), persists
+        the non-secret name to the chrome store, and sets ``PIPY_THEME`` so the
+        next ``chrome_style_for`` render repaints with the new palette. No
+        provider turn, tool call, or archive write.
+        """
+        ok, message = select_theme(
+            name, environ=os.environ, store=NativeThemeStore()
+        )
+        return ok, None if ok else message
+
 
 def production_tool_registry() -> dict[str, ToolPort]:
     """Return the current production tool registry.

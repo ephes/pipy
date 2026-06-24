@@ -32,7 +32,10 @@ bounded one-shot `ctx.complete(system_prompt, user_text)`, a full-screen
 custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 (`ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.editor`,
 `ctx.ui.set_status`, `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
-keyboard-shortcut registration `api.register_shortcut(...)`. The extension
+keyboard-shortcut registration `api.register_shortcut(...)`. Theme controls
+also ship (`ctx.ui.theme`, `ctx.ui.get_all_themes`, `ctx.ui.get_theme`,
+`ctx.ui.set_theme`), mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`
+for theme *selection* (registration stays `resources_discover`-only). The extension
 editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
 Ctrl+G. It is not source-compatible with Pi's TypeScript extensions, and it
 still lacks several mature Pi surfaces: a custom editor component,
@@ -502,10 +505,23 @@ so Pi extensions translate naturally:
   Pi's `custom(...)` overlay.
 - Autocomplete: stack an additional autocomplete provider on top of the
   built-in one, mirroring Pi's `addAutocompleteProvider`.
-- Theme controls: read the active theme, list available themes, load a theme
-  by name, and switch themes, mirroring Pi's `theme` / `getAllThemes` /
-  `getTheme` / `setTheme`. (This is theme selection, not theme registration;
-  themes are contributed via `resources_discover`.)
+- Theme controls **(shipped)**: read the active theme (`ctx.ui.theme`), list
+  available themes (`ctx.ui.get_all_themes`), load a theme by name without
+  switching (`ctx.ui.get_theme`), and switch themes (`ctx.ui.set_theme`),
+  mirroring Pi's `theme` / `getAllThemes` / `getTheme` / `setTheme`. (This is
+  theme selection, not theme registration; themes are contributed via
+  `resources_discover`.) The read members are *ambient* — they resolve the
+  globally-installed package theme registry plus `PIPY_THEME`/the chrome store,
+  so they work deterministically even headless (more capable than Pi's headless
+  `[]`/`undefined` no-ops). `set_theme` mutates the live theme and so requires a
+  live UI: headless it returns `{"success": False, "error": "UI not available"}`
+  without touching process state, matching Pi's headless `setTheme`; a live call
+  reuses the `/settings` mechanism (`select_theme`, which sets `PIPY_THEME` so the
+  next frame repaints and persists the non-secret theme name). `get_all_themes()`
+  keeps Pi's `{name, path}` dict shape but `path` is always `None`: pipy's session
+  theme registry retains only `name -> palette` and does not leak package theme
+  file paths to extension code ("only the palette name reaches any persisted
+  state").
 - Raw terminal input subscription in interactive mode, mirroring Pi's
   `onTerminalInput`.
 
@@ -1223,6 +1239,21 @@ and the live `scripts/tmux_answer_verify.sh`.
     is live command-handler data; it is not written to the metadata-first
     archive by default. Deferred editor polish: read/write/paste helpers for the
     main prompt and `setEditorComponent`.
+21. Extension UI theme controls — **landed for command/shortcut contexts**
+    (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
+    `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,
+    default first), `ctx.ui.get_theme(name)` (palette by name, `None` when
+    unknown, without switching), and `ctx.ui.set_theme(name_or_palette)`
+    (`{"success", "error"}`), mirroring Pi's `theme`/`getAllThemes`/`getTheme`/
+    `setTheme`. The reads are *ambient* (the global package theme registry plus
+    `PIPY_THEME`/the chrome store), so they are deterministic even headless;
+    `set_theme` requires a live UI and returns
+    `{"success": False, "error": "UI not available"}` headless without mutating
+    process state, while a live call reuses the `/settings` `select_theme`
+    mechanism so the next frame repaints. `path` is always `None`: the session
+    theme registry retains only `name -> palette` and pipy does not leak package
+    theme file paths to extension code. Deferred: `setEditorComponent` and
+    autocomplete providers (the remaining rich-UI follow-ons).
 
 ## Open Questions
 

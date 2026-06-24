@@ -200,6 +200,19 @@ Pipy current state:
   handoff: it restores normal terminal mode while the external editor owns
   stdio, reloads the temp markdown file only on a successful exit, and keeps the
   prior buffer on failure.
+- Extension slice 21 has shipped: command/shortcut theme controls (rich-UI
+  item E) — `ctx.ui.theme` (current `ChromePalette`), `ctx.ui.get_all_themes()`
+  (`{"name", "path": None}` per available theme, default first),
+  `ctx.ui.get_theme(name)` (palette by name without switching, `None` when
+  unknown), and `ctx.ui.set_theme(name_or_palette)` (`{"success", "error"}`),
+  mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`. Reads are ambient
+  (the global package theme registry plus `PIPY_THEME`/the chrome store), so they
+  work deterministically even headless; `set_theme` requires a live UI and
+  returns `{"success": False, "error": "UI not available"}` headless without
+  mutating process state, while a live call reuses the `/settings` `select_theme`
+  mechanism so the next frame repaints. `path` is always `None` (the session
+  theme registry retains only `name -> palette`; package file paths are not
+  exposed to extension code).
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -209,7 +222,9 @@ Pipy current state:
 Follow-ons:
 
 1. Richer Pi extension APIs: a custom editor component (rich-UI item D),
-   autocomplete providers, and live per-frame
+   autocomplete providers (theme controls — rich-UI item E,
+   `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — now ship), and
+   live per-frame
    component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /
    reactive `footerData` beyond the landed width-reactive chrome snapshot,

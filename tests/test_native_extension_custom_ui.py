@@ -320,6 +320,10 @@ class _FakeUiDriver:
     def set_working_indicator(self, frames, interval_ms: int | None) -> None:
         self.chrome.append(("set_working_indicator", (frames, interval_ms)))
 
+    def apply_theme(self, name: str) -> tuple[bool, str | None]:
+        self.chrome.append(("apply_theme", name))
+        return True, None
+
 
 def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
     driver = _FakeUiDriver()
