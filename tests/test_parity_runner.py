@@ -433,6 +433,7 @@ def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> Non
     pr._real_run_gap(tmp_path, "claude")("gap prompt", 10.0, tmp_path / "gap.log")
     rc = pr._real_run_improve(tmp_path, "claude")("improve prompt", 10.0, tmp_path / "improve.log")
     pr._real_run_gap(tmp_path, "opus")("opus prompt", 10.0, tmp_path / "opus.log")
+    pr._real_run_gap(tmp_path, "pipy")("pipy prompt", 10.0, tmp_path / "pipy.log")
 
     assert rc == 0
     assert calls[0][-2:] == ["--", "gap prompt"]
@@ -448,6 +449,7 @@ def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> Non
         "--",
         "opus prompt",
     ]
+    assert calls[3] == ["uv", "run", "pipy", "-p", "--", "pipy prompt"]
 
 
 def test_run_stops_on_no_gaps(tmp_path: Path) -> None:
@@ -734,6 +736,7 @@ def test_agent_cmd_uses_codex_exec_adapter() -> None:
         "opus",
         "--dangerously-skip-permissions",
     ]
+    assert pr._agent_cmd("pipy") == ["uv", "run", "pipy", "-p"]
 
 
 def test_generate_slice_report_pins_recorded_sha_not_live_head(tmp_path: Path) -> None:

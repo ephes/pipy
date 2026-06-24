@@ -14,6 +14,9 @@ commits stay local on `main` for review. See the design at
     just parity-run-codex-report
     just parity-run-claude
     just parity-run-claude-report
+    just parity-run-pipy-dry
+    just parity-run-pipy
+    just parity-run-pipy-report
     just parity-improve-pipy-dry
     just parity-report-last
     just parity-report parity-20260623T102740Z
@@ -26,6 +29,8 @@ commits stay local on `main` for review. See the design at
 `claude -p --model opus --dangerously-skip-permissions`. The default `opus`
 adapter invokes the fish `claude-yolo` function with
 `fish -lc 'set args $argv; ...; claude-yolo -p --model opus -- $args'`.
+`--agent pipy` uses `uv run pipy -p`, so the runner exercises the repo-local
+pipy-native one-shot product path as a first-class parity-loop agent.
 
 For every spawned gap or lesson-improve child, the runner appends the prompt
 after an explicit `--` delimiter and closes child stdin with `/dev/null`. This
@@ -36,22 +41,23 @@ a fresh `--` at the `claude-yolo` command boundary. The related `--tools ""`
 variadic parsing hazard applies to read-only Claude review commands and is
 covered in the parity-loop CLI hygiene notes.
 
-The normal `just parity-run`, `just parity-run-codex`, and
-`just parity-run-claude` recipes write a slice report after a clean run. The
-`just parity-run-codex-dry` recipe validates startup preconditions without
-spawning a gap. The Codex and Claude recipes run one gap with the conservative
-one-hour budget used for manual unattended batches; Claude uses Claude Code's
-unattended permission bypass adapter. The `*-report` recipe names are retained
-as explicit aliases for the same report-writing behavior.
+The normal `just parity-run`, `just parity-run-codex`, `just parity-run-claude`,
+and `just parity-run-pipy` recipes write a slice report after a clean run. The
+`*-dry` recipes validate startup preconditions without spawning a gap. The
+Codex, Claude, and pipy recipes run one gap with the conservative one-hour
+budget used for manual unattended batches; Claude uses Claude Code's unattended
+permission bypass adapter, while pipy dogfoods the native one-shot product path.
+The `*-report` recipe names are retained as explicit aliases for the same
+report-writing behavior.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 
 `just parity-improve-pipy-dry` is the current pipy-native dogfood health check:
-it asks pipy itself to run the `parity-improve` skill and stop without inventing
-work when there are no safely applicable open lessons. This is intentionally
-improve-only, not a full unattended `parity-run-pipy`; it exercises skill
-advertisement, skill-body loading through the `read` tool, repo checks, and the
-lesson ledger before pipy-native is trusted with full parity-loop slices.
+it asks pipy itself to run the `parity-improve` skill and stop without checks or
+invented work when there are no safely applicable open lessons. This remains a
+focused improve-path smoke test alongside the full `parity-run-pipy` agent path;
+it exercises skill advertisement, skill-body loading through the `read` tool,
+repo checks when work exists, and the lesson ledger.
 
 ## Run artifacts
 

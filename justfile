@@ -49,9 +49,21 @@ parity-run-claude label="":
 parity-run-claude-report label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
+# Dry-run the pipy-native unattended parity runner without spawning a gap.
+parity-run-pipy-dry label="":
+    label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --dry-run
+
+# Run one pipy-native unattended parity gap and write a slice report on success.
+parity-run-pipy label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
+# Alias for the report-writing pipy-native parity run.
+parity-run-pipy-report label="":
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+
 # Dogfood pipy-native against the parity-improve workflow without inventing work.
 parity-improve-pipy-dry:
-    uv run pipy -p 'Run the parity-improve skill in this repo. Drain only open lessons that can be applied safely, run the required checks, and stop before committing unless the workflow says to commit.'
+    uv run pipy -p 'Run the parity-improve skill in this repo. First check open lessons. If there are no open lessons, report that fact and stop immediately without running checks. Otherwise drain only open lessons that can be applied safely, run the required checks, and stop before committing unless the workflow says to commit.'
 
 # Generate or refresh a slice report for the latest parity run.
 parity-report-last:
