@@ -589,6 +589,52 @@ def test_run_blocked_records_human_cleanup(tmp_path: Path) -> None:
     assert '"needs_human_cleanup": true' in runlog
 
 
+def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+        log_path.write_text(
+            "pipy: provider failure during turn: "
+            "OpenAICodexResponseParseError: OpenAI Codex stream returned an error event. "
+            "(response_status=unknown)\n",
+            encoding="utf-8",
+        )
+        return 1, ""
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
+
+    assert code == 1
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    failed = next(event for event in events if event["type"] == "gap.failed")
+    assert failed["reason"] == "blocked:provider_failure"
+    finished = next(event for event in events if event["type"] == "run.finished")
+    assert finished["stop_reason"] == "blocked:provider_failure"
+
+
+def test_run_does_not_classify_earlier_recovered_provider_failure(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+        log_path.write_text(
+            "pipy: provider failure during turn: transient\n"
+            + "\n".join(f"later unrelated failure context {idx}" for idx in range(25))
+            + "\n",
+            encoding="utf-8",
+        )
+        return 1, ""
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
+
+    assert code == 1
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    failed = next(event for event in events if event["type"] == "gap.failed")
+    assert failed["reason"] == "failure"
+
+
 def test_run_postloop_backlog_exit3_after_improve(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     state = {"open": 0, "improve_calls": 0}

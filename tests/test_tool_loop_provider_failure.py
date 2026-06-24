@@ -21,6 +21,7 @@ def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(
     provider = FakeNativeProvider(
         supports_tool_calls=True,
         status=HarnessStatus.FAILED,
+        metadata={"response_status": "rate_limited"},
     )
     session = NativeToolReplSession(provider=provider)
     input_stream = io.StringIO("hello\n")
@@ -40,3 +41,4 @@ def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.exit_code == 0
     assert "provider failure during turn" in error_stream.getvalue()
+    assert "response_status=rate_limited" in error_stream.getvalue()

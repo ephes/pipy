@@ -3501,6 +3501,11 @@ class NativeToolReplSession:
                             or f"provider {effective_provider_name!r} returned status "
                             f"{provider_result.status.value!r} without a final response"
                         )
+                        safe_metadata = provider_result.metadata or {}
+                        diagnostic_suffix = ""
+                        response_status = safe_metadata.get("response_status")
+                        if isinstance(response_status, str) and response_status:
+                            diagnostic_suffix = f" (response_status={response_status})"
                         # Surface the failure on the error stream but keep the
                         # REPL alive: a transient HTTP error from a single
                         # provider turn (e.g. a 503 the retry helper exhausted
@@ -3512,7 +3517,7 @@ class NativeToolReplSession:
                             error_stream,
                             (
                                 "pipy: provider failure during turn: "
-                                f"{error_type}: {error_message}"
+                                f"{error_type}: {error_message}{diagnostic_suffix}"
                             ),
                         )
                         if legacy_footer_enabled():

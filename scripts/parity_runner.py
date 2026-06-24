@@ -770,6 +770,21 @@ def _gap_prompt() -> str:
     )
 
 
+def child_block_reason(log_path: Path) -> str | None:
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    # In pipy print-mode, a fatal provider failure is emitted at the tail of the
+    # child log. Do not match the entire log: interactive/product paths can log
+    # recoverable provider failures and continue, and a later unrelated failure
+    # should not be hidden as a provider outage.
+    tail = [line for line in text.splitlines()[-20:] if line.strip()]
+    if any("pipy: provider failure during turn:" in line for line in tail):
+        return "provider_failure"
+    return None
+
+
 def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
     repo = opts.repo
     per_run = per_run_dir(opts.run_dir, opts.run_label)
@@ -842,10 +857,11 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                     break
                 head_before = head(repo)
                 refs_before = ref_snapshot(repo)
+                gap_log_path = log.gap_log(gaps_done + 1)
                 exit_code, stdout = hooks.run_gap(
                     _gap_prompt(),
                     min(opts.per_gap_timeout, rem),
-                    log.gap_log(gaps_done + 1),
+                    gap_log_path,
                 )
                 kind, arg = parse_sentinel(stdout)
                 if exit_code == 0 and kind == "COMMITTED":
@@ -880,7 +896,11 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                     or ref_snapshot(repo) != refs_before
                 ):
                     log.event("unexpected_progress", reason=arg)
-                stop = f"blocked:{arg}" if kind == "BLOCKED" else "failure"
+                if kind == "BLOCKED":
+                    stop = f"blocked:{arg}"
+                else:
+                    detected_block = child_block_reason(gap_log_path)
+                    stop = f"blocked:{detected_block}" if detected_block else "failure"
                 log.event("gap.failed", reason=stop)
                 break
 
