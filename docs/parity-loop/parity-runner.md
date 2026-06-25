@@ -21,7 +21,7 @@ commits stay local on `main` for review. See the design at
     just parity-report-last
     just parity-report parity-20260623T102740Z
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
-    uv run python scripts/parity_runner.py --report-slice
+    uv run python scripts/parity_runner.py --report-slice --curate-report
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
 
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
@@ -46,15 +46,18 @@ variadic parsing hazard applies to read-only Claude review commands and is
 covered in the parity-loop CLI hygiene notes.
 
 The normal `just parity-run`, `just parity-run-codex`, `just parity-run-claude`,
-and `just parity-run-pipy` recipes write a slice report after a clean run. The
-`*-dry` recipes validate startup preconditions without spawning a gap. The
-Codex, Claude, and pipy single-gap recipes give the child gap an explicit
+and `just parity-run-pipy` recipes write and curate a slice report after a clean
+run. The `*-dry` recipes validate startup preconditions without spawning a gap.
+The Codex, Claude, and pipy single-gap recipes give the child gap an explicit
 one-hour `--per-gap-timeout` inside a 70-minute runner budget, leaving a small
 post-gap margin for runner bookkeeping and lesson-gate checks. Claude uses
 Claude Code's unattended permission bypass adapter, while pipy dogfoods the
 native one-shot product path. The `*-report` recipes do not start a new run;
 they refresh the latest slice report, or a named run's report when passed a
-label.
+label. These report recipes pass `--curate-report`, so an agent replaces the
+generated-facts-only scaffold with a human-readable explanation; the
+agent-specific recipes pass their matching `--agent`, while the generic report
+recipes use the CLI default unless `--agent` is supplied directly.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 
@@ -121,8 +124,12 @@ curation.
 Everything outside the generated block is for the person or agent explaining the
 slice: `What Changed`, `Visualization`, `Boundaries`, and optional
 `Comprehension Check`. New reports mark `What Changed` as generated-facts-only
-until that paragraph is replaced. Add slice-specific diagrams and questions only
-when they clarify the actual behavior shipped. Generic runner diagrams and
+until that paragraph is replaced. Passing `--curate-report` asks the selected
+agent to edit only the report, preserve the generated facts block byte-for-byte,
+and replace the placeholder with semantic slice notes. The runner fails curation
+if the agent exits nonzero, changes the generated facts block, or leaves the
+generated-facts-only marker in place. Add slice-specific diagrams and questions
+only when they clarify the actual behavior shipped. Generic runner diagrams and
 trivia-style quizzes are noise; prefer questions that test the reader's
 understanding of the new behavior and the remaining parity boundary.
 

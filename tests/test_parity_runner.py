@@ -1142,7 +1142,226 @@ def test_generate_slice_report_handles_zero_gap_run(tmp_path: Path) -> None:
 
     assert "No commits were recorded for this run." in text
     assert "No changed files were recorded for this run." in text
-    assert "**Curation status: generated facts only.**" in text
+    assert pr.REPORT_FACTS_ONLY_MARKER in text
+
+
+def test_curate_slice_report_invokes_agent_and_preserves_facts(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = repo / "docs" / "report.md"
+    report.parent.mkdir()
+    original = (
+        "# Report\n\n"
+        "<!-- parity-run-label: L1 -->\n\n"
+        "<!-- BEGIN GENERATED:facts -->\n"
+        "facts\n"
+        "<!-- END GENERATED:facts -->\n\n"
+        "## What Changed\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER} Replace this.\n\n"
+    )
+    report.write_text(original, encoding="utf-8")
+    calls: list[dict[str, Any]] = []
+
+    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
+        calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "log_path": log_path})
+        assert "report.md" in cmd[-1]
+        log_path.write_text("curation log\n", encoding="utf-8")
+        report.write_text(
+            original.replace(
+                f"{pr.REPORT_FACTS_ONLY_MARKER} Replace this.",
+                "This slice exposes the behavior in plain language.",
+            ),
+            encoding="utf-8",
+        )
+        return (0, "REPORT_CURATION: OK\n")
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+
+    curated = report.read_text(encoding="utf-8")
+    assert pr.REPORT_FACTS_ONLY_MARKER not in curated
+    assert "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->" in curated
+    assert calls == [
+        {
+            "cmd": ["fake-agent", "-p", "--", pr._report_curation_prompt(repo, report)],
+            "cwd": repo,
+            "timeout": 12.0,
+            "log_path": report.with_suffix(".curation.log"),
+        }
+    ]
+
+
+def test_curate_slice_report_fails_when_placeholder_remains(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = tmp_path / "report.md"
+    report.write_text(
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: (0, "REPORT_CURATION: OK\n"))
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "left the generated-facts-only placeholder" in str(exc)
+    else:
+        raise AssertionError("curation should fail when the placeholder remains")
+
+
+def test_curate_slice_report_fails_when_agent_changes_generated_facts(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = tmp_path / "report.md"
+    report.write_text(
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER}\n",
+        encoding="utf-8",
+    )
+
+    def fake_spawn(*_args: Any) -> tuple[int, str]:
+        report.write_text(
+            "<!-- BEGIN GENERATED:facts -->\nchanged\n<!-- END GENERATED:facts -->\n\n"
+            "Curated.\n",
+            encoding="utf-8",
+        )
+        return (0, "REPORT_CURATION: OK\n")
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "changed the generated facts block" in str(exc)
+    else:
+        raise AssertionError("curation should fail when generated facts change")
+
+
+def test_curate_slice_report_fails_when_agent_exits_nonzero(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = tmp_path / "report.md"
+    report.write_text(
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: (7, "failed\n"))
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "failed with exit code 7" in str(exc)
+    else:
+        raise AssertionError("curation should fail when the agent exits nonzero")
+
+
+def test_curate_slice_report_fails_when_agent_changes_other_files(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = repo / "docs" / "report.md"
+    report.parent.mkdir()
+    original = (
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER}\n"
+    )
+    report.write_text(original, encoding="utf-8")
+
+    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> tuple[int, str]:
+        log_path.write_text("curation log\n", encoding="utf-8")
+        report.write_text(original.replace(pr.REPORT_FACTS_ONLY_MARKER, "Curated."), encoding="utf-8")
+        (repo / "other.txt").write_text("unexpected\n", encoding="utf-8")
+        return (0, "REPORT_CURATION: OK\n")
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "changed files other than the report" in str(exc)
+    else:
+        raise AssertionError("curation should fail when another file changes")
+
+
+def test_curate_slice_report_fails_when_agent_moves_head(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = repo / "docs" / "report.md"
+    report.parent.mkdir()
+    original = (
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        f"{pr.REPORT_FACTS_ONLY_MARKER}\n"
+    )
+    report.write_text(original, encoding="utf-8")
+
+    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> tuple[int, str]:
+        log_path.write_text("curation log\n", encoding="utf-8")
+        report.write_text(original.replace(pr.REPORT_FACTS_ONLY_MARKER, "Curated."), encoding="utf-8")
+        _git(repo, "add", str(report.relative_to(repo)))
+        _git(repo, "commit", "-q", "-m", "unexpected curation commit")
+        return (0, "REPORT_CURATION: OK\n")
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "moved HEAD" in str(exc)
+    else:
+        raise AssertionError("curation should fail when HEAD moves")
+
+
+def test_curate_slice_report_fails_without_complete_generated_block(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    report = tmp_path / "report.md"
+    report.write_text(f"{pr.REPORT_FACTS_ONLY_MARKER}\n", encoding="utf-8")
+
+    try:
+        pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+    except pr.ReportError as exc:
+        assert "no complete generated facts block" in str(exc)
+    else:
+        raise AssertionError("curation should fail without a generated facts block")
+
+
+def test_curate_slice_report_skips_already_curated_report(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    report = tmp_path / "report.md"
+    report.write_text(
+        "<!-- BEGIN GENERATED:facts -->\nfacts\n<!-- END GENERATED:facts -->\n\n"
+        "Curated.\n",
+        encoding="utf-8",
+    )
+    spawned = {"value": False}
+
+    def fake_spawn(*_args: Any) -> tuple[int, str]:
+        spawned["value"] = True
+        return (0, "")
+
+    monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
+
+    pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
+
+    assert spawned["value"] is False
 
 
 def test_generate_slice_report_includes_safety_net_commit_table(tmp_path: Path) -> None:

@@ -25,53 +25,53 @@ check: lint typecheck test
 parity-score:
     bash scripts/parity_score.sh
 
-# Run one bounded unattended parity-loop batch and write a slice report on success.
+# Run one bounded unattended parity-loop batch and curate a slice report on success.
 parity-run label="":
-    label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="$(date -u +%Y-%m-%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --run-label "$label" --write-report --curate-report
 
 # Dry-run the Codex unattended parity runner without spawning a gap.
 parity-run-codex-dry label="":
     label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --dry-run
 
-# Run one Codex-driven unattended parity gap and write a slice report on success.
+# Run one Codex-driven unattended parity gap and curate a slice report on success.
 parity-run-codex label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report --curate-report
 
-# Refresh a slice report for the latest run, or for a named run label.
+# Refresh and curate a slice report for the latest run, or for a named run label.
 parity-run-codex-report label="":
-    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --agent codex --report-slice "$label" --curate-report; else uv run python scripts/parity_runner.py --agent codex --report-slice --curate-report; fi
 
-# Run one Claude Code-driven unattended parity gap and write a slice report on success.
+# Run one Claude Code-driven unattended parity gap and curate a slice report on success.
 parity-run-claude label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report --curate-report
 
-# Refresh a slice report for the latest run, or for a named run label.
+# Refresh and curate a slice report for the latest run, or for a named run label.
 parity-run-claude-report label="":
-    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --agent claude --report-slice "$label" --curate-report; else uv run python scripts/parity_runner.py --agent claude --report-slice --curate-report; fi
 
 # Dry-run the pipy-native unattended parity runner without spawning a gap.
 parity-run-pipy-dry label="":
     label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --dry-run
 
-# Run one pipy-native unattended parity gap and write a slice report on success.
+# Run one pipy-native unattended parity gap and curate a slice report on success.
 parity-run-pipy label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report --curate-report
 
-# Refresh a slice report for the latest run, or for a named run label.
+# Refresh and curate a slice report for the latest run, or for a named run label.
 parity-run-pipy-report label="":
-    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --agent pipy --report-slice "$label" --curate-report; else uv run python scripts/parity_runner.py --agent pipy --report-slice --curate-report; fi
 
 # Dogfood pipy-native against the parity-improve workflow without inventing work.
 parity-improve-pipy-dry:
     uv run pipy -p 'Run the parity-improve skill in this repo. First check open lessons. If there are no open lessons, report that fact and stop immediately without running checks. Otherwise drain only open lessons that can be applied safely, run the required checks, and stop before committing unless the workflow says to commit.'
 
-# Generate or refresh a slice report for the latest parity run.
+# Generate or refresh and curate a slice report for the latest parity run.
 parity-report-last:
-    uv run python scripts/parity_runner.py --report-slice
+    uv run python scripts/parity_runner.py --report-slice --curate-report
 
-# Generate or refresh a slice report for a named parity run label.
+# Generate or refresh and curate a slice report for a named parity run label.
 parity-report label:
-    uv run python scripts/parity_runner.py --report-slice "{{label}}"
+    uv run python scripts/parity_runner.py --report-slice "{{label}}" --curate-report
 
 # Count repository lines with language, area, and directory summaries.
 loc:

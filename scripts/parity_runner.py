@@ -32,6 +32,7 @@ LEDGER_REL = "docs/parity-loop/lessons/lessons.jsonl"
 REPORT_BEGIN = "<!-- BEGIN GENERATED:facts -->"
 REPORT_END = "<!-- END GENERATED:facts -->"
 REPORT_LABEL_PREFIX = "<!-- parity-run-label: "
+REPORT_FACTS_ONLY_MARKER = "**Curation status: generated facts only.**"
 CAVEAT_RE = re.compile(
     r"^(?:caveat|warning|blocked|failed|failure|incomplete|"
     r"verification incomplete|verification failed|gate incomplete|gate failed|"
@@ -696,13 +697,22 @@ def _replace_generated_facts(existing: str, generated: str) -> str:
     return existing[:begin].rstrip() + "\n\n" + generated + "\n" + existing[end:].lstrip()
 
 
+def _generated_facts_block(text: str) -> str | None:
+    begin = text.find(REPORT_BEGIN)
+    end = text.find(REPORT_END)
+    if begin == -1 or end == -1 or end < begin:
+        return None
+    end += len(REPORT_END)
+    return text[begin:end]
+
+
 def _new_report_template(label: str, generated: str) -> str:
     return (
         f"# Parity Slice Report: {label}\n\n"
         f"{REPORT_LABEL_PREFIX}{label} -->\n\n"
         f"{generated}\n\n"
         "## What Changed\n\n"
-        "**Curation status: generated facts only.** Replace this paragraph after "
+        f"{REPORT_FACTS_ONLY_MARKER} Replace this paragraph after "
         "reading the generated facts and the relevant diffs. Name the user-visible "
         "behavior that changed, not just the files touched.\n\n"
         "## Visualization\n\n"
@@ -715,6 +725,110 @@ def _new_report_template(label: str, generated: str) -> str:
         "Add two or three semantic questions with collapsible answers when a reader "
         "would benefit from testing their understanding of the slice.\n"
     )
+
+
+def _relative_to_repo(repo: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(repo.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _report_curation_prompt(repo: Path, report_path: Path) -> str:
+    report_rel = _relative_to_repo(repo, report_path)
+    return (
+        "Curate the parity slice report in this repo.\n\n"
+        f"Report path: `{report_rel}`\n\n"
+        "Edit that file in place and only that file. Do not commit or push. Keep the "
+        "block between `<!-- BEGIN GENERATED:facts -->` and "
+        "`<!-- END GENERATED:facts -->` byte-for-byte unchanged.\n\n"
+        "Read the generated facts and inspect the relevant commits/diff named there. "
+        "Replace the generated-facts-only placeholder with a concise human-readable "
+        "explanation of the user-visible behavior that shipped. Fill `What Changed` "
+        "and `Boundaries` with semantic content, not file lists. Add a slice-specific "
+        "`Visualization` and `Comprehension Check` only when they clarify the actual "
+        "change; otherwise write a brief `Not needed for this slice.` sentence. "
+        "Remove template instructions and do not leave generic runner boilerplate.\n\n"
+        "When finished, print `REPORT_CURATION: OK`."
+    )
+
+
+def _report_label_from_text(text: str) -> str | None:
+    pattern = re.escape(REPORT_LABEL_PREFIX) + r"([^ ]+) -->"
+    match = re.search(pattern, text)
+    return match.group(1) if match else None
+
+
+def _report_curation_log_path(run_dir: Path, label: str | None, report_path: Path) -> Path:
+    if label:
+        per_run = per_run_dir(run_dir, label)
+        if per_run.exists():
+            return per_run / "report-curation.log"
+    return report_path.with_suffix(".curation.log")
+
+
+def _status_excluding_paths(repo: Path, paths: list[Path]) -> list[str]:
+    allowed = {_relative_to_repo(repo, path) for path in paths}
+    cp = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+    lines: list[str] = []
+    for line in cp.stdout.splitlines():
+        path = line[3:] if len(line) > 3 else line
+        if path in allowed or any(path.endswith(f" -> {rel}") for rel in allowed):
+            continue
+        lines.append(line)
+    return lines
+
+
+def curate_slice_report(
+    repo: Path,
+    run_dir: Path,
+    report_path: Path,
+    *,
+    agent: str,
+    timeout: float,
+) -> None:
+    try:
+        before = report_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ReportError(f"could not read report for curation: {report_path}") from exc
+    before_block = _generated_facts_block(before)
+    if before_block is None:
+        raise ReportError("report has no complete generated facts block")
+    if REPORT_FACTS_ONLY_MARKER not in before:
+        return
+
+    label = _report_label_from_text(before)
+    log_path = _report_curation_log_path(run_dir, label, report_path)
+    allowed_paths = [report_path, log_path]
+    status_before = _status_excluding_paths(repo, allowed_paths)
+    head_before = head(repo)
+    restore_guards = install_no_push_guards(repo)
+    try:
+        rc, _ = _spawn_capture(
+            [*_agent_cmd(agent), "--", _report_curation_prompt(repo, report_path)],
+            repo,
+            timeout,
+            log_path,
+        )
+    finally:
+        restore_guards()
+    if rc != 0:
+        raise ReportError(f"report curation failed with exit code {rc}; see {log_path}")
+    if head(repo) != head_before:
+        raise ReportError("report curation moved HEAD")
+    status_after = _status_excluding_paths(repo, allowed_paths)
+    if status_after != status_before:
+        raise ReportError("report curation changed files other than the report")
+
+    try:
+        after = report_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ReportError(f"could not read curated report: {report_path}") from exc
+    after_block = _generated_facts_block(after)
+    if after_block != before_block:
+        raise ReportError("report curation changed the generated facts block")
+    if REPORT_FACTS_ONLY_MARKER in after:
+        raise ReportError(f"report curation left the generated-facts-only placeholder; see {log_path}")
 
 
 def generate_slice_report(
@@ -1161,6 +1275,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="generate a slice report after a clean non-dry run",
     )
+    parser.add_argument(
+        "--curate-report",
+        action="store_true",
+        help="ask the selected agent to replace generated report placeholders with a human summary",
+    )
+    parser.add_argument(
+        "--report-curation-timeout",
+        type=float,
+        default=900.0,
+        help="seconds to allow the report curation agent",
+    )
     args = parser.parse_args(argv)
 
     label = args.run_label or time.strftime("%Y-%m-%dT%H%M%SZ", time.gmtime())
@@ -1182,6 +1307,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ReportError as exc:
             print(f"parity-runner: {exc}", file=sys.stderr)
             return 1
+        if args.curate_report:
+            try:
+                curate_slice_report(
+                    repo_path,
+                    run_dir,
+                    report_path,
+                    agent=args.agent,
+                    timeout=args.report_curation_timeout,
+                )
+            except ReportError as exc:
+                print(f"parity-runner: report curation failed: {exc}", file=sys.stderr)
+                return 1
         print(report_path)
         return 0
     opts = Opts(
@@ -1202,6 +1339,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ReportError as exc:
             print(f"parity-runner: report generation failed: {exc}", file=sys.stderr)
             return exit_code
+        if args.curate_report:
+            try:
+                curate_slice_report(
+                    repo_path,
+                    run_dir,
+                    report_path,
+                    agent=args.agent,
+                    timeout=args.report_curation_timeout,
+                )
+            except ReportError as exc:
+                print(f"parity-runner: report curation failed: {exc}", file=sys.stderr)
+                return 1
         print(report_path)
     return exit_code
 
