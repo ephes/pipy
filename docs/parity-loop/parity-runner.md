@@ -77,11 +77,16 @@ Successful `gap.completed` events record the child-reported commit plus
 commit field; report generation still works from `run.started.head_before` and
 the last recorded gap commit.
 
-When the lesson safety net spawns `parity-improve`, child output stays in
-`improve-<phase>.log`. If that log contains warning, skipped, incomplete, blocked,
-or failed-work caveats, the runner also emits a `safety_net_child_caveats` event
-with the phase, log filename, and bounded caveat lines so post-loop caveats are
-visible from `run.jsonl` without opening the child log first.
+When the lesson safety net has open lessons and enough budget to spawn
+`parity-improve`, child output stays in `improve-<phase>.log`. After that child
+returns and the runner verifies the repo and lesson ledger state, the runner
+records a structured `safety_net_completed` event with the phase, log filename,
+exit code, before/after HEADs, open-lesson counts, and any commits created by the
+safety-net child. If the child has caveats that should be promoted into the
+report, it must write explicit `Caveat: ...`, `Blocked: ...`, `Failed: ...`, or
+`Incomplete: ...` lines. Those bounded explicit lines become
+`safety_net_child_caveats` events. Generic stderr, tool diagnostics, test output,
+or prompt text is intentionally not keyword-scanned into caveats.
 
 ## Slice reports
 
@@ -98,20 +103,26 @@ runner updates only the block between:
     <!-- END GENERATED:facts -->
 
 That block contains the run label, agent, stop reason, pinned recorded commit
-range, commit subjects, changed-file stats, and recorded caveats. For current
-logs the range is `run.started.head_before..last gap.completed.head_after`; for
-older logs without `head_after`, it falls back to the last recorded
-`gap.completed.sha`. It is not live `HEAD`, so refreshing an old report does not
-accidentally absorb later commits. It is also not an authoritative semantic
-commit list: review fixes or manual follow-ups may land after `run.finished`,
-and an already-dirty commit range would still need human curation.
+range, commit subjects, changed-file stats, safety-net improvement commits, and
+recorded caveats. For current logs the main parity range is
+`first gap.completed.head_before..last gap.completed.head_after`; for older logs
+without `head_after`, it falls back to the last recorded `gap.completed.sha`, and
+without a first-gap `head_before` it falls back to `run.started.head_before`. It
+is not live `HEAD`, so refreshing an old report does not accidentally absorb
+later commits. Preflight and post-loop lesson commits are shown separately from
+the main parity range through the safety-net table when the run log contains
+structured safety-net events. The recorded range is also not an authoritative
+semantic commit list: review fixes or manual follow-ups may land after
+`run.finished`, and an already-dirty commit range would still need human
+curation.
 
 Everything outside the generated block is for the person or agent explaining the
 slice: `What Changed`, `Visualization`, `Boundaries`, and optional
-`Comprehension Check`. Add slice-specific diagrams and questions only when they
-clarify the actual behavior shipped. Generic runner diagrams and trivia-style
-quizzes are noise; prefer questions that test the reader's understanding of the
-new behavior and the remaining parity boundary.
+`Comprehension Check`. New reports mark `What Changed` as generated-facts-only
+until that paragraph is replaced. Add slice-specific diagrams and questions only
+when they clarify the actual behavior shipped. Generic runner diagrams and
+trivia-style quizzes are noise; prefer questions that test the reader's
+understanding of the new behavior and the remaining parity boundary.
 
 ## Exit codes
 

@@ -33,8 +33,9 @@ REPORT_BEGIN = "<!-- BEGIN GENERATED:facts -->"
 REPORT_END = "<!-- END GENERATED:facts -->"
 REPORT_LABEL_PREFIX = "<!-- parity-run-label: "
 CAVEAT_RE = re.compile(
-    r"\b(caveat|warning|warn|incomplete|partial|skipped|blocked|remaining|"
-    r"unable|failed|failure|not run|not complete|could not|couldn't|did not|didn't)\b",
+    r"^(?:caveat|warning|blocked|failed|failure|incomplete|"
+    r"verification incomplete|verification failed|gate incomplete|gate failed|"
+    r"review blocked):\s*.+$",
     re.IGNORECASE,
 )
 DEFAULTS = {
@@ -340,7 +341,9 @@ def _improve_prompt() -> str:
     return (
         f"Run the `parity-improve` skill in {UNATTENDED_MARKER}, in this repo, on "
         "`main`. Do not push. Apply only lessons gateable without sign-off "
-        "(docs/tests/harness); leave instruction-area lessons and rejections open."
+        "(docs/tests/harness); leave instruction-area lessons and rejections open. "
+        "If there are caveats the runner should surface, write them as explicit "
+        "`Caveat: ...`, `Blocked: ...`, `Failed: ...`, or `Incomplete: ...` lines."
     )
 
 
@@ -354,7 +357,8 @@ def improve_log_caveats(log_path: Path, *, max_lines: int = 12, max_chars: int =
     seen: set[str] = set()
     for raw in text.splitlines():
         line = re.sub(r"^\s*(?:[-*]\s+|>\s*)", "", raw).strip()
-        if not line or line == "--- stderr ---" or not CAVEAT_RE.search(line):
+        match = CAVEAT_RE.match(line)
+        if not line or line == "--- stderr ---" or match is None:
             continue
         clipped = line[:max_chars]
         if clipped in seen:
@@ -489,6 +493,13 @@ def _range_commits(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, 
     return commits
 
 
+def _commit_event_rows(repo: Path, start_sha: str, end_sha: str) -> list[dict[str, str]]:
+    return [
+        {"sha": short, "subject": subject}
+        for short, subject in _range_commits(repo, start_sha, end_sha)
+    ]
+
+
 def _diff_numstat(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, int, int]]:
     if start_sha == end_sha:
         return []
@@ -547,26 +558,68 @@ def _caveat_rows(events: list[dict[str, object]]) -> list[list[str]]:
     return rows
 
 
+def _short_event_sha(event: dict[str, object], key: str) -> str:
+    value = _event_str(event, key)
+    return value[:12] if value else "-"
+
+
+def _safety_net_rows(events: list[dict[str, object]]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for event in events:
+        if _event_type(event) != "safety_net_completed":
+            continue
+        commits = event.get("commits")
+        commit_cells: list[str] = []
+        if isinstance(commits, list):
+            for commit in commits:
+                if not isinstance(commit, dict):
+                    continue
+                sha = commit.get("sha")
+                subject = commit.get("subject")
+                if isinstance(sha, str) and isinstance(subject, str):
+                    escaped_subject = subject.replace("|", "\\|")
+                    commit_cells.append(f"`{sha}` {escaped_subject}")
+        rows.append(
+            [
+                _event_str(event, "phase") or "-",
+                _event_str(event, "log_path") or "-",
+                f"`{_short_event_sha(event, 'head_before')}`",
+                f"`{_short_event_sha(event, 'head_after')}`",
+                str(_event_int(event, "exit_code", -1)),
+                str(_event_int(event, "open_before", -1)),
+                str(_event_int(event, "open_after", -1)),
+                "<br>".join(commit_cells) if commit_cells else "No commits.",
+            ]
+        )
+    return rows
+
+
 def _render_generated_facts(
     *,
     label: str,
     started: dict[str, object],
     finished: dict[str, object],
-    start_sha: str,
+    recorded_start_sha: str,
+    range_start_sha: str,
     end_sha: str,
     commits: list[tuple[str, str]],
     stats: list[tuple[str, int, int]],
     caveats: list[list[str]],
+    safety_net_rows: list[list[str]],
 ) -> str:
     fact_rows = [
         ["Run label", f"`{label}`"],
         ["Agent", f"`{_event_str(started, 'agent') or '-'}`"],
-        ["Recorded start", f"`{start_sha[:12]}`"],
+        ["Recorded start", f"`{recorded_start_sha[:12]}`"],
+        ["Main range start", f"`{range_start_sha[:12]}`"],
         ["Recorded end", f"`{end_sha[:12]}`"],
         ["Gaps done", str(_event_int(finished, "gaps_done"))],
         ["Stop reason", f"`{_event_str(finished, 'stop_reason') or '-'}`"],
         ["Exit code", str(_event_int(finished, "exit_code", -1))],
-        ["Range note", "`head_before..recorded_end`; this is factual, not curated semantic membership."],
+        [
+            "Range note",
+            "`main_range_start..recorded_end`; this is factual, not curated semantic membership.",
+        ],
     ]
 
     commit_rows = [[f"`{short}`", subject.replace("|", "\\|")] for short, subject in commits]
@@ -603,6 +656,24 @@ def _render_generated_facts(
         if file_rows
         else "No changed files were recorded for this run.",
         "",
+        "### Lesson Safety Net",
+        "",
+        _format_markdown_table(
+            [
+                "Phase",
+                "Log",
+                "Start",
+                "End",
+                "Exit",
+                "Open Before",
+                "Open After",
+                "Commits",
+            ],
+            safety_net_rows,
+        )
+        if safety_net_rows
+        else "No safety-net improvement commits were recorded.",
+        "",
         "### Recorded Caveats",
         "",
         _format_markdown_table(["Phase", "Log", "Caveat"], caveats)
@@ -631,8 +702,9 @@ def _new_report_template(label: str, generated: str) -> str:
         f"{REPORT_LABEL_PREFIX}{label} -->\n\n"
         f"{generated}\n\n"
         "## What Changed\n\n"
-        "Fill this in after reading the generated facts and the relevant diffs. "
-        "Name the user-visible behavior that changed, not just the files touched.\n\n"
+        "**Curation status: generated facts only.** Replace this paragraph after "
+        "reading the generated facts and the relevant diffs. Name the user-visible "
+        "behavior that changed, not just the files touched.\n\n"
         "## Visualization\n\n"
         "Add a slice-specific Mermaid diagram only when it clarifies the behavior or "
         "workflow. Avoid generic runner diagrams that repeat across every slice.\n\n"
@@ -660,25 +732,34 @@ def generate_slice_report(
     if _event_int(finished, "exit_code", -1) != 0:
         raise ReportError(f"run did not finish cleanly: {actual_label}")
 
-    start_sha = _resolve_required(repo, _event_str(started, "head_before"), "head_before")
+    recorded_start_sha = _resolve_required(
+        repo, _event_str(started, "head_before"), "head_before"
+    )
     gaps = _completed_gap_events(events)
     if gaps:
+        range_start_rev = _event_str(gaps[0], "head_before") or recorded_start_sha
+        range_start_sha = _resolve_required(
+            repo, range_start_rev, "first completed gap start"
+        )
         end_rev = _event_str(gaps[-1], "head_after") or _event_str(gaps[-1], "sha")
         end_sha = _resolve_required(repo, end_rev, "last completed gap")
     else:
-        end_sha = start_sha
+        range_start_sha = recorded_start_sha
+        end_sha = recorded_start_sha
 
-    commits = _range_commits(repo, start_sha, end_sha)
-    stats = _diff_numstat(repo, start_sha, end_sha)
+    commits = _range_commits(repo, range_start_sha, end_sha)
+    stats = _diff_numstat(repo, range_start_sha, end_sha)
     generated = _render_generated_facts(
         label=actual_label,
         started=started,
         finished=finished,
-        start_sha=start_sha,
+        recorded_start_sha=recorded_start_sha,
+        range_start_sha=range_start_sha,
         end_sha=end_sha,
         commits=commits,
         stats=stats,
         caveats=_caveat_rows(events),
+        safety_net_rows=_safety_net_rows(events),
     )
 
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -741,6 +822,19 @@ def lesson_gate(
     if open_after < 0:
         log("ledger_count_failed", phase=phase)
         return 1
+    if remaining_budget >= min_gap_slice and open_before > 0:
+        head_after = head(repo)
+        log(
+            "safety_net_completed",
+            phase=phase,
+            log_path=improve_log.name,
+            exit_code=rc,
+            head_before=head_before,
+            head_after=head_after,
+            commits=_commit_event_rows(repo, head_before, head_after),
+            open_before=open_before,
+            open_after=open_after,
+        )
     if open_after > 0:
         log("needs_human_review", phase=phase, open=open_after)
         return 3

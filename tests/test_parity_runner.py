@@ -682,6 +682,8 @@ def test_run_postloop_surfaces_improve_child_caveats(tmp_path: Path) -> None:
         state["open"] = 0
         log_path.write_text(
             "Applied harness lesson.\n"
+            "Remaining open lessons: none.\n"
+            "[error] tool reported a failure\n"
             "Verification incomplete: full gate did not run before timeout.\n",
             encoding="utf-8",
         )
@@ -701,6 +703,66 @@ def test_run_postloop_surfaces_improve_child_caveats(tmp_path: Path) -> None:
     assert caveat["phase"] == "postloop"
     assert caveat["log_path"] == "improve-postloop.log"
     assert caveat["caveats"] == ["Verification incomplete: full gate did not run before timeout."]
+    completed = next(event for event in events if event["type"] == "safety_net_completed")
+    assert completed["phase"] == "postloop"
+    assert completed["open_before"] == 1
+    assert completed["open_after"] == 0
+    assert completed["commits"] == []
+
+
+def test_improve_log_caveats_uses_explicit_prefix_contract(tmp_path: Path) -> None:
+    log_path = tmp_path / "improve.log"
+    log_path.write_text(
+        "Remaining open lessons: none.\n"
+        "[error] tool reported a failure\n"
+        "Caveat: review was narrower than usual.\n"
+        "- Blocked: human sign-off required.\n"
+        "> Failed: targeted gate failed.\n"
+        "Incomplete: full gate did not run.\n",
+        encoding="utf-8",
+    )
+
+    assert pr.improve_log_caveats(log_path) == [
+        "Caveat: review was narrower than usual.",
+        "Blocked: human sign-off required.",
+        "Failed: targeted gate failed.",
+        "Incomplete: full gate did not run.",
+    ]
+
+
+def test_run_postloop_records_safety_net_commits(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    state = {"open": 0}
+
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+        state["open"] = 1
+        return 0, "PARITY_RESULT: NO_GAPS\n"
+
+    def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
+        state["open"] = 0
+        _commit(repo, "tests/regression.txt", "test(native): cover regression")
+        log_path.write_text("Applied harness lesson.\n", encoding="utf-8")
+        return 0
+
+    hooks = _ok_ledger_hooks(
+        run_gap=run_gap,
+        run_improve=run_improve,
+        ledger_open_count=lambda _r: state["open"],
+    )
+
+    code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0, 2.0, 3.0]))
+
+    assert code == 0
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    completed = next(event for event in events if event["type"] == "safety_net_completed")
+    assert completed["phase"] == "postloop"
+    assert completed["log_path"] == "improve-postloop.log"
+    assert completed["open_before"] == 1
+    assert completed["open_after"] == 0
+    assert completed["head_before"] != completed["head_after"]
+    assert completed["commits"] == [
+        {"sha": completed["head_after"][:7], "subject": "test(native): cover regression"}
+    ]
 
 
 def test_cli_dry_run(tmp_path: Path) -> None:
@@ -1080,6 +1142,158 @@ def test_generate_slice_report_handles_zero_gap_run(tmp_path: Path) -> None:
 
     assert "No commits were recorded for this run." in text
     assert "No changed files were recorded for this run." in text
+    assert "**Curation status: generated facts only.**" in text
+
+
+def test_generate_slice_report_includes_safety_net_commit_table(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    gap_sha = _commit(repo, "src/gap.py", "feat(demo): add gap")
+    safety_start = gap_sha
+    safety_sha = _commit(repo, "tests/gap_test.py", "test(demo): cover lesson")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {
+                "type": "gap.completed",
+                "index": 1,
+                "sha": gap_sha,
+                "head_before": start,
+                "head_after": gap_sha,
+            },
+            {
+                "type": "safety_net_completed",
+                "phase": "postloop",
+                "log_path": "improve-postloop.log",
+                "exit_code": 0,
+                "head_before": safety_start,
+                "head_after": safety_sha,
+                "open_before": 1,
+                "open_after": 0,
+                "commits": [
+                    {
+                        "sha": safety_sha[:7],
+                        "subject": "test(demo): cover lesson",
+                    }
+                ],
+            },
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert "| `feat(demo): add gap`" not in text
+    assert "### Lesson Safety Net" in text
+    assert "postloop" in text
+    assert "improve-postloop.log" in text
+    assert "`" + safety_sha[:7] + "` test(demo): cover lesson" in text
+
+
+def test_generate_slice_report_separates_preflight_safety_net_from_gap_range(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    preflight_sha = _commit(repo, "tests/preflight.txt", "test(demo): preflight lesson")
+    gap_sha = _commit(repo, "src/gap.py", "feat(demo): add gap")
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {
+                "type": "safety_net_completed",
+                "phase": "preflight",
+                "log_path": "improve-preflight.log",
+                "exit_code": 0,
+                "head_before": start,
+                "head_after": preflight_sha,
+                "open_before": 1,
+                "open_after": 0,
+                "commits": [
+                    {
+                        "sha": preflight_sha[:7],
+                        "subject": "test(demo): preflight lesson",
+                    }
+                ],
+            },
+            {
+                "type": "gap.completed",
+                "index": 1,
+                "sha": gap_sha,
+                "head_before": preflight_sha,
+                "head_after": gap_sha,
+            },
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 1,
+                "stop_reason": "cap_reached",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+    range_section = text.split("### Recorded Range Commits", 1)[1].split(
+        "### Change Shape", 1
+    )[0]
+    files_section = text.split("### Changed Files", 1)[1].split(
+        "### Lesson Safety Net", 1
+    )[0]
+
+    assert "feat(demo): add gap" in range_section
+    assert "test(demo): preflight lesson" not in range_section
+    assert "src/gap.py" in files_section
+    assert "tests/preflight.txt" not in files_section
+    assert "preflight" in text
+    assert "`" + preflight_sha[:7] + "` test(demo): preflight lesson" in text
+
+
+def test_generate_slice_report_handles_legacy_safety_net_event_without_heads(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path)
+    start = pr.head(repo)
+    run_dir = tmp_path / "runs"
+    report_dir = tmp_path / "reports"
+    _write_run_events(
+        run_dir / "run-L1" / "run.jsonl",
+        [
+            {"type": "run.started", "agent": "codex", "head_before": start},
+            {
+                "type": "safety_net_completed",
+                "phase": "postloop",
+                "log_path": "improve-postloop.log",
+                "exit_code": 0,
+                "open_before": 1,
+                "open_after": 0,
+                "commits": [],
+            },
+            {
+                "type": "run.finished",
+                "exit_code": 0,
+                "gaps_done": 0,
+                "stop_reason": "no_gaps",
+            },
+        ],
+    )
+
+    report = pr.generate_slice_report(repo, run_dir, report_dir, label="L1")
+    text = report.read_text(encoding="utf-8")
+
+    assert "| postloop | improve-postloop.log | `-` | `-` | 0 | 1 | 0 | No commits. |" in text
 
 
 def test_report_slice_cli_writes_latest_report(tmp_path: Path) -> None:
