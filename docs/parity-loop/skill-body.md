@@ -50,7 +50,10 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
      **not gitignored** files, so a plan kept only under the gitignored
      `docs/parity-loop/runs/` must not use this path.
    - **Direct handoff:** for an untracked/gitignored plan note, use a
-     `handoff-review` prompt pointing the reviewer at the plan file path.
+     `handoff-review` prompt that includes the plan content inline, or run a
+     review mode whose tools can read the path. A tools-disabled reviewer given
+     only a file path cannot inspect that file and must not be expected to return
+     a verdict.
    *Done-when:* CLEAN verdict (or the Operator-override stop above).
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
    testable task breakdown, written to a file. *Done-when:* numbered plan with
@@ -145,6 +148,9 @@ When invoking Claude Code noninteractively, be explicit about the prompt channel
 - For read-only Opus reviews, prefer the `opus-review-loop` harness or direct
   `claude -p` with tools disabled. Do not use `claude-yolo` solely for a
   read-only review.
+- When tools are disabled, the prompt or review bundle must contain the actual
+  plan/diff content being reviewed. Do not ask Claude to review only a path,
+  commit name, or unstaged local file reference that it cannot read.
 - For write-capable unattended implementation runners, do not replace permission
   bypass with a weaker mode such as `default`, `plan`, or `acceptEdits` unless
   that exact runner has been verified to perform edits, shell commands, and
