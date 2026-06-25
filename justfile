@@ -31,11 +31,11 @@ parity-run label="":
 
 # Dry-run the Codex unattended parity runner without spawning a gap.
 parity-run-codex-dry label="":
-    label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --dry-run
+    label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --dry-run
 
 # Run one Codex-driven unattended parity gap and write a slice report on success.
 parity-run-codex label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
 
 # Refresh a slice report for the latest run, or for a named run label.
 parity-run-codex-report label="":
@@ -43,7 +43,7 @@ parity-run-codex-report label="":
 
 # Run one Claude Code-driven unattended parity gap and write a slice report on success.
 parity-run-claude label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
 
 # Refresh a slice report for the latest run, or for a named run label.
 parity-run-claude-report label="":
@@ -51,11 +51,11 @@ parity-run-claude-report label="":
 
 # Dry-run the pipy-native unattended parity runner without spawning a gap.
 parity-run-pipy-dry label="":
-    label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --dry-run
+    label="{{label}}"; [ -n "$label" ] || label="dry-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --dry-run
 
 # Run one pipy-native unattended parity gap and write a slice report on success.
 parity-run-pipy label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 4200 --per-gap-timeout 3600 --run-label "$label" --write-report
 
 # Refresh a slice report for the latest run, or for a named run label.
 parity-run-pipy-report label="":

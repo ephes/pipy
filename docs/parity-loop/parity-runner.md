@@ -48,11 +48,13 @@ covered in the parity-loop CLI hygiene notes.
 The normal `just parity-run`, `just parity-run-codex`, `just parity-run-claude`,
 and `just parity-run-pipy` recipes write a slice report after a clean run. The
 `*-dry` recipes validate startup preconditions without spawning a gap. The
-Codex, Claude, and pipy recipes run one gap with the conservative one-hour
-budget used for manual unattended batches; Claude uses Claude Code's unattended
-permission bypass adapter, while pipy dogfoods the native one-shot product path.
-The `*-report` recipes do not start a new run; they refresh the latest slice
-report, or a named run's report when passed a label.
+Codex, Claude, and pipy single-gap recipes give the child gap an explicit
+one-hour `--per-gap-timeout` inside a 70-minute runner budget, leaving a small
+post-gap margin for runner bookkeeping and lesson-gate checks. Claude uses
+Claude Code's unattended permission bypass adapter, while pipy dogfoods the
+native one-shot product path. The `*-report` recipes do not start a new run;
+they refresh the latest slice report, or a named run's report when passed a
+label.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 
