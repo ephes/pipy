@@ -1612,3 +1612,41 @@ def test_no_builtin_tools_removes_builtin_but_keeps_extension_tool(tmp_path: Pat
         all_names={"read", "bash", "ext_tool"},
         options=ToolFilterOptions(no_tools=True),
     ) == set()
+
+
+def test_extension_command_persists_session_name_and_label(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "session_meta.py").write_text(
+        "def activate(api):\n"
+        "    def meta(ctx, args):\n"
+        "        entry = ctx.append_entry('note', {'body': 'hello'})\n"
+        "        ctx.setSessionName('extension named session')\n"
+        "        ctx.setLabel(entry, 'extension-label')\n"
+        "    api.register_command('session-meta', 'session metadata', meta)\n",
+        encoding="utf-8",
+    )
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(
+        provider=provider, tool_registry={}, native_session=tree
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/session-meta\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    custom = next(entry for entry in tree.get_entries() if entry.type == "custom")
+    assert tree.name == "extension named session"
+    assert tree.get_label(custom.id) == "extension-label"
+    assert [entry.type for entry in tree.get_entries()] == [
+        "custom",
+        "session_info",
+        "label",
+    ]

@@ -310,7 +310,7 @@ The highest-impact remaining gaps are now:
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls and the first custom session-entry/message-
    rendering slice now ship. Pi remains ahead on rich TUI extension UI, live
-   tool-render invalidation (render-once tool renderers ship), extension state/session-manager helpers, broader dynamic-flag
+   tool-render invalidation (render-once tool renderers ship), broader extension state/session-manager helpers, broader dynamic-flag
    integration, OAuth-provider extension registration, remote PyPI/npm sources,
    and the broader package ecosystem. Managed git
   sources and package `update` now ship behind a pipy-owned cache; the next
@@ -1434,11 +1434,13 @@ interactive command/shortcut contexts and returns `None` headlessly; the same
 contexts can now read and replace the core prompt via
 `ctx.ui.get_editor_text()` and `ctx.ui.set_editor_text(text)`, with
 `ctx.ui.paste_to_editor(text)` currently replacing the buffer with the literal
-pasted text. The read-only command/shortcut session-manager helper has shipped
-too: `ctx.session_manager` / `ctx.sessionManager` expose immutable views of the
-active native session's cwd, file/id/header, entries, labels, branch/tree, leaf,
-and session name. The next largest remaining parity topic is still the broader
-extension/package platform follow-on area.
+pasted text. The command/shortcut session-manager helper has shipped too: `ctx.session_manager` /
+`ctx.sessionManager` expose immutable views of the active native session's cwd,
+file/id/header, entries, labels, branch/tree, leaf, and session name; the narrow
+Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name` /
+`ctx.setSessionName`, `ctx.get_session_name` / `ctx.getSessionName`, and
+`ctx.set_label` / `ctx.setLabel`. The next largest remaining parity topic is still
+the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 

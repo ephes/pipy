@@ -158,6 +158,7 @@ def normalize_shortcut_key(key: str) -> str:
     ordered = [mod for mod in _SHORTCUT_MODIFIERS if mod in modifiers]
     return "-".join([*ordered, base]) if ordered else base
 
+
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 
@@ -417,6 +418,9 @@ def make_extension_context(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
+    set_session_name_fn: "SetSessionNameFn | None" = None,
+    get_session_name_fn: "GetSessionNameFn | None" = None,
+    set_label_fn: "SetLabelFn | None" = None,
     flags: Mapping[str, object] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
     session_tree: "NativeSessionTree | None" = None,
@@ -439,6 +443,9 @@ def make_extension_context(
         set_model_fn,
         set_thinking_level_fn,
         append_entry_fn,
+        set_session_name_fn,
+        get_session_name_fn,
+        set_label_fn,
         flags,
         session_tree,
     )
@@ -562,6 +569,7 @@ class SessionDecision:
     allow: bool = True
     reason: str | None = None
 
+
 _COMMAND_START_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
 _COMMAND_BODY_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_-")
 _DIAGNOSTIC_MAX_LENGTH: int = 200
@@ -574,6 +582,9 @@ ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
 ControlSetModelFn = Callable[[str], bool]
 ControlSetThinkingLevelFn = Callable[[str], bool]
 AppendEntryFn = Callable[[str, object | None], object]
+SetSessionNameFn = Callable[[str | None], object]
+GetSessionNameFn = Callable[[], str | None]
+SetLabelFn = Callable[[str, str | None], object]
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -912,9 +923,7 @@ class ExtensionUiDriver(Protocol):
 
     def set_working_visible(self, visible: bool) -> None: ...
 
-    def set_widget(
-        self, key: str, content: object, placement: str
-    ) -> None: ...
+    def set_widget(self, key: str, content: object, placement: str) -> None: ...
 
     def set_header(self, factory: object | None) -> None: ...
 
@@ -1163,6 +1172,13 @@ class CommandContext(Protocol):
     def append_entry(self, custom_type: str, data: object | None = None) -> object:
         """Append a custom entry to the active product session tree."""
         ...
+
+    def set_session_name(self, name: str | None) -> object: ...
+    def setSessionName(self, name: str | None) -> object: ...
+    def get_session_name(self) -> str | None: ...
+    def getSessionName(self) -> str | None: ...
+    def set_label(self, entry_id: str, label: str | None) -> object: ...
+    def setLabel(self, entry_id: str, label: str | None) -> object: ...
 
 
 class _ConversationView:
@@ -1472,7 +1488,10 @@ class _CollectingUi:
             ok, error = self._ui_driver.apply_theme(name)
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return {"success": False, "error": "theme switch failed"}
-        return {"success": bool(ok), "error": None if ok else (error or "theme switch failed")}
+        return {
+            "success": bool(ok),
+            "error": None if ok else (error or "theme switch failed"),
+        }
 
 
 def _copy_session_data(value: object) -> object:
@@ -1563,7 +1582,9 @@ class _ReadOnlySessionManagerView:
     def get_branch(self, from_id: str | None = None) -> tuple[SessionEntryView, ...]:
         if self._tree is None:
             return ()
-        return tuple(_session_entry_view(entry) for entry in self._tree.get_branch(from_id))
+        return tuple(
+            _session_entry_view(entry) for entry in self._tree.get_branch(from_id)
+        )
 
     def get_header(self) -> SessionHeaderView:
         if self._tree is None:
@@ -1606,6 +1627,9 @@ class _CommandContext:
         set_model_fn: "ControlSetModelFn | None" = None,
         set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
         append_entry_fn: "AppendEntryFn | None" = None,
+        set_session_name_fn: "SetSessionNameFn | None" = None,
+        get_session_name_fn: "GetSessionNameFn | None" = None,
+        set_label_fn: "SetLabelFn | None" = None,
         flags: Mapping[str, object] | None = None,
         session_tree: "NativeSessionTree | None" = None,
     ) -> None:
@@ -1613,7 +1637,9 @@ class _CommandContext:
         self.has_ui = ui.has_ui
         self.ui: ExtensionUi = ui
         self.conversation: ConversationView = conversation or _ConversationView()
-        self.session_manager: SessionManagerView = _ReadOnlySessionManagerView(session_tree)
+        self.session_manager: SessionManagerView = _ReadOnlySessionManagerView(
+            session_tree
+        )
         self.sessionManager: SessionManagerView = self.session_manager
         self.flags: Mapping[str, object] = dict(flags or {})
         self._complete_fn = complete_fn
@@ -1621,6 +1647,9 @@ class _CommandContext:
         self._set_model_fn = set_model_fn
         self._set_thinking_level_fn = set_thinking_level_fn
         self._append_entry_fn = append_entry_fn
+        self._set_session_name_fn = set_session_name_fn
+        self._get_session_name_fn = get_session_name_fn
+        self._set_label_fn = set_label_fn
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         if self._complete_fn is None:
@@ -1659,6 +1688,34 @@ class _CommandContext:
         if not is_valid_custom_entry_type(name):
             raise ValueError("invalid custom entry type")
         return self._append_entry_fn(name, data)
+
+    def set_session_name(self, name: str | None) -> object:
+        if self._set_session_name_fn is None:
+            raise ExtensionCapabilityError(
+                "session-name mutation is not available in this context"
+            )
+        return self._set_session_name_fn(None if name is None else str(name))
+
+    def setSessionName(self, name: str | None) -> object:
+        return self.set_session_name(name)
+
+    def get_session_name(self) -> str | None:
+        if self._get_session_name_fn is None:
+            return None
+        return self._get_session_name_fn()
+
+    def getSessionName(self) -> str | None:
+        return self.get_session_name()
+
+    def set_label(self, entry_id: str, label: str | None) -> object:
+        if self._set_label_fn is None:
+            raise ExtensionCapabilityError(
+                "session-label mutation is not available in this context"
+            )
+        return self._set_label_fn(str(entry_id), None if label is None else str(label))
+
+    def setLabel(self, entry_id: str, label: str | None) -> object:
+        return self.set_label(entry_id, label)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1730,6 +1787,9 @@ def dispatch_extension_command(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
+    set_session_name_fn: "SetSessionNameFn | None" = None,
+    get_session_name_fn: "GetSessionNameFn | None" = None,
+    set_label_fn: "SetLabelFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
 ) -> ExtensionCommandDispatch | None:
@@ -1769,6 +1829,9 @@ def dispatch_extension_command(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         append_entry_fn=append_entry_fn,
+        set_session_name_fn=set_session_name_fn,
+        get_session_name_fn=get_session_name_fn,
+        set_label_fn=set_label_fn,
         flags=flags,
         session_tree=session_tree,
     )
@@ -1789,6 +1852,9 @@ def dispatch_extension_shortcut(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
+    set_session_name_fn: "SetSessionNameFn | None" = None,
+    get_session_name_fn: "GetSessionNameFn | None" = None,
+    set_label_fn: "SetLabelFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
 ) -> ExtensionCommandDispatch | None:
@@ -1819,6 +1885,9 @@ def dispatch_extension_shortcut(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         append_entry_fn=append_entry_fn,
+        set_session_name_fn=set_session_name_fn,
+        get_session_name_fn=get_session_name_fn,
+        set_label_fn=set_label_fn,
         flags=flags,
         session_tree=session_tree,
     )
@@ -1840,6 +1909,9 @@ def _run_extension_handler(
     set_model_fn: "ControlSetModelFn | None",
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
     append_entry_fn: "AppendEntryFn | None",
+    set_session_name_fn: "SetSessionNameFn | None",
+    get_session_name_fn: "GetSessionNameFn | None",
+    set_label_fn: "SetLabelFn | None",
     flags: Mapping[str, object] | None,
     session_tree: "NativeSessionTree | None",
 ) -> ExtensionCommandDispatch:
@@ -1855,6 +1927,9 @@ def _run_extension_handler(
         set_model_fn,
         set_thinking_level_fn,
         append_entry_fn,
+        set_session_name_fn,
+        get_session_name_fn,
+        set_label_fn,
         flags,
         session_tree,
     )
@@ -2085,9 +2160,17 @@ class _ActivationApi:
         if flag_type not in ("boolean", "string"):
             raise _ActivationError(REASON_INVALID_FLAG)
         default = flag.default
-        if flag_type == "boolean" and default is not None and not isinstance(default, bool):
+        if (
+            flag_type == "boolean"
+            and default is not None
+            and not isinstance(default, bool)
+        ):
             raise _ActivationError(REASON_INVALID_FLAG)
-        if flag_type == "string" and default is not None and not isinstance(default, str):
+        if (
+            flag_type == "string"
+            and default is not None
+            and not isinstance(default, str)
+        ):
             raise _ActivationError(REASON_INVALID_FLAG)
         self._staged_flags[name] = RegisteredFlag(
             flag=ExtensionFlag(
@@ -2132,7 +2215,10 @@ class _ActivationApi:
             raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
         if not callable(renderer):
             raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
-        if name in self._taken_message_renderers or name in self._staged_message_renderers:
+        if (
+            name in self._taken_message_renderers
+            or name in self._staged_message_renderers
+        ):
             raise _ActivationError(REASON_DUPLICATE_MESSAGE_RENDERER)
         self._staged_message_renderers[name] = RegisteredMessageRenderer(
             custom_type=name,
@@ -2200,7 +2286,10 @@ class _ActivationApi:
                 raise _ActivationError(REASON_INVALID_SHORTCUT)
             if normalized in RESERVED_SHORTCUT_KEYS:
                 raise _ActivationError(REASON_RESERVED_SHORTCUT)
-            if normalized in self._taken_shortcuts or normalized in self._staged_shortcuts:
+            if (
+                normalized in self._taken_shortcuts
+                or normalized in self._staged_shortcuts
+            ):
                 raise _ActivationError(REASON_DUPLICATE_SHORTCUT)
             self._staged_shortcuts[normalized] = RegisteredShortcut(
                 key=normalized,
@@ -2230,6 +2319,7 @@ class _ActivationApi:
         """
 
         if handler is None:
+
             def _decorator(func: HookHandler) -> HookHandler:
                 self._register_hook(event, func)
                 return func
@@ -2506,9 +2596,7 @@ def _copy_custom_entry_data(data: object | None) -> object | None:
     if data is None:
         return None
     try:
-        return json.loads(
-            json.dumps(data, ensure_ascii=False, allow_nan=False)
-        )
+        return json.loads(json.dumps(data, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError):
         return safe_custom_entry_data(data)
 
@@ -2523,13 +2611,17 @@ def _coerce_rendered_lines(rendered: object) -> tuple[str, ...]:
         return ()
     if isinstance(rendered, str):
         lines = rendered.splitlines() or [""]
-    elif isinstance(rendered, Sequence) and not isinstance(rendered, (bytes, bytearray)):
+    elif isinstance(rendered, Sequence) and not isinstance(
+        rendered, (bytes, bytearray)
+    ):
         lines = [str(item) for item in rendered]
     else:
         lines = [_bounded_render_text(rendered)]
     text = "\n".join(lines)
     if len(text) > _CUSTOM_RENDER_MAX_CHARS:
-        text = text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+        text = (
+            text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+        )
     return tuple(text.splitlines() or [""])
 
 
@@ -2543,7 +2635,9 @@ def _bounded_render_text(value: object) -> str:
     except (TypeError, ValueError):
         text = str(value)
     if len(text) > _CUSTOM_RENDER_MAX_CHARS:
-        return text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+        return (
+            text[: _CUSTOM_RENDER_MAX_CHARS - 64] + "\n[pipy: custom render truncated]"
+        )
     return text
 
 
@@ -2553,7 +2647,9 @@ def parse_extension_flag_tokens(
 ) -> tuple[dict[str, object], str | None]:
     """Parse unknown CLI tokens against activated extension flags."""
 
-    definitions = {registered.flag.name: registered.flag for registered in registered_flags}
+    definitions = {
+        registered.flag.name: registered.flag for registered in registered_flags
+    }
     owners = {registered.flag.name: registered for registered in registered_flags}
     values: dict[str, object] = {
         flag.name: flag.default
@@ -2637,9 +2733,7 @@ def _activate_one(
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
-        return _disabled(
-            descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err)
-        )
+        return _disabled(descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err))
     if activate is None or not is_callable:
         return _disabled(descriptor, REASON_NO_ACTIVATE, None)
 
@@ -2664,9 +2758,7 @@ def _activate_one(
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
-        return _disabled(
-            descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err)
-        )
+        return _disabled(descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err))
 
     # A failed registration disables the extension even if its own code
     # swallowed the error: no partial command set is ever committed.
@@ -3063,7 +3155,9 @@ def dispatch_user_bash_hooks(
                 command=current_command,
                 exclude_from_context=current_exclude,
                 result=result.result,
-                exit_code=int(result.exit_code) if isinstance(result.exit_code, int) else 0,
+                exit_code=int(result.exit_code)
+                if isinstance(result.exit_code, int)
+                else 0,
             )
     return UserBashDispatch(
         allowed=True,
@@ -3268,7 +3362,9 @@ def _load_package_submodule(
     # Only the package carries `__path__`; the entry is a regular module
     # whose parent is this package, so `from .helper import ...` resolves
     # to `<package>.helper` (not nested under the entry module).
-    pkg_spec = importlib.machinery.ModuleSpec(package_name, loader=None, is_package=True)
+    pkg_spec = importlib.machinery.ModuleSpec(
+        package_name, loader=None, is_package=True
+    )
     pkg_spec.submodule_search_locations = [entry_dir]
     package = importlib.util.module_from_spec(pkg_spec)
     sys.modules[package_name] = package

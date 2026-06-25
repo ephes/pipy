@@ -215,11 +215,12 @@ Pipy current state:
   mechanism so the next frame repaints. `path` is always `None` (the session
   theme registry retains only `name -> palette`; package file paths are not
   exposed to extension code).
-- Extension slice 22 has shipped: read-only command/shortcut session-manager
-  helpers — `ctx.session_manager` plus Pi-shaped `ctx.sessionManager` expose the
-  active native session's cwd, dir/file/id, header, entries, labels,
-  branch/tree, leaf, and session name through immutable view objects, without
-  exposing `NativeSessionTree` mutation methods.
+- Extension slice 22 plus session metadata actions have shipped: `ctx.session_manager`
+  plus Pi-shaped `ctx.sessionManager` expose active-session read-only views, and
+  command/shortcut contexts can persist display names and labels with
+  `ctx.set_session_name` / `ctx.setSessionName`, `ctx.get_session_name` /
+  `ctx.getSessionName`, and `ctx.set_label` / `ctx.setLabel`, all through native
+  session-info/label entries rather than mutable tree exposure.
 - Extension slice 23 has shipped: live product-TUI autocomplete provider
   wrappers — `ctx.ui.add_autocomplete_provider` plus Pi-shaped
   `ctx.ui.addAutocompleteProvider` compose providers with Pi-shaped
@@ -247,8 +248,8 @@ Follow-ons:
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed
-   tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and extension state helpers beyond the landed
-   read-only command/shortcut session-manager view.
+   tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and broader extension state helpers beyond the landed command/shortcut
+   session-manager view and name/label metadata actions.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.
@@ -343,7 +344,7 @@ adding another bespoke slash command.
 ## Recommended implementation order
 
 1. Extension/package platform follow-ons: richer multi-widget UI/rendering,
-   extension state/session-manager helpers, live tool-render invalidation beyond
+   broader extension state/session-manager helpers, live tool-render invalidation beyond
    the landed render-once snapshot, broader dynamic-flag integration,
    OAuth-provider extension registration, and future PyPI/npm package source
    policy.

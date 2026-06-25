@@ -1641,6 +1641,15 @@ class NativeToolReplSession:
                 )
             return appended.id
 
+        def extension_set_session_name(name: str | None) -> object:
+            return session_tree.append_session_info(name)
+
+        def extension_get_session_name() -> str | None:
+            return session_tree.name
+
+        def extension_set_label(entry_id: str, label: str | None) -> object:
+            return session_tree.append_label_change(entry_id, label)
+
         def refresh_footer_text() -> None:
             if terminal_ui is not None:
                 terminal_ui.set_footer_text(
@@ -2269,6 +2278,9 @@ class NativeToolReplSession:
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
                         append_entry_fn=extension_append_entry,
+                        set_session_name_fn=extension_set_session_name,
+                        get_session_name_fn=extension_get_session_name,
+                        set_label_fn=extension_set_label,
                         flags=extension_flag_values,
                         session_tree=session_tree,
                     )
@@ -3331,6 +3343,9 @@ class NativeToolReplSession:
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
                         append_entry_fn=extension_append_entry,
+                        set_session_name_fn=extension_set_session_name,
+                        get_session_name_fn=extension_get_session_name,
+                        set_label_fn=extension_set_label,
                         flags=extension_flag_values,
                         session_tree=session_tree,
                     )

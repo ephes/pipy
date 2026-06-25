@@ -68,11 +68,13 @@ footer, the terminal title, and a custom working indicator
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
-live-session follow-on slice. Command/shortcut handlers also expose a read-only
-Pi-shaped session-manager view as `ctx.session_manager` / `ctx.sessionManager`,
-covering the active native session's cwd, dir/file/id, header, entries, labels,
-branch/tree, leaf, and session name without handing extensions the mutable
-`NativeSessionTree`. Per-run source-loading flags for extensions,
+live-session follow-on slice. Command/shortcut handlers also expose Pi-shaped session metadata helpers:
+`ctx.set_session_name` / `ctx.setSessionName`, `ctx.get_session_name` /
+`ctx.getSessionName`, and `ctx.set_label` / `ctx.setLabel` persist display-name
+and entry-label changes through native session entries. The read-only
+`ctx.session_manager` / `ctx.sessionManager` view covers the active native
+session's cwd, dir/file/id, header, entries, labels, branch/tree, leaf, and
+session name without handing extensions the mutable `NativeSessionTree`. Per-run source-loading flags for extensions,
 skills, prompt templates, and themes have landed. A first dynamic extension flag
 slice also ships for `pipy repl` tool-loop runs: extensions register
 boolean/string `ExtensionFlag` objects, matching unknown CLI tokens are parsed
@@ -1122,7 +1124,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     provider-turn working row for subsequent turns until changed again or reset
     by the extension. This slice was still short of Pi's full
     widget/component surface:
-    a custom editor component and extension state/session-manager helpers
+    a custom editor component and broader extension state/session-manager helpers
     remained follow-ons at the time.
     (Custom tool renderers landed in slice 17 below; the persistent chrome
     widget/header/footer/title/indicator surface landed in slice 18 below; the

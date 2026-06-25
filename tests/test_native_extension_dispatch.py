@@ -83,9 +83,7 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 
 def _activate(workspace: Path):
-    descriptors = discover_extensions(
-        workspace, config_home_env={}, home_dir=workspace
-    )
+    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
     return activate_extensions(descriptors)
 
 
@@ -431,7 +429,9 @@ def test_async_message_renderer_fails_soft_without_unawaited_warning(
         gc.collect()
 
     assert rendered == ("render error: unsupported awaitable",)
-    assert not [warning for warning in caught if "never awaited" in str(warning.message)]
+    assert not [
+        warning for warning in caught if "never awaited" in str(warning.message)
+    ]
 
 
 def test_message_renderer_fails_soft_and_data_is_json_safe(tmp_path: Path) -> None:
@@ -482,9 +482,7 @@ def test_unknown_command_is_not_dispatched(tmp_path: Path) -> None:
 
 
 def test_non_slash_input_is_not_dispatched(tmp_path: Path) -> None:
-    assert (
-        dispatch_extension_command("hello", {}, cwd="/tmp", has_ui=True) is None
-    )
+    assert dispatch_extension_command("hello", {}, cwd="/tmp", has_ui=True) is None
 
 
 def test_handler_exception_is_bounded(tmp_path: Path) -> None:
@@ -729,4 +727,86 @@ def test_command_context_session_manager_is_empty_without_session(tmp_path):
         "cwd": None,
         "version": None,
         "parentSession": None,
+    }
+
+
+def test_dispatch_exposes_session_metadata_actions(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    captured = {}
+
+    def handler(ctx, args):
+        captured["initial"] = ctx.get_session_name()
+        captured["alias_initial"] = ctx.getSessionName()
+        captured["set_name"] = ctx.setSessionName("new name")
+        captured["set_label"] = ctx.setLabel("entry-1", "bookmark")
+        captured["clear_label"] = ctx.set_label("entry-1", None)
+
+    command = type("C", (), {})()
+    command.handler = handler
+    calls: list[tuple[str, ...]] = []
+
+    def set_name(name: str | None) -> str:
+        calls.append(("name", "" if name is None else name))
+        return "name-id"
+
+    def set_label(entry_id: str, label: str | None) -> str:
+        calls.append(("label", entry_id, "" if label is None else label))
+        return "label-id"
+
+    dispatch = dispatch_extension_command(
+        "/meta",
+        {"meta": command},
+        cwd=str(workspace),
+        has_ui=False,
+        set_session_name_fn=set_name,
+        get_session_name_fn=lambda: "old name",
+        set_label_fn=set_label,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert captured == {
+        "initial": "old name",
+        "alias_initial": "old name",
+        "set_name": "name-id",
+        "set_label": "label-id",
+        "clear_label": "label-id",
+    }
+    assert calls == [
+        ("name", "new name"),
+        ("label", "entry-1", "bookmark"),
+        ("label", "entry-1", ""),
+    ]
+
+
+def test_session_metadata_actions_fail_predictably_without_capabilities(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    captured = {}
+
+    def handler(ctx, args):
+        captured["name"] = ctx.getSessionName()
+        try:
+            ctx.set_session_name("x")
+        except Exception as exc:  # noqa: BLE001 - assert safe capability error
+            captured["set_name_error"] = type(exc).__name__
+        try:
+            ctx.setLabel("entry-1", "bookmark")
+        except Exception as exc:  # noqa: BLE001 - assert safe capability error
+            captured["set_label_error"] = type(exc).__name__
+
+    command = type("C", (), {})()
+    command.handler = handler
+
+    dispatch = dispatch_extension_command(
+        "/meta", {"meta": command}, cwd=str(workspace), has_ui=False
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert captured == {
+        "name": None,
+        "set_name_error": "ExtensionCapabilityError",
+        "set_label_error": "ExtensionCapabilityError",
     }
