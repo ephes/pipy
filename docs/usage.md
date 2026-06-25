@@ -63,9 +63,9 @@ invoked as their own `/<template-name>` commands.
 | `/tree` | Browse the native session tree and continue from a selected point |
 | `/fork` | Create a new session from a previous session/message |
 | `/clone` | Duplicate the current active branch into a new session |
-| `/compact [prompt]` | Compact context, optionally with custom instructions |
+| `/compact` | Compact context when enough history exists |
 | `/copy` | Copy the last assistant message to the clipboard where supported |
-| `/export [file]` | Export the current session to HTML, or active-branch JSONL when requested |
+| `/export [file]` | Export the current session to HTML by default, or active-branch JSONL when `file` ends in `.jsonl` |
 | `/import <file>` | Import a native session JSONL file |
 | `/share` | Upload the session as a private GitHub gist when configured |
 | `/reload` | Reload settings, keybindings, extensions, skills, prompts, themes, and context files |
@@ -141,8 +141,11 @@ matching config-directory files, when the flags are omitted.
 
 ## Exporting and sharing sessions
 
-Use `/export [file]` to write the current session to HTML. Top-level
-`--export` exports an existing native session JSONL file and exits:
+Use `/export` to write the current session to the default HTML export path, or
+`/export <file>` to choose an output path. The in-session dispatcher treats a
+`.jsonl` output suffix as an active-branch JSONL export; other suffixes export
+HTML. Top-level `--export` exports an existing native session JSONL file and
+exits:
 
 ```bash
 pipy --export ~/.local/state/pipy/native-sessions/--project--/session.jsonl out.html

@@ -62,7 +62,7 @@ prompts in a TTY before forking it into the current project.
 | `/fork` | Create a new session from an earlier message/session. |
 | `/clone` | Duplicate the current active branch into a new session. |
 | `/compact` | Reduce provider-visible context and append a durable compaction entry when enough history exists. |
-| `/export [file]` | Export the current session to HTML or active-branch JSONL. |
+| `/export [file]` | Export the current session to HTML by default, or active-branch JSONL when `file` ends in `.jsonl`. |
 | `/import <file>` | Import a native session JSONL file. |
 | `/share` | Upload the session as a private GitHub gist when configured. |
 
@@ -99,6 +99,10 @@ Session export/share surfaces operate on full product transcript data:
 ```bash
 pipy --export ~/.local/state/pipy/native-sessions/--project--/session.jsonl out.html
 ```
+
+Inside an interactive session, `/export` writes HTML to the default export path,
+`/export <file>` writes HTML to that path, and `/export <file.jsonl>` writes the
+active branch as JSONL.
 
 Review exported HTML/JSONL before sharing. `pipy-session export` is a separate
 metadata catalog export and is not the product session export path.
