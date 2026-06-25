@@ -1636,12 +1636,13 @@ of Pi permission gates, custom slash commands, simple model-visible tools,
 input/system-prompt hooks, lifecycle observation, minimal UI notices,
 simple `ctx.ui` select/input/confirm/editor/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
-and active tool/model/thinking controls. They do not yet cover Pi's richer
-extension APIs: live (invalidate-driven) tool rendering beyond the landed
-render-once snapshot, richer multi-widget `ctx.ui` dialogs, custom editor
-component, and autocomplete providers beyond the simple primitives (theme
-controls — `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — and editor
-text helpers now ship),
+and active tool/model/thinking controls. Autocomplete provider wrappers now
+ship for live product-TUI `@` and forced Tab completion. They do not yet cover
+Pi's richer extension APIs: live (invalidate-driven) tool rendering beyond the
+landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, and custom
+editor component beyond the simple primitives (theme controls —
+`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — and editor text
+helpers now ship),
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader
 dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources
@@ -1785,10 +1786,11 @@ Invariants that must hold for any near-term slice:
   thinking/model hotkeys, output/thinking folding, queued steering/follow-up,
   `/scoped-models`, `/hotkeys`, mouse-selection invariants, and true
   provider-request cancellation now ship. Theme controls
-  (`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme`) also ship. Still
-  deferred are the remaining richer extension-owned UI surfaces Pi exposes:
-  editor replacement (`setEditorComponent`), autocomplete providers, and
-  multi-widget custom overlays beyond the narrow Python `ctx.ui.custom` and
+  (`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme`) and autocomplete
+  provider wrappers also ship. Still deferred are the remaining richer
+  extension-owned UI surfaces Pi exposes: editor replacement
+  (`setEditorComponent`) and multi-widget custom overlays beyond the narrow
+  Python `ctx.ui.custom` and
   custom session-entry/message-rendering paths.
   Render-once custom tool rendering now ships; live (invalidate-driven) tool
   rendering remains deferred.

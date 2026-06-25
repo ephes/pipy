@@ -333,6 +333,9 @@ class _FakeUiDriver:
         self.chrome.append(("apply_theme", name))
         return True, None
 
+    def add_autocomplete_provider(self, factory: object) -> None:
+        self.chrome.append(("add_autocomplete_provider", factory))
+
 
 def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
     driver = _FakeUiDriver()

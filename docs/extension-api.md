@@ -37,9 +37,14 @@ also ship (`ctx.ui.theme`, `ctx.ui.get_all_themes`, `ctx.ui.get_theme`,
 `ctx.ui.set_theme`), mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`
 for theme *selection* (registration stays `resources_discover`-only). The extension
 editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
-Ctrl+G. It is not source-compatible with Pi's TypeScript extensions, and it
-still lacks several mature Pi surfaces: a custom editor component,
-autocomplete providers, and live per-frame component
+Ctrl+G. Autocomplete provider wrappers ship for live product-TUI command/
+shortcut contexts via `ctx.ui.add_autocomplete_provider` /
+`ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /
+`getSuggestions`, `apply_completion` / `applyCompletion`, and optional
+`should_trigger_file_completion` / `shouldTriggerFileCompletion` methods. It is
+not source-compatible with Pi's TypeScript extensions, and it still lacks
+several mature Pi surfaces: a custom editor component and live per-frame
+component
 `render()`/`requestRender` re-rendering of chrome components (the working
 indicator already animates via the spinner loop; widget/header/footer
 components are width-reactive snapshots), multi-widget message components,
@@ -1109,8 +1114,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     provider-turn working row for subsequent turns until changed again or reset
     by the extension. This slice was still short of Pi's full
     widget/component surface:
-    a custom editor component, autocomplete providers, and extension
-    state/session-manager helpers remain follow-ons.
+    a custom editor component and extension state/session-manager helpers
+    remained follow-ons at the time.
     (Custom tool renderers landed in slice 17 below; the persistent chrome
     widget/header/footer/title/indicator surface landed in slice 18 below; the
     first-class editor helper landed separately in slice 20.)
@@ -1283,8 +1288,18 @@ and the live `scripts/tmux_answer_verify.sh`.
     process state, while a live call reuses the `/settings` `select_theme`
     mechanism so the next frame repaints. `path` is always `None`: the session
     theme registry retains only `name -> palette` and pipy does not leak package
-    theme file paths to extension code. Deferred: `setEditorComponent` and
-    autocomplete providers (the remaining rich-UI follow-ons).
+    theme file paths to extension code.
+23. Autocomplete provider wrappers — **landed for live product-TUI command/
+    shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
+    Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around
+    the built-in editor provider. Providers receive full editor `lines`,
+    `cursor_line`/`cursor_col`, and `{force, signal}` context; may implement
+    snake_case or camelCase `get_suggestions`/`getSuggestions`,
+    `apply_completion`/`applyCompletion`, and optional
+    `should_trigger_file_completion`/`shouldTriggerFileCompletion`; and fail
+    soft back to the built-in provider. Headless contexts accept the call as a
+    deterministic no-op.
+    Deferred: `setEditorComponent` and live per-frame component invalidation.
 
 ## Open Questions
 

@@ -992,6 +992,10 @@ class ExtensionUi(Protocol):
 
     def set_theme(self, theme: "str | ChromePalette") -> dict[str, object]: ...
 
+    def add_autocomplete_provider(self, factory: object) -> None: ...
+
+    def addAutocompleteProvider(self, factory: object) -> None: ...
+
 
 class ExtensionCapabilityError(RuntimeError):
     """A capability a handler asked for is not available in this context.
@@ -1199,6 +1203,7 @@ class _CollectingUi:
         self.footer: object | None = None
         self.title: str | None = None
         self.indicator: tuple[Sequence[str] | None, int | None] | None = None
+        self.autocomplete_providers: list[object] = []
         self._notify_sink = notify_sink
         self._custom_driver = custom_driver
         self._ui_driver = ui_driver
@@ -1380,6 +1385,24 @@ class _CollectingUi:
             self._ui_driver.paste_to_editor(str(text))
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             pass
+
+    def add_autocomplete_provider(self, factory: object) -> None:
+        """Stack an editor autocomplete provider wrapper on the live TUI."""
+        if not callable(factory):
+            return
+        self.autocomplete_providers.append(factory)
+        if self._ui_driver is not None and self.has_ui:
+            try:
+                add_provider = getattr(
+                    self._ui_driver, "add_autocomplete_provider", None
+                )
+                if callable(add_provider):
+                    add_provider(factory)
+            except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+                pass
+
+    def addAutocompleteProvider(self, factory: object) -> None:
+        self.add_autocomplete_provider(factory)
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"

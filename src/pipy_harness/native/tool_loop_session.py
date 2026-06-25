@@ -619,6 +619,9 @@ class _LiveExtensionUiDriver:
     def paste_to_editor(self, text: str) -> None:
         self._terminal_ui.paste_input_text(text)
 
+    def add_autocomplete_provider(self, factory: object) -> None:
+        self._terminal_ui.add_extension_autocomplete_provider(factory)
+
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
 

@@ -28,6 +28,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO, cast
 
+from pipy_harness.native.autocomplete_provider import (
+    AutocompleteApplyResult,
+    AutocompleteContext,
+    AutocompleteSuggestion,
+    call_provider_method,
+    coerce_apply_result,
+    coerce_suggestion,
+    cursor_to_line_col,
+    line_col_to_cursor,
+)
 from pipy_harness.native.chrome import (
     chrome_style_for,
     discover_loaded_resource_names,
@@ -140,6 +150,70 @@ TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
 TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
+
+
+class _BuiltinAutocompleteProvider:
+    """Pi-shaped wrapper around pipy's built-in @ and path completion."""
+
+    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
+        self._ui = ui
+
+    def get_suggestions(
+        self,
+        lines: Sequence[str],
+        cursor_line: int,
+        cursor_col: int,
+        context: AutocompleteContext,
+    ) -> AutocompleteSuggestion | None:
+        text_before_cursor = "\n".join(lines[:cursor_line])
+        if cursor_line > 0:
+            text_before_cursor += "\n"
+        text_before_cursor += lines[cursor_line][:cursor_col]
+        if context.force:
+            extracted = extract_path_prefix(text_before_cursor, force=True)
+            if extracted is None:
+                return None
+            start, prefix = extracted
+            if prefix == "":
+                return None
+            items = tuple(path_candidates(self._ui.cwd, prefix))
+            if not items:
+                return None
+            return AutocompleteSuggestion(items, prefix, start, "path")
+        token = extract_at_token(text_before_cursor)
+        if token is None:
+            return None
+        start, query = token
+        items = tuple(at_candidates(self._ui.cwd, query))
+        if not items:
+            return None
+        return AutocompleteSuggestion(items, "@" + query, start, "at")
+
+    getSuggestions = get_suggestions
+
+    def apply_completion(
+        self,
+        lines: Sequence[str],
+        cursor_line: int,
+        cursor_col: int,
+        item: CompletionItem,
+        prefix: str,
+    ) -> AutocompleteApplyResult:
+        text = "\n".join(lines)
+        cursor = line_col_to_cursor(lines, cursor_line, cursor_col)
+        start = max(0, cursor - len(prefix))
+        new_text = text[:start] + item.value + text[cursor:]
+        return AutocompleteApplyResult(new_text, start + len(item.value))
+
+    applyCompletion = apply_completion
+
+    def should_trigger_file_completion(
+        self, lines: Sequence[str], cursor_line: int, cursor_col: int
+    ) -> bool:
+        del lines, cursor_line, cursor_col
+        return True
+
+    shouldTriggerFileCompletion = should_trigger_file_completion
 
 
 @dataclass(frozen=True, slots=True)
@@ -640,6 +714,9 @@ class ToolLoopTerminalUi:
     autocomplete_selection: int = 0
     autocomplete_mode: str = "at"
     autocomplete_token_start: int = 0
+    autocomplete_prefix: str = ""
+    _autocomplete_provider_factories: list[object] = field(default_factory=list)
+    _autocomplete_active_provider: object | None = None
     model_selector_open: bool = False
     model_selector_options: tuple[ModelSelectorOption, ...] = ()
     model_selector_selection: int = 0
@@ -4609,27 +4686,82 @@ class ToolLoopTerminalUi:
         if self.slash_menu_open:
             self._close_autocomplete()
             return
-        before_cursor = self.input_text[: self._effective_input_cursor()]
-        token = extract_at_token(before_cursor)
-        if token is None:
+        suggestion = self._autocomplete_suggestions(force=False)
+        if suggestion is None:
             self._close_autocomplete()
             return
-        start, query = token
-        items = at_candidates(self.cwd, query)
-        if not items:
-            self._close_autocomplete()
-            return
+        items = suggestion.items
         self.autocomplete_open = True
-        self.autocomplete_mode = "at"
+        self.autocomplete_mode = suggestion.mode
         self.autocomplete_items = tuple(items)
-        self.autocomplete_token_start = start
+        self.autocomplete_token_start = suggestion.token_start
+        self.autocomplete_prefix = suggestion.prefix
         if self.autocomplete_selection >= len(items):
             self.autocomplete_selection = 0
+
+    def add_extension_autocomplete_provider(self, factory: object) -> None:
+        if callable(factory):
+            self._autocomplete_provider_factories.append(factory)
+
+    def _autocomplete_provider(self) -> object:
+        provider: object = _BuiltinAutocompleteProvider(self)
+        for factory in self._autocomplete_provider_factories:
+            try:
+                wrapped = cast(Callable[[object], object], factory)(provider)
+            except Exception:  # noqa: BLE001 - extension provider must fail soft
+                continue
+            if wrapped is not None:
+                provider = wrapped
+        return provider
+
+    def _autocomplete_suggestions(self, *, force: bool) -> AutocompleteSuggestion | None:
+        cursor = self._effective_input_cursor()
+        lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
+        provider = self._autocomplete_provider()
+        if force:
+            try:
+                should = call_provider_method(
+                    provider,
+                    "should_trigger_file_completion",
+                    "shouldTriggerFileCompletion",
+                    lines,
+                    cursor_line,
+                    cursor_col,
+                )
+            except AttributeError:
+                should = True
+            except Exception:  # noqa: BLE001 - extension provider must fail soft
+                should = True
+            if not bool(should):
+                return None
+        try:
+            raw = call_provider_method(
+                provider,
+                "get_suggestions",
+                "getSuggestions",
+                lines,
+                cursor_line,
+                cursor_col,
+                AutocompleteContext(force=force, signal=None),
+            )
+        except Exception:  # noqa: BLE001 - extension provider must fail soft
+            provider = _BuiltinAutocompleteProvider(self)
+            raw = provider.get_suggestions(
+                lines,
+                cursor_line,
+                cursor_col,
+                AutocompleteContext(force=force, signal=None),
+            )
+        suggestion = coerce_suggestion(raw)
+        self._autocomplete_active_provider = provider if suggestion is not None else None
+        return suggestion
 
     def _close_autocomplete(self) -> None:
         self.autocomplete_open = False
         self.autocomplete_items = ()
         self.autocomplete_selection = 0
+        self.autocomplete_prefix = ""
+        self._autocomplete_active_provider = None
 
     def enqueue_steering(self, text: str) -> None:
         if text.strip():
@@ -4785,10 +4917,32 @@ class ToolLoopTerminalUi:
             return
         self._snapshot_for_undo()
         self._reset_history_nav()
-        self.input_text = self.input_text[:start] + item.value + self.input_text[cursor:]
-        self.input_cursor = start + len(item.value)
+        mode = self.autocomplete_mode
+        provider = self._autocomplete_active_provider or _BuiltinAutocompleteProvider(self)
+        lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
+        try:
+            raw_result = call_provider_method(
+                provider,
+                "apply_completion",
+                "applyCompletion",
+                lines,
+                cursor_line,
+                cursor_col,
+                item,
+                self.autocomplete_prefix or self.input_text[start:cursor],
+            )
+            result = coerce_apply_result(raw_result)
+        except Exception:  # noqa: BLE001 - extension provider must fail soft
+            result = None
+        if result is None:
+            result = AutocompleteApplyResult(
+                self.input_text[:start] + item.value + self.input_text[cursor:],
+                start + len(item.value),
+            )
+        self.input_text = result.text
+        self.input_cursor = max(0, min(len(self.input_text), result.cursor))
         self._close_autocomplete()
-        if self.autocomplete_mode == "path" and item.value.rstrip('"').endswith("/"):
+        if mode == "path" and item.value.rstrip('"').endswith("/"):
             # Directory accepted: re-open the popup for the next segment.
             self._attempt_path_completion()
         self.paint()
@@ -4805,18 +4959,12 @@ class ToolLoopTerminalUi:
         unambiguous prefix and opens the popup when more than one remains.
         """
 
-        before_cursor = self.input_text[: self._effective_input_cursor()]
-        extracted = extract_path_prefix(before_cursor, force=True)
-        if extracted is None:
+        suggestion = self._autocomplete_suggestions(force=True)
+        if suggestion is None:
             return False
-        start, prefix = extracted
-        # An empty token (empty buffer or trailing space) is a no-op rather than
-        # a whole-working-directory dump.
-        if prefix == "":
-            return False
-        items = path_candidates(self.cwd, prefix)
-        if not items:
-            return False
+        start = suggestion.token_start
+        prefix = suggestion.prefix
+        items = suggestion.items
         cursor = self._effective_input_cursor()
         common = self._longest_common_value(items)
         if common and len(common) > len(prefix):
@@ -4827,6 +4975,7 @@ class ToolLoopTerminalUi:
             )
             self.input_cursor = start + len(common)
             cursor = self.input_cursor
+            prefix = common
         if len(items) == 1:
             single = items[0].value
             self._snapshot_for_undo()
@@ -4841,6 +4990,7 @@ class ToolLoopTerminalUi:
         self.autocomplete_mode = "path"
         self.autocomplete_items = tuple(items)
         self.autocomplete_token_start = start
+        self.autocomplete_prefix = prefix
         self.autocomplete_selection = 0
         return True
 
