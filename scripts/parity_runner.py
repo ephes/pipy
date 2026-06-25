@@ -941,7 +941,7 @@ def _agent_cmd(agent: str) -> list[str]:
     if agent == "codex":
         return ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox"]
     if agent == "pipy":
-        return ["uv", "run", "pipy", "-p"]
+        return ["uv", "run", "pipy", "--tool-budget", "200", "-p"]
     return [agent, "-p"]
 
 

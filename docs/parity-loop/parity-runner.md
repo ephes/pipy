@@ -29,8 +29,12 @@ commits stay local on `main` for review. See the design at
 `claude -p --model opus --dangerously-skip-permissions`. The default `opus`
 adapter invokes the fish `claude-yolo` function with
 `fish -lc 'set args $argv; ...; claude-yolo -p --model opus -- $args'`.
-`--agent pipy` uses `uv run pipy -p`, so the runner exercises the repo-local
-pipy-native one-shot product path as a first-class parity-loop agent.
+`--agent pipy` uses `uv run pipy --tool-budget 200 -p`, so the runner exercises
+the repo-local pipy-native one-shot product path as a first-class parity-loop
+agent with the current maximum per-turn tool budget. The larger budget is
+intentional for parity-loop dogfooding: one slice includes planning, review,
+implementation, docs, checks, and review follow-up, and the default interactive
+budget of 50 has repeatedly stopped useful runs after partial progress.
 
 For every spawned gap or lesson-improve child, the runner appends the prompt
 after an explicit `--` delimiter and closes child stdin with `/dev/null`. This

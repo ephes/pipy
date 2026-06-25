@@ -449,7 +449,16 @@ def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> Non
         "--",
         "opus prompt",
     ]
-    assert calls[3] == ["uv", "run", "pipy", "-p", "--", "pipy prompt"]
+    assert calls[3] == [
+        "uv",
+        "run",
+        "pipy",
+        "--tool-budget",
+        "200",
+        "-p",
+        "--",
+        "pipy prompt",
+    ]
 
 
 def test_run_stops_on_no_gaps(tmp_path: Path) -> None:
@@ -782,7 +791,14 @@ def test_agent_cmd_uses_codex_exec_adapter() -> None:
         "opus",
         "--dangerously-skip-permissions",
     ]
-    assert pr._agent_cmd("pipy") == ["uv", "run", "pipy", "-p"]
+    assert pr._agent_cmd("pipy") == [
+        "uv",
+        "run",
+        "pipy",
+        "--tool-budget",
+        "200",
+        "-p",
+    ]
 
 
 def test_generate_slice_report_pins_recorded_sha_not_live_head(tmp_path: Path) -> None:
