@@ -9,8 +9,9 @@ metadata. Mentions of Codex, Claude Code, or Pi below refer to metadata
 capture or subprocess wrapping for external tools — they are not supported
 product runtime backends.
 
-For the design rationale, runtime diagrams, archive layout, and parity
-status, start at [`docs/index.md`](docs/index.md).
+New users should start with [`docs/quickstart.md`](docs/quickstart.md) and
+[`docs/usage.md`](docs/usage.md). For the design rationale, runtime diagrams,
+archive layout, and parity status, start at [`docs/index.md`](docs/index.md).
 
 ## Install And Update
 

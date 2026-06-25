@@ -80,8 +80,11 @@ them only for deeper design detail.
 
 1. **Docs map and navigation.** Add this spec, link it from `docs/index.md`, and
    keep the current planning docs discoverable.
-2. **Quickstart + usage.** Split the user-facing parts of `README.md` into
-   `quickstart.md` and `usage.md`; keep README short and link to them.
+2. **Quickstart + usage.** **Shipped:** [Quickstart](quickstart.md) and
+   [Using pipy](usage.md) now cover install/update from a checkout, first run,
+   provider setup, project instructions, common TUI workflows, session state,
+   slash commands, and the current CLI reference. README stays short and links
+   to these user pages.
 3. **Provider/model docs.** Turn the provider-catalog foundation and its
    product-wiring status into user docs: provider setup, `models.json`, ds4
    example, `--list-models`, `/model`, the current limits around `--thinking`

@@ -2,6 +2,8 @@
 site_name = "pipy"
 nav = [
   {"Home" = "index.md"},
+  {"Quickstart" = "quickstart.md"},
+  {"Using pipy" = "usage.md"},
   {"Terminal Setup" = "terminal-setup.md"},
   {"tmux Setup" = "tmux.md"},
   {"Architecture" = "architecture.md"},

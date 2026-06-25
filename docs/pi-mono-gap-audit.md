@@ -260,14 +260,17 @@ customization, automation, SDK/RPC, and terminal/platform setup.
 
 Implement in pipy:
 
-1. Add user-facing quickstart, usage, providers/models, sessions, settings,
-   keybindings, customization, automation, SDK/RPC, and install/update pages.
-   Terminal setup and tmux pages now ship:
+1. User-facing quickstart and usage pages now ship:
+   [quickstart.md](quickstart.md) and [usage.md](usage.md) cover first run,
+   provider setup, common TUI/session workflows, and the current CLI reference.
+   Terminal setup and tmux pages also ship:
    [terminal-setup.md](terminal-setup.md), [tmux.md](tmux.md).
-2. Keep README short and outside-in.
-3. Separate shipped behavior from target specs; do not present pipy-only
+2. Remaining user docs: providers/models, sessions, settings, keybindings,
+   customization, automation, SDK/RPC, and install/update deep dives.
+3. Keep README short and outside-in.
+4. Separate shipped behavior from target specs; do not present pipy-only
    divergences as parity.
-4. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
+5. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
    `uv run pipy run --help`, and the relevant conformance gates.
 
 Owning spec: [user-documentation.md](user-documentation.md).
