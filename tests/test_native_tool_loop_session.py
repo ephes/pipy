@@ -1468,3 +1468,85 @@ def test_theme_command_removed(tmp_path: Path):
     # It is not advertised as a supported local command, and nothing about the
     # old list/apply behavior remains.
     assert "available:" not in out
+
+
+def test_tool_filter_options_filter_provider_visible_tools(tmp_path: Path):
+    seen: list[tuple[str, ...]] = []
+
+    @dataclass(frozen=True, slots=True)
+    class RecordingProvider:
+        supports_tool_calls: bool = True
+        name: str = "recording"
+        model_id: str = "recording-model"
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+            cancel_token: CancelToken | None = None,
+        ) -> ProviderResult:
+            del stream_sink, reasoning_sink, cancel_token
+            seen.append(tuple(tool.name for tool in request.available_tools))
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ok",
+                usage={},
+                tool_calls=(),
+            )
+
+    from pipy_harness.native.tool_loop_session import ToolFilterOptions
+
+    session = NativeToolReplSession(
+        provider=RecordingProvider(),
+        tool_registry={"echo": _FixtureEchoTool()},
+        tool_filter_options=ToolFilterOptions(allow=("echo",)),
+    )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert seen == [("echo",)]
+
+
+def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
+    from pipy_harness.native.tool_loop_session import ToolFilterOptions
+
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"echo": _FixtureEchoTool()},
+        tool_filter_options=ToolFilterOptions(exclude=("missing",)),
+    )
+
+    with pytest.raises(ValueError, match="unknown tool name"):
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO("go\n"),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+
+def test_no_builtin_tools_removes_builtin_but_keeps_extension_tool(tmp_path: Path):
+    from pipy_harness.native.tool_loop_session import ToolFilterOptions, _filtered_tool_names
+
+    assert _filtered_tool_names(
+        builtin_names={"read", "bash"},
+        all_names={"read", "bash", "ext_tool"},
+        options=ToolFilterOptions(no_builtin_tools=True),
+    ) == {"ext_tool"}
+    assert _filtered_tool_names(
+        builtin_names={"read", "bash"},
+        all_names={"read", "bash", "ext_tool"},
+        options=ToolFilterOptions(no_tools=True),
+    ) == set()

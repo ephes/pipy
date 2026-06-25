@@ -1023,6 +1023,40 @@ def _parse_tool_input(arguments_json: str) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolFilterOptions:
+    """Pi-style per-run tool visibility controls."""
+
+    allow: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()
+    no_tools: bool = False
+    no_builtin_tools: bool = False
+
+    @classmethod
+    def empty(cls) -> "ToolFilterOptions":
+        return cls()
+
+
+def _filtered_tool_names(
+    *,
+    builtin_names: set[str],
+    all_names: set[str],
+    options: ToolFilterOptions,
+) -> set[str]:
+    """Return the provider-visible tool names after CLI filtering."""
+
+    if options.no_tools:
+        return set()
+    names = set(all_names)
+    if options.no_builtin_tools:
+        names.difference_update(builtin_names)
+    if options.allow:
+        names.intersection_update(options.allow)
+    if options.exclude:
+        names.difference_update(options.exclude)
+    return names
+
+
+@dataclass(frozen=True, slots=True)
 class _TreeCommandOutcome:
     """Result of handling a ``/tree`` command in the tool loop.
 
@@ -1125,6 +1159,9 @@ class NativeToolReplSession:
     # text (like a typed message, resolving @file/@image references) before the
     # loop blocks on fresh input. Empty for the bare ``pipy`` / piped-stdin case.
     initial_messages: tuple[str, ...] = field(default_factory=tuple)
+    tool_filter_options: ToolFilterOptions = field(
+        default_factory=ToolFilterOptions.empty
+    )
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -1360,6 +1397,7 @@ class NativeToolReplSession:
         # (the shared built-in registry is never mutated). Extension tools
         # join the bounded tool loop with the same schema validation +
         # output bounds as built-ins.
+        builtin_tool_names = set(self.tool_registry)
         run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
         extension_render_details: dict[str, object] = {}
         extension_tool_renderers: dict[str, ExtensionTool] = {
@@ -1376,7 +1414,26 @@ class NativeToolReplSession:
                 render_details_sink=extension_render_details,
             )
             run_tool_registry[_port.definition.name] = _port
-        active_tool_names: set[str] | None = None
+        filter_names = set(self.tool_filter_options.allow) | set(
+            self.tool_filter_options.exclude
+        )
+        unknown_filter_names = filter_names.difference(run_tool_registry)
+        if unknown_filter_names:
+            known = ", ".join(sorted(run_tool_registry)) or "<none>"
+            unknown = ", ".join(sorted(unknown_filter_names))
+            raise ValueError(
+                f"unknown tool name(s): {unknown}. Known tools: {known}"
+            )
+        filter_configured = self.tool_filter_options != ToolFilterOptions.empty()
+        active_tool_names: set[str] | None = (
+            _filtered_tool_names(
+                builtin_names=builtin_tool_names,
+                all_names=set(run_tool_registry),
+                options=self.tool_filter_options,
+            )
+            if filter_configured
+            else None
+        )
         # Image attachments may reference an owner-only clipboard temp dir
         # (Ctrl+V paste); that dir is added to the image reference roots so a
         # pasted ``@image:<temp>`` resolves while the workspace path policy is
@@ -2503,6 +2560,7 @@ class NativeToolReplSession:
                     # Rebuild this run's tool registry with the reloaded
                     # extension tools.
                     run_tool_registry = dict(self.tool_registry)
+                    builtin_tool_names = set(self.tool_registry)
                     for _registered_tool in _ext_runtime.tools:
                         _port = _ExtensionToolPort(
                             _registered_tool,
@@ -2512,12 +2570,25 @@ class NativeToolReplSession:
                             render_details_sink=extension_render_details,
                         )
                         run_tool_registry[_port.definition.name] = _port
-                    if active_tool_names is not None:
-                        active_tool_names = {
-                            name
-                            for name in active_tool_names
-                            if name in run_tool_registry
-                        }
+                    if filter_configured:
+                        filter_names = set(self.tool_filter_options.allow) | set(
+                            self.tool_filter_options.exclude
+                        )
+                        unknown_filter_names = filter_names.difference(run_tool_registry)
+                        if unknown_filter_names:
+                            known = ", ".join(sorted(run_tool_registry)) or "<none>"
+                            unknown = ", ".join(sorted(unknown_filter_names))
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                f"pipy: unknown tool name(s): {unknown}. "
+                                f"Known tools: {known}",
+                            )
+                        active_tool_names = _filtered_tool_names(
+                            builtin_names=builtin_tool_names,
+                            all_names=set(run_tool_registry),
+                            options=self.tool_filter_options,
+                        )
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
                     emitter.set_lifecycle_hooks(extension_lifecycle_hooks)

@@ -48,6 +48,7 @@ from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.tool_loop_session import ToolFilterOptions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory
@@ -657,6 +658,51 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
             "yet complete (see docs/provider-catalog.md)."
         ),
     )
+    parser.add_argument(
+        "--no-tools",
+        "-nt",
+        dest="no_tools",
+        action="store_true",
+        help="Disable all tools by default (built-in and extension).",
+    )
+    parser.add_argument(
+        "--no-builtin-tools",
+        "-nbt",
+        dest="no_builtin_tools",
+        action="store_true",
+        help="Disable built-in tools by default but keep extension/custom tools enabled.",
+    )
+    parser.add_argument(
+        "--tools",
+        "-t",
+        dest="tools",
+        default=None,
+        metavar="TOOLS",
+        help="Comma-separated allowlist of tool names to enable.",
+    )
+    parser.add_argument(
+        "--exclude-tools",
+        "-xt",
+        dest="exclude_tools",
+        default=None,
+        metavar="TOOLS",
+        help="Comma-separated denylist of tool names to disable.",
+    )
+
+
+def _parse_tool_name_list(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(name for name in (part.strip() for part in value.split(",")) if name)
+
+
+def _tool_filter_options_from_args(args: Any) -> ToolFilterOptions:
+    return ToolFilterOptions(
+        allow=_parse_tool_name_list(getattr(args, "tools", None)),
+        exclude=_parse_tool_name_list(getattr(args, "exclude_tools", None)),
+        no_tools=bool(getattr(args, "no_tools", False)),
+        no_builtin_tools=bool(getattr(args, "no_builtin_tools", False)),
+    )
 
 
 def _parser_subcommands(parser: argparse.ArgumentParser) -> frozenset[str]:
@@ -1036,6 +1082,7 @@ def main(argv: list[str] | None = None) -> int:
                 no_context_files=args.no_context_files,
                 resource_options=resource_options,
                 catalog_state=startup_catalog_state,
+                tool_filter_options=_tool_filter_options_from_args(args),
             )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1766,6 +1813,7 @@ def _tool_repl_adapter_for(
     no_context_files: bool = False,
     resource_options: RuntimeResourceOptions | None = None,
     catalog_state: ProviderCatalogState | None = None,
+    tool_filter_options: ToolFilterOptions | None = None,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     if catalog_state is None:
@@ -1822,6 +1870,7 @@ def _tool_repl_adapter_for(
         system_prompt_source=system_prompt_source,
         append_system_prompt_sources=append_system_prompt_sources,
         resource_options=resource_options,
+        tool_filter_options=tool_filter_options,
     )
 
 

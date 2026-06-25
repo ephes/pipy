@@ -83,7 +83,7 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   `/<name>`); `/clear`, `/status`, `/help`, and `/theme` were removed outright
   (no aliases); `/skill` is kept and pipy now advertises discovered skills in the
   system prompt (loaded via the `read` tool); theme selection moved into
-  `/settings`. Still open: tool allow/deny flags, `--verbose`, `--offline`.
+  `/settings`. Still open: `--verbose`, `--offline`. Tool allow/deny flags (`--tools`/`-t`, `--exclude-tools`/`-xt`, `--no-tools`/`-nt`, and `--no-builtin-tools`/`-nbt`) now ship through the native tool-loop boundary.
 
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the

@@ -1905,3 +1905,26 @@ def test_parse_models_flag_handles_empty_and_levels() -> None:
     assert _parse_models_flag(
         "amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0:high"
     ) == ["amazon-bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"]
+
+
+def test_tool_filter_flags_parse_pi_aliases():
+    from pipy_harness.cli import _tool_filter_options_from_args, build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "repl",
+            "--tools",
+            "read, grep,,",
+            "-xt",
+            "bash",
+            "-nt",
+            "-nbt",
+        ]
+    )
+
+    options = _tool_filter_options_from_args(args)
+    assert options.allow == ("read", "grep")
+    assert options.exclude == ("bash",)
+    assert options.no_tools is True
+    assert options.no_builtin_tools is True

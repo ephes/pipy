@@ -426,3 +426,30 @@ def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path)
         "tool_payload",
     }
     assert forbidden.isdisjoint(metadata.keys())
+
+
+def test_system_prompt_omits_skill_block_when_read_filtered_out(tmp_path: Path, monkeypatch):
+    from pipy_harness.native.tool_loop_session import ToolFilterOptions
+    from pipy_harness.native.tools.read import ReadTool
+
+    skill_path = _write_skill(
+        tmp_path / ".pipy" / "skills",
+        name="demo-skill",
+        description="Demo skill",
+        body="Load me with read.",
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        tool_registry={"read": ReadTool()},
+        tool_filter_options=ToolFilterOptions(no_builtin_tools=True),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+
+    _init_kwargs, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    prompt = str(run_kwargs["system_prompt"])
+    assert "demo-skill" not in prompt
+    assert str(skill_path) not in prompt

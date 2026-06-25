@@ -36,6 +36,7 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
+    ToolFilterOptions,
     production_tool_registry,
 )
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
@@ -171,6 +172,7 @@ class PipyNativeToolReplAdapter:
         abort_event: "threading.Event | None" = None,
         resource_options: RuntimeResourceOptions | None = None,
         initial_messages: tuple[str, ...] = (),
+        tool_filter_options: ToolFilterOptions | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -190,6 +192,7 @@ class PipyNativeToolReplAdapter:
         self.automation_observer = automation_observer
         self.abort_event = abort_event
         self.resource_options = resource_options or RuntimeResourceOptions.empty()
+        self.tool_filter_options = tool_filter_options or ToolFilterOptions.empty()
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -279,9 +282,19 @@ class PipyNativeToolReplAdapter:
         # outside cwd. Bounded to discovered skill directories; deduped; absolute.
         reference_roots = self._reference_roots_with_skill_dirs(skills)
         # Inject the Pi-shaped skill advertisement only when the read tool is in
-        # the active tool set (mirrors Pi's customPromptHasRead gate); the model
-        # loads a skill body with that tool.
-        if "read" in self.tool_registry:
+        # the active provider-visible tool set (mirrors Pi's customPromptHasRead
+        # gate); the model loads a skill body with that tool.
+        read_tool_visible = (
+            "read" in self.tool_registry
+            and not self.tool_filter_options.no_tools
+            and not self.tool_filter_options.no_builtin_tools
+            and (
+                not self.tool_filter_options.allow
+                or "read" in self.tool_filter_options.allow
+            )
+            and "read" not in self.tool_filter_options.exclude
+        )
+        if read_tool_visible:
             composed_system_prompt = compose_system_prompt(
                 base_prompt, discovery
             ) + compose_skills_system_block(skills)
@@ -326,6 +339,7 @@ class PipyNativeToolReplAdapter:
             abort_event=self.abort_event,
             resource_options=self.resource_options,
             initial_messages=self.initial_messages,
+            tool_filter_options=self.tool_filter_options,
         )
         run_output = session.run(
             workspace_root=prepared.cwd,
