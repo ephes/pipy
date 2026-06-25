@@ -226,6 +226,8 @@ still have provider-specific follow-up work tracked in
 | `--session-dir <dir>` | Custom native session store root |
 | `--no-session` | Ephemeral mode; do not save |
 | `--name <name>`, `-n <name>` | Set session display name at startup |
+| `--verbose` | Force startup/resource chrome for this run, even when `quietStartup` is enabled |
+| `--offline` | Disable startup network operations for this run (`PIPY_OFFLINE=1` and `PIPY_SKIP_VERSION_CHECK=1`) |
 
 ### Tool options
 

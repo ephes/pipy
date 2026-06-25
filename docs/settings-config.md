@@ -238,7 +238,9 @@ Top-level scalars:
 - `shellPath?: string`, `shellCommandPrefix?: string`,
   `npmCommand?: string[]` (pipy: rename/remap to a Python-relevant equivalent or
   keep inert; document the decision — pipy has no npm install path today)
-- `quietStartup?: boolean` (default false)
+- `quietStartup?: boolean` (default false) — suppresses startup/resource chrome
+  by default. The per-run `--verbose` CLI flag forces that chrome for the
+  current process without changing the saved setting.
 - `collapseChangelog?: boolean` (default false)
 - `enableInstallTelemetry?: boolean` (Pi default true; **pipy default false** —
   see Version/Update Checks)

@@ -42,6 +42,8 @@ Session startup flags mirror Pi's product workflow:
 | `--session-dir <dir>` | Use a custom native session store root for lookup and writes. |
 | `--name <name>`, `-n <name>` | Set the session display name after open/create/fork. |
 | `--no-session` | Run ephemerally: do not create a native session tree or metadata archive record. |
+| `--verbose` | Force startup/resource chrome for this run, even when `quietStartup` is enabled. |
+| `--offline` | Disable startup network operations for this run by setting pipy's offline/version-check guards. |
 
 `--fork`, `--session-id`, `--session`, `-c`/`--continue`,
 `-r`/`--resume-session`, and `--no-session` are mutually constrained like Pi; an

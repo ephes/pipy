@@ -25,3 +25,8 @@ def test_session_user_docs_match_current_slash_dispatcher_arguments() -> None:
     assert 'Path(path_arg).suffix.lower() == ".jsonl"' in dispatcher
     assert "when `file` ends in `.jsonl`" in usage
     assert "when `file` ends in `.jsonl`" in sessions
+
+    assert "`--verbose`" in usage
+    assert "`--offline`" in usage
+    assert "`--verbose`" in sessions
+    assert "`--offline`" in sessions
