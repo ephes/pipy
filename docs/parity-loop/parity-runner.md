@@ -51,8 +51,8 @@ and `just parity-run-pipy` recipes write a slice report after a clean run. The
 Codex, Claude, and pipy recipes run one gap with the conservative one-hour
 budget used for manual unattended batches; Claude uses Claude Code's unattended
 permission bypass adapter, while pipy dogfoods the native one-shot product path.
-The `*-report` recipe names are retained as explicit aliases for the same
-report-writing behavior.
+The `*-report` recipes do not start a new run; they refresh the latest slice
+report, or a named run's report when passed a label.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
 

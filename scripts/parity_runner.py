@@ -789,21 +789,40 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
     repo = opts.repo
     per_run = per_run_dir(opts.run_dir, opts.run_label)
     if not valid_run_label(opts.run_label):
+        print(f"parity-runner: invalid run label: {opts.run_label!r}", file=sys.stderr)
         return 2
     if not per_run_path_safe(repo, per_run):
+        print(f"parity-runner: run directory is not git-ignored: {per_run}", file=sys.stderr)
         return 2
-    if not tree_clean(repo) or current_branch(repo) != "main":
+    branch = current_branch(repo)
+    if branch != "main":
+        print(f"parity-runner: expected branch main, got {branch}", file=sys.stderr)
+        return 2
+    if not tree_clean(repo):
+        print(
+            "parity-runner: worktree is not clean; commit, stash, or remove changes before starting a run",
+            file=sys.stderr,
+        )
         return 2
     if opts.dry_run:
-        if lock_is_held(repo) or per_run.exists() or not gap_docs_present(repo):
+        if lock_is_held(repo):
+            print("parity-runner: another parity run holds the lock", file=sys.stderr)
+            return 2
+        if per_run.exists():
+            print(f"parity-runner: run directory already exists: {per_run}", file=sys.stderr)
+            return 2
+        if not gap_docs_present(repo):
+            print("parity-runner: required gap docs are missing", file=sys.stderr)
             return 2
         return 0
     if not acquire_lock(repo):
+        print("parity-runner: another parity run holds the lock", file=sys.stderr)
         return 2
     try:
         try:
             per_run.mkdir(parents=True, exist_ok=False)
         except FileExistsError:
+            print(f"parity-runner: run directory already exists: {per_run}", file=sys.stderr)
             return 2
         log = _RunLog(per_run)
         restore_guards = install_no_push_guards(repo)

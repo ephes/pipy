@@ -37,17 +37,17 @@ parity-run-codex-dry label="":
 parity-run-codex label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
-# Alias for the report-writing Codex parity run.
+# Refresh a slice report for the latest run, or for a named run label.
 parity-run-codex-report label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent codex --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
 
 # Run one Claude Code-driven unattended parity gap and write a slice report on success.
 parity-run-claude label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
-# Alias for the report-writing Claude Code parity run.
+# Refresh a slice report for the latest run, or for a named run label.
 parity-run-claude-report label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent claude --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
 
 # Dry-run the pipy-native unattended parity runner without spawning a gap.
 parity-run-pipy-dry label="":
@@ -57,9 +57,9 @@ parity-run-pipy-dry label="":
 parity-run-pipy label="":
     label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
 
-# Alias for the report-writing pipy-native parity run.
+# Refresh a slice report for the latest run, or for a named run label.
 parity-run-pipy-report label="":
-    label="{{label}}"; [ -n "$label" ] || label="parity-$(date -u +%Y%m%dT%H%M%SZ)"; uv run python scripts/parity_runner.py --agent pipy --max-gaps 1 --time-budget 3600 --run-label "$label" --write-report
+    label="{{label}}"; if [ -n "$label" ]; then uv run python scripts/parity_runner.py --report-slice "$label"; else uv run python scripts/parity_runner.py --report-slice; fi
 
 # Dogfood pipy-native against the parity-improve workflow without inventing work.
 parity-improve-pipy-dry:

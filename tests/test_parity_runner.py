@@ -750,6 +750,7 @@ def test_cli_dry_run_requires_gap_docs(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 2
+    assert "required gap docs are missing" in result.stderr
 
 
 def test_cli_rejects_bad_label(tmp_path: Path) -> None:
@@ -768,6 +769,37 @@ def test_cli_rejects_bad_label(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 2
+    assert "invalid run label" in result.stderr
+
+
+def test_cli_preflight_reports_dirty_worktree(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "docs").mkdir()
+    (repo / "docs" / "pi-mono-gap-audit.md").write_text("# gaps\n", encoding="utf-8")
+    (repo / "docs" / "backlog.md").write_text("# backlog\n", encoding="utf-8")
+    (repo / ".gitignore").write_text("docs/parity-loop/runs/*\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore", "docs/pi-mono-gap-audit.md", "docs/backlog.md")
+    _git(repo, "commit", "-q", "-m", "ignore runs")
+    (repo / "scratch.md").write_text("dirty\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(_MOD_PATH),
+            "--repo",
+            str(repo),
+            "--run-dir",
+            str(repo / "docs/parity-loop/runs"),
+            "--run-label",
+            "DRY1",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "worktree is not clean" in result.stderr
 
 
 def test_agent_cmd_uses_codex_exec_adapter() -> None:
