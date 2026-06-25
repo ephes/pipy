@@ -75,6 +75,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Provider/model user documentation now covers listing models, provider/model
   selection, credentials, `models.json`, ds4, thinking/images metadata, and
   current provider follow-ons.
+- Session and compaction user documentation now covers the native product
+  session tree, startup flags, `/session`/`/resume`/`/tree`/`/fork`/`/clone`,
+  durable compaction, export/share pointers, and the separate `pipy-session`
+  metadata/catalog utility.
 - feat(extension-api): editor text helpers for command/shortcut contexts.
   Extensions can read the core prompt buffer, replace it, or paste by replacing
   it with literal text via `ctx.ui.get_editor_text()`,

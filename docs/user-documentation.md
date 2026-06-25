@@ -89,8 +89,11 @@ them only for deeper design detail.
    covers provider setup, credentials, `models.json`, the ds4 example,
    `--list-models`, `/model`, scoped cycling, thinking/images metadata, and the
    remaining provider/model follow-ons.
-4. **Session docs.** User-facing native session tree guide and `pipy-session`
-   catalog guide, with the store split explicit.
+4. **Session docs.** **Shipped:** [Sessions](sessions.md) and
+   [Compaction](compaction.md) cover the native product session tree, startup
+   flags, `/session`/`/resume`/`/tree`/`/fork`/`/clone`, durable compaction,
+   export/share pointers, and the separate `pipy-session` metadata/catalog
+   utility with the store split explicit.
 5. **Settings/keybindings docs.** Land alongside the settings-config track as
    the runtime behavior ships.
 6. **Customization docs.** Skills/templates/themes now; extensions/packages as
