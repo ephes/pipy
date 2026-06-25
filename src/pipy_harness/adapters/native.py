@@ -173,6 +173,7 @@ class PipyNativeToolReplAdapter:
         resource_options: RuntimeResourceOptions | None = None,
         initial_messages: tuple[str, ...] = (),
         tool_filter_options: ToolFilterOptions | None = None,
+        verbose_startup: bool = False,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -193,6 +194,7 @@ class PipyNativeToolReplAdapter:
         self.abort_event = abort_event
         self.resource_options = resource_options or RuntimeResourceOptions.empty()
         self.tool_filter_options = tool_filter_options or ToolFilterOptions.empty()
+        self.verbose_startup = bool(verbose_startup)
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -340,6 +342,7 @@ class PipyNativeToolReplAdapter:
             resource_options=self.resource_options,
             initial_messages=self.initial_messages,
             tool_filter_options=self.tool_filter_options,
+            verbose_startup=self.verbose_startup,
         )
         run_output = session.run(
             workspace_root=prepared.cwd,

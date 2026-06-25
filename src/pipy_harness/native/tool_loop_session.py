@@ -1165,6 +1165,9 @@ class NativeToolReplSession:
     tool_filter_options: ToolFilterOptions = field(
         default_factory=ToolFilterOptions.empty
     )
+    # Pi `--verbose`: force startup/resource chrome even when quietStartup is
+    # enabled in settings, without mutating the persisted setting.
+    verbose_startup: bool = False
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -1919,7 +1922,9 @@ class NativeToolReplSession:
         )
         if terminal_ui is None:
             print_startup_chrome(
-                error_stream, cwd=cwd, quiet=settings.get_quiet_startup()
+                error_stream,
+                cwd=cwd,
+                quiet=settings.get_quiet_startup() and not self.verbose_startup,
             )
             if self.resume_context is not None:
                 print(
@@ -2621,7 +2626,7 @@ class NativeToolReplSession:
                                 error_stream,
                                 f"pipy: kept prior {scope} settings ({detail}).",
                             )
-                    if not settings.get_quiet_startup():
+                    if self.verbose_startup or not settings.get_quiet_startup():
                         print_startup_chrome(error_stream, cwd=cwd)
                     self._emit_diagnostic(
                         terminal_ui,

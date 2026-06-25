@@ -36,6 +36,8 @@ SUBS = {
         (["-p", "x"], ["repl", "-p", "x"]),  # one-shot
         (["@file.py", "summarize"], ["repl", "@file.py", "summarize"]),
         (["--list-models"], ["repl", "--list-models"]),  # repl flag -> repl
+        (["--verbose"], ["repl", "--verbose"]),
+        (["--offline"], ["repl", "--offline"]),
         (["repl", "--model", "m"], ["repl", "--model", "m"]),  # subcommand unchanged
         (["run", "--agent", "a"], ["run", "--agent", "a"]),
         (["auth"], ["auth"]),  # reserved word -> subcommand (exception)

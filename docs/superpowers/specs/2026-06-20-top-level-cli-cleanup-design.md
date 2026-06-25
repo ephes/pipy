@@ -218,9 +218,10 @@ metadata-only JSON object.
 - Approach B (promoting repl args to the top-level parser) — optional later
   refactor; not required for the user-visible Pi-shape.
 - Removing the kept extras (decision 3 keeps them).
-- `--verbose` / `--offline` and tool allow/deny flags (`--tools`/`--no-tools`/
-  `--no-builtin-tools`/`--exclude-tools`) — separate §2 parity gaps, not part of
-  the cleanup.
+- Tool allow/deny flags (`--tools`/`--no-tools`/`--no-builtin-tools`/
+  `--exclude-tools`) were separate §2 parity gaps and have since shipped; this
+  cleanup spec also left `--verbose` / `--offline` to a later slice, which has
+  since shipped.
 - User-documentation parity (separate topic).
 
 ## Testing & verification

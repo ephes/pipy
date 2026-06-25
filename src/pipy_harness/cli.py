@@ -58,6 +58,8 @@ from pipy_harness.native.export_distribution import (
     export_from_file,
 )
 from pipy_harness.native.version_check import (
+    PIPY_OFFLINE_ENV,
+    PIPY_SKIP_VERSION_CHECK_ENV,
     compare_versions,
     fetch_latest_pipy_version,
     pipy_version,
@@ -509,6 +511,21 @@ def build_parser() -> argparse.ArgumentParser:
             "injected into the system prompt, or recorded as safe metadata."
         ),
     )
+    repl_parser.add_argument(
+        "--verbose",
+        dest="verbose_startup",
+        action="store_true",
+        help=(
+            "Force verbose startup chrome for this run, overriding the "
+            "quietStartup setting without changing it (Pi `--verbose`)."
+        ),
+    )
+    repl_parser.add_argument(
+        "--offline",
+        dest="offline",
+        action="store_true",
+        help="Disable startup network operations for this run (same as PIPY_OFFLINE=1).",
+    )
 
     config_parser = subparsers.add_parser(
         "config",
@@ -874,6 +891,9 @@ def main(argv: list[str] | None = None) -> int:
     # the repl extension-flag passthrough's "unknown extension flag".
     _guard_removed_flags(parser, raw_argv)
     args, unknown_args = parser.parse_known_args(raw_argv)
+    if bool(getattr(args, "offline", False)):
+        os.environ[PIPY_OFFLINE_ENV] = "1"
+        os.environ[PIPY_SKIP_VERSION_CHECK_ENV] = "1"
     if unknown_args and getattr(args, "command", None) != "repl":
         parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
     if unknown_args and getattr(args, "command", None) == "repl":
@@ -1083,6 +1103,7 @@ def main(argv: list[str] | None = None) -> int:
                 resource_options=resource_options,
                 catalog_state=startup_catalog_state,
                 tool_filter_options=_tool_filter_options_from_args(args),
+                verbose_startup=bool(getattr(args, "verbose_startup", False)),
             )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1814,6 +1835,7 @@ def _tool_repl_adapter_for(
     resource_options: RuntimeResourceOptions | None = None,
     catalog_state: ProviderCatalogState | None = None,
     tool_filter_options: ToolFilterOptions | None = None,
+    verbose_startup: bool = False,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     if catalog_state is None:
@@ -1871,6 +1893,7 @@ def _tool_repl_adapter_for(
         append_system_prompt_sources=append_system_prompt_sources,
         resource_options=resource_options,
         tool_filter_options=tool_filter_options,
+        verbose_startup=verbose_startup,
     )
 
 

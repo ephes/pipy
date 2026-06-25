@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from io import StringIO
@@ -16,6 +17,7 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.version_check import PIPY_OFFLINE_ENV, PIPY_SKIP_VERSION_CHECK_ENV
 from pipy_session import (
     inspect_finalized_session,
     list_finalized_sessions,
@@ -284,6 +286,39 @@ def test_cli_native_repl_explicit_prompt_toolkit_rejects_captured_stream_before_
     assert captured.out == ""
     assert "pipy: prompt-toolkit input requires the process stdin and stderr TTY streams" in captured.err
     assert not list(root.glob("**/*.jsonl"))
+
+
+def test_cli_offline_sets_startup_network_guards(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv(PIPY_OFFLINE_ENV, raising=False)
+    monkeypatch.delenv(PIPY_SKIP_VERSION_CHECK_ENV, raising=False)
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+
+    exit_code = main(["--offline", "--no-session", "--cwd", str(tmp_path)])
+
+    assert exit_code == 0
+    assert os.environ[PIPY_OFFLINE_ENV] == "1"
+    assert os.environ[PIPY_SKIP_VERSION_CHECK_ENV] == "1"
+
+
+def test_cli_verbose_overrides_quiet_startup(tmp_path, capfd, monkeypatch) -> None:
+    config_home = tmp_path / "config"
+    config_home.mkdir()
+    (config_home / "settings.json").write_text(
+        json.dumps({"quietStartup": True}), encoding="utf-8"
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+
+    quiet_exit = main(["--no-session", "--cwd", str(tmp_path)])
+    quiet_captured = capfd.readouterr()
+    assert quiet_exit == 0
+    assert "pipy v" not in quiet_captured.err
+
+    monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
+    verbose_exit = main(["--verbose", "--no-session", "--cwd", str(tmp_path)])
+    verbose_captured = capfd.readouterr()
+    assert verbose_exit == 0
+    assert "pipy v" in verbose_captured.err
 
 
 def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, monkeypatch) -> None:
