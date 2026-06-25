@@ -611,3 +611,86 @@ def test_non_interactive_notify_degrades(tmp_path: Path) -> None:
     assert dispatch is not None
     assert dispatch.ran is True
     assert dispatch.messages == (("info", "noui"),)
+
+
+def test_command_context_exposes_read_only_session_manager(tmp_path):
+    workspace = _make_workspace(tmp_path)
+    captured = {}
+
+    def handler(ctx, args):
+        session = ctx.session_manager
+        alias = ctx.sessionManager
+        captured["same"] = alias is session
+        captured["cwd"] = session.get_cwd()
+        captured["session_id"] = session.get_session_id()
+        captured["session_file"] = session.get_session_file()
+        captured["session_dir"] = session.get_session_dir()
+        captured["name"] = session.get_session_name()
+        captured["leaf_id"] = session.get_leaf_id()
+        captured["leaf_entry_type"] = session.get_leaf_entry().type
+        captured["entries"] = [entry.type for entry in session.get_entries()]
+        captured["branch"] = [entry.type for entry in session.get_branch()]
+        captured["label"] = session.get_label(session.get_entries()[0].id)
+        captured["tree_label"] = session.get_tree()[0].label
+        captured["header"] = session.get_header().to_dict()
+        captured["entry_dict"] = session.get_leaf_entry().to_dict()
+        captured["has_mutation"] = hasattr(session, "append_custom")
+
+    tree = NativeSessionTree.create(workspace, session_dir=tmp_path / "sessions")
+    first = tree.append_custom("note", {"body": "hello"})
+    tree.append_label_change(first.id, "bookmark")
+    tree.append_session_info("demo")
+    command = type("C", (), {})()
+    command.handler = handler
+    command_map = {"inspect": command}
+
+    dispatch = dispatch_extension_command(
+        "/inspect", command_map, cwd=str(workspace), has_ui=True, session_tree=tree
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert captured["same"] is True
+    assert captured["cwd"] == str(workspace)
+    assert captured["session_id"] == tree.session_id
+    assert captured["session_file"] == str(tree.path)
+    assert captured["session_dir"] == str(tree.path.parent)
+    assert captured["name"] == "demo"
+    assert captured["leaf_id"] == tree.get_leaf_id()
+    assert captured["leaf_entry_type"] == "session_info"
+    assert captured["entries"] == ["custom", "label", "session_info"]
+    assert captured["branch"] == ["custom", "label", "session_info"]
+    assert captured["label"] == "bookmark"
+    assert captured["tree_label"] == "bookmark"
+    assert captured["header"]["id"] == tree.session_id
+    assert captured["entry_dict"]["type"] == "session_info"
+    assert captured["has_mutation"] is False
+
+
+def test_command_context_session_manager_is_empty_without_session(tmp_path):
+    workspace = _make_workspace(tmp_path)
+    captured = {}
+
+    def handler(ctx, args):
+        captured["id"] = ctx.session_manager.get_session_id()
+        captured["entries"] = ctx.session_manager.get_entries()
+        captured["header"] = ctx.sessionManager.get_header().to_dict()
+
+    command = type("C", (), {})()
+    command.handler = handler
+    command_map = {"inspect": command}
+    dispatch = dispatch_extension_command(
+        "/inspect", command_map, cwd=str(workspace), has_ui=False
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert captured["id"] is None
+    assert captured["entries"] == ()
+    assert captured["header"] == {
+        "id": None,
+        "timestamp": None,
+        "cwd": None,
+        "version": None,
+        "parentSession": None,
+    }

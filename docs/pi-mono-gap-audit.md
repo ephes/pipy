@@ -213,6 +213,11 @@ Pipy current state:
   mechanism so the next frame repaints. `path` is always `None` (the session
   theme registry retains only `name -> palette`; package file paths are not
   exposed to extension code).
+- Extension slice 22 has shipped: read-only command/shortcut session-manager
+  helpers — `ctx.session_manager` plus Pi-shaped `ctx.sessionManager` expose the
+  active native session's cwd, dir/file/id, header, entries, labels,
+  branch/tree, leaf, and session name through immutable view objects, without
+  exposing `NativeSessionTree` mutation methods.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -238,7 +243,8 @@ Follow-ons:
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed
-   tool-loop `ctx.flags` slice, and extension state/session-manager views.
+   tool-loop `ctx.flags` slice, and extension state helpers beyond the landed
+   read-only command/shortcut session-manager view.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.

@@ -63,7 +63,11 @@ footer, the terminal title, and a custom working indicator
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
-live-session follow-on slice. Per-run source-loading flags for extensions,
+live-session follow-on slice. Command/shortcut handlers also expose a read-only
+Pi-shaped session-manager view as `ctx.session_manager` / `ctx.sessionManager`,
+covering the active native session's cwd, dir/file/id, header, entries, labels,
+branch/tree, leaf, and session name without handing extensions the mutable
+`NativeSessionTree`. Per-run source-loading flags for extensions,
 skills, prompt templates, and themes have landed. A first dynamic extension flag
 slice also ships for `pipy repl` tool-loop runs: extensions register
 boolean/string `ExtensionFlag` objects, matching unknown CLI tokens are parsed
@@ -301,11 +305,29 @@ class PipyExtensionAPI(Protocol):
     def on(self, event: str, handler: Callable[..., object] | None = None) -> object: ...
 
 
+class SessionManagerView(Protocol):
+    def get_cwd(self) -> str | None: ...
+    def get_session_dir(self) -> str | None: ...
+    def get_session_id(self) -> str | None: ...
+    def get_session_file(self) -> str | None: ...
+    def get_leaf_id(self) -> str | None: ...
+    def get_leaf_entry(self) -> "SessionEntryView | None": ...
+    def get_entry(self, entry_id: str) -> "SessionEntryView | None": ...
+    def get_label(self, entry_id: str) -> str | None: ...
+    def get_branch(self, from_id: str | None = None) -> tuple["SessionEntryView", ...]: ...
+    def get_header(self) -> "SessionHeaderView": ...
+    def get_entries(self) -> tuple["SessionEntryView", ...]: ...
+    def get_tree(self) -> tuple["SessionTreeNodeView", ...]: ...
+    def get_session_name(self) -> str | None: ...
+
+
 class CommandContext(Protocol):
     cwd: str
     has_ui: bool
     ui: "ExtensionUi"
     conversation: "ConversationView"
+    session_manager: "SessionManagerView"
+    sessionManager: "SessionManagerView"  # Pi-shaped alias for translated extensions.
     flags: Mapping[str, object]
 
     def complete(self, system_prompt: str, user_text: str) -> str: ...
@@ -931,7 +953,9 @@ imports only loadable descriptors.
 Beyond the first numbered slices, an **interactive command-context block** has also
 landed to support porting Pi's `answer.ts`
 (`docs/examples/extensions/answer.py`): the command/shortcut context now exposes
-`ctx.conversation.last_assistant_message()` (read-only), a bounded one-shot
+`ctx.conversation.last_assistant_message()` (read-only), a read-only
+`ctx.session_manager` / `ctx.sessionManager` view over the active native session
+(id/file/dir/cwd/header/entries/labels/branch/tree/name), a bounded one-shot
 `ctx.complete(system_prompt, user_text)` on the active provider, a full-screen
 `ctx.ui.custom(factory)` interactive overlay (`ToolLoopTerminalUi.run_custom_component`),
 and `api.register_shortcut(key, handler)` keyboard shortcuts. The simple UI

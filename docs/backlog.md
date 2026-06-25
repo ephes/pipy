@@ -201,8 +201,9 @@ not a promise to skip review when a smaller, safer slice appears.
    and local-path/managed-git package runtime composition plus package `update`
    (installed packages contribute skills/prompts/themes/extensions through
    discovery). It is still **Pi-shaped rather than Pi-equivalent**: rich
-   extension UI/rendering, broader session hooks, dynamic controls, and
-   PyPI/npm package sources remain follow-ons.
+   extension UI/rendering, broader session hooks, dynamic controls, extension
+   state helpers beyond the landed read-only session-manager view, and PyPI/npm
+   package sources remain follow-ons.
 5. Session workflows — **shipped (2026-06-02)**. The native product session
    tree (`pipy_harness.native.session_tree`) is now pipy's product session
    store, a raw private append-only JSONL tree like Pi's
@@ -1447,15 +1448,19 @@ interactive command/shortcut contexts and returns `None` headlessly; the same
 contexts can now read and replace the core prompt via
 `ctx.ui.get_editor_text()` and `ctx.ui.set_editor_text(text)`, with
 `ctx.ui.paste_to_editor(text)` currently replacing the buffer with the literal
-pasted text. The next largest remaining parity topic is still the broader
+pasted text. The read-only command/shortcut session-manager helper has shipped
+too: `ctx.session_manager` / `ctx.sessionManager` expose immutable views of the
+active native session's cwd, file/id/header, entries, labels, branch/tree, leaf,
+and session name. The next largest remaining parity topic is still the broader
 extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, extension
-  session-manager helpers, broader dynamic-flag integration, or future
+  richer hooks/UI, OAuth-provider extension registration, extension state
+  helpers beyond the landed session-manager view, broader dynamic-flag
+  integration, or future
   PyPI/npm package sources after supply-chain policy; and
 - keep any future non-git remote source work behind explicit supply-chain
   policy and an isolated cache.

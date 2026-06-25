@@ -2209,6 +2209,7 @@ class NativeToolReplSession:
                         set_thinking_level_fn=extension_set_thinking_level,
                         append_entry_fn=extension_append_entry,
                         flags=extension_flag_values,
+                        session_tree=session_tree,
                     )
                     if (
                         shortcut_dispatch is not None
@@ -3252,6 +3253,7 @@ class NativeToolReplSession:
                         set_thinking_level_fn=extension_set_thinking_level,
                         append_entry_fn=extension_append_entry,
                         flags=extension_flag_values,
+                        session_tree=session_tree,
                     )
                     if extension_dispatch is not None:
                         # Notifications already surfaced live via the sink while
