@@ -2,10 +2,12 @@
 
 `resolve_app_mode` mirrors Pi's ``resolveAppMode`` precedence
 (`packages/coding-agent/src/main.ts`): ``--mode rpc`` > ``--mode json`` >
-(``--print`` or non-TTY stdin) > interactive. ``run_json_mode`` drives the real
-tool-loop adapter for one prompt, emits the native session header line first,
-then the full Pi-shaped event stream, then exits. ``run_print_mode`` prints
-only the final assistant text.
+(``--print`` or non-TTY stdin) > interactive. The product ``pipy`` CLI overrides
+the non-TTY stdin branch so bare piped input remains interactive unless
+``--print``/``--mode`` is explicit. ``run_json_mode`` drives the real tool-loop
+adapter for one prompt, emits the native session header line first, then the
+full Pi-shaped event stream, then exits. ``run_print_mode`` prints only the
+final assistant text.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ from pipy_harness.native.session_tree import NativeSessionTree
         ("json", True, False, "json"),  # json wins over print/non-tty
         ("text", True, True, "print"),  # --print selects text one-shot
         (None, True, True, "print"),
-        (None, False, False, "print"),  # non-TTY stdin defaults to print
+        (None, False, False, "print"),  # Low-level Pi resolver; CLI overrides.
         (None, False, True, "interactive"),
         ("text", False, True, "interactive"),
     ],

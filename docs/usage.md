@@ -188,10 +188,12 @@ deferred pending supply-chain policy.
 | `--mode rpc` | Start the long-lived stdin/stdout JSONL RPC protocol |
 | `--export <in> [out]` | Export a native session JSONL file to HTML and exit |
 
-In print mode, piped stdin is merged into the initial prompt:
+In print mode, piped stdin is used as the prompt when no positional prompt is
+provided. If you pass a quoted prompt, pipy uses that prompt and does not append
+stdin to it:
 
 ```bash
-cat README.md | pipy -p "Summarize this text"
+cat README.md | pipy -p
 ```
 
 ### Model options

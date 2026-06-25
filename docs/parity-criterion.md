@@ -58,7 +58,7 @@ features in `~/src/pi-mono`, or map only loosely to Pi behavior. Per the parity
 principle (`parity-plan.md` §1), a pipy-only surface is **removed or realigned to
 Pi** unless there is a genuinely good reason to keep it — privacy and security
 are not good reasons. The full rationale and actions are in
-[parity-plan.md](parity-plan.md) §3; this table is the criterion-side summary.
+[parity-plan.md](/parity-plan/) §3; this table is the criterion-side summary.
 These surfaces are kept out of Pi-parity scoring, but "keep out of scoring" no
 longer means "keep the surface."
 
@@ -150,7 +150,7 @@ row was dropped.
 | C5 | Session catalog (list/search/inspect) | ✅ | `uv run pipy-session list && uv run pipy-session search --help` |
 | C6 | Provider port abstraction | ✅ | `test -f src/pipy_harness/native/provider.py` |
 | C7 | Tool port + registry | ✅ | `grep -q 'production_tool_registry' src/pipy_harness/native/tool_loop_session.py` |
-| C8 | Workspace context (AGENTS.md/CLAUDE.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
+| C8 | Workspace context (AGENTS.md/pipy.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
 | C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/tool_loop_session.py` |
 | C11 | .git default-deny + symlink resolution | ✅ | `grep -q '_resolved_relative_label' src/pipy_harness/native/read_only_tool.py` |
@@ -322,10 +322,10 @@ For the anti-gaming bar:
   with a behavior check that seeds a temp record and unit tests.
 - **dynamic provider swap (E5)**: a mid-session `/model` switch through
   `NativeReplProviderState.select_model` rebinds the live provider/model in
-  both REPL product paths, preserving availability gates and non-secret
+  the product REPL, preserving availability gates and non-secret
   default persistence, clearing/rebinding conversation state and refreshing
   the visible status/footer, with no provider/tool/archive side effects during
-  selection — proved by a behavior check across both REPLs plus focused tests.
+  selection — proved by a behavior check plus focused tests.
 
 A "big" feature can ONLY count toward the anti-gaming bar after both:
 (a) its Verify command passes, and (b) `just check` is green with its tests.

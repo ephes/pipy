@@ -526,10 +526,11 @@ no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
 
 - `-p`/`--print` selects text one-shot mode. An immediately following bare
   argument that is not a flag/`@file` is consumed as the prompt.
-- Mode resolution precedence matches `resolveAppMode(...)`: `--mode rpc` -> rpc;
-  `--mode json` -> json full-event stream; `--print` **or non-TTY stdin** ->
-  text one-shot; otherwise interactive. So piping into pipy with no TTY behaves
-  like `-p` by default.
+- The low-level automation resolver mirrors Pi's `resolveAppMode(...)`, where
+  non-TTY stdin can select text one-shot mode. The product `pipy` CLI
+  deliberately overrides that part: bare piped stdin stays interactive REPL
+  input, so callers select one-shot behavior explicitly with `--print`/`-p`.
+  `--print` reads stdin only when no positional prompt is provided.
 - On a failed/aborted final assistant message, text mode prints the error to
   stderr and exits non-zero; otherwise it prints each assistant text content
   block to stdout and exits 0.
@@ -743,8 +744,9 @@ calls.
 - Async `prompt`: success response is emitted only after preflight; events
   stream before the next command is processed; `steer`/`follow_up`/`abort` are
   accepted mid-turn and emit `queue_update`.
-- Mode resolution: `--mode rpc`, `--mode json`, `--print`/`-p`, and non-TTY
-  stdin default each select the correct mode.
+- Mode resolution: `--mode rpc`, `--mode json`, and `--print`/`-p` each select
+  the correct mode; bare non-TTY stdin remains interactive unless a headless
+  mode is explicit.
 - Session ops rebind: after `switch_session`/`fork`/`clone`/`new_session`,
   events come from the new active session; an extension cancel yields
   `{cancelled:true}` and no rebind.

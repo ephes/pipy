@@ -124,7 +124,7 @@ pipy -p "@src/app.py explain the main flow"
 
 Text file references are loaded as bounded excerpts. Clipboard and drag image
 references are supported in the TUI where the terminal exposes the needed data;
-see [Terminal Setup](terminal-setup.md) for caveats.
+see [Terminal Setup](/terminal-setup/) for caveats.
 
 ### Run shell commands
 
@@ -166,13 +166,15 @@ Use Pi-shaped one-shot and automation modes through the product command:
 
 ```bash
 pipy -p "Summarize this codebase"
-cat README.md | pipy -p "Summarize this text"
+cat README.md | pipy -p
 pipy --mode json "Summarize README.md"
 pipy --mode rpc
 ```
 
-`--mode json` emits a full session event stream as JSON lines. `--mode rpc`
-starts a long-lived stdin/stdout JSONL protocol.
+`-p` reads piped stdin only when no positional prompt is provided. `--mode json`
+also accepts either a quoted prompt or piped stdin, and emits a full session
+event stream as JSON lines. `--mode rpc` starts a long-lived stdin/stdout JSONL
+protocol.
 
 ## Where local state is written
 
@@ -192,7 +194,7 @@ commit secrets or local state files to a project.
 
 - [Using pipy](usage.md) — interactive mode, slash commands, sessions, context
   files, and CLI reference.
-- [Terminal Setup](terminal-setup.md) and [tmux Setup](tmux.md) — terminal
+- [Terminal Setup](/terminal-setup/) and [tmux Setup](/tmux/) — terminal
   behavior, paste, scrollback, clipboard/images, and key caveats.
 - [Python SDK and Headless Embedding](sdk.md) — in-process embedding.
 - [Automation & RPC](automation-rpc.md) — JSON/RPC details.

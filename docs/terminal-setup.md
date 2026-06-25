@@ -74,7 +74,7 @@ settings action, not a `/theme` command.
 ### Ghostty, Kitty, iTerm2, WezTerm
 
 These terminals are the easiest path for pipy's TUI. If modified Enter keys do
-not work through tmux, configure tmux as described in [tmux Setup](tmux.md).
+not work through tmux, configure tmux as described in [tmux Setup](/tmux/).
 
 ### VS Code Integrated Terminal
 

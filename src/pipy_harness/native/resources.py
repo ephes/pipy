@@ -2,12 +2,11 @@
 
 This is the pipy-owned runtime consumer that turns the display-only
 `.pipy/skills`, `.pipy/templates`, and `.pipy/commands` discovery
-loaders into executable resources for both REPL product paths (the
-no-tool line editor and the bounded tool loop / product TUI).
+loaders into executable resources for the product tool-loop session.
 
 `WorkspaceResources.discover` runs the three loaders once for a
 workspace + global root. `dispatch_resource_command` is a pure
-function shared by both REPL paths: given a typed line and the
+function: given a typed line and the
 discovered resources it returns a `ResourceDispatch` describing the
 local-command outcome — list, run (a bounded provider-visible
 message), or reject (fail closed, no provider turn) — or `None` when

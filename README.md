@@ -442,10 +442,10 @@ also appear as their own `/<name>` command (see "Runtime resources" below).
 
 The model reads and edits files through the model-visible `read`, `ls`, `grep`,
 `find`, `write`, `edit`, `edit_diff`, and `bash` tools rather than dedicated
-slash commands. Workspace context (`AGENTS.md` / `CLAUDE.md` ancestors plus the
-global pipy config root) is discovered and composed into the native bootstrap
-system prompt across the real providers, bounded by 64 KiB per file and
-256 KiB total.
+slash commands. Workspace context (`AGENTS.md`, `AGENTS.MD`, `pipy.md`, or
+`PIPY.md` from ancestors plus the global pipy config root) is discovered and
+composed into the native bootstrap system prompt across the real providers,
+bounded by 64 KiB per file and 256 KiB total.
 
 ### Runtime resources: skills, prompt templates, custom commands
 

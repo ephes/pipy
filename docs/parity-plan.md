@@ -147,7 +147,7 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--skill` / `--no-skills, -ns` | ✅ explicit file/dir loading + default-discovery disable | [settings-config.md](settings-config.md) |
 | `--prompt-template` / `--no-prompt-templates, -np` | ✅ explicit file/dir loading + default-discovery disable | [settings-config.md](settings-config.md) |
 | `--theme` / `--no-themes` | ✅ explicit file/dir loading + package-theme discovery disable; active theme still selected by settings, `PIPY_THEME`, or the `/settings` theme picker | [settings-config.md](settings-config.md) |
-| `--no-context-files, -nc` | ✅ disables AGENTS/CLAUDE discovery | [settings-config.md](settings-config.md) |
+| `--no-context-files, -nc` | ✅ disables AGENTS.md / pipy.md context discovery | [settings-config.md](settings-config.md) |
 | `--export <file>` | ✅ top-level `pipy --export <session.jsonl> [output.html]` exports native sessions to HTML and exits | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ❌ missing | [settings-config.md](settings-config.md) |
 | `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |

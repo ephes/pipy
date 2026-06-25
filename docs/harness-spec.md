@@ -2,8 +2,8 @@
 
 Status: stable design rationale and behavioral invariants for the pipy
 harness. For current implementation state and parity status see
-[architecture.md](architecture.md) and [pi-parity.md](pi-parity.md).
-For forward planning and parity tracks see [backlog.md](backlog.md).
+[architecture.md](/architecture/) and [pi-parity.md](/pi-parity/).
+For forward planning and parity tracks see [backlog.md](/backlog/).
 
 <style>
 .mermaid,
@@ -33,9 +33,9 @@ the foundation for pipy's own agent surface:
 
 The existing `pipy-session` package remains the recorder and archive layer. The
 harness should call it instead of creating a parallel transcript format. The
-current in-process embedding surface is documented in [sdk.md](sdk.md); the
+current in-process embedding surface is documented in [sdk.md](/sdk/); the
 planned out-of-process JSON/RPC automation surfaces are specified in
-[automation-rpc.md](automation-rpc.md).
+[automation-rpc.md](/automation-rpc/).
 
 ## Non-Goals
 
@@ -52,7 +52,7 @@ planned out-of-process JSON/RPC automation surfaces are specified in
   since shipped as the product session source of truth — a private append-only
   JSONL conversation tree with in-place `/tree` navigation, sibling branches,
   `/fork`/`/clone`, durable `/compact`, branch summaries, and Pi-style startup
-  flags; see [session-tree.md](session-tree.md). The metadata-first
+  flags; see [session-tree.md](/session-tree/). The metadata-first
   `pipy-session` archive remains a separate summary-safe catalog and is not the
   product session source.)
 - Do not change the finalized session archive layout documented in
@@ -437,7 +437,7 @@ do not create provider turns or archive auth material.
 > their own `/<template-name>` commands). `/skill` is **kept**, and pipy now
 > advertises discovered skills in the tool-loop system prompt (loaded on demand
 > via the `read` tool); theme selection moved into `/settings` (see
-> [parity-plan.md](parity-plan.md) §3). The historical prose below documents the
+> [parity-plan.md](/parity-plan/) §3). The historical prose below documents the
 > now-removed no-tool shell and its decision trail; read it as a record, not the
 > current product surface.
 
@@ -450,9 +450,9 @@ uv run pipy repl --agent pipy-native --slug native-repl
 
 It is intentionally a thin REPL over the same native provider/session/turn core
 used by one-shot `pipy run --agent pipy-native`. Bare `pipy` defaults to the
-native REPL in the current directory with slug `native-repl`. The REPL creates
-a normal harness record and runs a bounded `NativeNoToolReplSession` with one
-fresh pipy-owned `NativeConversationState`.
+native REPL in the current directory with slug `native-repl`. The product REPL
+runs the bounded model-visible tool-loop session with fresh pipy-owned
+conversation state.
 
 Each non-empty non-command input line becomes one provider turn. Provider
 construction is late-bound: immediately before each provider-visible turn, the
@@ -519,7 +519,7 @@ discovery). Outcomes:
 - `/skill` with no argument prints a local listing (names + descriptions only;
   no bodies) and issues no provider turn. (`/skill` is **kept** — it is
   parity-consistent with Pi's `/skill:name` expansion; see
-  [parity-plan.md](parity-plan.md) §3.)
+  [parity-plan.md](/parity-plan/) §3.)
 - `/skill <name>` loads the skill body. Prompt templates are invokable as their
   own `/<template-name> [args]` commands — the pipy-only `/template` wrapper has
   been **removed** (Pi has no literal `/template`; it invokes templates as
@@ -539,7 +539,7 @@ archived. Resource lifecycle metadata is limited to safe fields
 in `NativeToolReplResult`. Resource invocations are excluded from the local
 prompt history. (The opt-in `--archive-transcript` transcript sidecar has since been
 **removed**; the native session tree is the transcript — see
-[session-tree.md](session-tree.md) and `/export`.) The `[Skills]`
+[session-tree.md](/session-tree/) and `/export`.) The `[Skills]`
 startup-chrome section lists the loadable skill names from the same loader the
 dispatcher uses.
 The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
@@ -607,7 +607,7 @@ system layers a global `<config>/settings.json` (the `PIPY_CONFIG_HOME` →
 (`defaultProvider`/`defaultModel`), theme, quietStartup, prompt-history, and
 `autocompleteMaxVisible` at startup, with CLI flags as a final override and the
 legacy local-state stores kept as caches/fallbacks. See
-[settings-config.md](settings-config.md) for the full surface.
+[settings-config.md](/settings-config/) for the full surface.
 
 `/model` is an executable interactive provider/model selector in the product
 TUI. Bare `/model` opens an in-frame selector (`ToolLoopTerminalUi.run_model_selector`)
@@ -717,7 +717,7 @@ sidecars, and metadata-first archive policy stay behind the existing native
 session/tool/provider ports.
 
 The Pi-style interactive editor surfaces from
-[tui-workflow.md](tui-workflow.md) have shipped on this shell, all stdlib-only
+[tui-workflow.md](/tui-workflow/) have shipped on this shell, all stdlib-only
 and inline (no alternate screen): the `@` file picker
 (`pipy_harness.native.editor_completion`, exact/prefix/substring ranking
 mirroring Pi's `scoreEntry`, not fuzzy) and general Tab path completion; `!`/`!!`
@@ -1062,7 +1062,7 @@ The Pi-style **native product session tree** has since shipped and is the
 product session source of truth (`pipy_harness.native.session_tree`); full
 `/tree` navigation, sibling branches, `/fork`/`/clone`, durable `/compact`, and
 Pi-style startup flags read and write it. See
-[`session-tree.md`](session-tree.md) for the full behavior and the conformance
+[`session-tree.md`](/session-tree/) for the full behavior and the conformance
 gate. The metadata-archive workflows described below remain accurate for the
 **secondary `pipy-session` archive** (a summary-safe catalog/learning surface),
 which is *not* the product session source:
@@ -1084,11 +1084,11 @@ which is *not* the product session source:
   tool-call/observation pair, no exposed raw tool payload). The summary folded
   back into the provider system prompt is counts only; the dropped raw context
   is discarded from the live in-memory request. Triggers are an explicit
-  `/compact` command and an automatic threshold in both REPL modes. In the
-  tool-loop product runtime, `/compact` additionally appends a durable
+  `/compact` command and an automatic threshold. In the product runtime,
+  `/compact` additionally appends a durable
   `compaction` entry (with `firstKeptEntryId`) to the native product session
   tree so reload and `/tree` navigation rebuild an equivalent reduced context;
-  see [`session-tree.md`](session-tree.md).
+  see [`session-tree.md`](/session-tree/).
 - **Archive metadata** stays counts/labels only: `native.session.compacted`
   carries drop/retain counts, before/after byte totals, and a trigger label.
 
@@ -2036,7 +2036,7 @@ Focused tests run alongside implementation:
 ## Deferred Work
 
 For the current task-slice backlog and next-step ordering, see
-[backlog.md](backlog.md). The list below records broader deferred design areas.
+[backlog.md](/backlog/). The list below records broader deferred design areas.
 
 - Full native pipy agent runtime beyond the current scope.
 - Codex JSONL event adapter.
@@ -2051,7 +2051,7 @@ For the current task-slice backlog and next-step ordering, see
 - Network/wire-protocol RPC **daemon**. The in-process Python SDK at
   `pipy_harness.sdk` is in place, and the Pi-style **stdin/stdout** JSONL
   automation protocol has shipped — `pipy repl --mode json`/`--mode rpc`/
-  `--print` ([automation-rpc.md](automation-rpc.md)), gated by
+  `--print` ([automation-rpc.md](/automation-rpc/)), gated by
   `scripts/parity_checks/automation_rpc_conformance.py --json`. Only a
   long-running **network** server / socket transport remains deferred; Pi's
   `--mode rpc` is itself a stdin/stdout protocol, not a network daemon.

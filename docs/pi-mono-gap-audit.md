@@ -264,7 +264,7 @@ Implement in pipy:
    [quickstart.md](quickstart.md) and [usage.md](usage.md) cover first run,
    provider setup, common TUI/session workflows, and the current CLI reference.
    Terminal setup and tmux pages also ship:
-   [terminal-setup.md](terminal-setup.md), [tmux.md](tmux.md).
+   [terminal-setup.md](/terminal-setup/), [tmux.md](/tmux/).
 2. Remaining user docs: providers/models, sessions, settings, keybindings,
    customization, automation, SDK/RPC, and install/update deep dives.
 3. Keep README short and outside-in.

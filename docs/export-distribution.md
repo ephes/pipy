@@ -7,7 +7,7 @@ slice-12 closeout on 2026-06-17.
 This document defines the pipy target for real feature parity with Pi's
 export / import / share / distribution / self-update surfaces. It is based on
 the local reference checkout at `/Users/jochen/src/pi-mono`. It is a companion
-to [session-tree.md](session-tree.md): the native session tree is the product
+to [session-tree.md](/session-tree/): the native session tree is the product
 source of truth that these surfaces export, import, and share. It is not a
 TypeScript port; pipy reaches Pi-shaped behavior through pipy-owned Python
 boundaries, stdlib-only, with no new runtime dependencies.
@@ -420,7 +420,7 @@ instructions and the executable location instead of running anything.
 
 The pipy extension/package install/remove/list/config flows (the Python-only,
 Pi-shaped equivalents of `pi install`/`remove`/`list`/`config` plus extension
-updates) are owned by [extension-api.md](extension-api.md) and specified there,
+updates) are owned by [extension-api.md](/extension-api/) and specified there,
 not here. **This spec covers only pipy's self-update and version-check
 surfaces.** The bare-`pipy update` "update both extensions and self" behavior is
 a cross-cutting concern: this spec defines the self half, and the extension half
@@ -480,7 +480,7 @@ Provide a Pi-shaped update CLI, mapped to Python tooling:
   installing an unrelated package that happens to use the development project
   name.
 - A bare `pipy update` now composes both halves: it updates installed extension
-  packages through [extension-api.md](extension-api.md)'s managed package update
+  packages through [extension-api.md](/extension-api/)'s managed package update
   path, then runs this self-update half. `--extensions` / `--extension <source>`
   select package updates only; `self` / `pipy` selects self-update only.
 
@@ -488,7 +488,7 @@ Provide a Pi-shaped update CLI, mapped to Python tooling:
 surface. The broader
 `install`/`remove`/`uninstall`/`list`/`config` extension/package management and
 extension-update flows are the extension-platform concern owned by
-[extension-api.md](extension-api.md); this spec only requires self-update and
+[extension-api.md](/extension-api/); this spec only requires self-update and
 the version-check notice. Document those extension/package commands there, not
 here.
 

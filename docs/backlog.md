@@ -71,14 +71,15 @@ The broad parity ladder, applied with small-slice discipline:
   The stdlib-only `slash-menu` raw-mode line editor, stdlib `readline`
   adapter, and Workspace-relative path completion remain part of the
   input-parity ladder.
-- Context/resource loading: safe AGENTS/CLAUDE-style instruction discovery
+- Context/resource loading: safe pipy-owned instruction discovery
   with metadata-only archive behavior. Runtime resource loading for skills,
   prompt templates, and custom slash commands has now shipped (see the
-  Runtime Resource Loading Track below): `/skill`, `/template`, and workspace
-  custom `/<name>` commands run through `pipy_harness.native.resources` in
-  both REPL product paths, and the `[Skills]` chrome section lists the
-  loadable skill names. Chrome color themes also now ship via `/theme`
-  (`pipy_harness.native.themes`). Pi-shaped per-run source-loading flags now
+  Runtime Resource Loading Track below): `/skill`, prompt templates as their
+  own `/<template-name>` commands, and workspace custom `/<name>` commands run
+  through `pipy_harness.native.resources` in the product tool-loop session, and
+  the `[Skills]` chrome section lists the loadable skill names. Chrome color
+  themes now ship through `pipy_harness.native.themes` and are selected in
+  `/settings`. Pi-shaped per-run source-loading flags now
   load explicit extension/skill/prompt-template/theme files or directories
   while the matching `--no-*` flags disable default discovery. Managed git
   package install/update now ships; a mature PyPI/npm package ecosystem remains
@@ -229,7 +230,7 @@ not a promise to skip review when a smaller, safer slice appears.
    auto-loaded into the system prompt, repeated bounded file reads can load
    multiple text files across turns, and user-directed `@file` references in a
    submitted prompt now load bounded excerpts (multiple per turn, de-duped,
-   fail-closed) into the next provider request in both REPL modes through the
+   fail-closed) into the next provider request in the product REPL through the
    shared bounded reader. Still missing are pasted image/binary attachments,
    richer context pickers, and broader repo/resource maps.
 8. Active-turn cancellation fidelity — **resolved**. Escape **and** Ctrl-C during
@@ -416,11 +417,9 @@ a parity virtue or a reason to diverge from Pi.
 
 ## Tool-Loop Parity Track
 
-The bounded model-selected tool loop behind
-`pipy repl --agent pipy-native --repl-mode tool-loop` is now implemented.
-It shipped as twelve reviewed slices plus an OpenRouter response-parser
-follow-up and a first-review fix-up commit, all alongside the existing
-no-tool REPL and the existing slash-command boundaries. Each slice
+The bounded model-selected tool loop behind the product `pipy repl` path is now
+implemented. It shipped as twelve reviewed slices plus an OpenRouter
+response-parser follow-up and a first-review fix-up commit. Each slice
 landed as a named conventional commit with focused tests, `just check`,
 updated docs, and a stop for review. OpenRouter was the first real
 provider with `supports_tool_calls=True`; OpenAI Responses and OpenAI
@@ -532,7 +531,7 @@ shipped in later parity work:
 - ~~Automatic `@file` content reads from completion-only references.~~
   (Historical: was out of scope for this track. User-directed `@file` content
   reads subsequently shipped — a submitted prompt's `@path` references load
-  bounded excerpts through the shared bounded reader in both REPL modes.)
+  bounded excerpts through the shared bounded reader in the product REPL.)
 - Persistent shell history and a full interactive TUI.
 - Additional providers beyond `openai`, `openai-codex`, and `openrouter`.
   Shipped later for the eight providers listed in `docs/parity-criterion.md`.
@@ -637,26 +636,16 @@ These hold throughout the track, not as later deferrals:
 
 The named Pi-parity track after the
 [OpenAI Responses + OpenAI Codex Tool-Call Parity Track](#openai-responses-openai-codex-tool-call-parity-track)
-added AGENTS.md / CLAUDE.md discovery and injection into the native
-pipy system prompt and has now shipped end-to-end across the
-one-shot runner, the `--repl-mode no-tool` REPL, and the
-`--repl-mode tool-loop` REPL for `openai`, `openai-codex`, and
-`openrouter`. The track landed as four reviewed conventional
-commits (docs-only opener, pure loader plus unit tests,
-system-prompt wiring plus round-trip tests, docs cleanup and close)
-with focused tests, `just check`, updated docs, and a stop for
-review at each slice. Pi's `loadProjectContextFiles` in
-`pi-mono/packages/coding-agent/src/core/resource-loader.ts` resolves
-its global agent configuration root, walks from the workspace upward
-through every parent directory, picks the first existing file per
-directory in the candidate list `AGENTS.md > AGENTS.MD > CLAUDE.md >
-CLAUDE.MD`, and dedupes by canonical path; the returned list is
-composed global-first, then ancestors from the root-most ancestor
-down to the workspace's direct parent, then the workspace itself
-last, so more-specific instructions override earlier ones. Pipy
-slopforks the same behavior through pipy-owned Python boundaries in
-`pipy_harness.native.workspace_context`, not as a literal
-TypeScript port.
+added pipy-owned workspace instruction discovery and injection into the native
+pipy system prompt. It now ships end-to-end through `pipy run --agent
+pipy-native` and the single product tool-loop REPL for the native providers. The
+loader resolves the global pipy config root, walks from the workspace upward
+through every parent directory, picks the first existing file per directory in
+the candidate list `AGENTS.md > AGENTS.MD > pipy.md > PIPY.md`, and dedupes by
+canonical path; the returned list is composed global-first, then ancestors from
+the root-most ancestor down to the workspace's direct parent, then the workspace
+itself last, so more-specific instructions override earlier ones. `CLAUDE.md`,
+`.codex/...`, and other neighboring-agent files are intentionally not loaded.
 
 Use this section together with the matching design notes in
 `docs/harness-spec.md` (`Workspace Context Loading Parity Track`)
@@ -666,10 +655,9 @@ and the parity-map entry in `docs/pi-parity.md`
 ### Goal
 
 - `pipy repl --agent pipy-native` and `pipy run --agent pipy-native`
-  send a system prompt that includes the workspace's `AGENTS.md` /
-  `CLAUDE.md` content plus any parent-walk and global instructions,
-  in both `--repl-mode tool-loop` and `--repl-mode no-tool`, across
-  `openai`, `openai-codex`, and `openrouter`.
+  send a system prompt that includes the workspace's selected instruction file
+  (`AGENTS.md`, `AGENTS.MD`, `pipy.md`, or `PIPY.md`) plus any parent-walk and
+  global pipy instructions, across native providers.
 - A round-trip smoke shows the model honoring an instruction stated
   only in `AGENTS.md` and a hermetic test pins the same against the
   fake provider.
@@ -707,20 +695,19 @@ and the parity-map entry in `docs/pi-parity.md`
    tests pin every rule. No REPL or run wiring in this slice.
 3. System-prompt wiring and archive metadata. Compose the system
    prompt from the existing bootstrap base plus the discovered
-   instructions, and pass it through `PipyNativeAdapter` (one-shot),
-   `PipyNativeReplAdapter` (no-tool REPL), and
-   `PipyNativeToolReplAdapter` (tool-loop). Record per-run
+   instructions, and pass it through the one-shot native runner and product
+   tool-loop REPL. Record per-run
    `workspace_instruction_files` metadata (workspace-relative or
    `<global>` label, sha256, byte length) in the session safe
    context. Pin that bodies never appear in JSONL, the Markdown
-   summary, or the `--archive-transcript` sidecar. Ship a hermetic
+   summary, or the native session tree. Ship a hermetic
    round-trip test against a request-capturing fake provider that
    proves an `AGENTS.md` instruction reaches
-   `ProviderRequest.system_prompt` across both REPL modes and the
-   one-shot runner.
+   `ProviderRequest.system_prompt` across the product REPL and one-shot
+   runner.
 4. Docs cleanup and close. Move the parity-map row to "Implemented",
    remove the "Still To Slopfork" / "Deferred" wording for
-   AGENTS/CLAUDE-style context discovery, refresh the Pi Parity
+   AGENTS/pipy-style context discovery, refresh the Pi Parity
    Roadmap context/resource-loading bullet, and run a real-provider
    smoke (recorded as a metadata-only `pipy-session`) that honors an
    `AGENTS.md`-only instruction end-to-end.
@@ -733,11 +720,10 @@ These hold throughout the track, not as later deferrals:
   `pipy_session.recorder` records no instruction bodies in any
   slice; only safe per-file metadata (path label, sha256, byte
   length). Pinned by tests.
-- The opt-in `--archive-transcript` sidecar contracts (path,
-  exclusion from `pipy-session list/search/inspect`, off-by-default)
-  stay unchanged. Instruction bodies never reach the sidecar.
-- `.git` default-deny posture and existing slash commands (`/read`,
-  `/ask-file`, `/propose-file`, `/apply-proposal`) keep working unchanged in both REPL modes.
+- The full native session tree is the transcript store; instruction bodies
+  never reach the metadata-first archive.
+- `.git` default-deny posture remains in force; file access now goes through
+  model-visible tools rather than the removed no-tool proposal commands.
 - No new runtime dependencies. Stdlib plus manual dict validation
   only. No pydantic, jsonschema, or attrs.
 - Reuse the existing `ProviderPort` message envelope and
@@ -853,12 +839,10 @@ These hold throughout the track, not as later deferrals:
   `pipy_session.recorder` records no streamed chunk bodies, deltas,
   prompts, model text, tool payloads, file contents, or diffs in
   any slice. Pinned by tests.
-- The opt-in `--archive-transcript` sidecar contracts (path,
-  filename-safe id, regular owner-only file, symlink refusal,
-  exclusion from `pipy-session list/search/inspect`, off-by-default)
-  stay unchanged. Streamed chunks never reach the sidecar.
-- `.git` default-deny posture and existing slash commands (`/read`,
-  `/ask-file`, `/propose-file`, `/apply-proposal`) keep working unchanged in both REPL modes.
+- The full native session tree is the transcript store; streamed chunks never
+  reach the metadata-first archive.
+- `.git` default-deny posture remains in force; file access now goes through
+  model-visible tools rather than the removed no-tool proposal commands.
 - No new runtime dependencies. Stdlib plus manual dict validation
   only. No pydantic, jsonschema, attrs, anyio, or trio.
 - Reuse the existing `ProviderPort`, `ProviderRequest`, and
@@ -934,10 +918,9 @@ shorthand for the detailed finding (e.g. `01:F3` is finding F3 in
   invariant.
 - `.git` default-deny, symlink containment, and bounded byte caps
   remain in force across every tool and resource loader.
-- The bounded model-driven tool loop, `--archive-transcript` sidecar
-  contracts, `/login`/`/logout`/`/model`/`/clear`/`/status` slash
-  commands, and the public read/apply boundary all keep working
-  in both REPL modes.
+- The bounded model-driven tool loop, native session tree, and current
+  `/login`/`/logout`/`/model`/`/settings` commands keep working through the
+  single product REPL.
 - "Bad state impossible by construction" beats "bad state handled at
   runtime." When a finding offers both options, prefer the structural
   fix.
@@ -953,8 +936,8 @@ module is live.
    one `state.select_model` call, used only by its own test).
    Refs: `02:F18`, `07:F10`. **Done, and the capability (E5) is now
    ✅** — not by recreating the wrapper, but by verifying the live
-   `/model` swap through the shared `NativeReplProviderState` boundary in
-   both REPL product paths (`scripts/parity_checks/dynamic_provider_behavior.py`).
+   `/model` swap through the shared `NativeReplProviderState` boundary in the
+   product REPL (`scripts/parity_checks/dynamic_provider_behavior.py`).
 2. Remove `pipy_harness.native.approval_prompt` (410 L; ten reasons,
    six statuses, three value objects, zero non-test, non-re-export call
    sites). Refs: `07:F11`.
@@ -1417,7 +1400,7 @@ workspace-relative excerpts per REPL session. Automatic `@file` reads,
 model-selected paths remained deferred at that point. Native provider-visible
 repo context policy is complete. (Update: user-directed `@file` context has
 since shipped — a submitted prompt's `@path` references load bounded excerpts
-through the shared bounded reader in both REPL modes and the product TUI.)
+through the shared bounded reader in the product REPL and product TUI.)
 
 Native tool-loop TUI shell: real-TTY tool-loop sessions now use a pipy-owned
 alternate-screen terminal UI with retained startup/context rows, submitted
@@ -1859,16 +1842,15 @@ What shipped:
   oversized bodies (per-file + total byte caps with truncation marker), and
   symlink-escapes.
 - `pipy_harness.native.resources` is the registry + pure
-  `dispatch_resource_command` consumed by both REPL product paths. `/skill`
-  and `/template` list (bare) or run (named); custom `/<name>` commands run
-  through the same local-command boundary as built-ins and cannot shadow a
-  reserved built-in name. Unknown/unsafe/empty resources fail closed with no
-  provider turn.
-- Wiring: `session.py` (no-tool) and `tool_loop_session.py` (tool loop +
-  product TUI). The TUI slash menu and the no-tool completion set advertise
-  `/skill`, `/template`, and discovered custom commands; no-tool-only
-  commands stay out of the tool-loop menu. The `[Skills]` chrome section now
-  lists loadable skill names from the loader.
+  `dispatch_resource_command` consumed by the product tool-loop session.
+  `/skill` lists or runs discovered skills; prompt templates register as their
+  own `/<template-name>` commands; custom `/<name>` commands run through the
+  same local-command boundary as built-ins and cannot shadow a reserved built-in
+  name. Unknown/unsafe/empty resources fail closed with no provider turn.
+- Wiring: `tool_loop_session.py` plus the product TUI. The TUI slash menu
+  advertises `/skill`, prompt-template commands, and discovered custom
+  commands. The `[Skills]` chrome section now lists loadable skill names from
+  the loader.
 
 Privacy: only safe counters/labels are recorded. The no-tool path emits
 `native.resource.invoked` / `native.resource.rejected` events carrying

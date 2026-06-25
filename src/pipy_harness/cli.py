@@ -504,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="no_context_files",
         action="store_true",
         help=(
-            "Disable AGENTS.md / CLAUDE.md context-file discovery for this run "
+            "Disable AGENTS.md / pipy.md context-file discovery for this run "
             "(Pi `--no-context-files`/`-nc`): no instruction files are read, "
             "injected into the system prompt, or recorded as safe metadata."
         ),

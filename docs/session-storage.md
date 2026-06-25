@@ -7,7 +7,7 @@
 > metadata-first archive is demoted to an optional, non-default utility. Its
 > "metadata-only / privacy-first" posture is a pipy preference, **not** a parity
 > virtue, and must not be cited as a reason to diverge from Pi (which stores,
-> streams, and exports full session content). See [parity-plan.md](parity-plan.md)
+> streams, and exports full session content). See [parity-plan.md](/parity-plan/)
 > §3. The privacy rules below still govern *this* archive while it exists.
 
 Pipy should learn from coding-agent work without coupling the core product to any one agent UI. Session storage is therefore treated as a product capability, not as a Textual, CLI, Codex, Claude, or Pi feature.

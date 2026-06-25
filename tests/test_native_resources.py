@@ -1,6 +1,6 @@
 """Unit tests for the runtime resource registry and dispatcher.
 
-These pin the pure dispatch contract used by both REPL product paths:
+These pin the pure dispatch contract used by the product tool-loop session:
 list / run / reject / pass-through, fail-closed behaviour for unknown
 or unsafe resources, reserved-name collision handling, and the
 archive-safe metadata projection (no body, description, or expanded

@@ -1,11 +1,11 @@
 """Shared pytest fixtures for the pipy test suite.
 
-The native REPL chrome now discovers global resources under the user's
-home directory (``~/.claude/skills``, ``~/.claude/CLAUDE.md``, …) when
-rendering ``[Context]`` and ``[Skills]`` sections in the startup chrome.
-To keep unit/integration tests deterministic, this conftest reroutes the
-home directory to a per-test temporary path so test runs don't pick up
-the developer's real Claude/Codex resources.
+The native REPL chrome discovers global pipy resources under the user's
+home/config directory (for example ``~/.pipy/AGENTS.md`` and
+``~/.pipy/skills``) when rendering ``[Context]`` and ``[Skills]`` sections
+in the startup chrome. To keep unit/integration tests deterministic, this
+conftest reroutes the home directory to a per-test temporary path so test
+runs don't pick up the developer's real pipy resources.
 
 Tests that want to assert global-discovery behaviour create their own
 home directory layout inside the fixture-provided tmp path.

@@ -38,7 +38,7 @@ Discovery rules (pinned by `tests/test_native_workspace_context.py`):
   the directory it was found in is skipped, and the loader falls
   through to the next candidate name for the same directory. This
   closes the `AGENTS.md -> /etc/secrets`-style escape vector without
-  blocking a legitimate `CLAUDE.md` from the same directory.
+  blocking a legitimate `pipy.md` from the same directory.
 - Each file loads at most `per_file_byte_cap` bytes into the prompt. If
   the file is longer, the loader returns the truncated bytes with a
   deterministic marker appended and `truncated=True`. `byte_length` and
@@ -105,7 +105,7 @@ WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER: str = (
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceInstructionFile:
-    """One discovered AGENTS.md / CLAUDE.md instruction file.
+    """One discovered AGENTS.md / pipy.md instruction file.
 
     `path_label` is workspace-relative POSIX for files in or under the
     workspace (for example, `AGENTS.md`), `..`-prefixed relative POSIX for

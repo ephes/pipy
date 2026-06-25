@@ -97,8 +97,8 @@ them only for deeper design detail.
    planned until the extension platform ships.
 7. **Automation docs.** JSON/RPC pages land with the automation track; SDK docs
    can start with the current Python SDK.
-8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](terminal-setup.md)
-   and [tmux Setup](tmux.md) cover TUI behavior, tmux, paste, scrollback,
+8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](/terminal-setup/)
+   and [tmux Setup](/tmux/) cover TUI behavior, tmux, paste, scrollback,
    keyboard caveats, clipboard/image/drop behavior, and platform-specific
    notes.
 
