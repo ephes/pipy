@@ -1519,6 +1519,68 @@ def test_tool_filter_options_filter_provider_visible_tools(tmp_path: Path):
     assert seen == [("echo",)]
 
 
+def test_unfiltered_tool_visibility_includes_extension_tools_added_by_reload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # No CLI filter is different from an explicit active-name snapshot: after a
+    # reload, newly discovered extension tools must become provider-visible.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    dynamic_tool_file = extension_dir / "dynamic_tool.py"
+    (extension_dir / "installer.py").write_text(
+        "from pathlib import Path\n"
+        f"DYNAMIC_TOOL = Path({str(dynamic_tool_file)!r})\n"
+        "def install(ctx, args):\n"
+        "    DYNAMIC_TOOL.write_text(\n"
+        "        \"from pipy_harness.extensions import ExtensionTool, ToolResult\\n\"\n"
+        "        \"def activate(api):\\n\"\n"
+        "        \"    api.register_tool(ExtensionTool(\\n\"\n"
+        "        \"        name='dynamic_tool', description='added on reload',\\n\"\n"
+        "        \"        input_schema={'type': 'object'},\\n\"\n"
+        "        \"        handler=lambda ctx, params: ToolResult(content='ok'),\\n\"\n"
+        "        \"    ))\\n\"\n"
+        "    )\n"
+        "def activate(api):\n"
+        "    api.register_command('install-tool', 'install a tool', install)\n",
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, ...]] = []
+
+    @dataclass(frozen=True, slots=True)
+    class RecordingProvider:
+        supports_tool_calls: bool = True
+        name: str = "recording"
+        model_id: str = "recording-model"
+
+        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+            seen.append(tuple(tool.name for tool in request.available_tools))
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ok",
+                usage={},
+                tool_calls=(),
+            )
+
+    session = NativeToolReplSession(
+        provider=RecordingProvider(), tool_registry={"echo": _FixtureEchoTool()}
+    )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/install-tool\n/reload\ngo\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert seen == [("echo", "dynamic_tool")]
+
+
 def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
     from pipy_harness.native.tool_loop_session import ToolFilterOptions
 
