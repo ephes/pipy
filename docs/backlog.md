@@ -1596,9 +1596,10 @@ product TUI or captured-stream diagnostics. Active-branch custom entries replay
 into startup-opened TUI sessions without mutating the session file. Renderer
 crashes fail soft, non-JSON data is converted before persistence, and the
 metadata-first archive remains unaffected. Render-once custom tool renderers now
-ship (slice 17); live (invalidate-driven) tool renderers, in-session
-full-history redraw on `/resume` switches, and multi-widget message components
-remain follow-ons.
+ship (slice 17), and their renderer map refreshes across `/reload` so added,
+changed, or removed extension renderers take effect without restarting the
+session. Live (invalidate-driven) tool renderers, in-session full-history redraw
+on `/resume` switches, and multi-widget message components remain follow-ons.
 
 Extension UI editor follow-on: command/shortcut handlers can call
 `ctx.ui.editor(title, prefill=None)` to open a focused multi-line editor overlay

@@ -1177,11 +1177,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     returns a non-component, or returns an uncoercible value falls back to pipy's
     default tool-row rendering. Deferred: live invalidation/partial updates,
     `renderShell:"self"` self-framing, and overriding built-in tool renderers.
-    Known follow-on: the extension tool-renderer **map is not refreshed across
-    `/reload`** — the renderer is constructed once per session, so renderers added
-    or changed by a reloaded extension are not picked up until restart (the
-    details sink *is* wired on the reload path). This matches the reload Open
-    Question below. Known limitation: the captured/non-TTY path dispatches
+    The extension tool-renderer map now refreshes on `/reload`: renderers added,
+    removed, or changed by the reloaded extension generation are applied to the
+    existing session renderer without restarting, and stale renderers disappear
+    with removed/disabled extensions. Known limitation: the captured/non-TTY path
+    dispatches
     `render_call`/`render_result` with a **fixed width (80 columns) and
     `expanded=False`** because it has no live terminal width or Ctrl+O expansion
     state; only the interactive TUI passes the real terminal width and the live

@@ -186,3 +186,82 @@ def test_captured_renderer_emits_custom_call_lines(tmp_path):
                          arguments_json="{}")
     )
     assert "CALL:kv" in err.getvalue()
+
+
+def test_captured_renderer_refreshes_tool_renderers_after_reload():
+    from pipy_harness.native.models import ProviderToolCall
+    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    first = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component(["CALL:first"]),
+    )
+    second = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component(["CALL:second"]),
+    )
+    renderer = _ToolLoopRenderer(
+        output_stream=out, error_stream=err,
+        tool_renderers={"kv": first}, render_details_sink={},
+    )
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c1", tool_name="kv",
+                         arguments_json="{}")
+    )
+    renderer.refresh_tool_renderers({"kv": second})
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c2", tool_name="kv",
+                         arguments_json="{}")
+    )
+    renderer.refresh_tool_renderers({})
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c3", tool_name="kv",
+                         arguments_json="{}")
+    )
+
+    rendered = err.getvalue()
+    assert "CALL:first" in rendered
+    assert "CALL:second" in rendered
+    assert rendered.count("CALL:second") == 1
+    assert "CALL:kv" not in rendered
+
+
+def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
+    from pipy_harness.native.models import ProviderToolCall
+
+    first = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component(["CALL:first"]),
+    )
+    second = ExtensionTool(
+        name="kv", description="d", input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component(["CALL:second"]),
+    )
+    ui = _tui(tmp_path)
+    renderer = _TuiToolLoopRenderer(ui=ui, tool_renderers={"kv": first})
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c1", tool_name="kv",
+                         arguments_json="{}")
+    )
+    renderer.refresh_tool_renderers({"kv": second})
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c2", tool_name="kv",
+                         arguments_json="{}")
+    )
+    renderer.refresh_tool_renderers({})
+    renderer.render_tool_call(
+        ProviderToolCall(provider_correlation_id="c3", tool_name="kv",
+                         arguments_json="{}")
+    )
+
+    custom_blocks = [b for b in ui._history_blocks if b[0] == "tool_call_custom"]
+    assert [tuple(b[1]) for b in custom_blocks] == [
+        ("CALL:first",),
+        ("CALL:second",),
+    ]
+    assert ui._history_blocks[-1][0] == "tool"

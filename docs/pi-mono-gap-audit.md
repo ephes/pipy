@@ -176,7 +176,9 @@ Pipy current state:
 - Extension slice 17 has shipped: custom tool renderers — `ExtensionTool`
   `render_call`/`render_result` callables render an extension's own tool
   call/result rows with themed color (render-once snapshot, fail-soft fallback)
-  in both the product TUI and captured output.
+  in both the product TUI and captured output. The renderer map now refreshes
+  across `/reload`, so added/changed/removed extension renderers take effect in
+  the existing session.
 - Extension slice 18 has shipped: persistent chrome widgets —
   `ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`
   pin an above/below-editor widget, an exclusive custom header and footer, the

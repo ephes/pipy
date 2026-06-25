@@ -38,7 +38,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.capture import sanitize_text
@@ -1403,11 +1403,7 @@ class NativeToolReplSession:
         builtin_tool_names = set(self.tool_registry)
         run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
         extension_render_details: dict[str, object] = {}
-        extension_tool_renderers: dict[str, ExtensionTool] = {
-            rt.tool.name: rt.tool
-            for rt in _ext_runtime.tools
-            if rt.tool.render_call is not None or rt.tool.render_result is not None
-        }
+        extension_tool_renderers = _extension_tool_renderer_map(_ext_runtime.tools)
         for _registered_tool in _ext_runtime.tools:
             _port = _ExtensionToolPort(
                 _registered_tool,
@@ -2560,10 +2556,14 @@ class NativeToolReplSession:
                                         error_stream,
                                         f"pipy: {message}.",
                                     )
-                    # Rebuild this run's tool registry with the reloaded
-                    # extension tools.
+                    # Rebuild this run's tool registry and custom renderer map
+                    # with the reloaded extension tools.
                     run_tool_registry = dict(self.tool_registry)
                     builtin_tool_names = set(self.tool_registry)
+                    extension_tool_renderers = _extension_tool_renderer_map(
+                        _ext_runtime.tools
+                    )
+                    renderer.refresh_tool_renderers(extension_tool_renderers)
                     for _registered_tool in _ext_runtime.tools:
                         _port = _ExtensionToolPort(
                             _registered_tool,
@@ -5773,6 +5773,11 @@ class _ToolLoopRenderer:
         self._pending_render: dict[str, object] | None = None
         self._last_tool_name = ""
 
+    def refresh_tool_renderers(
+        self, tool_renderers: "Mapping[str, ExtensionTool]"
+    ) -> None:
+        self._tool_renderers = dict(tool_renderers)
+
     @staticmethod
     def _compute_enabled(stream: TextIO) -> bool:
         if "NO_COLOR" in os.environ:
@@ -6519,6 +6524,11 @@ class _TuiToolLoopRenderer:
     def streamed_any(self) -> bool:
         return self._streamed_any
 
+    def refresh_tool_renderers(
+        self, tool_renderers: Mapping[str, ExtensionTool]
+    ) -> None:
+        self._tool_renderers = dict(tool_renderers)
+
     @property
     def stream_sink(self) -> StreamChunkSink:
         return self._handle_stream_chunk
@@ -6726,6 +6736,17 @@ class _TuiToolLoopRenderer:
         self._working_thread = None
         if clear:
             self._ui.clear_working()
+
+
+def _extension_tool_renderer_map(
+    tools: Iterable[RegisteredTool],
+) -> dict[str, ExtensionTool]:
+    return {
+        registered.tool.name: registered.tool
+        for registered in tools
+        if registered.tool.render_call is not None
+        or registered.tool.render_result is not None
+    }
 
 
 def _plain_tool_call_header(call: ProviderToolCall) -> str:
