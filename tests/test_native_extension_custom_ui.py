@@ -320,6 +320,15 @@ class _FakeUiDriver:
     def set_working_indicator(self, frames, interval_ms: int | None) -> None:
         self.chrome.append(("set_working_indicator", (frames, interval_ms)))
 
+    def get_editor_text(self) -> str:
+        return ""
+
+    def set_editor_text(self, text: str) -> None:
+        self.chrome.append(("set_editor_text", text))
+
+    def paste_to_editor(self, text: str) -> None:
+        self.chrome.append(("paste_to_editor", text))
+
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         self.chrome.append(("apply_theme", name))
         return True, None

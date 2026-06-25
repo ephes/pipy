@@ -1443,9 +1443,12 @@ and render them locally without a provider turn. Active-branch custom entries
 now replay into startup-opened TUI sessions through the registered renderer
 available for that run. The extension UI editor helper has also shipped:
 `ctx.ui.editor(...)` opens a focused multi-line product-TUI overlay in
-interactive command/shortcut contexts and returns `None` headlessly. The next
-largest remaining parity topic is still the broader extension/package platform
-follow-on area.
+interactive command/shortcut contexts and returns `None` headlessly; the same
+contexts can now read and replace the core prompt via
+`ctx.ui.get_editor_text()` and `ctx.ui.set_editor_text(text)`, with
+`ctx.ui.paste_to_editor(text)` currently replacing the buffer with the literal
+pasted text. The next largest remaining parity topic is still the broader
+extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
 
@@ -1630,9 +1633,10 @@ simple `ctx.ui` select/input/confirm/editor/status/working primitives,
 live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. They do not yet cover Pi's richer
 extension APIs: live (invalidate-driven) tool rendering beyond the landed
-render-once snapshot, richer multi-widget `ctx.ui`
-dialogs/custom-editor/autocomplete beyond the simple primitives (theme controls
-— `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — now ship),
+render-once snapshot, richer multi-widget `ctx.ui` dialogs, custom editor
+component, and autocomplete providers beyond the simple primitives (theme
+controls — `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — and editor
+text helpers now ship),
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader
 dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources

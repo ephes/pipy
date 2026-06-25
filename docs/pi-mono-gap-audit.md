@@ -223,7 +223,9 @@ Follow-ons:
 
 1. Richer Pi extension APIs: a custom editor component (rich-UI item D),
    autocomplete providers (theme controls — rich-UI item E,
-   `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — now ship), and
+   `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — now ship; editor
+   text helpers `ctx.ui.get_editor_text`/`set_editor_text`/`paste_to_editor` now
+   ship), and
    live per-frame
    component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /

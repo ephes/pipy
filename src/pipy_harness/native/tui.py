@@ -1460,13 +1460,34 @@ class ToolLoopTerminalUi:
         self.paint()
 
     def set_input_text(self, text: str) -> None:
-        """Pre-fill the next ``read_line`` prompt with ``text``.
+        """Pre-fill the current or next ``read_line`` prompt with ``text``.
 
-        Used by ``/tree`` to rehydrate the editor with a selected user message
-        so the user can edit it into a new branch.
+        Used by ``/tree`` and extension UI helpers to rehydrate the editor with
+        selected text so the user can edit it into a new branch or follow-up.
         """
 
-        self._pending_initial_text = text
+        value = str(text)
+        self._pending_initial_text = value
+        self.input_text = value
+        self.input_cursor = len(value)
+        self._close_autocomplete()
+
+    def get_input_text(self) -> str:
+        """Return the current core editor text, including pending prefill."""
+
+        if self._pending_initial_text is not None:
+            return self._pending_initial_text
+        return self.input_text
+
+    def paste_input_text(self, text: str) -> None:
+        """Paste text into the core editor.
+
+        This slice keeps paste literal and equivalent to replacing the editor
+        buffer; the separate method preserves the Pi-shaped API boundary for
+        future paste-collapse behavior.
+        """
+
+        self.set_input_text(str(text))
 
     def run_tree_selector(
         self,

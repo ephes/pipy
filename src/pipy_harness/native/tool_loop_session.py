@@ -610,6 +610,15 @@ class _LiveExtensionUiDriver:
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
         self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
 
+    def get_editor_text(self) -> str:
+        return self._terminal_ui.get_input_text()
+
+    def set_editor_text(self, text: str) -> None:
+        self._terminal_ui.set_input_text(text)
+
+    def paste_to_editor(self, text: str) -> None:
+        self._terminal_ui.paste_input_text(text)
+
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
 

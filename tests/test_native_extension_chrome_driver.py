@@ -24,6 +24,8 @@ class _FakeUi:
     def __init__(self):
         self.extension_status = {"s": "v"}
         self.calls = []
+        self.input_text = "draft"
+        self.pasted = []
 
     def set_extension_widget(self, key, content, *, placement):
         self.calls.append(("widget", key, content, placement))
@@ -39,6 +41,18 @@ class _FakeUi:
 
     def set_extension_working_indicator(self, frames, interval_ms):
         self.calls.append(("indicator", frames, interval_ms))
+
+    def get_input_text(self):
+        return self.input_text
+
+    def set_input_text(self, text):
+        self.calls.append(("set-input", text))
+        self.input_text = text
+
+    def paste_input_text(self, text):
+        self.calls.append(("paste-input", text))
+        self.pasted.append(text)
+        self.input_text = text
 
 
 def test_driver_delegates_all_five(tmp_path):
@@ -73,6 +87,22 @@ def test_driver_footer_none_passes_none(tmp_path):
     driver = _LiveExtensionUiDriver(ui, tmp_path)
     driver.set_footer(None)
     assert ui.calls[-1] == ("footer", None, None)
+
+
+def test_driver_delegates_editor_text_helpers(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+
+    assert driver.get_editor_text() == "draft"
+
+    driver.set_editor_text("set")
+    assert ui.input_text == "set"
+    assert ui.calls[-1] == ("set-input", "set")
+
+    driver.paste_to_editor("paste")
+    assert ui.input_text == "paste"
+    assert ui.pasted == ["paste"]
+    assert ui.calls[-1] == ("paste-input", "paste")
 
 
 def test_lifecycle_hook_reaches_live_ui_driver(tmp_path):

@@ -1548,6 +1548,22 @@ def test_tui_settings_dialog_renders_rows_with_highlight_and_affordances(
     assert "active: fake/fake-native-bootstrap" in rendered
 
 
+def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+
+    assert ui.get_input_text() == ""
+
+    ui.set_input_text("draft")
+    assert ui.get_input_text() == "draft"
+    assert ui.input_text == "draft"
+    assert ui.input_cursor == len("draft")
+
+    ui.paste_input_text("pasted\ntext")
+    assert ui.get_input_text() == "pasted\ntext"
+    assert ui.input_text == "pasted\ntext"
+    assert ui.input_cursor == len("pasted\ntext")
+
+
 def test_tui_settings_dialog_navigation_skips_non_actionable_rows(tmp_path: Path):
     ui = _ui(tmp_path)
     ui.settings_dialog_open = True

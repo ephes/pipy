@@ -68,6 +68,15 @@ class _BaseDriver:
     def set_working_indicator(self, frames, interval_ms):
         pass
 
+    def get_editor_text(self):
+        return ""
+
+    def set_editor_text(self, text):
+        pass
+
+    def paste_to_editor(self, text):
+        pass
+
     def apply_theme(self, name):
         return True, None
 

@@ -498,9 +498,12 @@ so Pi extensions translate naturally:
 - Widgets and chrome: `set_widget(key, content, options)` above/below the
   editor, plus custom header/footer/title (Pi's `setWidget` / `setFooter` /
   `setHeader` / `setTitle`).
-- Editor integration: read/write editor text, paste into the editor, and a
-  fully custom editor component (Pi's `getEditorText` / `setEditorText` /
-  `pasteToEditor` / `setEditorComponent`).
+- Editor integration **(partly shipped)**: command/shortcut contexts can
+  read/write the core input editor text and paste literal text into it
+  (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
+  `ctx.ui.paste_to_editor`, mirroring Pi's `getEditorText` / `setEditorText` /
+  `pasteToEditor`). A fully custom editor component
+  (`setEditorComponent`) remains deferred.
 - Custom overlays: a focused custom component with keyboard focus, mirroring
   Pi's `custom(...)` overlay.
 - Autocomplete: stack an additional autocomplete provider on top of the
@@ -1226,7 +1229,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     `scripts/parity_checks/extension_conformance_gate.py --json` records the
     `message_renderer_component` marker proving the rich renderer ran end to end
     with no leak.
-20. Extension UI editor helper — **landed for command/shortcut contexts**:
+20. Extension UI editor helpers — **landed for command/shortcut contexts**:
     `ctx.ui.editor(title, prefill=None)` opens a focused multi-line product-TUI
     overlay in interactive sessions and returns `None` deterministically in
     headless/non-interactive contexts. The editor submits on Enter, inserts a
@@ -1237,8 +1240,12 @@ and the live `scripts/tmux_answer_verify.sh`.
     normal terminal mode while the editor owns stdio, successful exits replace
     the in-frame buffer, and failed exits keep the prior text. The returned text
     is live command-handler data; it is not written to the metadata-first
-    archive by default. Deferred editor polish: read/write/paste helpers for the
-    main prompt and `setEditorComponent`.
+    archive by default. The same command/shortcut contexts now also expose
+    `ctx.ui.get_editor_text()`, `ctx.ui.set_editor_text(text)`, and
+    `ctx.ui.paste_to_editor(text)` for the core prompt editor. These helpers are
+    live-only mutations: headless reads return `""`, headless writes/pastes
+    no-op, and live driver failures fail soft. Deferred editor polish:
+    `setEditorComponent`.
 21. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,

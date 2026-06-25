@@ -164,6 +164,119 @@ def test_dispatch_exposes_extension_flags_to_command(tmp_path: Path) -> None:
     assert dispatch.messages == (("info", "True:PIPY-123"),)
 
 
+class _FakeEditorUiDriver:
+    def __init__(self, text: str = "") -> None:
+        self.text = text
+        self.pasted: list[str] = []
+
+    def select(self, title: str, options: object) -> str | None:
+        return None
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None:
+        return None
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        return None
+
+    def confirm(self, title: str, message: str) -> bool:
+        return False
+
+    def set_status(self, key: str, text: str | None) -> None:
+        pass
+
+    def set_working_message(self, message: str | None = None) -> None:
+        pass
+
+    def set_working_visible(self, visible: bool) -> None:
+        pass
+
+    def set_widget(self, key: str, content: object, placement: str) -> None:
+        pass
+
+    def set_header(self, factory: object | None) -> None:
+        pass
+
+    def set_footer(self, factory: object | None) -> None:
+        pass
+
+    def set_title(self, title: str) -> None:
+        pass
+
+    def set_working_indicator(self, frames: object, interval_ms: object) -> None:
+        pass
+
+    def get_editor_text(self) -> str:
+        return self.text
+
+    def set_editor_text(self, text: str) -> None:
+        self.text = text
+
+    def paste_to_editor(self, text: str) -> None:
+        self.pasted.append(text)
+        self.text = text
+
+    def apply_theme(self, name: str) -> tuple[bool, str | None]:
+        return False, "not implemented"
+
+
+def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editui",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        ctx.ui.notify(ctx.ui.get_editor_text())\n"
+        "        ctx.ui.set_editor_text('set:' + args)\n"
+        "        ctx.ui.paste_to_editor('paste:' + args)\n"
+        "    api.register_command('edit-ui', 'edit ui', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-ui hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "draft"),)
+    assert driver.pasted == ["paste:hello"]
+    assert driver.text == "paste:hello"
+
+
+def test_dispatch_editor_text_helpers_are_headless_noops(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editui",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        ctx.ui.notify('text=' + ctx.ui.get_editor_text())\n"
+        "        ctx.ui.set_editor_text('ignored')\n"
+        "        ctx.ui.paste_to_editor('ignored')\n"
+        "    api.register_command('edit-ui', 'edit ui', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-ui hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=False,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "text="),)
+    assert driver.text == "draft"
+    assert driver.pasted == []
+
+
 def test_dispatch_exposes_append_entry_capability(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(

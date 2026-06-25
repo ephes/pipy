@@ -906,6 +906,12 @@ class ExtensionUiDriver(Protocol):
         self, frames: Sequence[str] | None, interval_ms: int | None
     ) -> None: ...
 
+    def get_editor_text(self) -> str: ...
+
+    def set_editor_text(self, text: str) -> None: ...
+
+    def paste_to_editor(self, text: str) -> None: ...
+
     def apply_theme(self, name: str) -> tuple[bool, str | None]: ...
 
 
@@ -960,6 +966,12 @@ class ExtensionUi(Protocol):
         *,
         interval_ms: int | None = None,
     ) -> None: ...
+
+    def get_editor_text(self) -> str: ...
+
+    def set_editor_text(self, text: str) -> None: ...
+
+    def paste_to_editor(self, text: str) -> None: ...
 
     @property
     def theme(self) -> ChromePalette: ...
@@ -1245,6 +1257,37 @@ class _CollectingUi:
                 self._ui_driver.set_working_indicator(safe_frames, interval_ms)
             except Exception:  # noqa: BLE001 - a UI driver must not break the handler
                 pass
+
+    def get_editor_text(self) -> str:
+        """Return the live core editor text, or ``""`` when headless.
+
+        Mirrors Pi's ``getEditorText`` while preserving pipy's deterministic
+        non-interactive UI contract: no driver means no blocking and no state.
+        """
+        if self._ui_driver is None or not self.has_ui:
+            return ""
+        try:
+            return str(self._ui_driver.get_editor_text())
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return ""
+
+    def set_editor_text(self, text: str) -> None:
+        """Replace the live core editor text when a product TUI is available."""
+        if self._ui_driver is None or not self.has_ui:
+            return
+        try:
+            self._ui_driver.set_editor_text(str(text))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            pass
+
+    def paste_to_editor(self, text: str) -> None:
+        """Paste text into the live core editor when a product TUI is available."""
+        if self._ui_driver is None or not self.has_ui:
+            return
+        try:
+            self._ui_driver.paste_to_editor(str(text))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            pass
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"

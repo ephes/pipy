@@ -72,6 +72,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- feat(extension-api): editor text helpers for command/shortcut contexts.
+  Extensions can read the core prompt buffer, replace it, or paste by replacing
+  it with literal text via `ctx.ui.get_editor_text()`,
+  `ctx.ui.set_editor_text(text)`, and `ctx.ui.paste_to_editor(text)`, mirroring
+  Pi's `getEditorText`, `setEditorText`, and `pasteToEditor`. Headless reads
+  return `""`; headless writes and pastes no-op deterministically.
 - feat(extension-api): theme controls for command/shortcut contexts (rich-UI
   item E). Extensions can read and switch the chrome theme via `ctx.ui.theme`
   (the active `ChromePalette`), `ctx.ui.get_all_themes()` (`{"name", "path"}`
