@@ -1630,7 +1630,7 @@ editor component beyond the simple primitives (theme controls —
 helpers now ship),
 session-manager access and message-entry APIs beyond append/startup replay,
 TypeScript source compatibility, OAuth-provider extension registration, broader
-dynamic extension flag integration, or PyPI/npm package distribution. Managed git sources
+dynamic extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface, or PyPI/npm package distribution. Managed git sources
 and package `update` now ship; broader remote package sources remain deferred.
 
 Acceptance criteria:

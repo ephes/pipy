@@ -23,7 +23,9 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     dispatch_extension_command,
     extension_command_map,
+    extension_flags,
     extension_message_renderers,
+    parse_extension_flag_tokens,
     render_extension_message,
     safe_custom_entry_data,
 )
@@ -80,12 +82,46 @@ def _write(workspace: Path, name: str, body: str) -> None:
     (_ext_dir(workspace) / f"{name}.py").write_text(body, encoding="utf-8")
 
 
-def _command_map(workspace: Path) -> dict:
+def _activate(workspace: Path):
     descriptors = discover_extensions(
         workspace, config_home_env={}, home_dir=workspace
     )
-    activated = activate_extensions(descriptors)
-    return extension_command_map(activated)
+    return activate_extensions(descriptors)
+
+
+def _command_map(workspace: Path) -> dict:
+    return extension_command_map(_activate(workspace))
+
+
+def test_dispatch_get_flag_sees_parsed_runtime_overrides(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "flagger",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=False))\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string', default='default'))\n"
+        "    def show(ctx, args):\n"
+        "        ctx.ui.notify(f\"api={api.get_flag('plan')}/{api.get_flag('ticket')} ctx={ctx.flags['plan']}/{ctx.flags['ticket']}\")\n"
+        "    api.register_command('show-flags', 'show flags', show)\n",
+    )
+    activated = _activate(workspace)
+    flags, error = parse_extension_flag_tokens(
+        extension_flags(activated), ("--plan", "--ticket", "PIPY-123")
+    )
+    assert error is None
+
+    dispatch = dispatch_extension_command(
+        "/show-flags",
+        extension_command_map(activated),
+        cwd=str(workspace),
+        has_ui=True,
+        flags=flags,
+    )
+
+    assert dispatch is not None
+    assert dispatch.messages == (("info", "api=True/PIPY-123 ctx=True/PIPY-123"),)
 
 
 def test_dispatch_runs_handler_and_captures_notify(tmp_path: Path) -> None:

@@ -176,6 +176,37 @@ def test_activate_registers_extension_flags_and_parses_tokens(tmp_path: Path) ->
 
     assert error is None
     assert values == {"plan": True, "ticket": "PIPY-123"}
+    assert registered[0].get_value() is True
+    assert registered[1].get_value() == "PIPY-123"
+
+
+def test_activation_api_get_flag_reads_owned_defaults_only(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "first",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=True))\n"
+        "    if api.get_flag('plan') is not True:\n"
+        "        raise RuntimeError('missing owned default')\n"
+        "    if api.get_flag('ticket') is not None:\n"
+        "        raise RuntimeError('leaked other extension flag')\n"
+        "    api.register_command('show-first', 'show', lambda ctx, args: None)\n",
+    )
+    _write_single_file(
+        workspace,
+        "second",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string', default='PIPY-1'))\n",
+    )
+
+    activated = _activate(workspace)
+    first = _by_name(activated, "first")
+
+    assert first.status == "activated"
+    assert [command.name for command in first.commands] == ["show-first"]
 
 
 def test_invalid_extension_flag_disables_only_that_extension(tmp_path: Path) -> None:

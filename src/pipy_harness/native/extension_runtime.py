@@ -617,6 +617,8 @@ class PipyExtensionAPI(Protocol):
 
     def register_flag(self, flag: "ExtensionFlag") -> None: ...
 
+    def get_flag(self, name: str) -> object | None: ...
+
     def register_message_renderer(
         self,
         custom_type: str,
@@ -673,6 +675,14 @@ class RegisteredFlag:
 
     flag: ExtensionFlag
     extension: str
+    values: MutableMapping[str, object] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+
+    def get_value(self) -> object | None:
+        return self.values.get(self.flag.name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1917,6 +1927,7 @@ class _ActivationApi:
         self._staged_providers: dict[str, RegisteredProvider] = {}
         self._staged_unregistered: list[str] = []
         self._staged_flags: dict[str, RegisteredFlag] = {}
+        self._flag_values: dict[str, object] = {}
         self._staged_message_renderers: dict[str, RegisteredMessageRenderer] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
@@ -2086,7 +2097,13 @@ class _ActivationApi:
                 default=default,
             ),
             extension=self._extension_name,
+            values=self._flag_values,
         )
+        if default is not None:
+            self._flag_values[name] = default
+
+    def get_flag(self, name: str) -> object | None:
+        return self._flag_values.get(str(name))
 
     def staged_flags(self) -> tuple[RegisteredFlag, ...]:
         return tuple(self._staged_flags.values())
@@ -2537,11 +2554,19 @@ def parse_extension_flag_tokens(
     """Parse unknown CLI tokens against activated extension flags."""
 
     definitions = {registered.flag.name: registered.flag for registered in registered_flags}
+    owners = {registered.flag.name: registered for registered in registered_flags}
     values: dict[str, object] = {
         flag.name: flag.default
         for flag in definitions.values()
         if flag.default is not None
     }
+
+    def set_value(name: str, value: object) -> None:
+        values[name] = value
+        owner = owners.get(name)
+        if owner is not None:
+            owner.values[name] = value
+
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -2556,22 +2581,22 @@ def parse_extension_flag_tokens(
             if sep:
                 lowered = inline_value.strip().lower()
                 if lowered in {"1", "true", "yes", "on"}:
-                    values[name] = True
+                    set_value(name, True)
                 elif lowered in {"0", "false", "no", "off"}:
-                    values[name] = False
+                    set_value(name, False)
                 else:
                     return {}, f"invalid boolean value for --{name}"
             else:
-                values[name] = True
+                set_value(name, True)
             index += 1
             continue
         if sep:
-            values[name] = inline_value
+            set_value(name, inline_value)
             index += 1
             continue
         if index + 1 >= len(tokens) or tokens[index + 1].startswith("--"):
             return {}, f"missing value for --{name}"
-        values[name] = tokens[index + 1]
+        set_value(name, tokens[index + 1])
         index += 2
     return values, None
 

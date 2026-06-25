@@ -280,6 +280,8 @@ class PipyExtensionAPI(Protocol):
 
     def register_flag(self, flag: "ExtensionFlag") -> None: ...
 
+    def get_flag(self, name: str) -> object | None: ...
+
     def register_message_renderer(
         self,
         custom_type: str,
@@ -612,6 +614,10 @@ the remaining unknown tokens into the activated extension runtime, validates
 them against registered extension flags, and fails before the provider turn on
 unknown or malformed tokens. Parsed values are available as `ctx.flags` in
 extension commands, keyboard shortcuts, model-visible tools, and hook contexts.
+Extensions can also close over `api.get_flag(name)`: during activation it
+returns that extension's registered default (or `None` for unregistered names),
+and after startup parsing it returns the run-local parsed override for that
+extension's own flag.
 
 Supported forms are `--flag`, `--flag=true|false`, `--name value`, and
 `--name=value`. For one-shot `--print`/`--mode json` runs that also need a
@@ -1100,12 +1106,14 @@ and the live `scripts/tmux_answer_verify.sh`.
     `scripts/parity_checks/extension_live_session_conformance.py --json`.
 14. Dynamic extension CLI flags — **landed for `pipy repl` tool-loop runs**:
     `ExtensionFlag`/`RegisteredFlag`, `api.register_flag(...)`,
-    `extension_flags(...)`, and `parse_extension_flag_tokens(...)` collect
-    boolean/string flags from activated extensions, parse only the leftover
-    unknown CLI tokens after built-in argparse handling, fail closed before a
-    provider turn on unknown/malformed tokens, and expose values as `ctx.flags`
-    to commands, shortcuts, extension tools, and hook contexts. Product-path
-    tests cover `pipy repl --extension <file> --plan --ticket PIPY-123`.
+    `api.get_flag(...)`, `extension_flags(...)`, and
+    `parse_extension_flag_tokens(...)` collect boolean/string flags from
+    activated extensions, parse only the leftover unknown CLI tokens after
+    built-in argparse handling, fail closed before a provider turn on
+    unknown/malformed tokens, and expose values as `ctx.flags` plus the
+    extension-owned `api.get_flag(...)` closure to commands, shortcuts,
+    extension tools, and hook contexts. Product-path tests cover `pipy repl
+    --extension <file> --plan --ticket PIPY-123`.
 15. Simple extension UI primitives — **landed for command/shortcut contexts**:
     `ctx.ui.select`, `ctx.ui.input`, and `ctx.ui.confirm` run simple
     product-TUI overlays and return cancel/default values in headless mode.

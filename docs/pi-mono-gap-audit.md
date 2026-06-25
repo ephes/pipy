@@ -245,7 +245,7 @@ Follow-ons:
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed
-   tool-loop `ctx.flags` slice, and extension state helpers beyond the landed
+   tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and extension state helpers beyond the landed
    read-only command/shortcut session-manager view.
 2. OAuth-provider extension registration and broader provider/auth helpers.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
