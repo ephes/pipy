@@ -4,6 +4,7 @@ nav = [
   {"Home" = "index.md"},
   {"Quickstart" = "quickstart.md"},
   {"Using pipy" = "usage.md"},
+  {"Providers and models" = "providers.md"},
   {"Terminal Setup" = "terminal-setup.md"},
   {"tmux Setup" = "tmux.md"},
   {"Architecture" = "architecture.md"},

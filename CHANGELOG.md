@@ -72,6 +72,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Provider/model user documentation now covers listing models, provider/model
+  selection, credentials, `models.json`, ds4, thinking/images metadata, and
+  current provider follow-ons.
 - feat(extension-api): editor text helpers for command/shortcut contexts.
   Extensions can read the core prompt buffer, replace it, or paste by replacing
   it with literal text via `ctx.ui.get_editor_text()`,

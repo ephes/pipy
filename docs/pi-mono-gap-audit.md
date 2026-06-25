@@ -265,12 +265,15 @@ Implement in pipy:
    provider setup, common TUI/session workflows, and the current CLI reference.
    Terminal setup and tmux pages also ship:
    [terminal-setup.md](/terminal-setup/), [tmux.md](/tmux/).
-2. Remaining user docs: providers/models, sessions, settings, keybindings,
-   customization, automation, SDK/RPC, and install/update deep dives.
-3. Keep README short and outside-in.
-4. Separate shipped behavior from target specs; do not present pipy-only
+2. Provider/model user docs now ship in [providers.md](providers.md): model
+   listing, provider selection, credentials, `models.json`, ds4, thinking/images
+   metadata, and current follow-ons.
+3. Remaining user docs: sessions, settings, keybindings, customization,
+   automation, SDK/RPC, and install/update deep dives.
+4. Keep README short and outside-in.
+5. Separate shipped behavior from target specs; do not present pipy-only
    divergences as parity.
-5. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
+6. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
    `uv run pipy run --help`, and the relevant conformance gates.
 
 Owning spec: [user-documentation.md](user-documentation.md).
