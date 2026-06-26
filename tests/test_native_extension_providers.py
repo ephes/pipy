@@ -454,3 +454,103 @@ def test_unregister_provider_hides_extension_overlay_without_corrupting_builtin(
 
     assert state.find("openai", "ext") is None
     assert state.find("openai", "gpt-5.5") is not None
+
+_OAUTH_PROVIDER = (
+    "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"
+    "calls = []\n"
+    "def login(callbacks):\n"
+    "    calls.append('login')\n"
+    "def refresh_token(credentials):\n"
+    "    calls.append('refresh')\n"
+    "def get_api_key(credentials):\n"
+    "    calls.append('key')\n"
+    "    return 'secret'\n"
+    "def modify_models(models, credentials):\n"
+    "    calls.append('models')\n"
+    "    return models\n"
+    "class _Port:\n"
+    "    def __init__(self, ctx): self._ctx = ctx\n"
+    "    @property\n"
+    "    def name(self): return self._ctx.provider_name\n"
+    "    @property\n"
+    "    def model_id(self): return self._ctx.model_id\n"
+    "    @property\n"
+    "    def supports_tool_calls(self): return True\n"
+    "def activate(api):\n"
+    "    api.register_provider(ExtensionProvider(name=' oauthprov ',\n"
+    "        default_model='m', models=('m',), factory=lambda ctx: _Port(ctx),\n"
+    "        oauth=ExtensionOAuthConfig(name='Corporate SSO', login=login,\n"
+    "            refresh_token=refresh_token, get_api_key=get_api_key,\n"
+    "            modify_models=modify_models)))\n"
+)
+
+
+def test_provider_oauth_metadata_is_preserved_without_invoking_callbacks(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(workspace, "oauthprov", _OAUTH_PROVIDER)
+
+    activated = _activate(workspace)
+    registered = extension_providers(activated)[0]
+    oauth = registered.provider.oauth
+
+    assert registered.provider.name == "oauthprov"
+    assert oauth is not None
+    assert oauth.name == "Corporate SSO"
+    assert callable(oauth.login)
+    assert callable(oauth.refresh_token)
+    assert callable(oauth.get_api_key)
+    assert callable(oauth.modify_models)
+    assert getattr(oauth.login, "__globals__")["calls"] == []
+
+    assert build_extension_provider_port(registered) is not None
+    assert getattr(oauth.login, "__globals__")["calls"] == []
+
+
+def test_provider_oauth_metadata_accepts_omitted_modify_models(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "oauthnone",
+        "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='oauthnone',\n"
+        "        default_model='m', models=('m',), factory=lambda ctx: None,\n"
+        "        oauth=ExtensionOAuthConfig(name='SSO', login=lambda callbacks: {},\n"
+        "            refresh_token=lambda credentials: credentials,\n"
+        "            get_api_key=lambda credentials: 'key')))\n",
+    )
+
+    oauth = extension_providers(_activate(workspace))[0].provider.oauth
+
+    assert oauth is not None
+    assert oauth.modify_models is None
+
+
+def test_invalid_provider_oauth_metadata_disables_extension(tmp_path: Path) -> None:
+    cases = {
+        "rawdict": "oauth={'name': 'SSO'}",
+        "blankname": "oauth=ExtensionOAuthConfig(name=' ', login=lambda c: {}, refresh_token=lambda c: c, get_api_key=lambda c: 'k')",
+        "badlogin": "oauth=ExtensionOAuthConfig(name='SSO', login=None, refresh_token=lambda c: c, get_api_key=lambda c: 'k')",
+        "badmodify": "oauth=ExtensionOAuthConfig(name='SSO', login=lambda c: {}, refresh_token=lambda c: c, get_api_key=lambda c: 'k', modify_models='nope')",
+    }
+    for name, oauth_expr in cases.items():
+        (tmp_path / name).mkdir()
+        workspace = _make_workspace(tmp_path / name)
+        _write(
+            workspace,
+            name,
+            "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"
+            "def activate(api):\n"
+            "    api.register_provider(ExtensionProvider(name='bad',\n"
+            "        default_model='m', models=('m',), factory=lambda ctx: None,\n"
+            f"        {oauth_expr}))\n",
+        )
+
+        activated = next(a for a in _activate(workspace) if a.name == name)
+        assert activated.status == "disabled"
+        assert activated.reason == "invalid_provider"
+        assert extension_providers([activated]) == ()

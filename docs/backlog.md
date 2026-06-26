@@ -311,7 +311,7 @@ The highest-impact remaining gaps are now:
    tool/model/thinking controls and the first custom session-entry/message-
    rendering slice now ship. Pi remains ahead on rich TUI extension UI, live
    tool-render invalidation (render-once tool renderers ship), broader extension state/session-manager helpers, broader dynamic-flag
-   integration, OAuth-provider extension registration, remote PyPI/npm sources,
+   integration, OAuth-provider extension `/login` wiring, remote PyPI/npm sources,
    and the broader package ecosystem. Managed git
   sources and package `update` now ship behind a pipy-owned cache; the next
   extension/package slices are richer API follow-ons and any future PyPI/npm
@@ -1446,7 +1446,7 @@ Initial slice boundaries for the next topic:
 
 - start from the shipped local extension/package runtime baseline;
 - choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension registration, extension state
+  richer hooks/UI, OAuth-provider extension `/login` wiring, extension state
   helpers beyond the landed session-manager view, broader dynamic-flag
   integration, or future
   PyPI/npm package sources after supply-chain policy; and
@@ -1633,7 +1633,7 @@ editor component beyond the simple primitives (theme controls —
 `ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — and editor text
 helpers now ship),
 session-manager access and message-entry APIs beyond append/startup replay,
-TypeScript source compatibility, OAuth-provider extension registration, broader
+TypeScript source compatibility, OAuth-provider extension `/login` wiring, broader
 dynamic extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface, or PyPI/npm package distribution. Managed git sources
 and package `update` now ship; broader remote package sources remain deferred.
 
@@ -1790,7 +1790,7 @@ Invariants that must hold for any near-term slice:
   the first custom session-entry/message-rendering slice have landed. Remaining
   Pi gaps are broader dynamic-flag integration, extension state/session-manager views,
   richer extension UI/rendering,
-  OAuth-provider extension registration, PyPI/npm package sources, and the
+  OAuth-provider extension `/login` wiring, PyPI/npm package sources, and the
   corresponding supply-chain/security model. The target specification is
   [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live

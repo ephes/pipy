@@ -337,6 +337,24 @@ class ProviderContext:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtensionOAuthConfig:
+    """OAuth metadata for an extension-registered provider.
+
+    Mirrors Pi's ``ProviderConfig.oauth`` shape through Python snake_case. The
+    provider name is the future OAuth id source, matching Pi's derived
+    ``{...oauth, id: providerName}``; extension authors do not supply an id.
+    Callbacks are preserved for later auth/login integration and are not invoked
+    during activation or provider-port construction.
+    """
+
+    name: str
+    login: Callable[..., object]
+    refresh_token: Callable[..., object]
+    get_api_key: Callable[..., object]
+    modify_models: Callable[..., object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExtensionProvider:
     """A model provider an extension registers via `api.register_provider`.
 
@@ -344,13 +362,15 @@ class ExtensionProvider:
     `default_model` and `models` describe the provider's model ids;
     `factory(ProviderContext)` builds a `ProviderPort`. A provider may
     override a built-in of the same name; `unregister_provider(name)`
-    removes it and restores the built-in.
+    removes it and restores the built-in. ``oauth`` preserves Pi-shaped OAuth
+    metadata for a later `/login`/auth-storage integration slice.
     """
 
     name: str
     default_model: str | None
     models: tuple[str, ...]
     factory: Callable[..., object]
+    oauth: ExtensionOAuthConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2112,6 +2132,27 @@ class _ActivationApi:
             or default_model not in model_ids
         ):
             raise _ActivationError(REASON_INVALID_PROVIDER)
+        oauth = provider.oauth
+        if oauth is not None:
+            if not isinstance(oauth, ExtensionOAuthConfig):
+                raise _ActivationError(REASON_INVALID_PROVIDER)
+            oauth_name = oauth.name.strip() if isinstance(oauth.name, str) else ""
+            if not oauth_name:
+                raise _ActivationError(REASON_INVALID_PROVIDER)
+            if (
+                not callable(oauth.login)
+                or not callable(oauth.refresh_token)
+                or not callable(oauth.get_api_key)
+                or (oauth.modify_models is not None and not callable(oauth.modify_models))
+            ):
+                raise _ActivationError(REASON_INVALID_PROVIDER)
+            oauth = ExtensionOAuthConfig(
+                name=oauth_name,
+                login=oauth.login,
+                refresh_token=oauth.refresh_token,
+                get_api_key=oauth.get_api_key,
+                modify_models=oauth.modify_models,
+            )
         # Providers MAY override a built-in of the same name (Pi behavior;
         # unregister restores it), so there is no reserved-name check; only
         # a duplicate registration across extensions is rejected.
@@ -2122,6 +2163,7 @@ class _ActivationApi:
             default_model=default_model,
             models=tuple(model_ids),
             factory=provider.factory,
+            oauth=oauth,
         )
         self._staged_providers[name] = RegisteredProvider(
             provider=normalized, extension=self._extension_name

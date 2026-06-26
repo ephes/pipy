@@ -160,7 +160,7 @@ Pipy current state:
 - Extension slices 1–12 have shipped: local discovery/inventory, activation,
   command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
   extension tool registration, `tool_result` transforms, minimal UI
-  notification, golden conformance, shortcuts, provider-registration mechanics,
+  notification, golden conformance, shortcuts, provider-registration mechanics, OAuth metadata preservation,
   catalog/`/model` wiring for extension-registered providers, local-path and
   managed git package CLI, package runtime composition for installed package
   resources, package `update`, and per-run source-loading flags for explicit
@@ -250,7 +250,7 @@ Follow-ons:
    calls paint immediately, broader dynamic-flag integration beyond the landed
    tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and broader extension state helpers beyond the landed command/shortcut
    session-manager view and name/label metadata actions.
-2. OAuth-provider extension registration and broader provider/auth helpers.
+2. OAuth-provider extension `/login` and auth-storage wiring plus broader provider/auth helpers (metadata registration now ships).
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.
 
@@ -346,7 +346,7 @@ adding another bespoke slash command.
 1. Extension/package platform follow-ons: richer multi-widget UI/rendering,
    broader extension state/session-manager helpers, live tool-render invalidation beyond
    the landed render-once snapshot, broader dynamic-flag integration,
-   OAuth-provider extension registration, and future PyPI/npm package source
+   OAuth-provider extension `/login` wiring, and future PyPI/npm package source
    policy.
 2. User documentation parity in parallel with implementation.
 3. Focused provider/model catalog follow-ons.

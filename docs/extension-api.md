@@ -50,7 +50,7 @@ indicator already animates via the spinner loop; widget/header/footer
 components are width-reactive snapshots), multi-widget message components,
 extension state/session-manager helpers, remote PyPI/npm package distribution,
 and broader package ecosystem polish. The custom session-entry/message
-rendering surface has landed, including **rich message renderers**: extensions
+rendering surface has landed, including extension provider OAuth metadata and **rich message renderers**: extensions
 register a renderer for a custom entry type and command/shortcut handlers append
 JSON-safe custom entries to the native product session tree; a renderer that
 requires a second `(data, ctx)` parameter receives a `MessageRenderContext` and
@@ -571,15 +571,33 @@ object that composes with `ProviderPort`:
 
 ```python
 @dataclass(frozen=True)
+class ExtensionOAuthConfig:
+    name: str
+    login: Callable[..., object]
+    refresh_token: Callable[..., object]
+    get_api_key: Callable[..., object]
+    modify_models: Callable[..., object] | None = None
+
+@dataclass(frozen=True)
 class ExtensionProvider:
     name: str
     default_model: str | None
     models: Sequence[str]
     factory: Callable[["ProviderContext"], "ProviderPort"]
+    oauth: ExtensionOAuthConfig | None = None
 ```
 
+`ExtensionOAuthConfig` preserves Pi's `ProviderConfig.oauth` metadata (`name`,
+`login`, `refreshToken`, `getApiKey`, and optional `modifyModels`) using Python
+snake_case. Pipy validates malformed OAuth metadata fail-closed during extension
+activation and preserves the callbacks without invoking them during activation or
+provider construction. Pi derives the OAuth provider id from the registered
+provider name; pipy preserves the normalized provider name as that future id
+source. The actual `/login` selector/auth-store integration and declarative
+API-backed provider config (`baseUrl`/`api`/`apiKey-or-oauth`) remain deferred.
+
 Provider extensions must not receive existing auth stores wholesale. They
-should either read their own environment variables or use a small future auth
+should either read their own environment variables or use this future auth
 capability with explicit provider labels.
 
 Mirroring Pi, the provider surface supports both registration and
