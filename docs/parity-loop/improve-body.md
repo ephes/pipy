@@ -27,7 +27,9 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
    pipy's real gate; `pre-commit` is not installed); only when green, run the
    **different-family** review over the edit
    diff (`pi-review-loop` if you are Opus, `opus-review-loop` if you are GPT)
-   until the verdict is CLEAN. On ISSUES, fix and re-run the gates.
+   until the verdict is CLEAN. The reviewer must review directly in one fresh
+   context: no subagents, Claude Code `Agent`/Task-style delegation, or parallel
+   reviewer fanout. On ISSUES, fix and re-run the gates.
 4. **Sign-off gate.** Any edit to `skill-body.md`, `improve-body.md`, or a
    wrapper (the workflow's own instructions) additionally requires human sign-off
    OR a judge-agent majority vote before commit. **Rejection is also gated:**
@@ -66,6 +68,9 @@ to the operator afterward; do not attempt to drain them here.
 ## Hard rules
 
 - **Never self-grade** — the review is always a fresh, different-family context.
+- **Never delegate the review** — the review gate is a direct reviewer context,
+  not a subagent tree. If the reviewer cannot review the supplied diff directly,
+  stop as blocked instead of treating delegation as a pass.
 - **Never mark `applied` without a real materializing commit** — the helper
   enforces this; do not fabricate a SHA.
 - Capture (the loop's Phase 9) is ungated; **application here is gated**. A bad

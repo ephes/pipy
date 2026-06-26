@@ -29,6 +29,8 @@ REQUIRED_BODY_TOKENS = (
     "different model family",
     "CLEAN",
     "Operator override",
+    "Review directly; never delegate the review",
+    "Agent`/Task-style delegation",
     "~/src/pi-mono",
     # Learning loop (Plan 2):
     "scripts/parity_lessons.py",
@@ -104,6 +106,14 @@ def test_wrapper_does_not_duplicate_body(wrapper: Path) -> None:
     )
 
 
+def test_claude_parity_wrapper_forbids_subagent_delegation() -> None:
+    text = (REPO_ROOT / ".claude" / "skills" / "pipy-parity-loop" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Do not delegate parity-loop" in text
+    assert "You may delegate" not in text
+
+
 def test_agents_md_has_parity_section() -> None:
     text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
     assert "## Parity loop" in text, "AGENTS.md must have a '## Parity loop' section"
@@ -135,6 +145,7 @@ IMPROVE_REQUIRED_TOKENS = (
     "validate",
     "materializ",         # materialization language
     "runner unattended mode",
+    "Never delegate the review",
 )
 
 
@@ -190,6 +201,14 @@ def test_improve_wrapper_does_not_duplicate_body(wrapper: Path) -> None:
     assert "1. **Read open lessons.**" not in text, (
         f"{wrapper} contains improve-body content; keep it a thin pointer"
     )
+
+
+def test_claude_improve_wrapper_forbids_subagent_delegation() -> None:
+    text = (REPO_ROOT / ".claude" / "skills" / "parity-improve" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "do not\ndelegate parity-improve" in text
+    assert "You may delegate" not in text
 
 
 def test_agents_md_has_parity_improve_section() -> None:

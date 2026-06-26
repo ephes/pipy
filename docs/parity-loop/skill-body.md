@@ -11,6 +11,11 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
 
 - **Never self-grade.** Every review is a fresh, *different model family* context
   (implementer Opus → review with Pi/GPT; implementer GPT → review with Opus).
+- **Review directly; never delegate the review.** The different-family reviewer
+  must evaluate the supplied plan/diff in its own context. It must not spawn
+  subagents, use Claude Code `Agent`/Task-style delegation, or fan out parallel
+  reviewers. If the reviewer cannot complete the review directly within the
+  provided bundle/context, treat that as `BLOCKED`, not CLEAN.
 - **Never weaken or delete tests** to pass a gate.
 - **The commit gate requires the last CLEAN review to cover the exact diff being
   committed.** If any fix (including docs) changes files after a CLEAN verdict,
@@ -70,7 +75,9 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
    `just check` (and `prek run --all-files` only if a `.pre-commit-config.yaml`
    is present — `just check` is pipy's real gate; `pre-commit` is not installed),
    and only when green run the different-family review over the **full diff —
-   code and docs together**. On an ISSUES verdict, fix and **return to the top of
+   code and docs together**. The reviewer must be a single direct fresh context:
+   no subagents, `Agent` tool, Task-style delegation, or parallel reviewer fanout.
+   On an ISSUES verdict, fix and **return to the top of
    this iteration** (re-run `just check` and prek before the next review), so
    every review — including the final CLEAN one — is taken over a diff whose
    gates currently pass.
@@ -147,7 +154,8 @@ When invoking Claude Code noninteractively, be explicit about the prompt channel
   `--tools ""`; without `--`, Claude may treat the prompt as another tool value.
 - For read-only Opus reviews, prefer the `opus-review-loop` harness or direct
   `claude -p` with tools disabled. Do not use `claude-yolo` solely for a
-  read-only review.
+  read-only review. A read-only review must be a direct single-context review:
+  no `Agent` tool, Task-style delegation, subagents, or parallel reviewer fanout.
 - When tools are disabled, the prompt or review bundle must contain the actual
   plan/diff content being reviewed. Do not ask Claude to review only a path,
   commit name, or unstaged local file reference that it cannot read.

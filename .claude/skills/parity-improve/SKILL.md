@@ -7,6 +7,7 @@ description: Use to consume captured parity-loop lessons and materialize them in
 
 Follow the canonical workflow in `docs/parity-loop/improve-body.md` (resolve it
 against the repo root and read it now). Consume the open lessons and materialize
-each into a gated change. You may delegate edits to subagents, but keep the
-different-family review (`pi-review-loop`) as a separate fresh context, and honor
-the sign-off gate for instruction edits.
+each into a gated change. Run edits directly in this Claude Code session; do not
+delegate parity-improve work or the different-family review (`pi-review-loop`) to
+subagents or `Agent`/Task-style workers. Honor the sign-off gate for instruction
+edits.

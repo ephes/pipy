@@ -9,7 +9,8 @@ Follow the canonical workflow in `docs/parity-loop/skill-body.md` (resolve it
 against the repo root and read it now). Drive exactly one parity gap end to end.
 
 Claude-specific notes:
-- You may delegate phases (plan, implement, docs) to subagents; keep the
-  different-family review gate (`pi-review-loop`) as a separate fresh context.
+- Run phases directly in this Claude Code session. Do not delegate parity-loop
+  work to subagents, and never delegate the different-family review gate
+  (`pi-review-loop`) to an `Agent`/Task-style worker.
 - Honor the hard rules in the body: never self-grade, gates re-run after every
   fix, operator override is a stop — not a pass.
