@@ -530,8 +530,8 @@ so Pi extensions translate naturally:
   editor, plus custom header/footer/title (Pi's `setWidget` / `setFooter` /
   `setHeader` / `setTitle`).
 - Editor integration **(partly shipped)**: command/shortcut contexts can
-  read/write the core input editor text and paste literal text into it
-  (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
+  read/write the core input editor text and paste literal text at the current
+  cursor (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
   `ctx.ui.paste_to_editor`, mirroring Pi's `getEditorText` / `setEditorText` /
   `pasteToEditor`). A fully custom editor component
   (`setEditorComponent`) remains deferred.
@@ -1299,9 +1299,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     is live command-handler data; it is not written to the metadata-first
     archive by default. The same command/shortcut contexts now also expose
     `ctx.ui.get_editor_text()`, `ctx.ui.set_editor_text(text)`, and
-    `ctx.ui.paste_to_editor(text)` for the core prompt editor. These helpers are
-    live-only mutations: headless reads return `""`, headless writes/pastes
-    no-op, and live driver failures fail soft. Deferred editor polish:
+    `ctx.ui.paste_to_editor(text)` for the core prompt editor. Live paste
+    inserts literal text at the current cursor while preserving surrounding
+    draft text and pasted newlines, matching Pi's bracketed-paste path. These
+    helpers are live-only mutations: headless reads return `""`, headless
+    writes/pastes no-op, and live driver failures fail soft. Deferred editor polish:
     `setEditorComponent`.
 21. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),

@@ -1557,14 +1557,16 @@ class ToolLoopTerminalUi:
         return self.input_text
 
     def paste_input_text(self, text: str) -> None:
-        """Paste text into the core editor.
+        """Paste text into the core editor through the paste path.
 
-        This slice keeps paste literal and equivalent to replacing the editor
-        buffer; the separate method preserves the Pi-shaped API boundary for
-        future paste-collapse behavior.
+        Pi's extension ``pasteToEditor`` routes text through bracketed-paste
+        handling rather than plain replacement. Pipy keeps the same live-editor
+        semantics by inserting the literal text at the current cursor while
+        preserving surrounding draft text and pasted newlines.
         """
 
-        self.set_input_text(str(text))
+        self._pending_initial_text = None
+        self._insert_paste(str(text))
 
     def run_tree_selector(
         self,

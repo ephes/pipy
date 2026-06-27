@@ -99,6 +99,7 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert ui.input_text == "set"
     assert ui.calls[-1] == ("set-input", "set")
 
+    ui.input_text = "draft text"
     driver.paste_to_editor("paste")
     assert ui.input_text == "paste"
     assert ui.pasted == ["paste"]

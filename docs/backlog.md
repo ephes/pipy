@@ -1433,8 +1433,8 @@ available for that run. The extension UI editor helper has also shipped:
 interactive command/shortcut contexts and returns `None` headlessly; the same
 contexts can now read and replace the core prompt via
 `ctx.ui.get_editor_text()` and `ctx.ui.set_editor_text(text)`, with
-`ctx.ui.paste_to_editor(text)` currently replacing the buffer with the literal
-pasted text. The command/shortcut session-manager helper has shipped too: `ctx.session_manager` /
+`ctx.ui.paste_to_editor(text)` inserting literal text at the current cursor
+through the live paste path. The command/shortcut session-manager helper has shipped too: `ctx.session_manager` /
 `ctx.sessionManager` expose immutable views of the active native session's cwd,
 file/id/header, entries, labels, branch/tree, leaf, and session name; the narrow
 Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name` /

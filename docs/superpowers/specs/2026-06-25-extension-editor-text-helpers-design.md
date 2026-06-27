@@ -32,10 +32,10 @@ driver. Live driver failures are fail-soft like the existing UI methods.
 
 The live driver delegates through `ToolLoopTerminalUi`. `set_input_text(...)`
 already pre-fills the next prompt; this slice extends that boundary with a
-current text getter and a paste wrapper. For the current stdlib TUI,
-`paste_to_editor` replaces the input buffer with the literal pasted text. The
-separate method preserves the Pi-shaped API boundary for future paste-specific
-behavior.
+current text getter and a paste wrapper. The stdlib TUI `paste_to_editor` path
+now inserts literal pasted text at the current cursor while preserving
+surrounding draft text and pasted newlines, matching Pi's bracketed-paste
+semantics.
 
 ## Done
 

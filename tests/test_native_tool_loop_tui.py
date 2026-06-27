@@ -1558,10 +1558,20 @@ def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(tmp_path: Pat
     assert ui.input_text == "draft"
     assert ui.input_cursor == len("draft")
 
+    ui.set_input_text("prefix suffix")
+    ui.input_cursor = len("prefix ")
     ui.paste_input_text("pasted\ntext")
-    assert ui.get_input_text() == "pasted\ntext"
-    assert ui.input_text == "pasted\ntext"
-    assert ui.input_cursor == len("pasted\ntext")
+    assert ui.get_input_text() == "prefix pasted\ntextsuffix"
+    assert ui.input_text == "prefix pasted\ntextsuffix"
+    assert ui.input_cursor == len("prefix pasted\ntext")
+
+    ui.paste_input_text("")
+    assert ui.get_input_text() == "prefix pasted\ntextsuffix"
+
+    ui.set_input_text("replacement")
+    assert ui.get_input_text() == "replacement"
+    assert ui.input_text == "replacement"
+    assert ui.input_cursor == len("replacement")
 
 
 def test_tui_settings_dialog_navigation_skips_non_actionable_rows(tmp_path: Path):

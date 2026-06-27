@@ -80,8 +80,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   durable compaction, export/share pointers, and the separate `pipy-session`
   metadata/catalog utility.
 - feat(extension-api): editor text helpers for command/shortcut contexts.
-  Extensions can read the core prompt buffer, replace it, or paste by replacing
-  it with literal text via `ctx.ui.get_editor_text()`,
+  Extensions can read the core prompt buffer, replace it, or paste literal text
+  at the current cursor via `ctx.ui.get_editor_text()`,
   `ctx.ui.set_editor_text(text)`, and `ctx.ui.paste_to_editor(text)`, mirroring
   Pi's `getEditorText`, `setEditorText`, and `pasteToEditor`. Headless reads
   return `""`; headless writes and pastes no-op deterministically.
