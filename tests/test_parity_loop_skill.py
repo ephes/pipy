@@ -43,6 +43,9 @@ REQUIRED_BODY_TOKENS = (
     "Run-end backstop",
     # Runner (Phase 2) single-gap mode marker:
     "runner single-gap mode",
+    "Pi reference field list",
+    "optionality",
+    "derived identifiers",
 )
 
 PLACEHOLDER_TOKENS = ("TODO", "TBD", "FIXME", "XXX", "<placeholder>")

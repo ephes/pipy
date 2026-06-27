@@ -81,7 +81,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
 2. **Plan.** Read the pi-mono reference; write a short design/plan (what Pi does,
    how pipy matches it through pipy-owned Python boundaries, constraints from
    `AGENTS.md`). **Write the plan to a file** so it is reviewable. *Done-when:* a
-   written plan file with done-when criteria.
+   written plan file with done-when criteria. For metadata, auth, OAuth,
+   provider, package manifest, or extension API slices, the plan must pin the
+   Pi reference field list, each field's optionality, and any derived identifiers
+   before implementation, so review catches preserved versus dropped future data
+   instead of discovering it only after code exists.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/superpowers/specs/`). `git add` it, then run the different-family
