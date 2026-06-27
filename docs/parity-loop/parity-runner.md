@@ -32,10 +32,12 @@ the plan and code review gates:
     time env REVIEWER_AGENT=pi REVIEWER_MODEL=openai-codex/gpt-5.5 just parity-run-pipy
 
 `REVIEWER_AGENT=pi` selects the Pi review harness and `REVIEWER_AGENT=opus`
-selects the Opus review harness. The parity-loop hard rule still applies: the
-selected reviewer must be a different model family from the implementer. If the
-runner exits `3` during preflight, it stopped on open lessons requiring human
-sign-off before any gap or reviewer was selected.
+selects the Opus review harness. The parity-loop prefers a different-family
+reviewer, but an explicit reviewer selection is also accepted as a
+quota-constrained override when the usual provider is unavailable or quota-bound;
+the child run must record a caveat and still requires the selected reviewer to
+return CLEAN. If the runner exits `3` during preflight, it stopped on open
+lessons requiring human sign-off before any gap or reviewer was selected.
 
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
 `--agent claude` uses

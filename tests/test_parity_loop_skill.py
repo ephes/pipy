@@ -29,6 +29,7 @@ REQUIRED_BODY_TOKENS = (
     "different model family",
     "CLEAN",
     "Operator override",
+    "Quota-constrained reviewer override",
     "REVIEWER_AGENT",
     "REVIEWER_MODEL",
     "Review directly; never delegate the review",

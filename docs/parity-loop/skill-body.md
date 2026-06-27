@@ -27,6 +27,15 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
   you **stop**, record it in the run note, and surface to the operator. An
   override may never bypass an ISSUES verdict and may never mark a gap complete
   on its own.
+- **Quota-constrained reviewer override is explicit and auditable.** If the
+  operator explicitly sets `REVIEWER_AGENT=pi` or `REVIEWER_AGENT=opus` to avoid
+  an unavailable or quota-constrained provider, run that external reviewer even
+  when it cannot be verified as a different model family. This is an explicit
+  operator tradeoff, not self-grading: the selected reviewer must still be a
+  separate direct context, must return CLEAN, and may never bypass an ISSUES
+  verdict. Record a `Caveat: quota-constrained reviewer override ...` line in
+  the run evidence, including the implementer family if known and the selected
+  reviewer.
 
 ## Reviewer selection
 
@@ -46,8 +55,10 @@ rule.
 - Explicit `REVIEWER_AGENT=pi` forces the Pi review harness; explicit
   `REVIEWER_AGENT=opus` forces the Opus review harness. Before accepting an
   explicit override, verify it is still a different model family from the
-  implementer. If it is not different-family, stop as `BLOCKED`; do not treat
-  an operator-specified same-family reviewer as a valid CLEAN gate.
+  implementer when possible. If it is not different-family or cannot be verified
+  as different-family, continue only under the quota-constrained reviewer
+  override rule above and record the required caveat; otherwise stop as
+  `BLOCKED`.
 
 Use these commands for the selected gate, adding `--model "$REVIEWER_MODEL"`
 when `REVIEWER_MODEL` is set:
