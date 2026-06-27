@@ -8,4 +8,5 @@ description: Drive one pi-mono parity gap end to end in this repo (select → pl
 Follow the canonical workflow in `docs/parity-loop/skill-body.md` (resolve the
 relative path against the repo root and read it now). Drive exactly one parity
 gap end to end. Run phases inline. Honor the body's hard rules, especially the
-mandatory different-family review (use `opus-review-loop` to review with Opus).
+mandatory different-family review and its `REVIEWER_AGENT` / `REVIEWER_MODEL`
+selection rules.

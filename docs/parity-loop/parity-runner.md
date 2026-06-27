@@ -24,6 +24,19 @@ commits stay local on `main` for review. See the design at
     uv run python scripts/parity_runner.py --report-slice --curate-report
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
 
+The child parity-loop skill honors reviewer-selection environment variables for
+the plan and code review gates:
+
+    time env REVIEWER_AGENT=pi just parity-run-pipy
+    time env REVIEWER_AGENT=opus just parity-run-pipy
+    time env REVIEWER_AGENT=pi REVIEWER_MODEL=openai-codex/gpt-5.5 just parity-run-pipy
+
+`REVIEWER_AGENT=pi` selects the Pi review harness and `REVIEWER_AGENT=opus`
+selects the Opus review harness. The parity-loop hard rule still applies: the
+selected reviewer must be a different model family from the implementer. If the
+runner exits `3` during preflight, it stopped on open lessons requiring human
+sign-off before any gap or reviewer was selected.
+
 `--agent codex` uses `codex exec --dangerously-bypass-approvals-and-sandbox`.
 `--agent claude` uses
 `claude -p --model opus --dangerously-skip-permissions`. The default `opus`

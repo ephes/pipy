@@ -28,6 +28,40 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
   override may never bypass an ISSUES verdict and may never mark a gap complete
   on its own.
 
+## Reviewer selection
+
+The review gate is configurable but must still satisfy the hard different-family
+rule.
+
+- `REVIEWER_AGENT` may be `auto`, `pi`, or `opus`; unset is `auto`.
+- `REVIEWER_MODEL` may override the selected review harness model when that
+  harness supports `--model`.
+- `auto` selects by implementer family:
+  - Claude/Opus-family implementer -> `pi-review-loop`.
+  - GPT/Codex/Pi-family implementer -> `opus-review-loop`.
+  - `pipy` implementer -> inspect the active native model/provider; if it is
+    GPT/OpenAI-Codex-family, use `opus-review-loop`; if it is Claude/Opus-family,
+    use `pi-review-loop`; if the family cannot be determined, stop as `BLOCKED`
+    rather than guessing.
+- Explicit `REVIEWER_AGENT=pi` forces the Pi review harness; explicit
+  `REVIEWER_AGENT=opus` forces the Opus review harness. Before accepting an
+  explicit override, verify it is still a different model family from the
+  implementer. If it is not different-family, stop as `BLOCKED`; do not treat
+  an operator-specified same-family reviewer as a valid CLEAN gate.
+
+Use these commands for the selected gate, adding `--model "$REVIEWER_MODEL"`
+when `REVIEWER_MODEL` is set:
+
+```bash
+# Pi/GPT-family reviewer
+python3 ~/projects/agent-stuff/claude/skills/pi-review-loop/bin/pi-review-loop \
+  --repo "$PWD" --run-dir "$(mktemp -d)/pi-review"
+
+# Opus/Claude-family reviewer
+python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loop \
+  --repo "$PWD" --run-dir "$(mktemp -d)/opus-review"
+```
+
 ## Phases
 
 0. **Load context & drain the lesson backlog.** Read this body (it now carries
@@ -139,7 +173,8 @@ blocks on a sign-off-needing lesson; lesson application is the runner's job.
 - Plan/review/impl framing: the `goal-handoff`, `handoff-impl`, `handoff-review`
   skills.
 - The different-family review gate: `pi-review-loop` (review with Pi/GPT) or
-  `opus-review-loop` (review with Opus).
+  `opus-review-loop` (review with Opus), selected by the reviewer-selection
+  rules above.
 
 ## Claude Code CLI Hygiene
 
