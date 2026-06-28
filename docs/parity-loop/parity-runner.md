@@ -64,7 +64,7 @@ The normal `just parity-run`, `just parity-run-codex`, `just parity-run-claude`,
 and `just parity-run-pipy` recipes write and curate a slice report after a clean
 run. The `*-dry` recipes validate startup preconditions without spawning a gap.
 The Codex, Claude, and pipy single-gap recipes give the child gap an explicit
-one-hour `--per-gap-timeout` inside a 70-minute runner budget, leaving a small
+two-hour `--per-gap-timeout` inside a 130-minute runner budget, leaving a small
 post-gap margin for runner bookkeeping and lesson-gate checks. Claude uses
 Claude Code's unattended permission bypass adapter, while pipy dogfoods the
 native one-shot product path. The `*-report` recipes do not start a new run;
