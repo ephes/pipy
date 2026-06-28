@@ -1043,6 +1043,14 @@ class ExtensionUi(Protocol):
 
     def getEditorComponent(self) -> object | None: ...
 
+    def get_tools_expanded(self) -> bool: ...
+
+    def getToolsExpanded(self) -> bool: ...
+
+    def set_tools_expanded(self, expanded: bool) -> None: ...
+
+    def setToolsExpanded(self, expanded: bool) -> None: ...
+
 
 class ExtensionCapabilityError(RuntimeError):
     """A capability a handler asked for is not available in this context.
@@ -1493,6 +1501,38 @@ class _CollectingUi:
 
     def getEditorComponent(self) -> object | None:
         return self.get_editor_component()
+
+    def get_tools_expanded(self) -> bool:
+        """Return the live product-TUI tool expansion state.
+
+        Headless/no-UI contexts mirror Pi RPC mode: the state is unsupported,
+        so callers deterministically see ``False``.
+        """
+        if self._ui_driver is None or not self.has_ui:
+            return False
+        try:
+            get_expanded = getattr(self._ui_driver, "get_tools_expanded", None)
+            if callable(get_expanded):
+                return bool(get_expanded())
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return False
+        return False
+
+    def getToolsExpanded(self) -> bool:
+        return self.get_tools_expanded()
+
+    def set_tools_expanded(self, expanded: bool) -> None:
+        if self._ui_driver is None or not self.has_ui:
+            return
+        try:
+            set_expanded = getattr(self._ui_driver, "set_tools_expanded", None)
+            if callable(set_expanded):
+                set_expanded(bool(expanded))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            pass
+
+    def setToolsExpanded(self, expanded: bool) -> None:
+        self.set_tools_expanded(expanded)
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"

@@ -35,7 +35,12 @@ custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 keyboard-shortcut registration `api.register_shortcut(...)`. Theme controls
 also ship (`ctx.ui.theme`, `ctx.ui.get_all_themes`, `ctx.ui.get_theme`,
 `ctx.ui.set_theme`), mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`
-for theme *selection* (registration stays `resources_discover`-only). The extension
+for theme *selection* (registration stays `resources_discover`-only). Tool-output
+expansion controls also ship for command/shortcut contexts:
+`ctx.ui.get_tools_expanded()` / `getToolsExpanded()` read the live product-TUI
+expansion state, and `ctx.ui.set_tools_expanded(...)` / `setToolsExpanded(...)`
+set it; headless contexts match Pi RPC by returning `False` and no-oping writes.
+The extension
 editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
 Ctrl+G. Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
@@ -541,6 +546,11 @@ so Pi extensions translate naturally:
   custom editor component remains deferred.
 - Custom overlays: a focused custom component with keyboard focus, mirroring
   Pi's `custom(...)` overlay.
+- Tool-output expansion **(shipped)**: `ctx.ui.get_tools_expanded()` /
+  `getToolsExpanded()` read the current live product-TUI expansion state, and
+  `ctx.ui.set_tools_expanded(expanded)` / `setToolsExpanded(expanded)` set the
+  same state used by the built-in toggle and repaint the frame. Headless/RPC-like
+  contexts return `False` and no-op writes, matching Pi.
 - Autocomplete: stack an additional autocomplete provider on top of the
   built-in one, mirroring Pi's `addAutocompleteProvider`.
 - Theme controls **(shipped)**: read the active theme (`ctx.ui.theme`), list
@@ -1328,6 +1338,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     mechanism so the next frame repaints. `path` is always `None`: the session
     theme registry retains only `name -> palette` and pipy does not leak package
     theme file paths to extension code.
+22. Tool-output expansion controls — **landed for command/shortcut contexts**:
+    `ctx.ui.get_tools_expanded()` / `getToolsExpanded()` read the same live
+    product-TUI expansion bit that drives built-in tool-row expansion, and
+    `ctx.ui.set_tools_expanded(expanded)` / `setToolsExpanded(expanded)` set it
+    (coerced to bool) and request a repaint. Headless/no-UI contexts match Pi
+    RPC/no-op behavior: getters return `False` and setters do nothing. The state
+    is live-only and never archived.
 23. Autocomplete provider wrappers — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
     Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around

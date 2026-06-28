@@ -1445,7 +1445,11 @@ deferred. The command/shortcut session-manager helper has shipped too: `ctx.sess
 file/id/header, entries, labels, branch/tree, leaf, and session name; the narrow
 Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name` /
 `ctx.setSessionName`, `ctx.get_session_name` / `ctx.getSessionName`, and
-`ctx.set_label` / `ctx.setLabel`. The next largest remaining parity topic is still
+`ctx.set_label` / `ctx.setLabel`. Tool-output expansion controls now ship as
+well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
+`ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live product-TUI
+expansion state, while headless contexts return `False` and no-op writes like Pi
+RPC. The next largest remaining parity topic is still
 the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:

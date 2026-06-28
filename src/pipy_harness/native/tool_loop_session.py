@@ -620,6 +620,15 @@ class _LiveExtensionUiDriver:
     def paste_to_editor(self, text: str) -> None:
         self._terminal_ui.paste_input_text(text)
 
+    def get_tools_expanded(self) -> bool:
+        return bool(self._terminal_ui.tools_expanded)
+
+    def set_tools_expanded(self, expanded: bool) -> None:
+        self._terminal_ui.tools_expanded = bool(expanded)
+        paint = getattr(self._terminal_ui, "paint", None)
+        if callable(paint):
+            paint()
+
     def add_autocomplete_provider(self, factory: object) -> None:
         self._terminal_ui.add_extension_autocomplete_provider(factory)
 

@@ -233,6 +233,11 @@ Pipy current state:
   object in live command/shortcut contexts and clear it on `None`, while
   headless contexts no-op/return `None` like Pi RPC. Full custom editor
   rendering/input integration remains deferred.
+- Extension slice 25 has shipped: tool-output expansion controls —
+  `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
+  `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
+  product-TUI expansion state used by built-in tool-row expansion, repainting on
+  writes; headless contexts return `False` and no-op writes like Pi RPC.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -248,7 +253,8 @@ Follow-ons:
    components (the working indicator already animates via the spinner loop) /
    reactive `footerData` beyond the landed width-reactive chrome snapshot,
    *multi-widget* message components beyond the landed single-component rich
-   message renderer (item C), and the deferred message-entry surface itself
+   message renderer (item C), richer tool-output expansion integration beyond
+   the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry surface itself
    (`send_message`/`deliverAs`/`triggerTurn`, in-session full-history redraw on
    `/resume` switches, rendering a `CustomMessageEntry` beyond stored display
    replay), live tool-render invalidation beyond the landed

@@ -249,6 +249,12 @@ class _FakeEditorUiDriver:
         self.pasted.append(text)
         self.text = text
 
+    def get_tools_expanded(self) -> bool:
+        return bool(getattr(self, "tools_expanded", False))
+
+    def set_tools_expanded(self, expanded: bool) -> None:
+        self.tools_expanded = bool(expanded)
+
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         return False, "not implemented"
 
@@ -286,6 +292,64 @@ def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None
     assert dispatch.messages == (("info", "draft"),)
     assert driver.pasted == ["paste:hello"]
     assert driver.text == "paste:hello"
+
+
+def test_dispatch_exposes_tool_expansion_helpers_to_live_ui(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "toolexpand",
+        "def activate(api):\n"
+        "    def expand(ctx, args):\n"
+        "        ctx.ui.notify(str(ctx.ui.getToolsExpanded()))\n"
+        "        ctx.ui.setToolsExpanded(True)\n"
+        "        ctx.ui.notify(str(ctx.ui.get_tools_expanded()))\n"
+        "        ctx.ui.set_tools_expanded(False)\n"
+        "        ctx.ui.notify(str(ctx.ui.getToolsExpanded()))\n"
+        "    api.register_command('tool-expand', 'tool expand', expand)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/tool-expand",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "False"), ("info", "True"), ("info", "False"))
+    assert driver.get_tools_expanded() is False
+
+
+def test_dispatch_tool_expansion_helpers_are_headless_noops(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "toolexpand",
+        "def activate(api):\n"
+        "    def expand(ctx, args):\n"
+        "        ctx.ui.notify(str(ctx.ui.getToolsExpanded()))\n"
+        "        ctx.ui.setToolsExpanded(True)\n"
+        "        ctx.ui.notify(str(ctx.ui.get_tools_expanded()))\n"
+        "    api.register_command('tool-expand', 'tool expand', expand)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/tool-expand",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=False,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "False"), ("info", "False"))
+    assert driver.get_tools_expanded() is False
 
 
 def test_dispatch_exposes_editor_component_store_to_live_ui(tmp_path: Path) -> None:
