@@ -565,6 +565,7 @@ class _LiveExtensionUiDriver:
     def __init__(self, terminal_ui: "ToolLoopTerminalUi", cwd: Path) -> None:
         self._terminal_ui = terminal_ui
         self._cwd = cwd
+        self._editor_component: object | None = None
 
     def select(self, title: str, options: Sequence[str]) -> str | None:
         return self._terminal_ui.run_extension_select(title, options)
@@ -621,6 +622,15 @@ class _LiveExtensionUiDriver:
 
     def add_autocomplete_provider(self, factory: object) -> None:
         self._terminal_ui.add_extension_autocomplete_provider(factory)
+
+    def set_editor_component(self, factory: object | None) -> None:
+        # API-compatibility store only: full custom editor rendering/input
+        # integration remains a later parity slice. The opaque object is kept
+        # in memory and is never called or persisted by pipy.
+        self._editor_component = factory
+
+    def get_editor_component(self) -> object | None:
+        return self._editor_component
 
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).

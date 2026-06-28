@@ -106,6 +106,19 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert ui.calls[-1] == ("paste-input", "paste")
 
 
+def test_live_driver_stores_editor_component_in_memory(tmp_path):
+    ui = _FakeUi()
+    driver = _LiveExtensionUiDriver(ui, tmp_path)
+    factory = object()
+
+    assert driver.get_editor_component() is None
+    driver.set_editor_component(factory)
+    assert driver.get_editor_component() is factory
+    driver.set_editor_component(None)
+    assert driver.get_editor_component() is None
+    assert ui.calls == []
+
+
 def test_lifecycle_hook_reaches_live_ui_driver(tmp_path):
     driver = _FakeDriver()
     captured = {}

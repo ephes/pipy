@@ -227,6 +227,12 @@ Pipy current state:
   `get_suggestions`/`apply_completion`/optional
   `should_trigger_file_completion` methods for `@` and forced Tab completion,
   while headless contexts remain deterministic no-ops.
+- Extension slice 24 has shipped: Pi-shaped custom editor component store —
+  `ctx.ui.set_editor_component` / `setEditorComponent` and
+  `ctx.ui.get_editor_component` / `getEditorComponent` retain an opaque factory
+  object in live command/shortcut contexts and clear it on `None`, while
+  headless contexts no-op/return `None` like Pi RPC. Full custom editor
+  rendering/input integration remains deferred.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -235,7 +241,8 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: a custom editor component (rich-UI item D),
+1. Richer Pi extension APIs: full custom editor component rendering/input
+   integration beyond the landed `setEditorComponent` in-memory store,
    live per-frame
    component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /

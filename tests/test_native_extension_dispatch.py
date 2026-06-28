@@ -252,6 +252,12 @@ class _FakeEditorUiDriver:
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         return False, "not implemented"
 
+    def set_editor_component(self, factory: object | None) -> None:
+        self.editor_component = factory
+
+    def get_editor_component(self) -> object | None:
+        return getattr(self, "editor_component", None)
+
 
 def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
@@ -280,6 +286,66 @@ def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None
     assert dispatch.messages == (("info", "draft"),)
     assert driver.pasted == ["paste:hello"]
     assert driver.text == "paste:hello"
+
+
+def test_dispatch_exposes_editor_component_store_to_live_ui(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editcomponent",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        def factory(*_args):\n"
+        "            return 'unused'\n"
+        "        ctx.ui.set_editor_component(factory)\n"
+        "        ctx.ui.notify(str(ctx.ui.get_editor_component() is factory))\n"
+        "        ctx.ui.setEditorComponent(None)\n"
+        "        ctx.ui.notify(str(ctx.ui.getEditorComponent() is None))\n"
+        "    api.register_command('edit-component', 'edit component', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-component",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "True"), ("info", "True"))
+    assert driver.get_editor_component() is None
+
+
+def test_dispatch_editor_component_helpers_are_headless_noops(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editcomponent",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        def factory(*_args):\n"
+        "            return 'unused'\n"
+        "        ctx.ui.setEditorComponent(factory)\n"
+        "        ctx.ui.notify(str(ctx.ui.getEditorComponent() is None))\n"
+        "    api.register_command('edit-component', 'edit component', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-component",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=False,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "True"),)
+    assert driver.get_editor_component() is None
 
 
 def test_dispatch_editor_text_helpers_are_headless_noops(tmp_path: Path) -> None:

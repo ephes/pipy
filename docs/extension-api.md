@@ -533,8 +533,12 @@ so Pi extensions translate naturally:
   read/write the core input editor text and paste literal text at the current
   cursor (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
   `ctx.ui.paste_to_editor`, mirroring Pi's `getEditorText` / `setEditorText` /
-  `pasteToEditor`). A fully custom editor component
-  (`setEditorComponent`) remains deferred.
+  `pasteToEditor`). The Pi-shaped custom editor component store also ships
+  (`ctx.ui.set_editor_component` / `setEditorComponent` and
+  `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts retain an
+  opaque in-memory factory object and `None` clears it, while headless contexts
+  no-op/return `None` like Pi RPC. Rendering/input integration for a fully
+  custom editor component remains deferred.
 - Custom overlays: a focused custom component with keyboard focus, mirroring
   Pi's `custom(...)` overlay.
 - Autocomplete: stack an additional autocomplete provider on top of the
@@ -1303,8 +1307,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     inserts literal text at the current cursor while preserving surrounding
     draft text and pasted newlines, matching Pi's bracketed-paste path. These
     helpers are live-only mutations: headless reads return `""`, headless
-    writes/pastes no-op, and live driver failures fail soft. Deferred editor polish:
-    `setEditorComponent`.
+    writes/pastes no-op, and live driver failures fail soft. The Pi-shaped
+    custom editor component store also ships for API compatibility:
+    `ctx.ui.set_editor_component(factory)` / `setEditorComponent(factory)` and
+    `ctx.ui.get_editor_component()` / `getEditorComponent()` store and return an
+    opaque in-memory live factory, and `None` clears it. Headless contexts no-op
+    and return `None`, matching Pi RPC. Full custom editor rendering/input
+    integration remains deferred.
 21. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,
@@ -1329,7 +1338,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     `should_trigger_file_completion`/`shouldTriggerFileCompletion`; and fail
     soft back to the built-in provider. Headless contexts accept the call as a
     deterministic no-op.
-    Deferred: `setEditorComponent` and live per-frame component invalidation.
+    Deferred: full custom editor component rendering/input integration and live
+    per-frame component invalidation.
 
 ## Open Questions
 

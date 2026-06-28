@@ -1035,6 +1035,14 @@ class ExtensionUi(Protocol):
 
     def addAutocompleteProvider(self, factory: object) -> None: ...
 
+    def set_editor_component(self, factory: object | None) -> None: ...
+
+    def setEditorComponent(self, factory: object | None) -> None: ...
+
+    def get_editor_component(self) -> object | None: ...
+
+    def getEditorComponent(self) -> object | None: ...
+
 
 class ExtensionCapabilityError(RuntimeError):
     """A capability a handler asked for is not available in this context.
@@ -1250,6 +1258,7 @@ class _CollectingUi:
         self.title: str | None = None
         self.indicator: tuple[Sequence[str] | None, int | None] | None = None
         self.autocomplete_providers: list[object] = []
+        self.editor_component: object | None = None
         self._notify_sink = notify_sink
         self._custom_driver = custom_driver
         self._ui_driver = ui_driver
@@ -1449,6 +1458,41 @@ class _CollectingUi:
 
     def addAutocompleteProvider(self, factory: object) -> None:
         self.add_autocomplete_provider(factory)
+
+    def set_editor_component(self, factory: object | None) -> None:
+        """Set or clear the live custom editor factory store.
+
+        This mirrors Pi's ``setEditorComponent`` state surface while keeping
+        this slice intentionally render-neutral: pipy stores the opaque object
+        in memory only, never calls it, and headless contexts behave like Pi's
+        RPC mode (deterministic no-op).
+        """
+        if self._ui_driver is None or not self.has_ui:
+            return
+        try:
+            set_component = getattr(self._ui_driver, "set_editor_component", None)
+            if callable(set_component):
+                set_component(factory)
+                self.editor_component = factory
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            pass
+
+    def setEditorComponent(self, factory: object | None) -> None:
+        self.set_editor_component(factory)
+
+    def get_editor_component(self) -> object | None:
+        if self._ui_driver is None or not self.has_ui:
+            return None
+        try:
+            get_component = getattr(self._ui_driver, "get_editor_component", None)
+            if callable(get_component):
+                return get_component()
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return None
+        return None
+
+    def getEditorComponent(self) -> object | None:
+        return self.get_editor_component()
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"
