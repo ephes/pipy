@@ -796,6 +796,99 @@ def test_extension_send_message_next_turn_injects_next_provider_context(
     assert result.user_turn_count == 1
 
 
+def test_extension_send_message_next_turn_is_not_long_lived_history(
+    tmp_path, monkeypatch
+) -> None:
+    # nextTurn custom context is consumed by exactly one provider turn. It must
+    # be removed from the live long-lived provider history after that turn so it
+    # does not reappear in later requests.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_context.py").write_text(
+        "def activate(api):\n"
+        "    def queue(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'queued context'},\n"
+        "            {'deliverAs': 'nextTurn'},\n"
+        "        )\n"
+        "    api.register_command('queue-context', 'queue context', queue)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO(
+            "/queue-context single-use context\nfirst prompt\nsecond prompt\n"
+        ),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert len(provider.requests) == 2
+    assert [request.user_prompt for request in provider.requests] == [
+        "first prompt",
+        "second prompt",
+    ]
+    assert [
+        message.content
+        for message in provider.requests[0].messages
+        if hasattr(message, "content")
+    ] == ["first prompt", "single-use context"]
+    assert [
+        message.content
+        for message in provider.requests[1].messages
+        if hasattr(message, "content")
+    ] == ["first prompt", "OK", "second prompt"]
+    assert result.user_turn_count == 2
+
+
+def test_extension_send_message_trigger_turn_requires_strict_true(
+    tmp_path, monkeypatch
+) -> None:
+    # Pi's triggerTurn option is a strict boolean flag. Truthy strings or other
+    # non-True values must only append/display the custom message and must not
+    # start a provider turn.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_prompt.py").write_text(
+        "def activate(api):\n"
+        "    def prompt(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'from custom'},\n"
+        "            {'triggerTurn': 'true'},\n"
+        "        )\n"
+        "    api.register_command('custom-prompt', 'custom prompt', prompt)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    native_session = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=native_session,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/custom-prompt display-only\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert provider.requests == []
+    custom_messages = [
+        e for e in native_session.entries if isinstance(e, CustomMessageEntry)
+    ]
+    assert [(e.custom_type, e.content, e.display) for e in custom_messages] == [
+        ("note", "display-only", True)
+    ]
+    assert result.user_turn_count == 0
+
+
 def test_extension_send_message_next_turn_clears_on_session_switch(
     tmp_path, monkeypatch
 ) -> None:
