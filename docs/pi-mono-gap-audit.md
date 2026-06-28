@@ -271,12 +271,14 @@ Implement in pipy:
 2. Provider/model user docs now ship in [providers.md](providers.md): model
    listing, provider selection, credentials, `models.json`, ds4, thinking/images
    metadata, and current follow-ons.
-3. Remaining user docs: sessions, settings, keybindings, customization,
-   automation, SDK/RPC, and install/update deep dives.
-4. Keep README short and outside-in.
-5. Separate shipped behavior from target specs; do not present pipy-only
+3. Settings and keybindings user docs now ship in [settings.md](settings.md)
+   and [keybindings.md](keybindings.md).
+4. Remaining user docs: customization, automation, SDK/RPC, and install/update
+   deep dives.
+5. Keep README short and outside-in.
+6. Separate shipped behavior from target specs; do not present pipy-only
    divergences as parity.
-6. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
+7. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
    `uv run pipy run --help`, and the relevant conformance gates.
 
 Owning spec: [user-documentation.md](user-documentation.md).

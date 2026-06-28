@@ -94,8 +94,10 @@ them only for deeper design detail.
    flags, `/session`/`/resume`/`/tree`/`/fork`/`/clone`, durable compaction,
    export/share pointers, and the separate `pipy-session` metadata/catalog
    utility with the store split explicit.
-5. **Settings/keybindings docs.** Land alongside the settings-config track as
-   the runtime behavior ships.
+5. **Settings/keybindings docs.** **Shipped:** [Settings](settings.md) and
+   [Keybindings](keybindings.md) cover pipy's global/project settings files,
+   reload workflow, common Pi-shaped fields and pipy divergences, key syntax,
+   namespaced action ids, defaults, and customization examples.
 6. **Customization docs.** Skills/templates/themes now; extensions/packages as
    planned until the extension platform ships.
 7. **Automation docs.** JSON/RPC pages land with the automation track; SDK docs

@@ -75,6 +75,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Provider/model user documentation now covers listing models, provider/model
   selection, credentials, `models.json`, ds4, thinking/images metadata, and
   current provider follow-ons.
+- Settings and keybindings user documentation now covers pipy's global/project
+  settings files, reload workflow, common Pi-shaped fields and pipy
+  divergences, key syntax, namespaced action ids, defaults, and customization
+  examples.
 - Session and compaction user documentation now covers the native product
   session tree, startup flags, `/session`/`/resume`/`/tree`/`/fork`/`/clone`,
   durable compaction, export/share pointers, and the separate `pipy-session`
