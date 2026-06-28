@@ -1451,9 +1451,10 @@ well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
 expansion state, while headless contexts return `False` and no-op writes like Pi
 RPC. Extension custom-message sending now also ships for the local
 session/display slice: `api.send_message` / `api.sendMessage` and
-`ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages
-without triggering provider turns; `deliverAs` / `triggerTurn` delivery
-semantics stay deferred. The next largest remaining parity topic is still
+`ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages;
+idle `triggerTurn` starts a deterministic provider turn and
+`deliverAs: "nextTurn"` injects custom context into the next accepted turn.
+Streaming `steer` / `followUp` delivery remains deferred. The next largest remaining parity topic is still
 the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:

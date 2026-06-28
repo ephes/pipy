@@ -1371,8 +1371,12 @@ class NativeToolReplSession:
                         file=error_stream,
                     )
         # Prompts an extension enqueues via send_user_message become the
-        # next prompts processed by the loop (deterministic turns).
+        # next prompts processed by the loop (deterministic turns). Custom
+        # messages delivered as "nextTurn" are provider-visible context for the
+        # next accepted turn but do not start a standalone turn.
         extension_pending_messages: list[str] = []
+        extension_pending_next_turn_custom_messages: list[str] = []
+        extension_in_agent_turn = False
         # Positional prompts from ``pipy "<prompt>"`` seed the first user turn(s)
         # before the loop blocks on stdin. They drain ahead of everything else so
         # the seeded message is the session's first user message.
@@ -1683,7 +1687,6 @@ class NativeToolReplSession:
             options: Mapping[str, object],
             details: object | None = None,
         ) -> object:
-            del options  # trigger/steer/follow-up delivery is a later slice.
             appended = session_tree.append_custom_message(
                 custom_type,
                 content,
@@ -1701,6 +1704,16 @@ class NativeToolReplSession:
                         error_stream,
                         f"{custom_type}:\n{content}" if content else custom_type,
                     )
+            deliver_as = options.get("deliverAs")
+            if deliver_as is None:
+                deliver_as = options.get("deliver_as")
+            if deliver_as == "nextTurn":
+                extension_pending_next_turn_custom_messages.append(content)
+            elif (
+                not extension_in_agent_turn
+                and (options.get("triggerTurn") is True or options.get("trigger_turn") is True)
+            ):
+                extension_pending_messages.append(content)
             return appended.id
 
         for custom_message in extension_activation_custom_messages:
@@ -2106,6 +2119,14 @@ class NativeToolReplSession:
             diag(f"pipy: {operation} blocked by extension: {reason}")
             return False
 
+        def clear_extension_delivery_queues() -> None:
+            # Delivery queues are bound to the active native session/branch. A
+            # session rebuild means /new, /resume, /fork, /import, or an
+            # interactive picker changed that boundary, so queued extension
+            # provider context must not leak into the replacement session.
+            extension_pending_messages.clear()
+            extension_pending_next_turn_custom_messages.clear()
+
         def rebuild_messages_from_tree() -> None:
             """Rebuild the live provider-visible list from the active branch.
 
@@ -2118,6 +2139,7 @@ class NativeToolReplSession:
             nonlocal messages, compaction_summary
             messages = list(session_tree.build_context().messages)
             compaction_summary = ""
+            clear_extension_delivery_queues()
 
         def summarize_branch(
             branch_messages: list[LoopMessage], focus: str | None
@@ -3582,7 +3604,17 @@ class NativeToolReplSession:
                 # (the user message and everything the loop appends below).
                 agent_run_start_index = len(messages)
                 emitter.agent_start()
+                extension_in_agent_turn = True
                 messages.append(turn_user_message)
+                injected_custom_context_count = len(
+                    extension_pending_next_turn_custom_messages
+                )
+                if injected_custom_context_count:
+                    for pending_custom_message in (
+                        extension_pending_next_turn_custom_messages
+                    ):
+                        messages.append(UserMessage(content=pending_custom_message))
+                    extension_pending_next_turn_custom_messages.clear()
                 session_tree.append_message(turn_user_message)
                 user_turn_count += 1
                 # Persist the prompt for cross-session recall when the user has
@@ -3935,9 +3967,18 @@ class NativeToolReplSession:
                     if tool_interrupted_turn:
                         break
                     if fatal:
-                        emitter.agent_end(
-                            messages[agent_run_start_index:], will_retry=False
-                        )
+                        agent_run_messages = messages[agent_run_start_index:]
+                        if injected_custom_context_count:
+                            agent_run_messages = (
+                                agent_run_messages[:1]
+                                + agent_run_messages[1 + injected_custom_context_count :]
+                            )
+                            del messages[
+                                agent_run_start_index + 1 :
+                                agent_run_start_index + 1 + injected_custom_context_count
+                            ]
+                        emitter.agent_end(agent_run_messages, will_retry=False)
+                        extension_in_agent_turn = False
                         ended_at = datetime.now(UTC)
                         try:
                             repl_input.close()
@@ -3971,9 +4012,18 @@ class NativeToolReplSession:
                 # The inner loop settled this accepted prompt's agent run (no tool
                 # calls left, the budget cap, or a provider failure). Close it on the
                 # automation stream before the outer loop reads the next prompt.
-                emitter.agent_end(
-                    messages[agent_run_start_index:], will_retry=False
-                )
+                agent_run_messages = messages[agent_run_start_index:]
+                if injected_custom_context_count:
+                    agent_run_messages = (
+                        agent_run_messages[:1]
+                        + agent_run_messages[1 + injected_custom_context_count :]
+                    )
+                    del messages[
+                        agent_run_start_index + 1 :
+                        agent_run_start_index + 1 + injected_custom_context_count
+                    ]
+                emitter.agent_end(agent_run_messages, will_retry=False)
+                extension_in_agent_turn = False
 
             try:
                 repl_input.close()

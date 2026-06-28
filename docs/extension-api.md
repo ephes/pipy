@@ -63,9 +63,11 @@ may return a themed component (committed SGR-preserving with no forced label),
 while a 1-arg renderer stays plain text. Custom entries on the active branch
 are replayed into startup-opened TUI sessions, including
 `--session`/`--continue`/`--resume-session` opens, with the best available
-registered renderer. `send_message`/`deliverAs`/`triggerTurn`, in-session
-full-history redraw on `/resume` switches, and rendering a `CustomMessageEntry`
-remain deferred. Extensions can also render their own tool
+registered renderer. Custom-message sending also ships for idle provider
+delivery: `triggerTurn` starts a deterministic provider turn and
+`deliverAs: "nextTurn"` injects custom context into the next accepted turn;
+streaming `steer`/`followUp`, in-session full-history redraw on `/resume`
+switches, and richer `CustomMessageEntry` rendering remain deferred. Extensions can also render their own tool
 call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
@@ -1058,9 +1060,10 @@ and the live `scripts/tmux_answer_verify.sh`.
    and command/shortcut `ctx.send_message` / `ctx.sendMessage` accept
    `{customType, content, display?, details?}` plus optional `triggerTurn` /
    `deliverAs` options, append a bounded `custom_message` entry, and render
-   displayed content locally. The options are accepted for API shape but do not
-   start, steer, follow up, or queue provider turns yet; those delivery
-   semantics remain a later refinement.
+   displayed content locally. `triggerTurn` starts an idle deterministic
+   provider turn, and `deliverAs: "nextTurn"` queues custom context for the
+   next accepted provider turn. Streaming `steer` / `followUp` delivery remains
+   a later refinement.
 7. Pure/read-only tool registration — **landed**: add extension tools to the
    bounded tool loop using existing JSON-schema validation and output bounds.
    Implemented as `ExtensionTool`/`ToolResult`/`RegisteredTool` +
@@ -1299,8 +1302,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     startup-opened TUI sessions through the same renderer dispatch; if the
     renderer is absent or fails, pipy falls back to the plain sanitized path, and
     replay itself never mutates the session file. Deferred:
-    provider-turn `deliverAs`/`triggerTurn` semantics for `send_message`, in-session full-history redraw on
-    `/resume` switches, rendering a `CustomMessageEntry`, multi-widget message
+    streaming `steer`/`followUp` semantics for `send_message`, in-session
+    full-history redraw on `/resume` switches, rendering a `CustomMessageEntry`, multi-widget message
     components, and live per-frame `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
     proves the dispatch/coercion units; the golden

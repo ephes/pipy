@@ -47,15 +47,16 @@ import os
 import subprocess
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from pipy_harness.models import HarnessStatus
 from pipy_harness.cli import (
     _resource_options_from_args,
     build_parser,
     main as cli_main,
 )
-from pipy_harness.native import themes
+from pipy_harness.native import ProviderRequest, ProviderResult, themes
 from pipy_harness.native.extensions import discover_extensions, safe_extension_metadata
 from pipy_harness.native.package_manager import (
     configure_resource_filter,
@@ -70,6 +71,38 @@ from pipy_harness.native.settings import (
     project_settings_path,
 )
 from pipy_harness.native.theme_files import build_theme_registry
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
+
+
+@dataclass
+class _CapturingProvider:
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "capturing-fake"
+
+    @property
+    def model_id(self) -> str:
+        return "capturing-model"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return True
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=None,
+            ended_at=None,
+            final_text="OK",
+            usage=None,
+            metadata=None,
+            tool_calls=(),
+        )
 
 
 @dataclass
@@ -199,6 +232,7 @@ def run_checks(base: Path) -> list[Check]:
     checks.extend(_git_package_update_checks(base, workspace))
     checks.extend(_runtime_composition_checks(base))
     checks.extend(_source_loading_flag_checks(base))
+    checks.extend(_send_message_delivery_checks(base))
     return checks
 
 
@@ -568,6 +602,58 @@ def _source_loading_flag_checks(base: Path) -> list[Check]:
         )
     )
     return checks
+
+def _send_message_delivery_checks(base: Path) -> list[Check]:
+    workspace = base / "send-message-ws"
+    ext = workspace / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "delivery.py").write_text(
+        "def activate(api):\n"
+        "    def trigger(ctx, args):\n"
+        "        ctx.send_message({'customType': 'note', 'content': args}, {'triggerTurn': True})\n"
+        "    def queue(ctx, args):\n"
+        "        ctx.send_message({'customType': 'note', 'content': args}, {'deliverAs': 'nextTurn'})\n"
+        "    api.register_command('trigger-custom', 'trigger custom', trigger)\n"
+        "    api.register_command('queue-custom', 'queue custom', queue)\n",
+        encoding="utf-8",
+    )
+
+    trigger_provider = _CapturingProvider()
+    NativeToolReplSession(provider=trigger_provider, tool_registry={}).run(
+        workspace_root=workspace,
+        input_stream=io.StringIO("/trigger-custom custom prompt\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    next_provider = _CapturingProvider()
+    NativeToolReplSession(provider=next_provider, tool_registry={}).run(
+        workspace_root=workspace,
+        input_stream=io.StringIO("/queue-custom custom context\nreal prompt\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    return [
+        Check(
+            "send_message_trigger_turn_delivery",
+            len(trigger_provider.requests) == 1
+            and trigger_provider.requests[0].user_prompt == "custom prompt",
+            "send_message triggerTurn starts an idle provider turn",
+        ),
+        Check(
+            "send_message_next_turn_delivery",
+            len(next_provider.requests) == 1
+            and next_provider.requests[0].user_prompt == "real prompt"
+            and [
+                message.content
+                for message in next_provider.requests[0].messages
+                if hasattr(message, "content")
+            ]
+            == ["real prompt", "custom context"],
+            "send_message deliverAs=nextTurn injects custom context into the next turn",
+        ),
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:

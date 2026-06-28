@@ -30,7 +30,7 @@ from pipy_harness.native.extension_runtime import (
     safe_custom_entry_data,
 )
 from pipy_harness.native.extensions import discover_extensions
-from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
+from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry, NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
@@ -710,6 +710,125 @@ def test_extension_command_runs_through_the_session(tmp_path, monkeypatch) -> No
     assert len(provider.requests) == 1
     assert "plain prompt" in provider.requests[0].user_prompt
     assert result.user_turn_count == 1
+
+
+def test_extension_send_message_trigger_turn_runs_provider_turn(
+    tmp_path, monkeypatch
+) -> None:
+    # Pi's idle triggerTurn delivery starts a provider turn from the custom
+    # message while still archiving the custom_message entry itself.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_prompt.py").write_text(
+        "def activate(api):\n"
+        "    def prompt(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'from custom'},\n"
+        "            {'triggerTurn': True},\n"
+        "        )\n"
+        "    api.register_command('custom-prompt', 'custom prompt', prompt)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    native_session = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=native_session,
+    )
+    error_stream = StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/custom-prompt provider-visible\n"),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert len(provider.requests) == 1
+    assert provider.requests[0].user_prompt == "provider-visible"
+    assert [
+        m.content for m in provider.requests[0].messages if hasattr(m, "content")
+    ] == ["provider-visible"]
+    custom_messages = [
+        e for e in native_session.entries if isinstance(e, CustomMessageEntry)
+    ]
+    assert [(e.custom_type, e.content, e.display) for e in custom_messages] == [
+        ("note", "provider-visible", True)
+    ]
+    assert result.user_turn_count == 1
+
+
+def test_extension_send_message_next_turn_injects_next_provider_context(
+    tmp_path, monkeypatch
+) -> None:
+    # deliverAs=nextTurn queues provider-visible context for the next accepted
+    # user prompt without triggering a standalone provider turn.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_context.py").write_text(
+        "def activate(api):\n"
+        "    def queue(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'queued context'},\n"
+        "            {'deliverAs': 'nextTurn'},\n"
+        "        )\n"
+        "    api.register_command('queue-context', 'queue context', queue)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/queue-context custom context\nreal prompt\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert len(provider.requests) == 1
+    assert provider.requests[0].user_prompt == "real prompt"
+    assert [
+        m.content for m in provider.requests[0].messages if hasattr(m, "content")
+    ] == ["real prompt", "custom context"]
+    assert result.user_turn_count == 1
+
+
+def test_extension_send_message_next_turn_clears_on_session_switch(
+    tmp_path, monkeypatch
+) -> None:
+    # nextTurn context is scoped to the active session; a /new boundary must not
+    # leak queued custom content into the replacement session's next provider turn.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_context.py").write_text(
+        "def activate(api):\n"
+        "    def queue(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'queued context'},\n"
+        "            {'deliverAs': 'nextTurn'},\n"
+        "        )\n"
+        "    api.register_command('queue-context', 'queue context', queue)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/queue-context old session context\n/new\nnew prompt\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert len(provider.requests) == 1
+    assert provider.requests[0].user_prompt == "new prompt"
+    assert [
+        m.content for m in provider.requests[0].messages if hasattr(m, "content")
+    ] == ["new prompt"]
 
 
 def test_builtin_is_not_shadowed_by_extension(tmp_path, monkeypatch) -> None:
