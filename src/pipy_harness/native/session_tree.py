@@ -236,6 +236,7 @@ class CustomMessageEntry:
     custom_type: str
     content: str
     display: bool = True
+    details: Any = None
     type: str = "custom_message"
 
 
@@ -345,6 +346,7 @@ def _entry_to_json(entry: SessionEntry) -> dict[str, Any]:
         base["customType"] = entry.custom_type
         base["content"] = entry.content
         base["display"] = entry.display
+        base["details"] = entry.details
     return base
 
 
@@ -430,6 +432,7 @@ def _entry_from_json(body: dict[str, Any]) -> SessionEntry | None:
                 custom_type=str(body.get("customType", "")),
                 content=str(body.get("content", "")),
                 display=bool(body.get("display", True)),
+                details=body.get("details"),
             )
     except (KeyError, ValueError, TypeError):
         return None
@@ -891,7 +894,12 @@ class NativeSessionTree:
         return self._append_entry(entry)  # type: ignore[return-value]
 
     def append_custom_message(
-        self, custom_type: str, content: str, *, display: bool = True
+        self,
+        custom_type: str,
+        content: str,
+        *,
+        display: bool = True,
+        details: Any = None,
     ) -> CustomMessageEntry:
         entry = CustomMessageEntry(
             id=self._next_id(),
@@ -900,6 +908,7 @@ class NativeSessionTree:
             custom_type=custom_type,
             content=content,
             display=display,
+            details=details,
         )
         return self._append_entry(entry)  # type: ignore[return-value]
 
@@ -977,7 +986,10 @@ class NativeSessionTree:
             return self.append_custom(entry.custom_type, entry.data)
         if isinstance(entry, CustomMessageEntry):
             return self.append_custom_message(
-                entry.custom_type, entry.content, display=entry.display
+                entry.custom_type,
+                entry.content,
+                display=entry.display,
+                details=entry.details,
             )
         raise TypeError(f"cannot clone entry: {type(entry)!r}")
 

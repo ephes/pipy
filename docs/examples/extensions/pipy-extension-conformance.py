@@ -179,6 +179,8 @@ def activate(api):
         # the data sentinel may persist in the session-tree store but must not
         # leak into the proof/metadata side-channel.
         ctx.append_entry("conformance-card", {"sentinel": _MSG_DATA_SENTINEL})
+        ctx.send_message({"customType": "conformance-card", "content": "custom message"})
+        _proof("send_message", custom_type="conformance-card")
         api.send_user_message("run conformance probe")
 
     api.register_command(

@@ -171,6 +171,7 @@ from pipy_harness.native.extension_runtime import (
     FooterData,
     HookHandler,
     LifecycleEvent,
+    QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredCommand,
     RegisteredFlag,
@@ -187,6 +188,7 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_shortcut,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
+    drain_custom_messages,
     dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
     dispatch_tool_result_hooks,
@@ -852,12 +854,14 @@ class _ExtensionRuntime:
     session_before_compact_hooks: tuple[HookHandler, ...]
     session_before_tree_hooks: tuple[HookHandler, ...]
     outbox: list[QueuedUserMessage]
+    custom_outbox: list[QueuedCustomMessage]
     tools: tuple[RegisteredTool, ...]
     shortcuts: dict[str, RegisteredShortcut]
     flags: tuple[RegisteredFlag, ...]
     providers: tuple[RegisteredProvider, ...]
     unregistered_providers: tuple[str, ...]
     message_renderers: dict[str, RegisteredMessageRenderer]
+    custom_messages: tuple[QueuedCustomMessage, ...]
 
 
 def _activate_workspace_extensions(
@@ -901,17 +905,25 @@ def _activate_workspace_extensions(
             or is_resource_enabled(descriptor.name, list(extension_patterns))
         ]
     outbox: list[QueuedUserMessage] = []
+    custom_outbox: list[QueuedCustomMessage] = []
     activated = activate_extensions(
         descriptors,
         reserved_command_names=reserved,
         reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
         message_outbox=outbox,
+        custom_message_outbox=custom_outbox,
     )
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
     descriptions = {
         f"/{command.name}": command.description for command in command_map.values()
     }
+    custom_messages = tuple(
+        message
+        for extension in activated
+        if extension.status == "activated"
+        for message in extension.custom_messages
+    )
     tool_call_hooks = extension_tool_call_hooks(activated)
     lifecycle_hooks = {
         event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
@@ -951,12 +963,14 @@ def _activate_workspace_extensions(
         session_before_compact_hooks=session_before_compact_hooks,
         session_before_tree_hooks=session_before_tree_hooks,
         outbox=outbox,
+        custom_outbox=custom_outbox,
         tools=extension_tools(activated),
         shortcuts=extension_shortcuts(activated),
         flags=extension_flags(activated),
         providers=extension_providers(activated),
         unregistered_providers=extension_unregistered_providers(activated),
         message_renderers=extension_message_renderers(activated),
+        custom_messages=custom_messages,
     )
 
 
@@ -1302,7 +1316,9 @@ class NativeToolReplSession:
         )
         extension_session_before_tree_hooks = _ext_runtime.session_before_tree_hooks
         extension_message_outbox = _ext_runtime.outbox
+        extension_custom_message_outbox = _ext_runtime.custom_outbox
         extension_renderer_map = _ext_runtime.message_renderers
+        extension_activation_custom_messages = _ext_runtime.custom_messages
         extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
             _ext_runtime.flags,
             tuple(resource_options.extension_flag_tokens),
@@ -1659,6 +1675,43 @@ class NativeToolReplSession:
                     f"{safe_type}:\n{lines}" if lines else safe_type,
                 )
             return appended.id
+
+        def extension_send_message(
+            custom_type: str,
+            content: str,
+            display: bool,
+            options: Mapping[str, object],
+            details: object | None = None,
+        ) -> object:
+            del options  # trigger/steer/follow-up delivery is a later slice.
+            appended = session_tree.append_custom_message(
+                custom_type,
+                content,
+                display=display,
+                details=details,
+            )
+            if display:
+                if terminal_ui is not None:
+                    terminal_ui.add_custom_entry(
+                        custom_type, content.splitlines() or [""]
+                    )
+                else:
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        f"{custom_type}:\n{content}" if content else custom_type,
+                    )
+            return appended.id
+
+        for custom_message in extension_activation_custom_messages:
+            extension_send_message(
+                custom_message.custom_type,
+                custom_message.content,
+                custom_message.display,
+                custom_message.options,
+                custom_message.details,
+            )
+        extension_activation_custom_messages = ()
 
         def extension_set_session_name(name: str | None) -> object:
             return session_tree.append_session_info(name)
@@ -2173,6 +2226,14 @@ class NativeToolReplSession:
                     message.content
                     for message in drain_user_messages(extension_message_outbox)
                 )
+                for custom_message in drain_custom_messages(extension_custom_message_outbox):
+                    extension_send_message(
+                        custom_message.custom_type,
+                        custom_message.content,
+                        custom_message.display,
+                        custom_message.options,
+                        custom_message.details,
+                    )
                 pending_command = (
                     terminal_ui.take_pending_command()
                     if terminal_ui is not None
@@ -2300,6 +2361,7 @@ class NativeToolReplSession:
                         set_session_name_fn=extension_set_session_name,
                         get_session_name_fn=extension_get_session_name,
                         set_label_fn=extension_set_label,
+                        send_message_fn=extension_send_message,
                         flags=extension_flag_values,
                         session_tree=session_tree,
                     )
@@ -2481,7 +2543,18 @@ class NativeToolReplSession:
                         _ext_runtime.session_before_tree_hooks
                     )
                     extension_message_outbox = _ext_runtime.outbox
+                    extension_custom_message_outbox = _ext_runtime.custom_outbox
                     extension_renderer_map = _ext_runtime.message_renderers
+                    extension_activation_custom_messages = _ext_runtime.custom_messages
+                    for custom_message in extension_activation_custom_messages:
+                        extension_send_message(
+                            custom_message.custom_type,
+                            custom_message.content,
+                            custom_message.display,
+                            custom_message.options,
+                            custom_message.details,
+                        )
+                    extension_activation_custom_messages = ()
                     reloaded_flag_values, reloaded_flag_error = (
                         parse_extension_flag_tokens(
                             _ext_runtime.flags,
@@ -3365,6 +3438,7 @@ class NativeToolReplSession:
                         set_session_name_fn=extension_set_session_name,
                         get_session_name_fn=extension_get_session_name,
                         set_label_fn=extension_set_label,
+                        send_message_fn=extension_send_message,
                         flags=extension_flag_values,
                         session_tree=session_tree,
                     )

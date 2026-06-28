@@ -257,6 +257,17 @@ class QueuedUserMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedCustomMessage:
+    """A custom message an extension enqueued via `send_message`."""
+
+    custom_type: str
+    content: str
+    display: bool
+    details: object | None
+    options: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
 class ToolResultEvent:
     """The finalized, bounded result of a tool, shown to `tool_result` hooks.
 
@@ -444,6 +455,7 @@ def make_extension_context(
     flags: Mapping[str, object] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
     session_tree: "NativeSessionTree | None" = None,
+    send_message_fn: "SendMessageFn | None" = None,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
@@ -466,8 +478,9 @@ def make_extension_context(
         set_session_name_fn,
         get_session_name_fn,
         set_label_fn,
-        flags,
-        session_tree,
+        send_message_fn=send_message_fn,
+        flags=flags,
+        session_tree=session_tree,
     )
 
 
@@ -605,6 +618,7 @@ AppendEntryFn = Callable[[str, object | None], object]
 SetSessionNameFn = Callable[[str | None], object]
 GetSessionNameFn = Callable[[], str | None]
 SetLabelFn = Callable[[str, str | None], object]
+SendMessageFn = Callable[[str, str, bool, Mapping[str, object], object | None], object]
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -637,6 +651,18 @@ class PipyExtensionAPI(Protocol):
     def send_user_message(
         self,
         content: str,
+        options: Mapping[str, object] | None = None,
+    ) -> None: ...
+
+    def send_message(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> None: ...
+
+    def sendMessage(
+        self,
+        message: Mapping[str, object],
         options: Mapping[str, object] | None = None,
     ) -> None: ...
 
@@ -742,6 +768,7 @@ class ActivatedExtension:
     shortcuts: tuple[RegisteredShortcut, ...] = ()
     flags: tuple[RegisteredFlag, ...] = ()
     message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
+    custom_messages: tuple[QueuedCustomMessage, ...] = ()
 
 
 @runtime_checkable
@@ -1215,6 +1242,16 @@ class CommandContext(Protocol):
     def getSessionName(self) -> str | None: ...
     def set_label(self, entry_id: str, label: str | None) -> object: ...
     def setLabel(self, entry_id: str, label: str | None) -> object: ...
+    def send_message(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> object: ...
+    def sendMessage(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> object: ...
 
 
 class _ConversationView:
@@ -1734,6 +1771,7 @@ class _CommandContext:
         set_session_name_fn: "SetSessionNameFn | None" = None,
         get_session_name_fn: "GetSessionNameFn | None" = None,
         set_label_fn: "SetLabelFn | None" = None,
+        send_message_fn: "SendMessageFn | None" = None,
         flags: Mapping[str, object] | None = None,
         session_tree: "NativeSessionTree | None" = None,
     ) -> None:
@@ -1754,6 +1792,7 @@ class _CommandContext:
         self._set_session_name_fn = set_session_name_fn
         self._get_session_name_fn = get_session_name_fn
         self._set_label_fn = set_label_fn
+        self._send_message_fn = send_message_fn
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         if self._complete_fn is None:
@@ -1820,6 +1859,31 @@ class _CommandContext:
 
     def setLabel(self, entry_id: str, label: str | None) -> object:
         return self.set_label(entry_id, label)
+
+    def send_message(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> object:
+        if self._send_message_fn is None:
+            raise ExtensionCapabilityError(
+                "custom messages are not available in this context"
+            )
+        queued = coerce_custom_message(message, options)
+        return self._send_message_fn(
+            queued.custom_type,
+            queued.content,
+            queued.display,
+            queued.options,
+            queued.details,
+        )
+
+    def sendMessage(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> object:
+        return self.send_message(message, options)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1894,6 +1958,7 @@ def dispatch_extension_command(
     set_session_name_fn: "SetSessionNameFn | None" = None,
     get_session_name_fn: "GetSessionNameFn | None" = None,
     set_label_fn: "SetLabelFn | None" = None,
+    send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
 ) -> ExtensionCommandDispatch | None:
@@ -1936,6 +2001,7 @@ def dispatch_extension_command(
         set_session_name_fn=set_session_name_fn,
         get_session_name_fn=get_session_name_fn,
         set_label_fn=set_label_fn,
+        send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
     )
@@ -1959,6 +2025,7 @@ def dispatch_extension_shortcut(
     set_session_name_fn: "SetSessionNameFn | None" = None,
     get_session_name_fn: "GetSessionNameFn | None" = None,
     set_label_fn: "SetLabelFn | None" = None,
+    send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
 ) -> ExtensionCommandDispatch | None:
@@ -1992,6 +2059,7 @@ def dispatch_extension_shortcut(
         set_session_name_fn=set_session_name_fn,
         get_session_name_fn=get_session_name_fn,
         set_label_fn=set_label_fn,
+        send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
     )
@@ -2016,6 +2084,7 @@ def _run_extension_handler(
     set_session_name_fn: "SetSessionNameFn | None",
     get_session_name_fn: "GetSessionNameFn | None",
     set_label_fn: "SetLabelFn | None",
+    send_message_fn: "SendMessageFn | None",
     flags: Mapping[str, object] | None,
     session_tree: "NativeSessionTree | None",
 ) -> ExtensionCommandDispatch:
@@ -2034,8 +2103,9 @@ def _run_extension_handler(
         set_session_name_fn,
         get_session_name_fn,
         set_label_fn,
-        flags,
-        session_tree,
+        send_message_fn=send_message_fn,
+        flags=flags,
+        session_tree=session_tree,
     )
     try:
         handler(ctx, args)
@@ -2083,6 +2153,7 @@ class _ActivationApi:
         reserved: frozenset[str],
         taken: frozenset[str],
         outbox: list[QueuedUserMessage],
+        custom_outbox: list[QueuedCustomMessage],
         reserved_tools: frozenset[str] = frozenset(),
         taken_tools: frozenset[str] = frozenset(),
         taken_providers: frozenset[str] = frozenset(),
@@ -2100,6 +2171,7 @@ class _ActivationApi:
         self._taken_flags = taken_flags
         self._taken_message_renderers = taken_message_renderers
         self._outbox = outbox
+        self._custom_outbox = custom_outbox
         self._staged: dict[str, RegisteredCommand] = {}
         self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
@@ -2115,6 +2187,7 @@ class _ActivationApi:
         # never leaves a queued prompt behind. After activation commits,
         # runtime calls (from command handlers / hooks) append directly.
         self._staged_messages: list[QueuedUserMessage] = []
+        self._staged_custom_messages: list[QueuedCustomMessage] = []
         self._activated = False
 
     def send_user_message(
@@ -2130,12 +2203,35 @@ class _ActivationApi:
         else:
             self._staged_messages.append(message)
 
+    def send_message(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> None:
+        """Stage a custom session message until activation succeeds."""
+
+        queued = coerce_custom_message(message, options)
+        if self._activated:
+            self._custom_outbox.append(queued)
+        else:
+            self._staged_custom_messages.append(queued)
+
+    def sendMessage(
+        self,
+        message: Mapping[str, object],
+        options: Mapping[str, object] | None = None,
+    ) -> None:
+        self.send_message(message, options)
+
     def commit_activation(self) -> None:
         """Flush staged `send_user_message` calls after successful activation."""
 
         self._activated = True
         self._outbox.extend(self._staged_messages)
         self._staged_messages = []
+
+    def staged_custom_messages(self) -> tuple[QueuedCustomMessage, ...]:
+        return tuple(self._staged_custom_messages)
 
     def register_tool(self, tool: ExtensionTool) -> None:
         try:
@@ -2483,6 +2579,7 @@ def activate_extensions(
     reserved_command_names: Sequence[str] = (),
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
+    custom_message_outbox: list[QueuedCustomMessage] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
 
@@ -2506,6 +2603,7 @@ def activate_extensions(
     taken_flags: set[str] = set()
     taken_message_renderers: set[str] = set()
     outbox = message_outbox if message_outbox is not None else []
+    custom_outbox = custom_message_outbox if custom_message_outbox is not None else []
     results: list[ActivatedExtension] = []
 
     for descriptor in descriptors:
@@ -2525,6 +2623,7 @@ def activate_extensions(
                 taken_flags=taken_flags,
                 taken_message_renderers=taken_message_renderers,
                 outbox=outbox,
+                custom_outbox=custom_outbox,
             )
         )
     return results
@@ -2596,6 +2695,32 @@ def extension_message_renderers(
         for renderer in extension.message_renderers:
             renderers.setdefault(renderer.custom_type, renderer)
     return renderers
+
+
+def coerce_custom_message(
+    message: Mapping[str, object],
+    options: Mapping[str, object] | None = None,
+) -> QueuedCustomMessage:
+    """Validate and bound a Pi-shaped custom message payload."""
+
+    if not isinstance(message, Mapping):
+        raise ValueError("custom message must be a mapping")
+    custom_type = str(message.get("customType", message.get("custom_type", ""))).strip()
+    if not is_valid_custom_entry_type(custom_type):
+        raise ValueError("invalid custom message type")
+    content = str(message.get("content", ""))
+    if len(content) > _CUSTOM_ENTRY_DATA_MAX_CHARS:
+        content = (
+            content[: _CUSTOM_ENTRY_DATA_MAX_CHARS - 128]
+            + "\n[pipy: custom message truncated]"
+        )
+    return QueuedCustomMessage(
+        custom_type=custom_type,
+        content=content,
+        display=bool(message.get("display", True)),
+        details=safe_custom_entry_data(message.get("details")),
+        options=dict(options or {}),
+    )
 
 
 def safe_custom_entry_data(data: object | None) -> object | None:
@@ -2833,6 +2958,16 @@ def drain_user_messages(
     return drained
 
 
+def drain_custom_messages(
+    outbox: list[QueuedCustomMessage],
+) -> list[QueuedCustomMessage]:
+    """Return and clear queued `send_message` custom messages, in order."""
+
+    drained = list(outbox)
+    outbox.clear()
+    return drained
+
+
 def _activate_one(
     descriptor: ExtensionDescriptor,
     *,
@@ -2845,6 +2980,7 @@ def _activate_one(
     taken_flags: set[str],
     taken_message_renderers: set[str],
     outbox: list[QueuedUserMessage],
+    custom_outbox: list[QueuedCustomMessage],
 ) -> ActivatedExtension:
     try:
         module = _import_entry_module(descriptor)
@@ -2874,6 +3010,7 @@ def _activate_one(
         taken_flags=frozenset(taken_flags),
         taken_message_renderers=frozenset(taken_message_renderers),
         outbox=outbox,
+        custom_outbox=custom_outbox,
     )
     try:
         result = activate(api)
@@ -2898,6 +3035,7 @@ def _activate_one(
     shortcuts = api.staged_shortcuts()
     flags = api.staged_flags()
     message_renderers = api.staged_message_renderers()
+    custom_messages = api.staged_custom_messages()
     # Commit the command/tool/provider/shortcut names + staged
     # send_user_message prompts only now that activation fully succeeded.
     for command in commands:
@@ -2928,6 +3066,7 @@ def _activate_one(
         shortcuts=shortcuts,
         flags=flags,
         message_renderers=message_renderers,
+        custom_messages=custom_messages,
     )
 
 

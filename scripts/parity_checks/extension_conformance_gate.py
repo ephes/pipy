@@ -65,6 +65,7 @@ _REQUIRED = {
     "tool_result",
     "render_result",
     "message_renderer_component",
+    "send_message",
     "editor_noop",
     "turn_end",
     "agent_end",

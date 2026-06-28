@@ -1053,7 +1053,14 @@ and the live `scripts/tmux_answer_verify.sh`.
    `BeforeAgentStartEvent`/`BeforeAgentStartResult`, `QueuedUserMessage`,
    `dispatch_input_hooks`/`dispatch_before_agent_start_hooks`,
    `api.send_user_message` + `drain_user_messages`, wired into the
-   `tool_loop_session` prompt/turn path.
+   `tool_loop_session` prompt/turn path. Pi-shaped custom messages also now
+   ship for local session/display use: `api.send_message` / `api.sendMessage`
+   and command/shortcut `ctx.send_message` / `ctx.sendMessage` accept
+   `{customType, content, display?, details?}` plus optional `triggerTurn` /
+   `deliverAs` options, append a bounded `custom_message` entry, and render
+   displayed content locally. The options are accepted for API shape but do not
+   start, steer, follow up, or queue provider turns yet; those delivery
+   semantics remain a later refinement.
 7. Pure/read-only tool registration — **landed**: add extension tools to the
    bounded tool loop using existing JSON-schema validation and output bounds.
    Implemented as `ExtensionTool`/`ToolResult`/`RegisteredTool` +
@@ -1292,7 +1299,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     startup-opened TUI sessions through the same renderer dispatch; if the
     renderer is absent or fails, pipy falls back to the plain sanitized path, and
     replay itself never mutates the session file. Deferred:
-    `send_message`/`deliverAs`/`triggerTurn`, in-session full-history redraw on
+    provider-turn `deliverAs`/`triggerTurn` semantics for `send_message`, in-session full-history redraw on
     `/resume` switches, rendering a `CustomMessageEntry`, multi-widget message
     components, and live per-frame `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`

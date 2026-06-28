@@ -1449,7 +1449,11 @@ Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name
 well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
 `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live product-TUI
 expansion state, while headless contexts return `False` and no-op writes like Pi
-RPC. The next largest remaining parity topic is still
+RPC. Extension custom-message sending now also ships for the local
+session/display slice: `api.send_message` / `api.sendMessage` and
+`ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages
+without triggering provider turns; `deliverAs` / `triggerTurn` delivery
+semantics stay deferred. The next largest remaining parity topic is still
 the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:
