@@ -311,9 +311,10 @@ Follow-ons:
 
 - live Anthropic and GitHub Copilot login UX;
 - Vertex API-key auth;
-- Anthropic adaptive-thinking request shape;
 - Azure URL/api-version parity;
-- broader local-provider maturity and benchmarking; and
+- bedrock adaptive-thinking `display` and Pi's explicit
+  `thinking: {type: "disabled"}` shape (the `anthropic-messages` adaptive-thinking
+  request shape itself has shipped); and
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).

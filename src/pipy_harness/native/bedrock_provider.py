@@ -23,8 +23,10 @@ from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.anthropic_provider import (
+    ANTHROPIC_ADAPTIVE_EFFORT,
     ANTHROPIC_DEFAULT_THINKING_BUDGET,
     ANTHROPIC_THINKING_BUDGETS,
+    supports_adaptive_thinking,
 )
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
@@ -46,17 +48,6 @@ BEDROCK_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
 # Headers SigV4 owns; a custom header must never collide with these when merged
 # into the signed request (Pi filters the same set before signing).
 _BEDROCK_RESERVED_HEADERS = frozenset({"authorization", "host"})
-# Claude model families that take adaptive thinking (``output_config.effort``)
-# on Bedrock rather than the ``budget_tokens`` path (Pi: supportsAdaptiveThinking).
-_BEDROCK_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6")
-# Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
-# (Pi: mapThinkingLevelToEffort).
-_BEDROCK_ADAPTIVE_EFFORT = {"minimal": "low"}
-
-
-def _supports_adaptive_thinking(model_id: str) -> bool:
-    lowered = model_id.lower()
-    return any(marker in lowered for marker in _BEDROCK_ADAPTIVE_MODEL_MARKERS)
 BEDROCK_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
@@ -214,10 +205,10 @@ class AmazonBedrockProvider:
         # for the adaptive-capable Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6)
         # and the ``budget_tokens`` path otherwise; we mirror that split.
         if self.reasoning_effort is not None:
-            if _supports_adaptive_thinking(self.model_id):
+            if supports_adaptive_thinking(self.model_id):
                 body["thinking"] = {"type": "adaptive"}
                 body["output_config"] = {
-                    "effort": _BEDROCK_ADAPTIVE_EFFORT.get(
+                    "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
                         self.reasoning_effort, self.reasoning_effort
                     )
                 }

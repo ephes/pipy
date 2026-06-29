@@ -140,7 +140,7 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | ✅ pipy-native provider/model equivalents route through the shared catalog resolver; `--api-key` reaches catalog-backed REPL, one-shot, and implemented non-completions product calls | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; Google/Vertex per-model `thinkingConfig` and Anthropic adaptive-thinking shape remain adapter follow-ons | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; the Anthropic-messages adaptive-thinking shape now ships, while Google/Vertex per-model `thinkingConfig` and the bedrock adaptive `display`/disabled-thinking shapes remain adapter follow-ons | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` | ✅ shipped | Pi-style provider-visible tool filtering for builtin, extension, and custom tools. |
 | `--system-prompt` / `--append-system-prompt` | ✅ replace + repeatable append (text or file) + SYSTEM.md/APPEND_SYSTEM.md | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ✅ explicit file/dir loading + default-discovery disable; installed local-path and managed git package resources contribute at runtime | [extension-api.md](extension-api.md) |
@@ -269,8 +269,9 @@ topics.
    install/update deep dives remain.
 3. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
-   Vertex API-key auth, Anthropic adaptive thinking, Azure URL/api-version
-   parity and broader local-provider maturity.
+   Vertex API-key auth, Azure URL/api-version parity and broader local-provider
+   maturity (Anthropic-messages adaptive thinking has shipped; bedrock adaptive
+   `display` and the explicit thinking-disabled shape remain).
 4. **Top-level CLI compatibility and parity cleanup** — **largely shipped
    (2026-06-20).** The top-level shape is now Pi-like (bare `pipy` /
    `pipy "<prompt>"` launch the interactive session; subcommands stay reachable

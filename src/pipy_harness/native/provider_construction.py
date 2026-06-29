@@ -20,7 +20,8 @@ and region/project-derived endpoint stay self-resolved by the adapter from the
 environment (the resolved api key is not forwarded for these). Each adapter
 places the mapped thinking effort in its own native body key
 (completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
-``reasoning.effort``; anthropic/bedrock: ``thinking.budget_tokens``; google and
+``reasoning.effort``; anthropic/bedrock: adaptive ``output_config.effort`` for
+the adaptive Claude models and ``thinking.budget_tokens`` otherwise; google and
 vertex thinking are per-model and not yet injected). ``openai-codex-responses``
 and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
 the legacy factory's settings-derived ``RetryPolicy`` injection): they return

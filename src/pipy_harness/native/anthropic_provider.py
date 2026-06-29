@@ -36,12 +36,36 @@ ANTHROPIC_THINKING_BUDGETS: dict[str, int] = {
     "xhigh": 16384,
 }
 ANTHROPIC_DEFAULT_THINKING_BUDGET = 16384
+# Pi forces ``display: "summarized"`` on every thinking request so the adaptive
+# Claude models (Opus 4.7+, whose API default is ``"omitted"``) return a thinking
+# summary like the older Claude 4 models (anthropic.ts:219-222, :954, :969-973).
+ANTHROPIC_THINKING_DISPLAY_DEFAULT = "summarized"
+# Claude model families that take adaptive thinking (``type: adaptive`` +
+# ``output_config.effort``) rather than the ``budget_tokens`` path. These are the
+# anthropic provider models Pi marks ``compat.forceAdaptiveThinking: true``
+# (models.generated.ts) and the same set the bedrock adapter matches
+# (Pi: supportsAdaptiveThinking). Shared with ``bedrock_provider``.
+ANTHROPIC_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6")
+# Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
+# (Pi: mapThinkingLevelToEffort). Other levels pass through unchanged.
+ANTHROPIC_ADAPTIVE_EFFORT = {"minimal": "low"}
 ANTHROPIC_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
     ("input_tokens", "input_tokens"),
     ("output_tokens", "output_tokens"),
     ("cache_creation_input_tokens", "cache_write_tokens"),
     ("cache_read_input_tokens", "cached_tokens"),
 )
+
+
+def supports_adaptive_thinking(model_id: str) -> bool:
+    """Whether ``model_id`` takes adaptive thinking rather than the budget path.
+
+    Substring match on the lowered id against the adaptive Claude families
+    (Pi: ``supportsAdaptiveThinking`` / ``compat.forceAdaptiveThinking``).
+    """
+
+    lowered = model_id.lower()
+    return any(marker in lowered for marker in ANTHROPIC_ADAPTIVE_MODEL_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,17 +190,32 @@ class AnthropicProvider:
                 serialize_tool_for_anthropic(tool)
                 for tool in request.available_tools
             ]
-        # Anthropic-native thinking: the mapped effort maps to a token budget
-        # (Pi's universally-valid ``type: enabled``/``budget_tokens`` path with
-        # Pi's default per-level budgets). The adaptive ``output_config`` path is
-        # model-gated and tracked as a follow-on.
+        # Anthropic-native thinking. Pi switches the adaptive Claude models
+        # (Opus 4.6/4.7/4.8, Sonnet 4.6 — compat.forceAdaptiveThinking) to the
+        # adaptive shape (``type: adaptive`` + ``output_config.effort``) and uses
+        # the ``type: enabled``/``budget_tokens`` path for older reasoning models;
+        # we mirror that split. ``display`` is forced to "summarized" on both
+        # paths, matching Pi (anthropic.ts:954, :969-973), so the adaptive models
+        # (API default "omitted") still return a thinking summary.
         if self.reasoning_effort is not None:
-            body["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
-                    self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
-                ),
-            }
+            if supports_adaptive_thinking(self.model_id):
+                body["thinking"] = {
+                    "type": "adaptive",
+                    "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
+                }
+                body["output_config"] = {
+                    "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
+                        self.reasoning_effort, self.reasoning_effort
+                    )
+                }
+            else:
+                body["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
+                        self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
+                    ),
+                    "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
+                }
         headers = {
             "anthropic-version": self.anthropic_version,
             "Content-Type": "application/json",

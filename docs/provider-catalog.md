@@ -93,9 +93,10 @@ Tier 1 catalog construction (shipped 2026-06-03):
   header (anthropic `x-api-key`; the others `Authorization: Bearer`, with an
   explicit models.json `Authorization` winning), merges models.json/model
   headers, and places the mapped thinking effort in the family's native body key
-  (responses `reasoning.effort`; anthropic `thinking.budget_tokens` via Pi's
-  default per-level budgets; mistral `reasoning_effort`). Covered by conformance
-  item 20.
+  (responses `reasoning.effort`; anthropic adaptive `output_config.effort` for
+  the adaptive Claude models and `thinking.budget_tokens` via Pi's default
+  per-level budgets otherwise, both with `display: "summarized"`; mistral
+  `reasoning_effort`). Covered by conformance item 20.
 
 Tier 2 catalog construction (shipped 2026-06-03):
 
@@ -142,10 +143,21 @@ Remaining adapter/product follow-ons:
   (`GOOGLE_CLOUD_API_KEY`); catalog construction does not forward the resolved
   key (an API key is not an OAuth bearer token), so a native Vertex API-key auth
   path is a separate adapter follow-on.
-- Anthropic-messages adaptive thinking: the `anthropic-messages` adapter uses
-  the `thinking.budget_tokens` path for all reasoning models. Aligning it to the
-  adaptive `output_config.effort` path for the adaptive Claude models (as the
-  bedrock adapter now does) is a follow-on.
+- Anthropic-messages adaptive thinking has shipped: the `anthropic-messages`
+  adapter now switches the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
+  per Pi's `compat.forceAdaptiveThinking`) to the adaptive
+  `thinking: {type: "adaptive"}` + `output_config.effort` shape, and keeps the
+  `thinking.budget_tokens` path for older reasoning Claude models. Both paths
+  send `display: "summarized"` (Pi forces this; the adaptive models' API default
+  is `"omitted"`). The adaptive model markers, the `minimal -> low` effort clamp,
+  and `supports_adaptive_thinking` are shared with the bedrock adapter from
+  `anthropic_provider`. Remaining Anthropic-body follow-ons:
+  - Bedrock's adaptive body still omits `display`; aligning it (Pi includes
+    `display` except on GovCloud) is a separate bedrock-adapter follow-on.
+  - Neither adapter emits Pi's explicit `thinking: {type: "disabled"}` when a
+    reasoning-capable model is run with thinking off, because the adapters only
+    receive the resolved `reasoning_effort` and not the model's reasoning-
+    capability flag; threading that flag through is a follow-on.
 - Azure URL/api-version parity: the azure adapter uses the classic
   deployment-path surface (`/openai/deployments/{deployment}/responses?api-version=2024-12-01-preview`),
   a deliberate hand-rolled analogue of Pi's `AzureOpenAI` SDK (which normalizes

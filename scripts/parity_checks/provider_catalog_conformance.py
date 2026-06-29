@@ -849,9 +849,41 @@ def _check_tier1_construction(checks, tmp: Path):
         and a_sent["headers"]["x-api-key"] == "amk"
         and "Authorization" not in a_sent["headers"]
         and a_sent["headers"].get("X-Acme") == "1"
-        and a_sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+        and a_sent["body"]["thinking"]
+        == {"type": "enabled", "budget_tokens": 16384, "display": "summarized"}
+        and "output_config" not in a_sent["body"]
     )
     checks.append(Check("20_anthropic_messages_construction", anthropic_ok, "anthropic-messages: catalog baseUrl/x-api-key/headers/thinking budget"))
+
+    # 20a': anthropic adaptive model -> adaptive thinking + output_config.effort
+    # (Pi's compat.forceAdaptiveThinking set), not the budget path.
+    aa_path = tmp / "tier1_anthropic_adaptive.json"
+    aa_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "acme-claude": {
+                        "baseUrl": "https://acme.example",
+                        "apiKey": "amk",
+                        "api": "anthropic-messages",
+                        "models": [
+                            {"id": "claude-opus-4-8", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    aa_state = _state(tmp, aa_path, {})
+    aa_spec = aa_state.find("acme-claude", "claude-opus-4-8")
+    aa_sent, _ = _construct_and_capture(aa_state, aa_spec, runtime_api_key=None, thinking_level="high")
+    anthropic_adaptive_ok = (
+        aa_sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
+        and aa_sent["body"]["output_config"] == {"effort": "high"}
+    )
+    checks.append(Check("20_anthropic_adaptive_thinking", anthropic_adaptive_ok, "anthropic-messages: adaptive models use type:adaptive + output_config.effort"))
 
     # 20b: openai-responses -> Authorization Bearer + reasoning.effort, /responses.
     r_path = tmp / "tier1_responses.json"

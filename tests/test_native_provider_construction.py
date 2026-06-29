@@ -427,8 +427,13 @@ def _resolve(spec, tmp_path, env, *, thinking_level=None, models_json_auth=None)
 
 
 def test_anthropic_catalog_construction(tmp_path):
+    # claude-sonnet-4-5 is a non-adaptive reasoning model, so it keeps the
+    # budget_tokens thinking path (adaptive models are covered separately below).
     resolved = _resolve(
-        _anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="high"
+        _anthropic_spec(model_id="claude-sonnet-4-5"),
+        tmp_path,
+        {"ANTHROPIC_API_KEY": "ak"},
+        thinking_level="high",
     )
     http = CapturingHTTPClient()
     provider = build_provider(resolved, http_client=http)
@@ -436,12 +441,33 @@ def test_anthropic_catalog_construction(tmp_path):
     provider.complete(_request(tmp_path))
     sent = http.requests[-1]
     assert sent["url"] == "https://api.anthropic.com/v1/messages"
-    assert sent["body"]["model"] == "claude-opus-4-7"
+    assert sent["body"]["model"] == "claude-sonnet-4-5"
     # native auth header is x-api-key (not Authorization)
     assert sent["headers"]["x-api-key"] == "ak"
     assert "Authorization" not in sent["headers"]
-    # thinking placed in anthropic's native key as a budget
-    assert sent["body"]["thinking"] == {"type": "enabled", "budget_tokens": 16384}
+    # thinking placed in anthropic's native key as a budget, display forced
+    assert sent["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+        "display": "summarized",
+    }
+    assert "output_config" not in sent["body"]
+
+
+def test_anthropic_adaptive_thinking_construction(tmp_path):
+    # claude-opus-4-8 is an adaptive Claude model (compat.forceAdaptiveThinking),
+    # so it uses the adaptive thinking + output_config.effort shape, not budget.
+    resolved = _resolve(
+        _anthropic_spec(model_id="claude-opus-4-8"),
+        tmp_path,
+        {"ANTHROPIC_API_KEY": "ak"},
+        thinking_level="high",
+    )
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    sent = http.requests[-1]
+    assert sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert sent["body"]["output_config"] == {"effort": "high"}
 
 
 def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
@@ -465,9 +491,12 @@ def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
 
 
 def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
-    # Claude's budget path has no xhigh; Pi clamps it to high (16384). The
-    # opus-4-7-style row maps only xhigh, so thinking_level="xhigh" is honored.
-    spec = _anthropic_spec(thinking_level_map={"xhigh": "xhigh"})
+    # Claude's budget path has no xhigh; Pi clamps it to high (16384). Use a
+    # non-adaptive reasoning model so the budget path applies; the row maps only
+    # xhigh, so thinking_level="xhigh" is honored.
+    spec = _anthropic_spec(
+        model_id="claude-sonnet-4-5", thinking_level_map={"xhigh": "xhigh"}
+    )
     resolved = _resolve(
         spec, tmp_path, {"ANTHROPIC_API_KEY": "ak"}, thinking_level="xhigh"
     )
@@ -476,6 +505,7 @@ def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
     assert http.requests[-1]["body"]["thinking"] == {
         "type": "enabled",
         "budget_tokens": 16384,
+        "display": "summarized",
     }
 
 

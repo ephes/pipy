@@ -345,6 +345,83 @@ def test_malformed_json_response_returns_failed_result(tmp_path):
     assert result.final_text is None
 
 
+def _thinking_client() -> FakeJsonHTTPClient:
+    return FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "ok"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+    )
+
+
+def test_budget_thinking_for_non_adaptive_model(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-sonnet-4-5",
+        api_key="sk-test",
+        http_client=client,
+        reasoning_effort="high",
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    assert body["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+        "display": "summarized",
+    }
+    assert "output_config" not in body
+
+
+def test_adaptive_thinking_for_adaptive_model(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-8",
+        api_key="sk-test",
+        http_client=client,
+        reasoning_effort="high",
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert body["output_config"] == {"effort": "high"}
+
+
+def test_adaptive_thinking_minimal_effort_clamps_to_low(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-sonnet-4-6",
+        api_key="sk-test",
+        http_client=client,
+        reasoning_effort="minimal",
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert body["output_config"] == {"effort": "low"}
+
+
+def test_adaptive_thinking_xhigh_effort_passes_through(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-7",
+        api_key="sk-test",
+        http_client=client,
+        reasoning_effort="xhigh",
+    ).complete(provider_request(tmp_path))
+    assert client.requests[0]["body"]["output_config"] == {"effort": "xhigh"}
+
+
+def test_no_thinking_keys_when_effort_unset(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-8", api_key="sk-test", http_client=client
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    assert "thinking" not in body
+    assert "output_config" not in body
+
+
 def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypatch):
     error_body = json.dumps(
         {
