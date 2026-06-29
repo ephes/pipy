@@ -93,10 +93,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    how pipy matches it through pipy-owned Python boundaries, constraints from
    `AGENTS.md`). **Write the plan to a file** so it is reviewable. *Done-when:* a
    written plan file with done-when criteria. For metadata, auth, OAuth,
-   provider, package manifest, or extension API slices, the plan must pin the
-   Pi reference field list, each field's optionality, and any derived identifiers
-   before implementation, so review catches preserved versus dropped future data
-   instead of discovering it only after code exists.
+   provider, package manifest, extension API, or provider request-shape slices,
+   the plan must pin the Pi reference field list, each field's optionality, any
+   Pi-forced default values, whether those defaults diverge from the upstream API
+   defaults, and any derived identifiers before implementation, so review catches
+   preserved versus dropped future data or behavior instead of discovering it only
+   after code exists.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/superpowers/specs/`). `git add` it, then run the different-family
