@@ -99,6 +99,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    defaults, and any derived identifiers before implementation, so review catches
    preserved versus dropped future data or behavior instead of discovering it only
    after code exists.
+   If a provider request-shape slice changes only selected fields in a larger Pi
+   request path, label the pinned list as the fields this slice changes instead
+   of "complete" unless it really is complete; explicitly scope adjacent Pi fields
+   on that path as already matched, intentionally deferred, or known separate
+   gaps. When explaining a forced-default versus upstream-default divergence, cite
+   the exact Pi source/comment scope instead of generalizing beyond it.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/superpowers/specs/`). `git add` it, then run the different-family
