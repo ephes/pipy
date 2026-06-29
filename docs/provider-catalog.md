@@ -156,12 +156,25 @@ Remaining adapter/product follow-ons:
   `display: "summarized"` on both its adaptive and budget thinking paths,
   omitting it only on GovCloud targets (configured region `us-gov-*`, or a model
   id starting `us-gov.` / `arn:aws-us-gov:`, whose Converse schema rejects the
-  field), matching Pi's `isGovCloudBedrockTarget` carve-out. Remaining
-  Anthropic-body follow-ons:
-  - Neither adapter emits Pi's explicit `thinking: {type: "disabled"}` when a
-    reasoning-capable model is run with thinking off, because the adapters only
-    receive the resolved `reasoning_effort` and not the model's reasoning-
-    capability flag; threading that flag through is a follow-on.
+  field), matching Pi's `isGovCloudBedrockTarget` carve-out.
+- Explicit `thinking: {type: "disabled"}` has shipped for the
+  `anthropic-messages` adapter: when a reasoning-capable Claude model is run with
+  thinking off/unset, the request body now carries `thinking: {type: "disabled"}`
+  (only `type`, no `display`/budget) rather than omitting the key, matching Pi's
+  product path (`streamSimpleAnthropic` passes `thinkingEnabled: false` whenever
+  the resolved level is falsy, and `buildParams` emits the disabled shape under
+  `if (model.reasoning)`; anthropic.ts:746-748, 949-977). The model's
+  reasoning-capability intent is threaded through `ResolvedConstruction`
+  (`thinking_disabled`, computed from `spec.reasoning` and the raw off/unset
+  level, mutually exclusive with `reasoning_effort`) into the adapter; an
+  unsupported thinking level on a reasoning model stays out of the disabled
+  branch (Pi treats that as still-thinking-and-clamp), and non-reasoning models
+  still omit `thinking` entirely. The **bedrock** adapter is intentionally **not**
+  changed: Pi's `buildAdditionalModelRequestFields` returns `undefined` (omits the
+  thinking fields) when reasoning is off/unset or the model is non-reasoning
+  (amazon-bedrock.ts:943-949) — it has no disabled shape — and pipy's bedrock
+  adapter already omits `thinking` when no effort is resolved, so it is already
+  Pi-correct.
 - Azure URL/api-version parity: the azure adapter uses the classic
   deployment-path surface (`/openai/deployments/{deployment}/responses?api-version=2024-12-01-preview`),
   a deliberate hand-rolled analogue of Pi's `AzureOpenAI` SDK (which normalizes

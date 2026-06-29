@@ -64,6 +64,11 @@ class ResolvedConstruction:
     headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     body_extra: Mapping[str, object] = field(default_factory=dict)
     reasoning_effort: str | None = None
+    # ``True`` when the model is reasoning-capable but the request resolves
+    # thinking to off/unset. Only the anthropic-messages adapter consumes this,
+    # to emit Pi's explicit ``thinking:{type:"disabled"}`` shape. Mutually
+    # exclusive with ``reasoning_effort``.
+    thinking_disabled: bool = False
     error: str | None = None
 
 
@@ -130,6 +135,17 @@ def resolve_construction(
         else:
             reasoning_effort = reasoning_value
 
+    # Pi makes the off-state explicit for reasoning-capable anthropic-messages
+    # models (``thinkingEnabled === false`` -> ``thinking:{type:"disabled"}``).
+    # Gate on the raw off/unset level — not merely ``reasoning_value is None`` —
+    # so an unsupported level on a reasoning model stays out of the disabled
+    # branch (Pi treats that as still-thinking-and-clamp, never disabled).
+    thinking_disabled = (
+        bool(spec.reasoning)
+        and reasoning_value is None
+        and (thinking_level is None or thinking_level == "off")
+    )
+
     return ResolvedConstruction(
         provider_name=spec.provider_name,
         model_id=spec.model_id,
@@ -140,6 +156,7 @@ def resolve_construction(
         headers=headers,
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
+        thinking_disabled=thinking_disabled,
     )
 
 
@@ -358,6 +375,7 @@ def build_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            thinking_disabled=resolved.thinking_disabled,
             **http_kwargs,  # type: ignore[arg-type]
         )
 

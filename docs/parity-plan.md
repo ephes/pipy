@@ -140,7 +140,7 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | ✅ pipy-native provider/model equivalents route through the shared catalog resolver; `--api-key` reaches catalog-backed REPL, one-shot, and implemented non-completions product calls | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; the Anthropic-messages adaptive-thinking shape and the bedrock adaptive/budget `display: "summarized"` field (omitted on GovCloud) now ship, while Google/Vertex per-model `thinkingConfig` and the explicit disabled-thinking shape remain adapter follow-ons | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; the Anthropic-messages adaptive-thinking shape, the bedrock adaptive/budget `display: "summarized"` field (omitted on GovCloud), and the explicit `anthropic-messages` `thinking: {type: "disabled"}` shape (reasoning-capable model run with thinking off; bedrock omits by design) now ship, while Google/Vertex per-model `thinkingConfig` remains an adapter follow-on | [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` | ✅ shipped | Pi-style provider-visible tool filtering for builtin, extension, and custom tools. |
 | `--system-prompt` / `--append-system-prompt` | ✅ replace + repeatable append (text or file) + SYSTEM.md/APPEND_SYSTEM.md | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ✅ explicit file/dir loading + default-discovery disable; installed local-path and managed git package resources contribute at runtime | [extension-api.md](extension-api.md) |
@@ -270,8 +270,11 @@ topics.
 3. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
    — continue as focused adapter slices: live Anthropic/Copilot login UX,
    Vertex API-key auth, Azure URL/api-version parity and broader local-provider
-   maturity (Anthropic-messages adaptive thinking has shipped; bedrock adaptive
-   `display` and the explicit thinking-disabled shape remain).
+   maturity (Anthropic-messages adaptive thinking, the bedrock adaptive/budget
+   `display: "summarized"` field, and the explicit `anthropic-messages`
+   `thinking: {type: "disabled"}` shape for a reasoning-capable model run with
+   thinking off have all shipped — bedrock omits thinking fields by design,
+   matching Pi).
 4. **Top-level CLI compatibility and parity cleanup** — **largely shipped
    (2026-06-20).** The top-level shape is now Pi-like (bare `pipy` /
    `pipy "<prompt>"` launch the interactive session; subcommands stay reachable

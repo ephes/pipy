@@ -422,6 +422,36 @@ def test_no_thinking_keys_when_effort_unset(tmp_path):
     assert "output_config" not in body
 
 
+def test_disabled_thinking_for_reasoning_model_with_thinking_off(tmp_path):
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-8",
+        api_key="sk-test",
+        http_client=client,
+        thinking_disabled=True,
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    # Pi's disabled shape carries only ``type`` — no display, budget, or effort.
+    assert body["thinking"] == {"type": "disabled"}
+    assert "output_config" not in body
+
+
+def test_reasoning_effort_wins_over_thinking_disabled(tmp_path):
+    # The two are mutually exclusive by construction, but pin precedence: a
+    # resolved effort always emits the enabled shape, never disabled.
+    client = _thinking_client()
+    AnthropicProvider(
+        model_id="claude-opus-4-8",
+        api_key="sk-test",
+        http_client=client,
+        reasoning_effort="high",
+        thinking_disabled=True,
+    ).complete(provider_request(tmp_path))
+    body = client.requests[0]["body"]
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert body["output_config"] == {"effort": "high"}
+
+
 def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypatch):
     error_body = json.dumps(
         {

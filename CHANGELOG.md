@@ -35,6 +35,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The native `anthropic-messages` provider now emits Pi's explicit
+  `thinking: {type: "disabled"}` when a reasoning-capable Claude model runs with
+  thinking off/unset, instead of omitting the `thinking` key — matching Pi's
+  product path (`streamSimpleAnthropic` → `buildParams` `thinkingEnabled ===
+  false`). Non-reasoning models still omit `thinking` entirely, and the
+  `amazon-bedrock` adapter is unchanged (Pi omits thinking fields there rather
+  than sending a disabled shape).
 - Bare `pipy` and `pipy "<prompt>"` now launch the interactive product session
   like Pi (a bare positional prompt seeds the first message), while
   `auth`/`run`/`repl`/`config`/`install`/... stay reachable as subcommands. A

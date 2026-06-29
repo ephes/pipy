@@ -514,8 +514,31 @@ def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
     }
 
 
-def test_anthropic_omits_thinking_when_unset(tmp_path):
-    resolved = _resolve(_anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"})
+def test_anthropic_disabled_thinking_when_reasoning_model_off(tmp_path):
+    # A reasoning-capable model run with thinking off/unset matches Pi by making
+    # the off-state explicit on the wire (anthropic.ts streamSimpleAnthropic ->
+    # buildParams thinkingEnabled === false), not by omitting the key. The
+    # disabled shape carries only ``type``.
+    for thinking_level in (None, "off"):
+        resolved = _resolve(
+            _anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"},
+            thinking_level=thinking_level,
+        )
+        assert resolved.thinking_disabled is True
+        http = CapturingHTTPClient()
+        build_provider(resolved, http_client=http).complete(_request(tmp_path))
+        body = http.requests[-1]["body"]
+        assert body["thinking"] == {"type": "disabled"}
+        assert "output_config" not in body
+
+
+def test_anthropic_omits_thinking_for_non_reasoning_model(tmp_path):
+    # Non-reasoning models omit thinking entirely (Pi's outer `if (model.reasoning)`
+    # guard); no disabled shape is emitted.
+    resolved = _resolve(
+        _anthropic_spec(reasoning=False), tmp_path, {"ANTHROPIC_API_KEY": "ak"}
+    )
+    assert resolved.thinking_disabled is False
     http = CapturingHTTPClient()
     build_provider(resolved, http_client=http).complete(_request(tmp_path))
     assert "thinking" not in http.requests[-1]["body"]

@@ -139,6 +139,12 @@ class AnthropicProvider:
     # the mapped thinking value, placed in Anthropic's native ``thinking`` key.
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    # ``True`` when the model is reasoning-capable but thinking is off/unset for
+    # this request. Pi's product path (``streamSimpleAnthropic`` -> ``buildParams``
+    # ``thinkingEnabled === false``) emits an explicit ``thinking:{type:"disabled"}``
+    # in that case rather than omitting the key; mutually exclusive with
+    # ``reasoning_effort`` (see provider_construction.resolve_construction).
+    thinking_disabled: bool = False
 
     @property
     def name(self) -> str:
@@ -216,6 +222,11 @@ class AnthropicProvider:
                     ),
                     "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
                 }
+        elif self.thinking_disabled:
+            # Reasoning-capable model run with thinking off: Pi makes the off
+            # state explicit on the wire (anthropic.ts:975-976) — the disabled
+            # shape carries no ``display`` or budget.
+            body["thinking"] = {"type": "disabled"}
         headers = {
             "anthropic-version": self.anthropic_version,
             "Content-Type": "application/json",

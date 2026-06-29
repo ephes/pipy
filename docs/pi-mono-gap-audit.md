@@ -312,10 +312,15 @@ Follow-ons:
 - live Anthropic and GitHub Copilot login UX;
 - Vertex API-key auth;
 - Azure URL/api-version parity;
-- Pi's explicit `thinking: {type: "disabled"}` shape when a reasoning-capable
-  model runs with thinking off (the `anthropic-messages` adaptive-thinking
-  request shape and the bedrock adaptive/budget `display: "summarized"` field —
-  omitted only on GovCloud targets — have both shipped); and
+- (shipped) Pi's explicit `thinking: {type: "disabled"}` shape on the
+  `anthropic-messages` adapter when a reasoning-capable model runs with thinking
+  off/unset; the model's reasoning-capability intent is threaded through
+  construction (`ResolvedConstruction.thinking_disabled`). The bedrock adapter is
+  excluded by design — Pi omits thinking fields there rather than sending a
+  disabled shape, and pipy already omits. (The `anthropic-messages`
+  adaptive-thinking request shape and the bedrock adaptive/budget
+  `display: "summarized"` field — omitted only on GovCloud targets — shipped
+  earlier.)
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
