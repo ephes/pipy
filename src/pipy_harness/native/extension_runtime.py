@@ -893,14 +893,17 @@ class ChromeComponent(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class FooterData:
-    """Read-only snapshot handed to a footer factory (Pi's
-    ReadonlyFooterDataProvider, minus the deferred onBranchChange reactivity).
+    """Read-only snapshot handed to a footer factory.
 
+    This mirrors Pi's ``ReadonlyFooterDataProvider`` method surface while keeping
+    pipy's current footer data as a snapshot rather than a reactive provider.
     ``extension_statuses`` is copied into a read-only proxy so a caller-passed
-    ``dict`` cannot be mutated through the snapshot."""
+    ``dict`` cannot be mutated through the snapshot.
+    """
 
     git_branch: str | None
     extension_statuses: Mapping[str, str]
+    available_provider_count: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -908,6 +911,46 @@ class FooterData:
             "extension_statuses",
             MappingProxyType(dict(self.extension_statuses)),
         )
+        object.__setattr__(
+            self,
+            "available_provider_count",
+            max(0, int(self.available_provider_count)),
+        )
+
+    def get_git_branch(self) -> str | None:
+        return self.git_branch
+
+    def getGitBranch(self) -> str | None:  # noqa: N802 - Pi-shaped API
+        return self.get_git_branch()
+
+    def get_extension_statuses(self) -> Mapping[str, str]:
+        return self.extension_statuses
+
+    def getExtensionStatuses(self) -> Mapping[str, str]:  # noqa: N802 - Pi-shaped API
+        return self.get_extension_statuses()
+
+    def get_available_provider_count(self) -> int:
+        return self.available_provider_count
+
+    def getAvailableProviderCount(self) -> int:  # noqa: N802 - Pi-shaped API
+        return self.get_available_provider_count()
+
+    def on_branch_change(
+        self, _callback: Callable[[str | None], object]
+    ) -> Callable[[], None]:
+        """Register for branch changes and return a safe disposer.
+
+        Pi's provider is reactive; pipy's current footer data is a snapshot.
+        The no-op registration keeps translated extensions source-shaped
+        without promising live branch-change delivery in this slice.
+        """
+
+        return lambda: None
+
+    def onBranchChange(  # noqa: N802 - Pi-shaped API
+        self, callback: Callable[[str | None], object]
+    ) -> Callable[[], None]:
+        return self.on_branch_change(callback)
 
 
 def coerce_tool_render_lines(value: object) -> tuple[str, ...] | None:

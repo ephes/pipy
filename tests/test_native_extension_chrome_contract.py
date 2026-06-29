@@ -12,6 +12,40 @@ def test_footer_data_snapshot_is_readonly_mapping():
     assert fd.git_branch == "main"
     assert fd.extension_statuses["k"] == "v"
 
+    try:
+        fd.extension_statuses["k"] = "changed"  # type: ignore[index]
+    except TypeError:
+        pass
+    else:  # pragma: no cover - documents the required immutable contract
+        raise AssertionError("footer statuses must be read-only")
+
+
+def test_footer_data_exposes_pi_shaped_read_methods():
+    fd = FooterData(
+        git_branch="main",
+        extension_statuses={"ext": "ok"},
+        available_provider_count=3,
+    )
+
+    assert fd.get_git_branch() == "main"
+    assert fd.getGitBranch() == "main"
+    assert fd.get_extension_statuses() == {"ext": "ok"}
+    assert fd.getExtensionStatuses() == {"ext": "ok"}
+    assert fd.get_available_provider_count() == 3
+    assert fd.getAvailableProviderCount() == 3
+
+
+def test_footer_data_branch_change_registration_is_safe_noop():
+    fd = FooterData(git_branch=None, extension_statuses={})
+    calls = []
+    dispose = fd.onBranchChange(lambda branch: calls.append(branch))
+
+    assert callable(dispose)
+    assert calls == []
+    dispose()
+    dispose()
+    assert calls == []
+
 
 def test_render_chrome_component_lines_source():
     # A bare list of lines renders verbatim, bounded by max lines.

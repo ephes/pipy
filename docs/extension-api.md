@@ -72,6 +72,10 @@ call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
 (`ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`).
+The footer factory receives a read-only, Pi-shaped `FooterData` snapshot with
+`getGitBranch()`, `getExtensionStatuses()`, `getAvailableProviderCount()`, and
+a safe no-op `onBranchChange(...)` disposer; live branch-change callbacks remain
+deferred.
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a

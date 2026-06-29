@@ -1449,7 +1449,10 @@ Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name
 well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
 `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live product-TUI
 expansion state, while headless contexts return `False` and no-op writes like Pi
-RPC. Extension custom-message sending now also ships for the local
+RPC. Custom footer factories now receive a read-only Pi-shaped `FooterData`
+snapshot with `getGitBranch()`, `getExtensionStatuses()`,
+`getAvailableProviderCount()`, and a safe no-op `onBranchChange(...)` disposer;
+live branch-change delivery remains deferred. Extension custom-message sending now also ships for the local
 session/display slice: `api.send_message` / `api.sendMessage` and
 `ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages;
 idle `triggerTurn` starts a deterministic provider turn and

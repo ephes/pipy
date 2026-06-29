@@ -603,6 +603,9 @@ class _LiveExtensionUiDriver:
             else FooterData(
                 git_branch=_detect_git_branch(self._cwd),
                 extension_statuses=dict(self._terminal_ui.extension_status),
+                available_provider_count=int(
+                    getattr(self._terminal_ui, "available_provider_count", 0) or 0
+                ),
             )
         )
         self._terminal_ui.set_extension_footer(factory, footer_data)

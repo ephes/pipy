@@ -23,6 +23,7 @@ class _FakeUi:
 
     def __init__(self):
         self.extension_status = {"s": "v"}
+        self.available_provider_count = 2
         self.calls = []
         self.input_text = "draft"
         self.pasted = []
@@ -80,6 +81,7 @@ def test_driver_footer_builds_footerdata_with_branch_and_statuses(tmp_path):
     assert isinstance(footer_data, FooterData)
     assert footer_data.git_branch == "feature-x"
     assert footer_data.extension_statuses == {"s": "v"}
+    assert footer_data.getAvailableProviderCount() == 2
 
 
 def test_driver_footer_none_passes_none(tmp_path):

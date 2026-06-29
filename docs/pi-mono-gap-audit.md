@@ -238,6 +238,11 @@ Pipy current state:
   `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
   product-TUI expansion state used by built-in tool-row expansion, repainting on
   writes; headless contexts return `False` and no-op writes like Pi RPC.
+- Extension footer-data provider parity has shipped: `ctx.ui.set_footer` passes
+  a read-only Pi-shaped `FooterData` snapshot with `getGitBranch()`,
+  `getExtensionStatuses()`, `getAvailableProviderCount()`, and a safe no-op
+  `onBranchChange(...)` disposer; reactive branch-change delivery remains
+  deferred.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -251,8 +256,8 @@ Follow-ons:
    live per-frame
    component `render()`/`requestRender` re-rendering of chrome
    components (the working indicator already animates via the spinner loop) /
-   reactive `footerData` beyond the landed width-reactive chrome snapshot,
-   *multi-widget* message components beyond the landed single-component rich
+   reactive `footerData.onBranchChange` delivery beyond the landed Pi-shaped
+   footer data snapshot, *multi-widget* message components beyond the landed single-component rich
    message renderer (item C), richer tool-output expansion integration beyond
    the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped idle
    `send_message` `triggerTurn` / `deliverAs: "nextTurn"` delivery (streaming

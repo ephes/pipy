@@ -677,6 +677,7 @@ class ToolLoopTerminalUi:
     extension_working_message: str | None = None
     extension_working_visible: bool = True
     extension_status: dict[str, str] = field(default_factory=dict)
+    available_provider_count: int = 0
     extension_widgets_above: dict[str, "_ChromeRegion"] = field(default_factory=dict)
     extension_widgets_below: dict[str, "_ChromeRegion"] = field(default_factory=dict)
     extension_header: "_ChromeRegion | None" = None
