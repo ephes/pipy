@@ -373,10 +373,15 @@ def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
 
 
 def _anthropic_spec(**over: Any) -> NativeModelSpec:
+    # Default to a non-adaptive reasoning model so the shared fixture exercises
+    # the budget_tokens thinking path. Adaptive Claude ids (opus-4-6/4-7/4-8,
+    # sonnet-4-6) take the adaptive shape, so a bare _anthropic_spec() must not
+    # default to one, or future tests silently flip onto the adaptive path. The
+    # adaptive path is covered explicitly via model_id overrides below.
     base = dict(
         provider_name="anthropic",
-        model_id="claude-opus-4-7",
-        display_name="Opus",
+        model_id="claude-sonnet-4-5",
+        display_name="Sonnet",
         api="anthropic-messages",
         base_url="https://api.anthropic.com",
         reasoning=True,
