@@ -340,8 +340,8 @@ def test_openai_falls_back_to_id_when_call_id_missing(tmp_path: Path):
 
 def test_openai_legacy_callers_still_get_plain_completion(tmp_path: Path):
     """Callers that do not supply `messages` keep the legacy single-turn
-    body builder. This guards against regressions in `/ask-file`,
-    `/propose-file`, and `pipy run --agent pipy-native --goal ...`.
+    body builder. This guards non-tool-loop callers such as
+    `pipy run --agent pipy-native --goal ...`.
     """
 
     client = FakeJsonHTTPClient(

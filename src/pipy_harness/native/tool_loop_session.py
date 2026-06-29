@@ -3497,7 +3497,7 @@ class NativeToolReplSession:
                         error_stream,
                         (
                             f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                            "supported local commands are /help, /hotkeys, /reload, "
+                            "supported local commands are /hotkeys, /reload, "
                             "/changelog, /model, /scoped-models, /settings, "
                             "/login, /logout, /copy, /compact, /export, /import, "
                             "/share, /session, /name, "

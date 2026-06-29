@@ -3,8 +3,8 @@
 # A theme file declares a `name` plus any subset of the chrome palette's SGR
 # color fields (digits and semicolons only — no escape sequences). Unspecified
 # fields inherit the default palette, so a theme author only writes the colors
-# they want to change. Once the package is installed, this theme becomes
-# selectable with `/theme midnight`.
+# they want to change. Once the package is installed, this theme appears in the
+# `/settings` theme picker.
 name = "midnight"
 
 # A cool, dark, high-contrast scheme: bright cyan title/accent, soft violet

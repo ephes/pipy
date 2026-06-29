@@ -646,9 +646,9 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         metavar="LEVEL",
         help=(
             "Accepted thinking level: off|minimal|low|medium|high|xhigh. "
-            "Stored in local provider-selection state, but provider-request "
-            "mapping is not yet wired (see docs/provider-catalog.md). "
-            "Invalid values warn and fall back to the default."
+            "Stored in local provider-selection state and mapped into provider "
+            "requests for catalog-backed adapters that advertise a thinking "
+            "shape. Invalid values warn and fall back to the default."
         ),
     )
     parser.add_argument(
@@ -670,9 +670,9 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="api_key",
         default=None,
         help=(
-            "Runtime API key override for the selected provider. Accepted and "
-            "kept out of archives, but real provider-call auth wiring is not "
-            "yet complete (see docs/provider-catalog.md)."
+            "Runtime API key override for the selected catalog-backed provider. "
+            "It wins over stored/env/models.json auth where the adapter uses "
+            "API-key auth and is kept out of archives."
         ),
     )
     parser.add_argument(

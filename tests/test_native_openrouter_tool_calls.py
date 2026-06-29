@@ -252,8 +252,7 @@ def test_openrouter_handles_dict_arguments_object():
 
 def test_openrouter_legacy_callers_still_get_plain_completion(tmp_path: Path):
     """Callers that do not supply `messages` keep the legacy single-turn body
-    builder. This guards against regressions in the existing
-    `/ask-file`/`/propose-file` paths."""
+    builder. This guards non-tool-loop callers."""
 
     client = FakeJsonHTTPClient(
         JsonResponse(

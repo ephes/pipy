@@ -803,137 +803,46 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Prompt-toolkit is the best next candidate" in spec
     assert "Pi-like interactive shell" in compact_near_term
     assert (
-        "The Tool-Loop Parity Track and the follow-up "
+        "Historical gates before the single product REPL are preserved"
         in compact_near_term
     )
-    assert (
-        "have both landed end-to-end" in compact_near_term
-    )
-    assert "bottom-toolbar status decision" in compact_near_term
-    assert "deferred footer behavior" in compact_near_term
-    assert (
-        "OpenAI Responses + OpenAI Codex Tool-Call Parity Track"
-        in compact_near_term
-    )
-    assert "broader slopfork direction is Pi parity" in compact_near_term
-    assert "input-adapter boundary are the first visible parity steps" in (
+    assert "not current product surfaces" in compact_near_term
+    assert "Tool-Loop Parity Track" in compact_near_term
+    assert "OpenAI Responses + OpenAI Codex Tool-Call Parity Track" in (
         compact_near_term
     )
-    assert "no permission popups for normal interactive use" in compact_near_term
+    assert "landed end-to-end" in compact_near_term
+    assert "startup chrome" in compact_near_term
+    assert "visual resource labels" in compact_near_term
+    assert "prompt/input ergonomics" in compact_near_term
+    assert "prompt-toolkit/readline/slash-menu fallbacks" in compact_near_term
+    assert "`@file` completion" in compact_near_term
+    assert "multi-file context loading" in compact_near_term
     assert (
         "OpenAI Codex subscription auth as the preferred near-term real-provider path"
-        in (compact_near_term)
+        not in compact_near_term
     )
     assert (
         "OpenRouter remains implemented and useful for immediate manual smoke testing"
-        in (compact_near_term)
+        not in compact_near_term
     )
-    assert "No-tool provider-turn REPL gate: available now" in compact_near_term
-    assert "`pipy repl --agent pipy-native`" in compact_near_term
-    assert "Later ordinary no-tool turns now receive bounded in-memory history" in (
+    assert "former no-tool REPL" in compact_near_term
+    assert "commands were removed in the 2026-06-20 parity cleanup" in compact_near_term
+    assert "model-visible tool loop (`read`/`edit`/`write`/`bash`)" in (
         compact_near_term
     )
-    assert "Historical visible approval prompt gate" in compact_near_term
-    assert "Narrow read-only shell command gate: available now" in compact_near_term
-    assert (
-        "Provider-visible interactive context gate: available now" in compact_near_term
-    )
-    assert "`/ask-file <workspace-relative-path> -- <question>`" in compact_near_term
-    assert "whitespace-delimited `--` separator" in compact_near_term
-    assert "Command help and usage-diagnostic gate: available now" in compact_near_term
-    assert "public mutation command is `/apply-proposal <workspace-relative-path>`" in (
-        compact_near_term
-    )
-    assert "Proposal-only interactive file gate: available now" in compact_near_term
-    assert "`/propose-file <workspace-relative-path> -- <change-request>`" in (
-        compact_near_term
-    )
-    assert "labeled `propose_file_repl`" in compact_near_term
-    assert "Proposal-only review gate: available now" in compact_near_term
-    assert (
-        "implemented, reviewed, and trialed with a real `openai-codex` provider turn"
-        in compact_near_term
-    )
-    assert "One-file write-boundary decision gate: available now" in compact_near_term
-    assert "/apply-proposal <workspace-relative-path>" in compact_near_term
-    assert "Allowlisted verification gate: available now" in compact_near_term
-    assert "Local conversation clear gate: available now" in compact_near_term
-    assert "available now through `/clear`" in compact_near_term
-    assert "reviewed and smoked" in compact_near_term
-    assert (
-        "Next-boundary decision gate after local clear: available now"
-        in compact_near_term
-    )
-    assert "selected a local `/status` command as the next native-shell boundary" in (
-        compact_near_term
-    )
-    assert (
-        "Local status command gate: available now through `/status`"
-        in compact_near_term
-    )
-    assert "retained no-tool history counts and byte counts" in compact_near_term
-    assert "explicit-read budget booleans" in compact_near_term
-    assert "pending proposal availability, and verification availability" in (
-        compact_near_term
-    )
-    assert "Pi-like startup chrome gate: available now" in compact_near_term
-    assert (
-        "Pi-like visual/resource-label decision gate: available now"
-        in compact_near_term
-    )
-    assert (
-        "Pi-like startup visual/resource-label gate: available now" in compact_near_term
-    )
-    assert "Input-ergonomics decision gate: available now" in compact_near_term
-    assert "Grouped slash-command discovery gate: available now" in compact_near_term
-    assert (
-        "Post-help input ergonomics decision gate: available now" in compact_near_term
-    )
-    assert (
-        "Line-oriented state-aware prompt label gate: available now"
-        in compact_near_term
-    )
-    assert (
-        "Terminal-layer direction checkpoint gate: available now" in compact_near_term
-    )
-    assert (
-        "Prompt-toolkit line-editor feasibility gate: available now"
-        in compact_near_term
-    )
-    assert (
-        "Prompt-toolkit slash-command completion gate: available now"
-        in compact_near_term
-    )
-    assert (
-        "Prompt-toolkit file/path completion gate: available now" in compact_near_term
-    )
-    assert "Prompt-toolkit multiline input gate: available now" in compact_near_term
-    assert "Prompt-toolkit bottom-toolbar status decision gate: available now" in (
-        compact_near_term
-    )
-    assert "Prompt-toolkit real-TTY input hardening gate: available now" in (
-        compact_near_term
-    )
-    assert "handles both CR and LF encodings" in compact_near_term
-    assert "Prompt-toolkit next-boundary decision gate: available now" in (
-        compact_near_term
-    )
-    assert "selected prompt-toolkit-only `@file` reference completion" in (
-        compact_near_term
-    )
-    assert "Prompt-toolkit `@file` reference completion gate: available now" in (
-        compact_near_term
-    )
-    assert "safe workspace-relative `@file` labels" in compact_near_term
-    assert "Next-boundary decision gate after `@file` completion: available now" in (
-        compact_near_term
-    )
-    assert "two successful user-named file excerpts per REPL session" in (
-        compact_near_term
-    )
-    assert "line-oriented and privacy-safe" in compact_near_term
-    assert "Read-failure recovery review gate: available now" in compact_near_term
-    assert "removed from the normal product REPL path" in compact_near_term
+    assert "user-directed `@path`/`@image:` references" in compact_near_term
+    assert "`/new`, `/session`, `/hotkeys`" in compact_near_term
+    assert "theme selection in `/settings`" in compact_near_term
+    assert "prompt templates as their own `/<name>` slash commands" in compact_near_term
+    assert "Completed near-term foundations" in compact_near_term
+    assert "product TUI workflow depth" in compact_near_term
+    assert "native session tree" in compact_near_term
+    assert "automation RPC" in compact_near_term
+    assert "provider catalog construction" in compact_near_term
+    assert "package runtime composition" in compact_near_term
+    assert "the shipped extension slices are current foundations" in compact_near_term
+    assert "`--native-output json`" not in compact_near_term
     assert (
         "Self-bootstrap readiness gates remain historical context" in compact_near_term
     )

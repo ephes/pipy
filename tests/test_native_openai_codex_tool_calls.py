@@ -672,8 +672,8 @@ def test_openai_codex_legacy_callers_still_get_no_tools_field(tmp_path: Path):
     """Callers that do not supply `messages` or `available_tools` keep the
     existing body builder, with no `tools` field set, and the resulting
     `ProviderResult.tool_calls` stays empty. This guards against
-    regressions in `/ask-file`, `/propose-file`, and
-    `pipy run --agent pipy-native --goal ...` paths.
+    regressions in non-tool-loop callers such as
+    `pipy run --agent pipy-native --goal ...`.
     """
 
     client = FakeSseHTTPClient(

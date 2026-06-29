@@ -13,7 +13,8 @@ Usage (typically under tmux):
 
 The scripted provider echoes a fixed acknowledgement for any turn, which is
 enough to prove that a package-contributed skill/prompt body actually reaches
-a provider turn when invoked as `/skill <name>` or `/template <name>`.
+a provider turn when invoked as `/skill <name>` or as the prompt template's own
+slash command (for example `/plan`).
 """
 
 from __future__ import annotations
@@ -25,11 +26,11 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
-_REPLY = "demo-pack provider acknowledged the request."
-
-
 class _ScriptedProvider:
     """A deterministic provider that echoes a fixed reply for any turn."""
+
+    def __init__(self) -> None:
+        self._turn_count = 0
 
     @property
     def name(self) -> str:
@@ -45,13 +46,14 @@ class _ScriptedProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         now = datetime.now(UTC)
+        self._turn_count += 1
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
             provider_name=self.name,
             model_id=self.model_id,
             started_at=now,
             ended_at=now,
-            final_text=_REPLY,
+            final_text=f"demo-pack provider turn {self._turn_count} acknowledged.",
             usage={},
             tool_calls=(),
         )

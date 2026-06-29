@@ -333,13 +333,17 @@ The highest-impact remaining gaps are now:
    deliberate `openai-codex-responses` legacy-factory exception for
    settings-derived retry policy, and broader local-provider benchmarking. Spec:
    [provider-catalog.md](provider-catalog.md).
-4. **Top-level CLI compatibility and parity cleanup.** Pipy still exposes a
-   harness-shaped `auth|run|repl` layout in places where Pi has a single
-   product command, and several pipy-only surfaces remain to remove or realign
-   (`--archive-transcript`, no-tool REPL/proposal commands, `/clear`,
-   `/status`, `/theme`, `/skill`, `/template`, `/help`, and exposed internal
-   flags where they do not map to Pi). This cleanup should be staged alongside
-   the topic that owns each surface rather than done as one risky rewrite.
+4. **Top-level CLI compatibility and parity cleanup — largely shipped
+   (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive
+   product session, while subcommands remain reachable with the documented
+   reserved-word exception. Removed outright: `--archive-transcript`,
+   `--native-output json`, the no-tool REPL/proposal commands, `/clear`,
+   `/status`, `/theme`, `/template`, and `/help`. `/skill` is kept as
+   parity-consistent with Pi's skill expansion model; `--read-root(s)`,
+   `--tool-budget`, `--input-runtime`, and prompt history are kept as internal
+   conveniences rather than parity features. Remaining cleanup is narrow
+   follow-up around exposed internal mechanisms when a real Pi workflow makes
+   the tradeoff clear.
 7. **Verification breadth and policy.** Pipy now relies on the model-visible
    `bash` tool for Pi-style verification-like workflows. Richer project policy
    should come through extension-defined permission/tool gates once the
@@ -382,26 +386,25 @@ rationale is in [parity-plan.md](parity-plan.md) §3; the actionable removals ar
   ([session-tree.md](session-tree.md)) is now the product store; `pipy-session`
   is a separate, non-default metadata catalog/learning utility. The docs/specs
   no longer present metadata-first as the product session source.
-- **`--archive-transcript` sidecar.** Retire once the native session tree stores
-  full transcripts like Pi. The native tree *is* the transcript.
-- **`--native-output json` (metadata-only).** **Deprecated** in favor of Pi's
-  `--mode json` full-event stream and `--mode rpc`, which have shipped
-  ([automation-rpc.md](automation-rpc.md)); its `--help` now points there. The
-  metadata-only object is retained on `pipy run` for existing callers and is
-  scheduled for removal once no caller depends on it.
+- **`--archive-transcript` sidecar.** **Removed (2026-06-20).** The native
+  session tree is the transcript; use `/export` or top-level `--export` for
+  product-session exports.
+- **`--native-output json` (metadata-only).** **Removed (2026-06-20).**
+  Automation callers use Pi's `--mode json` full-event stream, `--mode rpc`, or
+  `--print` ([automation-rpc.md](automation-rpc.md)).
 - **No-tool REPL mode and its `/read` `/ask-file` `/propose-file`
-  `/apply-proposal` commands.** Pi has one interactive mode with model-visible
-  tools. Fold into the single tool-loop product session and remove the
-  proposal/apply commands plus the archive-side parallel tool family that backs
-  them (Track CQ-A slice 10, Track CQ-D slice 1).
-- **`/clear` → `/new` + `/compact`; `/status` → `/session`.** Realign the
-  pipy-only commands to Pi's command set ([session-tree.md](session-tree.md)).
-- **`/theme` command, `/skill`/`/template` dispatcher commands, `/help`.** Pi has
-  none of these. Move theme selection under `/settings` (keep `--theme`),
-  auto-inject skills, and register prompt templates as their own `/<name>` slash
-  commands. (`/hotkeys` now ships, rendered from the resolved keybinding
-  manager.) ([settings-config.md](settings-config.md),
-  [provider-catalog.md](provider-catalog.md)).
+  `/apply-proposal` commands.** **Removed (2026-06-20).** There is one product
+  REPL, the model-visible tool-loop session.
+- **`/clear` → `/new` + `/compact`; `/status` → `/session`.** **Removed
+  (2026-06-20), no aliases.** Use Pi's `/new` and `/session`
+  ([session-tree.md](session-tree.md)).
+- **`/theme` command, `/template` dispatcher command, `/help`.** **Removed
+  (2026-06-20), no aliases.** Theme selection lives in `/settings`, prompt
+  templates register as their own `/<name>` commands, and `/hotkeys` is rendered
+  from the resolved keybinding manager. `/skill` is kept as parity-consistent
+  with Pi's skill expansion model, and discovered skills are advertised in the
+  product system prompt for model-side loading via `read`.
+  ([settings-config.md](settings-config.md), [provider-catalog.md](provider-catalog.md)).
 - **Hardcoded `ds4` built-in provider.** Reframe as a `models.json`
   custom-provider preset ([provider-catalog.md](provider-catalog.md)).
 - **Verify-and-decide:** `--read-root(s)`, `--tool-budget`, `--input-runtime`,
@@ -440,9 +443,11 @@ entry in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`).
 - Pi-shaped behavior: the model picks files, edits them directly, the resulting
   unified diff is written to stderr, no approval popups appear, and the loop
   iterates within a bounded tool budget.
-- Slash commands `/read`, `/ask-file`, `/propose-file`, and
-  `/apply-proposal` keep working unchanged in `--repl-mode no-tool`; the former
-  pipy-specific `/verify just-check` command has been removed from the user-facing REPL.
+- Historical note: this original track preserved the no-tool REPL slash
+  commands while the model-visible tool loop was landing. The later 2026-06-20
+  parity cleanup removed `--repl-mode no-tool` and `/read`, `/ask-file`,
+  `/propose-file`, and `/apply-proposal`; the current surface is the single
+  product REPL with model-visible tools.
 
 ### Planned Slices
 
@@ -745,9 +750,10 @@ These remain explicitly deferred while the track lands and after
 it lands. They are not later slices of this track:
 
 - Slash-command loading for skills and prompt templates, extensions, and
-  package loading. (Resolved later: runtime `/skill`, `/template`, and custom
-  `/<name>` loading shipped in the Runtime Resource Loading Track below.
-  General extensions, package loading, and a theme registry remain deferred.)
+  package loading. (Resolved later: runtime `/skill`, prompt templates as their
+  own `/<name>` slash commands, and custom `/<name>` loading shipped in the
+  Runtime Resource Loading Track below. General extensions, package loading, and
+  a theme registry shipped later through the extension/package tracks.)
 - Live session resume, branch/fork, compaction, and share. A metadata-only
   resume reader shipped first; live `--resume`, `--branch`, and `/compact`
   (with an automatic threshold) have since shipped through the Native Session
@@ -960,9 +966,10 @@ module is live.
    (`scripts/parity_checks/attachment_behavior.py`).
 6. Remove `pipy_harness.native.themes` and remove the unused theme
    registry surfaces (test-only). Refs: `06:F22`. **Reintroduced (D7 now
-   ✅)**: `themes.py` is the palette registry behind `chrome.ChromeStyle`,
-   consumed by a real `/theme` command in both REPLs and resolved per
-   render through `PIPY_THEME` (`scripts/parity_checks/theme_behavior.py`).
+   ✅)**: `themes.py` is the palette registry behind `chrome.ChromeStyle`.
+   Theme selection now lives in `/settings` (the pipy-only `/theme` command was
+   removed in the 2026-06-20 cleanup), and rendering still honors `PIPY_THEME`
+   (`scripts/parity_checks/theme_behavior.py`).
 7. Remove `pipy_harness.native.skills`, `prompt_templates`,
    `custom_commands` and the chrome-side wiring that calls into them.
    Refs: `06:F1`. Reintroduce only when a runtime path consumes them.
@@ -1104,10 +1111,9 @@ Collapse the parallel families.
 
 1. Collapse `NativeAgentSession`, `NativeNoToolReplSession`, and
    `NativeToolReplSession` into one session driven by an explicit
-   state machine. The no-tool REPL's shadow slash-command
-   implementations of `/read`/`/ask-file`/`/propose-file`/
-   `/apply-proposal` re-routes to the same tools the
-   tool-loop session uses. Refs: `01:F3`, `01:F2`.
+   state machine. **Superseded by the 2026-06-20 cleanup:** the no-tool REPL
+   and its shadow `/read`/`/ask-file`/`/propose-file`/`/apply-proposal`
+   commands were removed rather than rerouted. Refs: `01:F3`, `01:F2`.
 2. Replace the 350-line `if/elif` REPL command-dispatch chain in
    `session.py` with a command table (name → handler + descriptor).
    The chrome menu, the help printer, and the dispatcher all read the
@@ -1582,8 +1588,8 @@ through discovery (see the closing note below). Landed so far:
   extensions through `discover_extensions(package_roots=...)`, and themes
   through a file-based loader + overlay registry
   (`theme_files.build_theme_registry` + `themes.set_active_theme_registry`) so
-  `/theme <name>` selects a package theme and re-colors the chrome. All four
-  kinds sit at the spec's lowest precedence (a workspace/global resource wins a
+  package themes are selectable through the `/settings` theme picker and re-color
+  the chrome. All four kinds sit at the spec's lowest precedence (a workspace/global resource wins a
   name collision) and honor `+/-pattern` filters; package resources appear in
   `/reload` and `pipy config` discovery. Example
   `docs/examples/packages/demo-pack/`; live tmux proof
@@ -1629,8 +1635,9 @@ no-op UI context. The overlay submits on Enter, inserts newlines with
 Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
 basic cursor movement/backspace, cancels on Esc/Ctrl-C, and opens `$VISUAL` or
 `$EDITOR` on Ctrl+G like Pi; successful editor exits replace the buffer and
-failed exits keep the prior text. Main-prompt read/write/paste helpers, custom
-editor component, and autocomplete provider APIs remain follow-ons.
+failed exits keep the prior text. Main-prompt read/write/paste helpers,
+autocomplete provider wrappers, and the Pi-shaped custom editor component store
+now ship; full custom editor rendering/input integration remains a follow-on.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1646,14 +1653,14 @@ live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. Autocomplete provider wrappers now
 ship for live product-TUI `@` and forced Tab completion. They do not yet cover
 Pi's richer extension APIs: live (invalidate-driven) tool rendering beyond the
-landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, and custom
-editor component beyond the simple primitives (theme controls —
-`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme` — and editor text
-helpers now ship),
-session-manager access and message-entry APIs beyond append/startup replay,
-TypeScript source compatibility, OAuth-provider extension `/login` wiring, broader
-dynamic extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface, or PyPI/npm package distribution. Managed git sources
-and package `update` now ship; broader remote package sources remain deferred.
+landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, full custom
+editor rendering/input integration beyond the landed in-memory component store,
+reactive footer branch-change delivery, message-entry APIs beyond the shipped
+append/startup replay and idle `send_message` delivery, TypeScript source
+compatibility, OAuth-provider extension `/login` wiring, broader dynamic
+extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface,
+or PyPI/npm package distribution. Managed git sources and package `update` now
+ship; broader remote package sources remain deferred.
 
 Acceptance criteria:
 
@@ -1688,58 +1695,30 @@ tool-call round trips with pipy's loop.
 
 The current implementation target is in `Next Slice` above.
 
-Historical near-term gates that remain implemented or intentionally preserved
-as context: The Tool-Loop Parity Track and the follow-up OpenAI Responses +
-OpenAI Codex Tool-Call Parity Track have both landed end-to-end. The broader
-slopfork direction is Pi parity, and the input-adapter boundary are the first
-visible parity steps. OpenAI Codex subscription auth as the preferred
-near-term real-provider path; OpenRouter remains implemented and useful for
-immediate manual smoke testing. No-tool provider-turn REPL gate: available now
-through `pipy repl --agent pipy-native`; Later ordinary no-tool turns now
-receive bounded in-memory history. Historical visible approval prompt gate.
-Narrow read-only shell command gate: available now. Provider-visible
-interactive context gate: available now through
-`/ask-file <workspace-relative-path> -- <question>` with whitespace-delimited
-`--` separator. Command help and usage-diagnostic gate: available now.
-Proposal-only interactive file gate: available now through
-`/propose-file <workspace-relative-path> -- <change-request>` labeled
-`propose_file_repl`; Proposal-only review gate: available now, implemented,
-reviewed, and trialed with a real `openai-codex` provider turn. One-file
-write-boundary decision gate: available now; the public mutation command is
-`/apply-proposal <workspace-relative-path>`. Allowlisted verification gate:
-available now. Local conversation clear gate: available now through `/clear`,
-reviewed and smoked. Next-boundary decision gate after local clear: available
-now selected a local `/status` command as the next native-shell boundary.
-Local status command gate: available now through `/status`, showing retained
-no-tool history counts and byte counts, explicit-read budget booleans, pending
-proposal availability, and verification availability. Pi-like startup chrome
-gate: available now. Pi-like visual/resource-label decision gate: available
-now. Pi-like startup visual/resource-label gate: available now.
-Input-ergonomics decision gate: available now. Grouped slash-command discovery
-gate: available now. Post-help input ergonomics decision gate: available now.
-Line-oriented state-aware prompt label gate: available now.
-Terminal-layer direction checkpoint gate: available now. Prompt-toolkit
-line-editor feasibility gate: available now. Prompt-toolkit slash-command
-completion gate: available now. Prompt-toolkit file/path completion gate:
-available now. Prompt-toolkit multiline input gate: available now.
-Prompt-toolkit bottom-toolbar status decision gate: available now with
-bottom-toolbar status decision and deferred footer behavior. Prompt-toolkit
-real-TTY input hardening gate: available now and handles both CR and LF
-encodings. Prompt-toolkit next-boundary decision gate: available now selected
-prompt-toolkit-only `@file` reference completion. Prompt-toolkit `@file`
-reference completion gate: available now with safe workspace-relative `@file`
-labels. Next-boundary decision gate after `@file` completion: available now,
-two successful user-named file excerpts per REPL session, line-oriented and
-privacy-safe. Read-failure recovery review gate: available now. Historical
-visible approval prompts were removed from the normal product REPL path.
-Self-bootstrap readiness gates remain historical context.
+Historical gates before the single product REPL are preserved in `Done` and
+`docs/harness-spec.md` for auditability, but they are not current product
+surfaces. The former no-tool REPL and its `/read`, `/ask-file`, `/propose-file`,
+`/apply-proposal`, `/clear`, `/status`, `/help`, `/theme`, and `/template`
+commands were removed in the 2026-06-20 parity cleanup. Current equivalents are
+the model-visible tool loop (`read`/`edit`/`write`/`bash`), user-directed
+`@path`/`@image:` references, `/new`, `/session`, `/hotkeys`, theme selection in
+`/settings`, and prompt templates as their own `/<name>` slash commands.
+
+Completed near-term foundations that remain relevant context: the Tool-Loop
+Parity Track and the OpenAI Responses + OpenAI Codex Tool-Call Parity Track
+landed end-to-end; startup chrome, visual resource labels, prompt/input
+ergonomics, prompt-toolkit/readline/slash-menu fallbacks, `@file` completion,
+multi-file context loading, product TUI workflow depth, native session tree,
+settings/keybindings, automation RPC, export/import/share, provider catalog
+construction, package runtime composition, and the shipped extension slices are
+current foundations. Self-bootstrap readiness gates remain historical context.
 
 Invariants that must hold for any near-term slice:
 
 - default native stdout remains successful final text only on success, with
   diagnostics, finalization, progress, and errors on stderr
-- the existing `pipy-session` metadata archive and `--native-output json`
-  remain metadata-only and never include raw prompts, model output, provider
+- the existing `pipy-session` metadata archive remains metadata-only and never
+  includes raw prompts, model output, provider
   responses, request bodies, raw patch text, raw diffs, file contents, raw tool
   observations, command stdout, command stderr, auth tokens, cookies,
   credentials, secrets, private keys, or sensitive personal data; this does not
@@ -1831,9 +1810,9 @@ another full-screen TUI framework; RPC mode.
   path.
 - Storing full system prompts, user prompts, model outputs, stdout, stderr,
   tool payloads, secrets, tokens, credentials, private keys, or sensitive
-  personal data in the `pipy-session` metadata archive, `--native-output json`,
-  docs, or synced artifacts by default. The private native product session tree
-  is the explicit Pi-like exception for raw conversation history.
+  personal data in the `pipy-session` metadata archive, docs, or synced
+  artifacts by default. The private native product session tree is the explicit
+  Pi-like exception for raw conversation history.
 - Building broad approvals, sandboxing, raw transcript import,
   non-allowlisted verification commands, Textual or another full-screen TUI
   framework, network/socket daemon transports, or orchestration
@@ -1878,9 +1857,9 @@ Privacy: only safe counters/labels are recorded. The no-tool path emits
 `native.resource.invoked` / `native.resource.rejected` events carrying
 `{resource_kind, name, path_label, sha256, byte_length, truncated}` and a
 `resource_invocation_count` in the completion event; the tool-loop path
-returns `resource_invocation_count` in `NativeToolReplResult`. Resource
-bodies, expanded prompts, and command text never reach JSONL, Markdown
-summaries, `--native-output json`, prompt history, or the transcript sidecar.
+returns `resource_invocation_count` in `NativeToolReplResult`. Resource bodies,
+expanded prompts, and command text never reach the `pipy-session` JSONL archive,
+Markdown summaries, prompt history, or exported metadata summaries.
 
 Verification: unit tests for parser/discovery/precedence/safety and the
 dispatcher; no-tool and tool-loop product-path tests (incl. archive non-leak);

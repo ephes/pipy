@@ -1456,6 +1456,7 @@ def test_pipy_only_commands_removed(tmp_path: Path):
         assert f"'{gone}' is not handled in tool-loop mode" in out
         # No trace of the old deprecation notices or alias behavior.
         assert "is deprecated" not in out
+        assert "supported local commands are /help" not in out
 
 
 def test_theme_command_removed(tmp_path: Path):

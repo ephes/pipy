@@ -441,56 +441,51 @@ do not create provider turns or archive auth material.
 > now-removed no-tool shell and its decision trail; read it as a record, not the
 > current product surface.
 
-The interactive native shell is available as:
+The current interactive product shell is available as:
 
 ```sh
 uv run pipy
-uv run pipy repl --agent pipy-native --slug native-repl
+uv run pipy repl --agent pipy-native
 ```
 
-It is intentionally a thin REPL over the same native provider/session/turn core
-used by one-shot `pipy run --agent pipy-native`. Bare `pipy` defaults to the
-native REPL in the current directory with slug `native-repl`. The product REPL
-runs the bounded model-visible tool-loop session with fresh pipy-owned
-conversation state.
+It runs the bounded model-visible tool-loop session over the native
+provider/session/turn core. Bare `pipy` defaults to this product REPL in the
+current directory; `pipy "<prompt>"` launches the same shell with an initial
+user message. Provider construction is late-bound: immediately before each
+provider-visible turn, the REPL resolves the current provider/model selection
+to a concrete `ProviderPort`, and the `NativeRunInput` metadata for that turn
+reflects that selection.
 
-Each non-empty non-command input line becomes one provider turn. Provider
-construction is late-bound: immediately before each provider-visible turn, the
-REPL resolves the current provider/model selection to a concrete
-`ProviderPort`, and the `NativeRunInput` metadata for that turn reflects that
-selection. `/help` prints a grouped static command reference on stderr without
-invoking the provider or tools. Malformed supported slash commands and
-unsupported slash commands reuse the same grouped reference, while omitting raw
-command text. `/clear` clears retained no-tool conversation context and any
-pending proposal draft through a local command path. `/status` prints only safe
-local shell-state labels and counters to stderr, including provider/model
-selection, provider-turn count, retained no-tool history counters, read-budget
-flags, pending proposal availability, and verification availability.
+Local slash commands such as `/hotkeys`, `/reload`, `/changelog`, `/model`,
+`/scoped-models`, `/settings`, `/login`, `/logout`, `/copy`, `/compact`,
+`/export`, `/import`, `/share`, `/session`, `/name`, `/new`, `/tree`, `/resume`,
+`/fork`, `/clone`, and `/skill` are handled without invoking a provider unless
+their command contract explicitly starts a model turn. Prompt templates and
+custom commands register as their own `/<name>` commands. Unsupported slash
+commands fail closed with a diagnostic that omits raw command text. `/help`,
+`/clear`, `/status`, `/theme`, and `/template` are not supported commands; their
+Pi-shaped replacements are `/hotkeys`, `/new`, `/session`, the `/settings`
+theme picker, and template-specific `/<name>` commands.
+
 `/login [openai-codex]` reuses `OpenAICodexAuthManager.login_interactive()` with
 REPL stdin and stderr, `/logout [openai-codex]` removes pipy-owned OpenAI Codex
 credentials through the same auth-manager boundary, and
 `/model [<provider>/<model>|<model>]` prints or changes the current
-provider/model selection. These local commands do not invoke providers, do not
-consume provider turns, do not consume explicit-read budgets, do not mutate
-state unless their command contract explicitly says so, and do not archive raw
-command text, authorization URLs, prompts, provider responses, tokens, or auth
-material. Successful `/model` selections are persisted as non-secret native
-defaults under local pipy state with only provider and model identifiers.
-`/theme [<name>]` prints or changes the active chrome color scheme. With no
-argument it lists the registered themes (`pi` default, `high-contrast`,
-`ocean`) and marks the active one; with a known name it switches. The choice
-persists to a non-secret `NativeThemeStore` (theme name only) and sets
-`PIPY_THEME` for the running process, so the next chrome render (re-resolved
-per frame through `chrome_style_for`) repaints with the new palette. Selecting
-a theme only changes *which* ANSI codes are emitted: `chrome_style_for` decides
-color enablement first (NO_COLOR / non-TTY → plain text), so a theme never
-overrides the no-color contract. Like the other local commands, `/theme`
-invokes no provider, consumes no turn, and archives nothing.
+provider/model selection. Local commands do not archive raw command text,
+authorization URLs, prompts, provider responses, tokens, or auth material.
+Successful `/model` selections are persisted as non-secret native defaults
+under local pipy state with only provider and model identifiers.
+
+Theme selection lives in the `/settings` dialog. The chosen theme persists as a
+non-secret theme name and applies to later chrome renders through
+`chrome_style_for`. Selecting a theme only changes *which* ANSI codes are
+emitted: `chrome_style_for` decides color enablement first (NO_COLOR / non-TTY
+→ plain text), so a theme never overrides the no-color contract.
 `/exit` and `/quit` terminate the session.
 
 #### Runtime resource loading (skills, prompt templates, custom commands)
 
-Both REPL product paths load three bounded resource kinds at runtime through
+The product REPL loads three bounded resource kinds at runtime through
 `pipy_harness.native.resources`, a pipy-owned registry and pure dispatcher.
 This is **not** a general extension API: only these three kinds load, and they
 reuse the existing provider/session/tool/archive boundaries — no parallel

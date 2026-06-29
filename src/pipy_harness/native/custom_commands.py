@@ -24,8 +24,8 @@ Public API:
 - `find_custom_command_by_name(commands, name)` returns the first
   case-sensitive match or `None`.
 - `compose_custom_commands_help_block(commands)` formats a name +
-  description help section suitable for `/help` output. Bodies do not
-  appear in this block.
+  description help section for command listings. Bodies do not appear in
+  this block.
 - `safe_custom_command_metadata(command)` returns the archive-safe
   per-file metadata projection for one command.
 """

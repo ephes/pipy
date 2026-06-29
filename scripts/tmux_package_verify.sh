@@ -8,11 +8,11 @@
 #      real `pipy install <path> -l` CLI,
 #   2. launches a real NativeToolReplSession (scripted provider — no
 #      network/auth) in a tmux pane via scripts/package_demo.py,
-#   3. asserts via capture-pane that:
+#   3. proves via the package runtime APIs that the package theme is selectable,
+#   4. asserts via capture-pane that:
 #        - the startup `[Skills]` chrome lists the package skill `greet`,
-#        - `/theme` lists the package theme `midnight` and `/theme midnight`
-#          selects it,
-#        - `/skill` lists `greet` and `/template` lists `plan`,
+#        - `/skill greet` and the package prompt command `/plan` reach the
+#          provider turn,
 #        - the package extension command `/demo-hello` runs.
 #
 # It polls for each stable expected state (no fixed-sleep races). Usage:
@@ -61,26 +61,48 @@ if ! (cd "$REPO" && uv run pipy install "$PKG" -l --cwd "$WS" >/dev/null 2>&1); 
 fi
 echo "PASS: installed demo-pack into workspace"
 
-# 2. Launch the demo session in tmux.
+# 2. Prove the package theme is contributed to the active theme registry. Theme
+#    selection is now in /settings, not a /theme slash command.
+if ! (cd "$REPO" && PIPY_CONFIG_HOME="$PIPY_CONFIG_HOME" WS="$WS" uv run python - <<'PY'
+import os
+from pathlib import Path
+
+from pipy_harness.native import themes
+from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.resources import WorkspaceResources
+from pipy_harness.native.settings import SettingsManager
+
+ws = Path(os.environ["WS"])
+settings = SettingsManager.for_workspace(ws)
+roots = compose_package_runtime(settings, ws)
+resources = WorkspaceResources.discover(ws, package_roots=roots)
+if "greet" not in resources.skill_names():
+    raise SystemExit("package skill missing")
+if "plan" not in resources.template_names():
+    raise SystemExit("package prompt missing")
+if not themes.is_known_theme("midnight"):
+    raise SystemExit("package theme missing")
+PY
+); then
+  echo "FAIL: package runtime contributed skill/prompt/theme"
+  exit 1
+fi
+echo "PASS: package runtime contributed skill/prompt/theme"
+
+# 3. Launch the demo session in tmux.
 tmux new-session -d -s "$SESSION" -x 110 -y 40 \
   "cd \"$REPO\" && PIPY_CONFIG_HOME=\"$PIPY_CONFIG_HOME\" exec uv run python scripts/package_demo.py \"$WS\""
 
-# 3a. Startup chrome lists the package skill (cold `uv run` can be slow).
+# 4a. Startup chrome lists the package skill (cold `uv run` can be slow).
 wait_for "startup [Skills] lists package skill" "greet" 60
 
-# 3b. Theme: list shows the package theme, then select it.
-tmux send-keys -t "$SESSION" "/theme" C-m
-wait_for "package theme listed" "midnight" 20
-tmux send-keys -t "$SESSION" "/theme midnight" C-m
-wait_for "package theme selected" "selected theme midnight" 20
+# 4b. Skill + prompt template commands both reach the provider.
+tmux send-keys -t "$SESSION" "/skill greet" C-m
+wait_for "package skill reaches provider" "demo-pack provider turn 1 acknowledged." 20
+tmux send-keys -t "$SESSION" "/plan" C-m
+wait_for "package prompt reaches provider" "demo-pack provider turn 2 acknowledged." 20
 
-# 3c. Skill + prompt listings include the package resources.
-tmux send-keys -t "$SESSION" "/skill" C-m
-wait_for "package skill listed" "greet:" 20
-tmux send-keys -t "$SESSION" "/template" C-m
-wait_for "package prompt listed" "plan:" 20
-
-# 3d. Package extension command runs.
+# 4c. Package extension command runs.
 tmux send-keys -t "$SESSION" "/demo-hello pipy" C-m
 wait_for "package extension command runs" "from demo-pack" 20
 
