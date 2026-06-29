@@ -126,7 +126,8 @@ Tier 3 catalog construction (shipped 2026-06-03):
   speaks the Anthropic body, so thinking is placed at the body top level:
   adaptive thinking — `thinking:{type:"adaptive"}` + `output_config.effort` — for
   the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6, per Pi's
-  `supportsAdaptiveThinking`), and the `thinking.budget_tokens` path otherwise).
+  `supportsAdaptiveThinking`), and the `thinking.budget_tokens` path otherwise;
+  both paths force `display:"summarized"` except on GovCloud targets).
   Custom bedrock headers are merged into the SigV4-signed request with the
   reserved `authorization`/`host`/`x-amz-*` set dropped so they cannot collide
   with the signing headers. Vertex thinking (thinkingConfig) is per-model like
@@ -151,9 +152,12 @@ Remaining adapter/product follow-ons:
   send `display: "summarized"` (Pi forces this; the adaptive models' API default
   is `"omitted"`). The adaptive model markers, the `minimal -> low` effort clamp,
   and `supports_adaptive_thinking` are shared with the bedrock adapter from
-  `anthropic_provider`. Remaining Anthropic-body follow-ons:
-  - Bedrock's adaptive body still omits `display`; aligning it (Pi includes
-    `display` except on GovCloud) is a separate bedrock-adapter follow-on.
+  `anthropic_provider`. The bedrock adapter now also forces
+  `display: "summarized"` on both its adaptive and budget thinking paths,
+  omitting it only on GovCloud targets (configured region `us-gov-*`, or a model
+  id starting `us-gov.` / `arn:aws-us-gov:`, whose Converse schema rejects the
+  field), matching Pi's `isGovCloudBedrockTarget` carve-out. Remaining
+  Anthropic-body follow-ons:
   - Neither adapter emits Pi's explicit `thinking: {type: "disabled"}` when a
     reasoning-capable model is run with thinking off, because the adapters only
     receive the resolved `reasoning_effort` and not the model's reasoning-

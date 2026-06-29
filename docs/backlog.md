@@ -329,9 +329,10 @@ The highest-impact remaining gaps are now:
    Spec: [user-documentation.md](user-documentation.md).
 3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
-   Azure URL/api-version parity, the bedrock adaptive `display`/explicit
-   thinking-disabled shapes (the `anthropic-messages` adaptive-thinking shape has
-   shipped), the deliberate `openai-codex-responses` legacy-factory exception for
+   Azure URL/api-version parity, the explicit thinking-disabled shape (the
+   `anthropic-messages` adaptive-thinking shape and the bedrock adaptive/budget
+   `display: "summarized"` field, omitted on GovCloud, have shipped), the
+   deliberate `openai-codex-responses` legacy-factory exception for
    settings-derived retry policy, and broader local-provider benchmarking. Spec:
    [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped

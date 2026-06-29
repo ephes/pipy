@@ -784,14 +784,17 @@ def test_bedrock_adaptive_thinking_reaches_signed_body(tmp_path):
         "https://bedrock-runtime.us-east-1.amazonaws.com/model/"
         "us.anthropic.claude-opus-4-6-v1/invoke"
     )
-    assert sent["body"]["thinking"] == {"type": "adaptive"}
+    # display is forced to "summarized" on the adaptive path (Pi includes it
+    # except on GovCloud); the adaptive models' API default is "omitted".
+    assert sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert sent["body"]["output_config"] == {"effort": "high"}
     # the SigV4 Authorization header is present and signed
     assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
 
 
 def test_bedrock_budget_thinking_for_non_adaptive_model(tmp_path):
-    # A non-adaptive Claude model uses the budget_tokens path.
+    # A non-adaptive Claude model uses the budget_tokens path; display is forced
+    # to "summarized" there too (Pi amazon-bedrock.ts:974-978).
     http = CapturingHTTPClient()
     provider = _bedrock_adapter(
         "anthropic.claude-3-7-sonnet-20250219-v1:0",
@@ -802,7 +805,62 @@ def test_bedrock_budget_thinking_for_non_adaptive_model(tmp_path):
     assert http.requests[-1]["body"]["thinking"] == {
         "type": "enabled",
         "budget_tokens": 16384,
+        "display": "summarized",
     }
+    assert "output_config" not in http.requests[-1]["body"]
+
+
+def test_bedrock_govcloud_region_omits_display_on_both_paths(tmp_path):
+    # GovCloud Bedrock rejects the Claude thinking.display field, so Pi omits it
+    # when the configured region is us-gov-* (amazon-bedrock.ts:933-936, :952-954).
+    http = CapturingHTTPClient()
+    adaptive = _bedrock_adapter(
+        "us.anthropic.claude-opus-4-6-v1",
+        http_client=http,
+        region="us-gov-east-1",
+        reasoning_effort="high",
+    )
+    adaptive.complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {"type": "adaptive"}
+    assert "display" not in http.requests[-1]["body"]["thinking"]
+
+    budget = _bedrock_adapter(
+        "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        http_client=http,
+        region="us-gov-west-1",
+        reasoning_effort="high",
+    )
+    budget.complete(_request(tmp_path))
+    assert http.requests[-1]["body"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 16384,
+    }
+    assert "display" not in http.requests[-1]["body"]["thinking"]
+
+
+def test_bedrock_govcloud_model_id_prefix_omits_display(tmp_path):
+    # GovCloud detected from the model id prefix even on a non-gov region
+    # (amazon-bedrock.ts:939-940): us-gov. and arn:aws-us-gov: both qualify.
+    http = CapturingHTTPClient()
+    for model_id in (
+        "us-gov.anthropic.claude-opus-4-6-v1",
+        "arn:aws-us-gov:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-6-v1",
+    ):
+        provider = _bedrock_adapter(
+            model_id, http_client=http, region="us-east-1", reasoning_effort="high"
+        )
+        provider.complete(_request(tmp_path))
+        assert "display" not in http.requests[-1]["body"]["thinking"]
+
+
+def test_bedrock_omits_thinking_block_when_reasoning_unset(tmp_path):
+    # With thinking off there is no thinking block and therefore no display.
+    http = CapturingHTTPClient()
+    provider = _bedrock_adapter(
+        "us.anthropic.claude-opus-4-6-v1", http_client=http
+    )
+    provider.complete(_request(tmp_path))
+    assert "thinking" not in http.requests[-1]["body"]
     assert "output_config" not in http.requests[-1]["body"]
 
 

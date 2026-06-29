@@ -26,6 +26,7 @@ from pipy_harness.native.anthropic_provider import (
     ANTHROPIC_ADAPTIVE_EFFORT,
     ANTHROPIC_DEFAULT_THINKING_BUDGET,
     ANTHROPIC_THINKING_BUDGETS,
+    ANTHROPIC_THINKING_DISPLAY_DEFAULT,
     supports_adaptive_thinking,
 )
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
@@ -204,9 +205,18 @@ class AmazonBedrockProvider:
         # uses adaptive thinking (``type: adaptive`` + ``output_config.effort``)
         # for the adaptive-capable Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6)
         # and the ``budget_tokens`` path otherwise; we mirror that split.
+        # ``display`` is forced to "summarized" on both paths (Pi
+        # amazon-bedrock.ts:954, :957, :974-978) so the adaptive models — whose
+        # API default is "omitted" — still return a thinking summary, except on
+        # GovCloud targets, whose Converse schema rejects the field.
         if self.reasoning_effort is not None:
+            display: dict[str, str] = (
+                {}
+                if _is_gov_cloud_bedrock_target(self.model_id, self.region)
+                else {"display": ANTHROPIC_THINKING_DISPLAY_DEFAULT}
+            )
             if supports_adaptive_thinking(self.model_id):
-                body["thinking"] = {"type": "adaptive"}
+                body["thinking"] = {"type": "adaptive", **display}
                 body["output_config"] = {
                     "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
                         self.reasoning_effort, self.reasoning_effort
@@ -218,6 +228,7 @@ class AmazonBedrockProvider:
                     "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
                         self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
                     ),
+                    **display,
                 }
 
         encoded_body = json.dumps(body).encode("utf-8")
@@ -306,6 +317,20 @@ class AmazonBedrockProvider:
                 raise BedrockProviderError("clock must return a datetime")
             return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         return utc_now()
+
+
+def _is_gov_cloud_bedrock_target(model_id: str, region: str | None) -> bool:
+    """Whether the Bedrock target is GovCloud (Pi: ``isGovCloudBedrockTarget``).
+
+    GovCloud rejects the Claude ``thinking.display`` field, so the adapter omits
+    it there. A target is GovCloud when the configured region (lowercased) starts
+    with ``us-gov-`` or the model id (lowercased) starts with ``us-gov.`` or
+    ``arn:aws-us-gov:`` (amazon-bedrock.ts:933-941).
+    """
+    if region and region.lower().startswith("us-gov-"):
+        return True
+    lowered = model_id.lower()
+    return lowered.startswith("us-gov.") or lowered.startswith("arn:aws-us-gov:")
 
 
 def _messages_payload(request: ProviderRequest) -> list[dict[str, object]]:
