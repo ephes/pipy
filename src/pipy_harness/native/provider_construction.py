@@ -140,6 +140,21 @@ def resolve_construction(
             body_extra["reasoning"] = {"effort": reasoning_value}
         else:
             reasoning_effort = reasoning_value
+    elif (
+        _uses_openrouter_thinking(spec)
+        and bool(spec.reasoning)
+        and (thinking_level is None or thinking_level == "off")
+    ):
+        # Pi makes the OpenRouter off-state explicit for reasoning-capable models:
+        # ``reasoning: {effort: thinkingLevelMap.off ?? "none"}`` disables reasoning
+        # at the router rather than omitting the field (openai-completions.ts:578-580).
+        # Gate on the raw off/unset level — not merely ``reasoning_value is None`` —
+        # so an unsupported clamped level stays out of the off branch (Pi treats it
+        # as still-thinking-and-clamp), mirroring the anthropic ``thinking_disabled``
+        # gate below.
+        off_effort = _openrouter_off_effort(spec)
+        if off_effort is not None:
+            body_extra["reasoning"] = {"effort": off_effort}
 
     # Pi makes the off-state explicit for reasoning-capable anthropic-messages
     # models (``thinkingEnabled === false`` -> ``thinking:{type:"disabled"}``).
@@ -203,6 +218,22 @@ def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
     if compat.get("thinkingFormat") == "openrouter":
         return True
     return "openrouter.ai" in (spec.base_url or "").lower()
+
+
+def _openrouter_off_effort(spec: NativeModelSpec) -> str | None:
+    """Resolve the OpenRouter off-state ``reasoning.effort`` value, or ``None``.
+
+    Mirrors Pi's ``model.thinkingLevelMap?.off !== null`` gate plus the
+    ``?? "none"`` fallback (openai-completions.ts:578-580): an absent ``off`` key
+    emits ``"none"``, an explicit ``None`` (Pi ``null``) suppresses the emission,
+    and a string value is emitted verbatim. An absent key and a key mapped to
+    ``None`` are distinct here, so membership is tested before lookup rather than
+    via ``.get`` (which conflates them).
+    """
+
+    if "off" not in spec.thinking_level_map:
+        return "none"
+    return spec.thinking_level_map["off"]
 
 
 # API families that are fully catalog-constructed here, mapped to the path

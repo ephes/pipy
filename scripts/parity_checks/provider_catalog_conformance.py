@@ -746,11 +746,17 @@ def _check_product_construction(checks, tmp: Path):
 
     # 18d: OpenRouter thinking is the nested reasoning.effort, not reasoning_effort.
     or_think_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level="high")
+    # Off/unset on a reasoning-capable OpenRouter model disables reasoning at the
+    # router with reasoning.effort = "none" (Pi openai-completions.ts:578-580),
+    # rather than omitting the field.
+    or_off_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level=None)
     think_ok = (
         or_think_sent["body"].get("reasoning") == {"effort": "high"}
         and "reasoning_effort" not in or_think_sent["body"]
+        and or_off_sent["body"].get("reasoning") == {"effort": "none"}
+        and "reasoning_effort" not in or_off_sent["body"]
     )
-    checks.append(Check("18_product_openrouter_thinking", think_ok, "OpenRouter thinking is nested reasoning.effort"))
+    checks.append(Check("18_product_openrouter_thinking", think_ok, "OpenRouter thinking is nested reasoning.effort (on + off-state)"))
 
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.

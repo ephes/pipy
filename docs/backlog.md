@@ -355,7 +355,12 @@ The highest-impact remaining gaps are now:
    config-source conveniences — the resource-name default-base builder
    (`AZURE_OPENAI_RESOURCE_NAME`), the `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`
    model→deployment map, and the `AZURE_OPENAI_BASE_URL` env name, replacing the
-   pipy-only `AZURE_OPENAI_ENDPOINT`.)
+   pipy-only `AZURE_OPENAI_ENDPOINT`; and the OpenRouter reasoning off-state —
+   the `openai-completions` OpenRouter thinking format now emits
+   `reasoning: {effort: <off-value>}` (off-value = `thinkingLevelMap.off ?? "none"`
+   after the `!== null` gate) when a reasoning-capable model runs with thinking
+   off/unset, instead of omitting the field, matching `openai-completions.ts`
+   and mirroring the `anthropic-messages` disabled-thinking off-state.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive

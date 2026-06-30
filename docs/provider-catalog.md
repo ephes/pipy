@@ -223,6 +223,24 @@ Remaining adapter/product follow-ons:
   `AZURE_OPENAI_ENDPOINT` env name was dropped for parity with Pi's
   `AZURE_OPENAI_BASE_URL`.
 
+- OpenRouter reasoning off-state has shipped: for the `openai-completions`
+  OpenRouter thinking format, a reasoning-capable model run with thinking
+  off/unset now emits `reasoning: {effort: <off-value>}` to disable reasoning at
+  the router rather than omitting the field, matching Pi's
+  `thinkingFormat === "openrouter"` off branch (`openai-completions.ts:578-580`).
+  The off value follows Pi's `thinkingLevelMap?.off ?? "none"` after the
+  `!== null` gate: an absent `off` mapping emits `"none"` (the built-in OpenRouter
+  reasoning rows, which carry no `thinking_level_map`), an explicit `null`/`None`
+  off mapping suppresses the emission, and a string off mapping is emitted
+  verbatim. The branch is gated on the model being reasoning-capable and the raw
+  level being off/unset (not an unsupported clamped level, which Pi treats as
+  still-thinking-and-clamp), mirroring the `anthropic-messages`
+  `thinking: {type: "disabled"}` off-state gate. The on-state nested
+  `reasoning: {effort: <level>}` emission is unchanged. Covered by conformance
+  item 18 (18d). The other completions `thinkingFormat` variants (deepseek, zai,
+  qwen, together, ant-ling, string-thinking) and a full `detectCompat` port remain
+  separate follow-ons.
+
 Recently shipped closeout wiring:
 
 - `pipy run` (non-REPL one-shot) provider construction now

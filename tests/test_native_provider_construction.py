@@ -289,6 +289,71 @@ def test_openrouter_thinking_uses_nested_reasoning_effort(tmp_path):
     assert resolved.body_extra["reasoning"] == {"effort": "high"}
 
 
+def _openrouter_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="openrouter",
+        model_id="moonshotai/kimi-k2.6",
+        display_name="Kimi",
+        api="openai-completions",
+        base_url="https://openrouter.ai/api/v1",
+        reasoning=True,
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_or(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENROUTER_API_KEY": "k"},
+        runtime_api_key=None,
+        models_json_auth=None,
+        thinking_level=thinking_level,
+    )
+
+
+def test_openrouter_off_state_emits_none_effort(tmp_path):
+    # A reasoning-capable OpenRouter model with thinking off/unset and no explicit
+    # off mapping disables reasoning at the router via reasoning.effort = "none"
+    # (Pi openai-completions.ts:578-580), matching the shipped anthropic
+    # thinking:{type:"disabled"} off-state pattern.
+    resolved = _resolve_or(_openrouter_spec(), tmp_path, None)
+    assert resolved.reasoning_effort is None
+    assert resolved.body_extra["reasoning"] == {"effort": "none"}
+
+
+def test_openrouter_off_state_skipped_for_non_reasoning_model(tmp_path):
+    # Pi gates the whole branch on model.reasoning; a non-reasoning OpenRouter row
+    # emits no reasoning key.
+    resolved = _resolve_or(_openrouter_spec(reasoning=False), tmp_path, None)
+    assert "reasoning" not in resolved.body_extra
+
+
+def test_openrouter_off_state_explicit_null_off_suppresses_emission(tmp_path):
+    # thinkingLevelMap.off === null suppresses the off emission entirely.
+    spec = _openrouter_spec(thinking_level_map={"high": "high", "off": None})
+    resolved = _resolve_or(spec, tmp_path, None)
+    assert "reasoning" not in resolved.body_extra
+
+
+def test_openrouter_off_state_uses_mapped_off_value(tmp_path):
+    # A string off mapping is emitted verbatim (thinkingLevelMap.off ?? "none").
+    spec = _openrouter_spec(thinking_level_map={"high": "high", "off": "minimal"})
+    resolved = _resolve_or(spec, tmp_path, None)
+    assert resolved.body_extra["reasoning"] == {"effort": "minimal"}
+
+
+def test_openrouter_unsupported_level_does_not_emit_off_state(tmp_path):
+    # An unsupported level clamps away (map_thinking_level -> None) but the raw
+    # level is neither None nor "off"; Pi treats that as still-thinking-and-clamp,
+    # so the off-state branch must not fire.
+    spec = _openrouter_spec(thinking_level_map={"high": "high"})
+    resolved = _resolve_or(spec, tmp_path, "medium")
+    assert "reasoning" not in resolved.body_extra
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).

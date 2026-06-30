@@ -356,6 +356,16 @@ Follow-ons:
   adaptive-thinking request shape and the bedrock adaptive/budget
   `display: "summarized"` field — omitted only on GovCloud targets — shipped
   earlier.)
+- (shipped) OpenRouter reasoning off-state: the `openai-completions` OpenRouter
+  thinking format now emits `reasoning: {effort: <off-value>}` when a
+  reasoning-capable model runs with thinking off/unset (Pi
+  `openai-completions.ts:578-580`), instead of omitting the field. The off value
+  follows `thinkingLevelMap?.off ?? "none"` after the `!== null` gate (absent →
+  `"none"`, explicit `null` → suppress, string → verbatim), gated on the model
+  being reasoning-capable and the raw level off/unset, mirroring the
+  `anthropic-messages` disabled-thinking off-state. The on-state nested emission
+  is unchanged; the other completions `thinkingFormat` variants and a full
+  `detectCompat` port remain separate follow-ons;
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
