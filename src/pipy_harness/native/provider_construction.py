@@ -134,9 +134,11 @@ def resolve_construction(
     # OpenRouter normalises reasoning into a nested ``reasoning: {effort}``
     # object; DeepSeek sends a ``thinking: {type}`` object; Together sends a
     # ``reasoning: {enabled}`` object (both plus a top-level ``reasoning_effort``
-    # when supported); Z.ai sends a bare ``enable_thinking`` boolean (no
-    # ``reasoning_effort``); the OpenAI-style default uses the top-level
-    # ``reasoning_effort``. ``thinking_format`` follows Pi's getCompat
+    # when supported); Z.ai and Qwen send a bare ``enable_thinking`` boolean
+    # (Qwen-chat-template nests it in ``chat_template_kwargs`` with
+    # ``preserve_thinking: true``) with no ``reasoning_effort``; the OpenAI-style
+    # default uses the top-level ``reasoning_effort``. ``thinking_format`` follows
+    # Pi's getCompat
     # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
     # detection). The off-state branches gate on the raw off/unset level — not
     # merely ``reasoning_value is None`` — so an unsupported clamped level stays
@@ -171,6 +173,32 @@ def resolve_construction(
             body_extra["enable_thinking"] = True
         elif thinking_off:
             body_extra["enable_thinking"] = False
+    elif thinking_format == "qwen" and bool(spec.reasoning):
+        # ``enable_thinking: bool`` is the entire Qwen thinking shape: true when a
+        # reasoning level is active, false when off/unset, for every
+        # reasoning-capable qwen-format request (openai-completions.ts:558-559).
+        # Like zai (and unlike deepseek/together) the qwen branch emits NO
+        # reasoning_effort and never consults supportsReasoningEffort. qwen is
+        # explicit-compat-only — Pi's detectCompat has no qwen rung — so it is
+        # never auto-detected.
+        if reasoning_value is not None:
+            body_extra["enable_thinking"] = True
+        elif thinking_off:
+            body_extra["enable_thinking"] = False
+    elif thinking_format == "qwen-chat-template" and bool(spec.reasoning):
+        # Same bare-boolean enable_thinking semantics as qwen, but nested in a
+        # ``chat_template_kwargs`` object with a constant ``preserve_thinking: true``
+        # (openai-completions.ts:560-564). No reasoning_effort; explicit-compat-only.
+        if reasoning_value is not None:
+            body_extra["chat_template_kwargs"] = {
+                "enable_thinking": True,
+                "preserve_thinking": True,
+            }
+        elif thinking_off:
+            body_extra["chat_template_kwargs"] = {
+                "enable_thinking": False,
+                "preserve_thinking": True,
+            }
     elif thinking_format == "deepseek" and bool(spec.reasoning):
         # ``thinking: {type: enabled|disabled}`` is emitted for every
         # reasoning-capable DeepSeek request; ``reasoning_effort`` rides along on
@@ -197,9 +225,8 @@ def resolve_construction(
             body_extra["reasoning"] = {"enabled": False}
     elif reasoning_value is not None:
         # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
-        # formats (qwen/qwen-chat-template/ant-ling/string-thinking) resolve to
-        # their own name and fall here unchanged — a documented deferral, not a
-        # regression.
+        # formats (ant-ling/string-thinking) resolve to their own name and fall
+        # here unchanged — a documented deferral, not a regression.
         reasoning_effort = reasoning_value
 
     # Pi makes the off-state explicit for reasoning-capable anthropic-messages
@@ -278,9 +305,13 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     ``openrouter`` (nested ``reasoning``), ``deepseek`` (``thinking`` object),
     ``zai`` (``enable_thinking`` boolean), and ``together``
     (``reasoning: {enabled}``); every other model resolves to ``"openai"``
-    (top-level ``reasoning_effort``). The remaining Pi formats
-    (qwen/qwen-chat-template/ant-ling/string-thinking) are deferred follow-ons and
-    fall through to the default. The detection order mirrors Pi's ``detectCompat``
+    (top-level ``reasoning_effort``). The ``qwen`` / ``qwen-chat-template`` formats
+    are also emitted by the request-shape block but are **explicit-compat-only** —
+    Pi's ``detectCompat`` has no ``isQwen`` rung, so they are reached only through
+    the explicit ``model.compat.thinkingFormat`` branch above and add no detection
+    here. The remaining Pi formats (ant-ling/string-thinking) are deferred
+    follow-ons and fall through to the default. The detection order mirrors Pi's
+    ``detectCompat``
     ``thinkingFormat`` chain (isDeepSeek > isZai > isTogether > isAntLing >
     isOpenRouter; openai-completions.ts:1126-1136), so ``zai`` is tested before
     ``together`` and ``openrouter`` (the deferred ``ant-ling`` rung between

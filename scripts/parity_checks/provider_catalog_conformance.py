@@ -863,6 +863,77 @@ def _check_product_construction(checks, tmp: Path):
     )
     checks.append(Check("18_product_zai_thinking", zai_ok, "Z.ai enable_thinking boolean (no reasoning_effort)"))
 
+    # 18k: qwen thinking format (openai-completions.ts:558-559). The enable_thinking
+    # bare-boolean family like zai, but explicit-compat-only (detectCompat has no
+    # qwen rung), so the model carries compat.thinkingFormat="qwen". On-state
+    # enable_thinking=true, off/unset false, never any reasoning_effort.
+    qwen_path = tmp / "prod_qwen.json"
+    qwen_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "qwen-vendor": {
+                        "baseUrl": "https://qwen.example/v1",
+                        "apiKey": "qwen-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "qwen3-thinking", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"},
+                             "compat": {"thinkingFormat": "qwen"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    qwen_state = _state(tmp, qwen_path, {"QWEN_VENDOR_API_KEY": "qwen-key"})
+    qwen_spec = qwen_state.find("qwen-vendor", "qwen3-thinking")
+    qwen_on, _ = _construct_and_capture(qwen_state, qwen_spec, runtime_api_key=None, thinking_level="high")
+    qwen_off, _ = _construct_and_capture(qwen_state, qwen_spec, runtime_api_key=None, thinking_level=None)
+    qwen_ok = (
+        qwen_on["body"].get("enable_thinking") is True
+        and "reasoning_effort" not in qwen_on["body"]
+        and qwen_off["body"].get("enable_thinking") is False
+        and "reasoning_effort" not in qwen_off["body"]
+    )
+    checks.append(Check("18_product_qwen_thinking", qwen_ok, "Qwen enable_thinking boolean (no reasoning_effort)"))
+
+    # 18l: qwen-chat-template thinking format (openai-completions.ts:560-564). The
+    # same bare boolean nested in chat_template_kwargs with a constant
+    # preserve_thinking=true; no reasoning_effort. Explicit-compat-only.
+    qwct_path = tmp / "prod_qwen_chat_template.json"
+    qwct_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "qwen-vendor": {
+                        "baseUrl": "https://qwen.example/v1",
+                        "apiKey": "qwen-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "qwen3-ct", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"},
+                             "compat": {"thinkingFormat": "qwen-chat-template"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    qwct_state = _state(tmp, qwct_path, {"QWEN_VENDOR_API_KEY": "qwen-key"})
+    qwct_spec = qwct_state.find("qwen-vendor", "qwen3-ct")
+    qwct_on, _ = _construct_and_capture(qwct_state, qwct_spec, runtime_api_key=None, thinking_level="high")
+    qwct_off, _ = _construct_and_capture(qwct_state, qwct_spec, runtime_api_key=None, thinking_level=None)
+    qwct_ok = (
+        qwct_on["body"].get("chat_template_kwargs") == {"enable_thinking": True, "preserve_thinking": True}
+        and "reasoning_effort" not in qwct_on["body"]
+        and qwct_off["body"].get("chat_template_kwargs") == {"enable_thinking": False, "preserve_thinking": True}
+        and "reasoning_effort" not in qwct_off["body"]
+    )
+    checks.append(Check("18_product_qwen_chat_template_thinking", qwct_ok, "Qwen chat_template_kwargs.enable_thinking (no reasoning_effort)"))
+
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"

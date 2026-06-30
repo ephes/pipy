@@ -731,6 +731,179 @@ def test_explicit_openrouter_format_wins_over_zai_base_url(tmp_path):
     assert resolved.reasoning_effort is None
 
 
+# ---- qwen / qwen-chat-template thinking format (explicit-compat-only) -------
+#
+# Both are the enable_thinking bare-boolean family (like zai). Pi's detectCompat
+# has NO qwen rung (openai-completions.ts:1126-1136), so they are reachable only
+# via an explicit compat.thinkingFormat; the helper specs set it explicitly.
+
+
+def _qwen_spec(thinking_format: str, **over: Any) -> NativeModelSpec:
+    compat: dict[str, Any] = {"thinkingFormat": thinking_format}
+    compat.update(over.pop("compat", {}))
+    base: dict[str, Any] = dict(
+        provider_name="qwen-vendor",
+        model_id="qwen3-thinking",
+        display_name="Qwen3 Thinking",
+        api="openai-completions",
+        base_url="https://qwen.example/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        compat=compat,
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_qwen(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"QWEN_API_KEY": "k"},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_qwen_on_state_emits_enable_thinking_true_without_effort(tmp_path):
+    # Pi qwen format (openai-completions.ts:558-559): a reasoning-capable model with
+    # an active level sets the boolean enable_thinking=true and emits NO
+    # reasoning_effort (the qwen branch never consults supportsReasoningEffort).
+    resolved = _resolve_qwen(_qwen_spec("qwen"), tmp_path, "high")
+    assert resolved.body_extra["enable_thinking"] is True
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_off_state_emits_enable_thinking_false_without_effort(tmp_path):
+    # Off/unset on a reasoning qwen model is the Pi-forced explicit disable:
+    # enable_thinking=false and no reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_qwen(_qwen_spec("qwen"), tmp_path, thinking_level)
+        assert resolved.body_extra["enable_thinking"] is False
+        assert resolved.reasoning_effort is None
+
+
+def test_qwen_thinking_skipped_for_non_reasoning_model(tmp_path):
+    # Pi gates the whole branch on model.reasoning; a non-reasoning qwen row emits
+    # neither enable_thinking nor reasoning_effort.
+    resolved = _resolve_qwen(_qwen_spec("qwen", reasoning=False), tmp_path, None)
+    assert "enable_thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_ignores_supports_reasoning_effort(tmp_path):
+    # INVERSE secondary-flag guard (skill-body pin): force an explicit
+    # compat.supportsReasoningEffort=True and assert the request STILL omits
+    # reasoning_effort — the qwen branch never reads the flag, so only the bare
+    # enable_thinking boolean appears.
+    spec = _qwen_spec("qwen", compat={"supportsReasoningEffort": True})
+    resolved = _resolve_qwen(spec, tmp_path, "high")
+    assert resolved.body_extra["enable_thinking"] is True
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_unsupported_level_emits_neither(tmp_path):
+    # An unsupported level clamps to None (pipy does not clamp like Pi); the raw
+    # level is neither None nor "off", so neither the on- nor off-state fires.
+    resolved = _resolve_qwen(_qwen_spec("qwen"), tmp_path, "medium")
+    assert "enable_thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_thinking_reaches_request_body(tmp_path):
+    # enable_thinking is a request-shape field; it must survive end-to-end onto the
+    # wire through the completions adapter's body plumbing, in on- and off-states.
+    on = _resolve_qwen(_qwen_spec("qwen"), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["enable_thinking"] is True
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_qwen(_qwen_spec("qwen"), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["enable_thinking"] is False
+    assert "reasoning_effort" not in body_off
+
+
+def test_qwen_chat_template_on_state_nests_enable_thinking_without_effort(tmp_path):
+    # Pi qwen-chat-template format (openai-completions.ts:560-564): the same bare
+    # boolean nested in chat_template_kwargs with a constant preserve_thinking=true,
+    # and NO reasoning_effort.
+    resolved = _resolve_qwen(_qwen_spec("qwen-chat-template"), tmp_path, "high")
+    assert resolved.body_extra["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "preserve_thinking": True,
+    }
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_chat_template_off_state_nests_false_without_effort(tmp_path):
+    # Off/unset is the Pi-forced explicit disable: enable_thinking=false (still with
+    # the constant preserve_thinking=true) and no reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_qwen(
+            _qwen_spec("qwen-chat-template"), tmp_path, thinking_level
+        )
+        assert resolved.body_extra["chat_template_kwargs"] == {
+            "enable_thinking": False,
+            "preserve_thinking": True,
+        }
+        assert resolved.reasoning_effort is None
+
+
+def test_qwen_chat_template_skipped_for_non_reasoning_model(tmp_path):
+    resolved = _resolve_qwen(
+        _qwen_spec("qwen-chat-template", reasoning=False), tmp_path, None
+    )
+    assert "chat_template_kwargs" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_chat_template_ignores_supports_reasoning_effort(tmp_path):
+    # INVERSE secondary-flag guard: explicit supportsReasoningEffort=True still
+    # omits reasoning_effort; only chat_template_kwargs appears.
+    spec = _qwen_spec("qwen-chat-template", compat={"supportsReasoningEffort": True})
+    resolved = _resolve_qwen(spec, tmp_path, "high")
+    assert resolved.body_extra["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "preserve_thinking": True,
+    }
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_chat_template_unsupported_level_emits_neither(tmp_path):
+    resolved = _resolve_qwen(_qwen_spec("qwen-chat-template"), tmp_path, "medium")
+    assert "chat_template_kwargs" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_qwen_chat_template_reaches_request_body(tmp_path):
+    on = _resolve_qwen(_qwen_spec("qwen-chat-template"), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "preserve_thinking": True,
+    }
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_qwen(_qwen_spec("qwen-chat-template"), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["chat_template_kwargs"] == {
+        "enable_thinking": False,
+        "preserve_thinking": True,
+    }
+    assert "reasoning_effort" not in body_off
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).

@@ -373,7 +373,7 @@ Follow-ons:
   The format follows Pi's `getCompat` precedence (explicit `compat.thinkingFormat`
   over `deepseek`/`deepseek.com` detection) and `supportsReasoningEffort` is
   resolved independently via Pi's `detectCompat` exclusion list. The remaining
-  completions `thinkingFormat` variants (qwen, ant-ling, string-thinking),
+  completions `thinkingFormat` variants (ant-ling, string-thinking),
   the DeepSeek `requiresReasoningContentOnAssistantMessages` message transform,
   and a full `detectCompat` port remain separate follow-ons;
 - (shipped) Together reasoning request shape: the `openai-completions` `together`
@@ -388,7 +388,7 @@ Follow-ons:
   exclusion list — which **includes** Together, so an auto-detected Together model
   omits `reasoning_effort` unless an explicit `supportsReasoningEffort=true` (or an
   explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. The
-  remaining completions `thinkingFormat` variants (qwen, ant-ling,
+  remaining completions `thinkingFormat` variants (ant-ling,
   string-thinking) and a full `detectCompat` port remain separate follow-ons;
 - (shipped) Z.ai (`zai`) reasoning request shape: the `openai-completions` `zai`
   thinking format now emits a single top-level boolean `enable_thinking` for
@@ -399,8 +399,21 @@ Follow-ons:
   before `together` and `openrouter` in the `detectCompat` chain). Unlike
   DeepSeek/Together, the `zai` branch never consults `supportsReasoningEffort`, so
   no `reasoning_effort` is ever added. The remaining completions `thinkingFormat`
-  variants (qwen, ant-ling, string-thinking) and a full `detectCompat` port remain
+  variants (ant-ling, string-thinking) and a full `detectCompat` port remain
   separate follow-ons;
+- (shipped) Qwen (`qwen` / `qwen-chat-template`) reasoning request shape: both are
+  the same `enable_thinking` bare-boolean family as `zai`. The `openai-completions`
+  `qwen` format emits a top-level boolean `enable_thinking` for reasoning-capable
+  models (`true` on-state, a Pi-forced explicit `false` off/unset) and **no**
+  `reasoning_effort`, matching Pi `openai-completions.ts:558-559`;
+  `qwen-chat-template` nests the same boolean in a `chat_template_kwargs` object
+  with a constant `preserve_thinking: true` (`openai-completions.ts:560-564`), also
+  with no `reasoning_effort`. Both are **explicit-compat-only** — Pi's
+  `detectCompat` has no `qwen` rung, so they are reached only via an explicit
+  `compat.thinkingFormat` and add no provider/base-URL detection. Like `zai` they
+  never consult `supportsReasoningEffort`. The remaining completions
+  `thinkingFormat` variants (ant-ling, string-thinking) and a full `detectCompat`
+  port remain separate follow-ons;
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).

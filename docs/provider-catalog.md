@@ -237,8 +237,8 @@ Remaining adapter/product follow-ons:
   still-thinking-and-clamp), mirroring the `anthropic-messages`
   `thinking: {type: "disabled"}` off-state gate. The on-state nested
   `reasoning: {effort: <level>}` emission is unchanged. Covered by conformance
-  item 18 (18d). The other completions `thinkingFormat` variants (qwen,
-  ant-ling, string-thinking) and a full `detectCompat` port remain separate
+  item 18 (18d). The other completions `thinkingFormat` variants (ant-ling,
+  string-thinking) and a full `detectCompat` port remain separate
   follow-ons.
 
 - DeepSeek reasoning request shape has shipped: for the `openai-completions`
@@ -258,10 +258,9 @@ Remaining adapter/product follow-ons:
   the model being reasoning-capable and the raw level being off/unset (an
   unsupported clamped level emits neither, since pipy does not clamp — the same
   documented divergence as the OpenRouter path). Covered by conformance item 18
-  (18h). The remaining completions `thinkingFormat` variants (qwen,
-  ant-ling, string-thinking), the `requiresReasoningContentOn
-  AssistantMessages` DeepSeek message transform, and a full `detectCompat` port
-  remain separate follow-ons.
+  (18h). The remaining completions `thinkingFormat` variants (ant-ling,
+  string-thinking), the `requiresReasoningContentOnAssistantMessages` DeepSeek
+  message transform, and a full `detectCompat` port remain separate follow-ons.
 
 - Together reasoning request shape has shipped: for the `openai-completions`
   `together` thinking format, a reasoning-capable model emits a top-level
@@ -284,7 +283,7 @@ Remaining adapter/product follow-ons:
   reasoning-capable and the raw level being off/unset (an unsupported clamped
   level emits neither, since pipy does not clamp — the same documented divergence
   as the DeepSeek/OpenRouter paths). Covered by conformance item 18 (18i). The
-  remaining completions `thinkingFormat` variants (qwen, ant-ling,
+  remaining completions `thinkingFormat` variants (ant-ling,
   string-thinking) and a full `detectCompat` port remain separate follow-ons.
 
 - Z.ai (`zai`) reasoning request shape has shipped: for the `openai-completions`
@@ -305,8 +304,28 @@ Remaining adapter/product follow-ons:
   off/unset (an unsupported clamped level emits neither, since pipy does not clamp
   — the same documented divergence as the DeepSeek/Together/OpenRouter paths).
   Covered by conformance item 18 (18j). The remaining completions
-  `thinkingFormat` variants (qwen, ant-ling, string-thinking) and a full
+  `thinkingFormat` variants (ant-ling, string-thinking) and a full
   `detectCompat` port remain separate follow-ons.
+- Qwen (`qwen` / `qwen-chat-template`) reasoning request shape has shipped: both
+  are the same `enable_thinking` bare-boolean family as `zai`. For the
+  `openai-completions` `qwen` thinking format a reasoning-capable model emits a
+  single top-level boolean `enable_thinking` — `true` when a level is active,
+  `false` (a Pi-forced explicit disable) when off/unset — and **no**
+  `reasoning_effort`, matching Pi's `thinkingFormat === "qwen"` branch
+  (`openai-completions.ts:558-559`). The `qwen-chat-template` format nests the same
+  boolean in a `chat_template_kwargs` object alongside a constant
+  `preserve_thinking: true` (`{enable_thinking, preserve_thinking: true}`,
+  `openai-completions.ts:560-564`), also with no `reasoning_effort`. Unlike
+  DeepSeek/Together the qwen branches never consult `supportsReasoningEffort` (an
+  explicit `compat.supportsReasoningEffort=true` does not add `reasoning_effort`).
+  Both are **explicit-compat-only** — Pi's `detectCompat` has no `qwen` rung, so
+  they are reached only through an explicit `compat.thinkingFormat`; no
+  provider/base-URL detection is added. The off-state is gated on the model being
+  reasoning-capable and the raw level being off/unset (an unsupported clamped level
+  emits neither, the same no-clamp divergence as the other completions paths).
+  Covered by conformance item 18 (18k, 18l). The remaining completions
+  `thinkingFormat` variants (ant-ling, string-thinking) and a full `detectCompat`
+  port remain separate follow-ons.
 
 Recently shipped closeout wiring:
 
