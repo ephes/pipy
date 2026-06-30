@@ -310,6 +310,13 @@ Remaining work is adapter/product polish rather than the broad catalog track.
 Follow-ons:
 
 - live Anthropic and GitHub Copilot login UX;
+- (shipped) google-generative-ai thinking: the `google-generative-ai` adapter now
+  injects Pi's per-model `generationConfig.thinkingConfig` — a `thinkingLevel`
+  enum for Gemini 3 Pro/Flash and Gemma 4, a `thinkingBudget` token count for the
+  Gemini 2.5 family (`includeThoughts: true` when on), and a per-model disabled
+  config when a reasoning model runs with thinking off/unset — matching
+  `google.ts`. `google-vertex` thinking (its `THINKING_LEVEL_MAP` variant)
+  remains a follow-on;
 - (shipped) Vertex API-key auth: the `google-vertex` adapter now supports Pi's
   Vertex Express api-key mode (`GOOGLE_CLOUD_API_KEY`) — global
   `aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`

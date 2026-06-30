@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -30,6 +31,110 @@ GOOGLE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("candidatesTokenCount", "output_tokens"),
     ("totalTokenCount", "total_tokens"),
 )
+
+# Per-model thinking shape, ported from Pi's ``google.ts``. Pi injects
+# ``generationConfig.thinkingConfig`` differently per model family: a
+# ``thinkingLevel`` enum for Gemini 3 Pro/Flash and Gemma 4, a ``thinkingBudget``
+# token count for the Gemini 2.5 family. The model family is derived from the
+# model id by the same regexes Pi uses.
+_GEMINI3_PRO_RE = re.compile(r"gemini-3(?:\.\d+)?-pro")
+_GEMINI3_FLASH_RE = re.compile(r"gemini-3(?:\.\d+)?-flash")
+_GEMMA4_RE = re.compile(r"gemma-?4")
+
+
+def _is_gemini3_pro(model_id: str) -> bool:
+    return bool(_GEMINI3_PRO_RE.search(model_id.lower()))
+
+
+def _is_gemini3_flash(model_id: str) -> bool:
+    return bool(_GEMINI3_FLASH_RE.search(model_id.lower()))
+
+
+def _is_gemma4(model_id: str) -> bool:
+    return bool(_GEMMA4_RE.search(model_id.lower()))
+
+
+def _uses_thinking_level(model_id: str) -> bool:
+    """Families that take a ``thinkingLevel`` enum rather than a token budget."""
+
+    return _is_gemini3_pro(model_id) or _is_gemini3_flash(model_id) or _is_gemma4(model_id)
+
+
+def _google_thinking_level(effort: str, model_id: str) -> str:
+    """Map a thinking effort to Google's ``thinkingLevel`` enum (Pi's getThinkingLevel)."""
+
+    if _is_gemini3_pro(model_id):
+        return "LOW" if effort in ("minimal", "low") else "HIGH"
+    if _is_gemma4(model_id):
+        return "MINIMAL" if effort in ("minimal", "low") else "HIGH"
+    # Gemini 3 Flash + default family: pass the effort through as the enum.
+    return {
+        "minimal": "MINIMAL",
+        "low": "LOW",
+        "medium": "MEDIUM",
+        "high": "HIGH",
+    }.get(effort, "HIGH")
+
+
+def _google_thinking_budget(model_id: str, effort: str) -> int:
+    """Map a thinking effort to a token budget (Pi's getGoogleBudget).
+
+    Returns ``-1`` (Gemini "dynamic"/auto budget) for models without a known
+    budget table or for an unrecognized effort.
+    """
+
+    lowered = model_id.lower()
+    if "2.5-pro" in lowered:
+        table = {"minimal": 128, "low": 2048, "medium": 8192, "high": 32768}
+    elif "2.5-flash-lite" in lowered:
+        table = {"minimal": 512, "low": 2048, "medium": 8192, "high": 24576}
+    elif "2.5-flash" in lowered:
+        table = {"minimal": 128, "low": 2048, "medium": 8192, "high": 24576}
+    else:
+        return -1
+    return table.get(effort, -1)
+
+
+def _disabled_thinking_config(model_id: str) -> dict[str, Any]:
+    """Per-model disabled thinking config (Pi's getDisabledThinkingConfig).
+
+    Gemini 3 models cannot fully disable thinking, so Pi pins the lowest
+    supported ``thinkingLevel`` without ``includeThoughts`` (hidden thinking
+    stays invisible). Gemini 2.x disables via ``thinkingBudget: 0``.
+    """
+
+    if _is_gemini3_pro(model_id):
+        return {"thinkingLevel": "LOW"}
+    if _is_gemini3_flash(model_id) or _is_gemma4(model_id):
+        return {"thinkingLevel": "MINIMAL"}
+    return {"thinkingBudget": 0}
+
+
+def _build_thinking_config(
+    model_id: str,
+    reasoning_effort: str | None,
+    thinking_disabled: bool,
+) -> dict[str, Any] | None:
+    """Resolve ``generationConfig.thinkingConfig`` or ``None`` to omit it.
+
+    Mirrors Pi's ``buildParams`` thinking block: when thinking is enabled emit
+    ``includeThoughts: true`` plus a per-family ``thinkingLevel`` or
+    ``thinkingBudget``; when a reasoning model runs with thinking off/unset emit
+    the per-model disabled config; otherwise omit. ``reasoning_effort`` is only
+    set for reasoning models (catalog construction maps non-reasoning models to
+    ``None``), so it takes precedence over ``thinking_disabled``.
+    """
+
+    if reasoning_effort:
+        config: dict[str, Any] = {"includeThoughts": True}
+        if _uses_thinking_level(model_id):
+            config["thinkingLevel"] = _google_thinking_level(reasoning_effort, model_id)
+        else:
+            config["thinkingBudget"] = _google_thinking_budget(model_id, reasoning_effort)
+        return config
+    if thinking_disabled:
+        return _disabled_thinking_config(model_id)
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,9 +203,12 @@ class GoogleGenerativeAIProvider:
     # Catalog-resolved request config. ``extra_headers`` are merged
     # models.json/model headers. Google authenticates via the URL ``?key=``
     # query param (no auth header), so the key rides ``endpoint_template``.
-    # Thinking (generationConfig.thinkingConfig) is per-model (level enum vs
-    # budget) and not yet catalog-encoded; it is intentionally not injected here.
+    # ``reasoning_effort``/``thinking_disabled`` drive the per-model
+    # ``generationConfig.thinkingConfig`` shape (level enum vs token budget),
+    # mirroring Pi's ``google.ts``; defaults omit thinking.
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
+    thinking_disabled: bool = False
 
     @property
     def name(self) -> str:
@@ -156,6 +264,12 @@ class GoogleGenerativeAIProvider:
                     ],
                 }
             ]
+        thinking_config = _build_thinking_config(
+            self.model_id, self.reasoning_effort, self.thinking_disabled
+        )
+        if thinking_config is not None:
+            generation_config = body.setdefault("generationConfig", {})
+            generation_config["thinkingConfig"] = thinking_config
         headers = {"Content-Type": "application/json"}
         # Merged models.json/model headers.
         for header_name, header_value in self.extra_headers.items():

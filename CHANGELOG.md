@@ -35,6 +35,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The native `google-generative-ai` provider now injects Pi's per-model
+  `generationConfig.thinkingConfig`: a `thinkingLevel` enum (Gemini 3 Pro/Flash,
+  Gemma 4) or a `thinkingBudget` token count (Gemini 2.5 family) with
+  `includeThoughts: true` when thinking is on, and a per-model disabled config
+  (no `includeThoughts`) when a reasoning-capable model runs with thinking
+  off/unset — matching Pi's `google.ts` `streamSimpleGoogle`/`buildParams`.
+  Non-reasoning models still omit `thinkingConfig` entirely. The `google-vertex`
+  adapter's per-model `thinkingConfig` remains a separate follow-on.
 - The native `azure-openai` provider now resolves its endpoint and deployment
   from Pi's config-source env vars: `AZURE_OPENAI_BASE_URL` (the base URL),
   `AZURE_OPENAI_RESOURCE_NAME` (used to build a default

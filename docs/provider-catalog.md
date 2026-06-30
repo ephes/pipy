@@ -113,9 +113,14 @@ Tier 2 catalog construction (shipped 2026-06-03):
   Pi's `resolveCloudflareBaseUrl` — appends `/chat/completions`, sends the
   resolved key as `Authorization: Bearer`, and uses the OpenAI-compatible
   top-level `reasoning_effort`. `{ENV}` base-URL substitution is implemented in
-  `resolve_construction`. google's `thinkingConfig` shape is per-model (level
-  enum vs token budget) and not yet catalog-encoded, so google thinking is not
-  injected. Covered by conformance item 21.
+  `resolve_construction`. google's `thinkingConfig` shape is now injected
+  per-model: a `thinkingLevel` enum for Gemini 3 Pro/Flash and Gemma 4, a
+  `thinkingBudget` token count for the Gemini 2.5 family (`includeThoughts: true`
+  when thinking is on), and a per-model *disabled* config (no `includeThoughts`)
+  when a reasoning-capable model runs with thinking off/unset, matching Pi's
+  `google.ts`. The effort comes from the existing `reasoning_effort`/
+  `thinking_disabled` resolution; the adapter owns the per-family wire shape.
+  Covered by conformance item 21.
 
 Tier 3 catalog construction (shipped 2026-06-03):
 
@@ -132,8 +137,10 @@ Tier 3 catalog construction (shipped 2026-06-03):
   both paths force `display:"summarized"` except on GovCloud targets).
   Custom bedrock headers are merged into the SigV4-signed request with the
   reserved `authorization`/`host`/`x-amz-*` set dropped so they cannot collide
-  with the signing headers. Vertex thinking (thinkingConfig) is per-model like
-  google-generative-ai and not yet injected. Covered by conformance item 22.
+  with the signing headers. Vertex thinking (thinkingConfig) is per-model and not
+  yet injected (its `THINKING_LEVEL_MAP` detail differs slightly from
+  google-generative-ai, whose thinkingConfig now ships); it remains a follow-on.
+  Covered by conformance item 22.
 - `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
   factory builds it with a settings-derived `RetryPolicy` (cli.py) that catalog
   construction would drop, and its OAuth/SSE auth is fully self-contained.

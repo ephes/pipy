@@ -24,8 +24,10 @@ adapter
 places the mapped thinking effort in its own native body key
 (completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
 ``reasoning.effort``; anthropic/bedrock: adaptive ``output_config.effort`` for
-the adaptive Claude models and ``thinking.budget_tokens`` otherwise; google and
-vertex thinking are per-model and not yet injected). ``openai-codex-responses``
+the adaptive Claude models and ``thinking.budget_tokens`` otherwise;
+google-generative-ai: per-model ``generationConfig.thinkingConfig`` (level enum
+vs token budget); vertex thinking is per-model and not yet injected).
+``openai-codex-responses``
 and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
 the legacy factory's settings-derived ``RetryPolicy`` injection): they return
 ``None`` from :func:`build_provider` so the caller falls back to the legacy
@@ -311,6 +313,8 @@ def build_provider(
             endpoint_template=template,
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
+            reasoning_effort=resolved.reasoning_effort,
+            thinking_disabled=resolved.thinking_disabled,
             **http_kwargs,  # type: ignore[arg-type]
         )
 

@@ -331,7 +331,12 @@ The highest-impact remaining gaps are now:
    adapter/product polish: live Anthropic/Copilot login UX, the deliberate
    `openai-codex-responses` legacy-factory exception for settings-derived retry
    policy, and broader local-provider benchmarking.
-   (Shipped: Vertex API-key (Express) auth — the `google-vertex` adapter uses the
+   (Shipped: google-generative-ai per-model `generationConfig.thinkingConfig` —
+   `thinkingLevel` enum (Gemini 3 Pro/Flash, Gemma 4) or `thinkingBudget` token
+   count (Gemini 2.5 family) with `includeThoughts` when thinking is on, and a
+   per-model disabled config when a reasoning model runs with thinking off/unset,
+   matching `google.ts` (`google-vertex` thinking stays a follow-on); Vertex
+   API-key (Express) auth — the `google-vertex` adapter uses the
    global `aiplatform.googleapis.com/v1/publishers/google/models/{model}` host
    with the `x-goog-api-key` header when `GOOGLE_CLOUD_API_KEY` (or a forwarded
    resolved key) is present, falling back to ADC otherwise; the

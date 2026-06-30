@@ -1007,7 +1007,9 @@ def _check_tier2_construction(checks, tmp: Path):
     # id substituted into the base_url via {ENV} + OpenAI-compatible body).
 
     # 21a: google-generative-ai built-in row, key from env -> URL ?key=, no auth
-    # header (Google authenticates via the query param).
+    # header (Google authenticates via the query param). gemini-2.5-pro is a
+    # reasoning model, so thinking_level=None resolves to Pi's per-model
+    # *disabled* thinkingConfig (budget 0, no includeThoughts).
     g_state = _state(tmp, tmp / "tier2_google_missing.json", {"GEMINI_API_KEY": "gk"})
     g_spec = g_state.find("google", "gemini-2.5-pro")
     g_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level=None)
@@ -1016,8 +1018,18 @@ def _check_tier2_construction(checks, tmp: Path):
         == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=gk"
         and "Authorization" not in g_sent["headers"]
         and bool(g_sent["body"].get("contents"))
+        and g_sent["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
     )
-    checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key="))
+    checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key= + disabled thinkingConfig"))
+
+    # 21a': google thinking enabled -> per-model token budget under
+    # generationConfig.thinkingConfig with includeThoughts (Pi's getGoogleBudget).
+    g_think_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level="high")
+    google_thinking_ok = (
+        g_think_sent["body"]["generationConfig"]["thinkingConfig"]
+        == {"includeThoughts": True, "thinkingBudget": 32768}
+    )
+    checks.append(Check("21_google_thinking_config", google_thinking_ok, "google-generative-ai: per-model thinkingConfig token budget + includeThoughts"))
 
     # 21b: azure-openai-responses custom provider -> /openai/v1 URL with
     # api-version=v1, deployment as the body model, api-key header,
