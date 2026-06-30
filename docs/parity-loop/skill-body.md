@@ -167,6 +167,33 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    regardless of the reasoning state: e.g. `qwen-chat-template` emits a Pi-forced
    literal `preserve_thinking: true` present in BOTH the reasoning-on and
    reasoning-off sub-states, independent of the toggled `enable_thinking` boolean.
+   When a `thinkingFormat` branch reuses pipy's `reasoning_value`
+   (= `map_thinking_level`), pin the EXACT Pi value expression for that branch and
+   check it for a `?? level` (a.k.a. `?? options.reasoningEffort`) fallback before
+   reusing it. deepseek/together/openrouter/string-thinking all do
+   `model.thinkingLevelMap?.[level] ?? level`, but `ant-ling`
+   (openai-completions.ts:581-585) does a RAW `model.thinkingLevelMap?.[level]`
+   lookup with NO fallback. pipy's `reasoning_value` falls back to the raw requested
+   level when a model has no map, so reusing it for a no-fallback branch emits
+   `reasoning:{effort:<raw level>}` where Pi emits nothing — add a dedicated
+   string-only raw-lookup helper and a no-`thinkingLevelMap` on-state test asserting
+   the field is omitted.
+   Also guard the non-reasoning + `thinkingLevelMap` DEFAULT-BRANCH LEAK: a branch
+   gated `elif thinking_format == X and bool(spec.reasoning):` can FALL THROUGH to
+   the default `elif reasoning_value is not None: reasoning_effort = reasoning_value`
+   for a NON-reasoning model that declares a `thinkingLevelMap`, because
+   `map_thinking_level` keys off the map keys (`supported_thinking_levels`) and
+   IGNORES `model.reasoning`, so `reasoning_value` is a non-None string for it. Pi
+   gates BOTH its branch AND its default on `model.reasoning`, so it emits nothing;
+   pipy leaks a top-level `reasoning_effort`. Make the new branch consume ALL of its
+   `thinking_format` cases — drop `and bool(spec.reasoning)` from the `elif` and move
+   the reasoning check INSIDE the value helper — and add a non-reasoning +
+   `thinkingLevelMap` regression test asserting NEITHER `reasoning` NOR
+   `reasoning_effort`. The existing zai/together/qwen branches still carry this
+   latent divergence as a candidate follow-on.
+   `ant-ling` is also the only emitting completions variant with a fully SILENT
+   off-state: its branch is gated on `options.reasoningEffort`, so an off/unset
+   reasoning state emits neither `reasoning` nor `reasoning_effort`.
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
