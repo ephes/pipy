@@ -32,8 +32,9 @@ Create or reshape user-facing pages under `docs/`:
 - `sessions.md` — native product session tree, `/tree`, `/resume`, `/fork`,
   `/clone`, `/compact`, startup flags, and the separate `pipy-session` catalog.
 - `compaction.md` — durable compaction behavior and limitations.
-- `skills.md`, `prompt-templates.md`, `themes.md` — current bounded Markdown
-  resource behavior and planned Pi realignments.
+- `customization.md` — **shipped:** skills, prompt templates, custom slash
+  commands, and chrome themes consolidated into one page (pipy's bounded Markdown
+  and TOML resource behavior plus its Pi divergences).
 - `extensions.md`, `packages.md` — clearly mark the Python extension/package
   platform as planned until it ships; do not imply TypeScript compatibility.
 - `models.md`, `custom-provider.md` — `models.json` schema, examples, routing,
@@ -98,8 +99,13 @@ them only for deeper design detail.
    [Keybindings](keybindings.md) cover pipy's global/project settings files,
    reload workflow, common Pi-shaped fields and pipy divergences, key syntax,
    namespaced action ids, defaults, and customization examples.
-6. **Customization docs.** Skills/templates/themes now; extensions/packages as
-   planned until the extension platform ships.
+6. **Customization docs.** **Shipped:** [Customization](customization.md) covers
+   skills, prompt templates, custom slash commands, and chrome themes — discovery
+   roots, per-run source flags, settings filters, and `/skill`/template/command
+   invocation — and cross-links extensions/packages
+   ([extension-api.md](extension-api.md)) and custom providers
+   ([providers.md](providers.md)). Deeper extension/package authoring docs follow
+   the extension platform.
 7. **Automation docs.** JSON/RPC pages land with the automation track; SDK docs
    can start with the current Python SDK.
 8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](/terminal-setup/)
