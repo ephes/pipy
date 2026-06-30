@@ -116,6 +116,19 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    and add a test for the explicit-format-on-excluded-provider mismatch. Never
    default a secondary flag to True because the format flag's detection "implies"
    it; the different-family reviewer flags that coupling.
+   When the field is resolved by porting one rung of a Pi `detectCompat`-style
+   if/else-if DETECTION CHAIN (e.g. the `thinkingFormat` chain isDeepSeek > isZai >
+   isTogether > isAntLing > isOpenRouter), pin each ported rung's POSITION relative
+   to its Pi siblings — not just the set of providers pipy detects. pipy resolves
+   the field through its own ordered if-chain, so appending a new rung (e.g.
+   together) AFTER a rung that comes later in Pi (e.g. openrouter) makes collision
+   rows — those matching two rungs at once — resolve differently from Pi. In the
+   plan, place the new branch at its Pi-faithful position and account for the rungs
+   pipy defers to the default (e.g. zai/ant-ling): deferred rungs must not silently
+   reorder the rungs pipy does implement. Add a precedence test for a row that
+   matches two rungs (e.g. a together provider on an openrouter.ai base URL →
+   together shape). The different-family plan reviewer flags exactly this ordering
+   bug.
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
