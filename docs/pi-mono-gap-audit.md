@@ -364,8 +364,18 @@ Follow-ons:
   `"none"`, explicit `null` → suppress, string → verbatim), gated on the model
   being reasoning-capable and the raw level off/unset, mirroring the
   `anthropic-messages` disabled-thinking off-state. The on-state nested emission
-  is unchanged; the other completions `thinkingFormat` variants and a full
-  `detectCompat` port remain separate follow-ons;
+  is unchanged;
+- (shipped) DeepSeek reasoning request shape: the `openai-completions` `deepseek`
+  thinking format now emits a top-level `thinking: {type: "enabled"|"disabled"}`
+  object for reasoning-capable models (`enabled` on-state, a Pi-forced explicit
+  `disabled` off/unset) plus top-level `reasoning_effort` on the on-state when
+  the model `supportsReasoningEffort`, matching Pi `openai-completions.ts:565-570`.
+  The format follows Pi's `getCompat` precedence (explicit `compat.thinkingFormat`
+  over `deepseek`/`deepseek.com` detection) and `supportsReasoningEffort` is
+  resolved independently via Pi's `detectCompat` exclusion list. The remaining
+  completions `thinkingFormat` variants (zai, qwen, together, ant-ling,
+  string-thinking), the DeepSeek `requiresReasoningContentOnAssistantMessages`
+  message transform, and a full `detectCompat` port remain separate follow-ons;
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).

@@ -758,6 +758,40 @@ def _check_product_construction(checks, tmp: Path):
     )
     checks.append(Check("18_product_openrouter_thinking", think_ok, "OpenRouter thinking is nested reasoning.effort (on + off-state)"))
 
+    # 18h: DeepSeek thinking format (openai-completions.ts:565-570). A reasoning
+    # DeepSeek model emits thinking:{type:"enabled"} + top-level reasoning_effort
+    # on-state, and thinking:{type:"disabled"} with no reasoning_effort off/unset.
+    ds_path = tmp / "prod_deepseek.json"
+    ds_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "deepseek": {
+                        "baseUrl": "https://api.deepseek.com/v1",
+                        "apiKey": "ds-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "deepseek-reasoner", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ds_state = _state(tmp, ds_path, {"DEEPSEEK_API_KEY": "ds-key"})
+    ds_spec = ds_state.find("deepseek", "deepseek-reasoner")
+    ds_on, _ = _construct_and_capture(ds_state, ds_spec, runtime_api_key=None, thinking_level="high")
+    ds_off, _ = _construct_and_capture(ds_state, ds_spec, runtime_api_key=None, thinking_level=None)
+    deepseek_ok = (
+        ds_on["body"].get("thinking") == {"type": "enabled"}
+        and ds_on["body"].get("reasoning_effort") == "high"
+        and ds_off["body"].get("thinking") == {"type": "disabled"}
+        and "reasoning_effort" not in ds_off["body"]
+    )
+    checks.append(Check("18_product_deepseek_thinking", deepseek_ok, "DeepSeek thinking:{type} (+ reasoning_effort on-state)"))
+
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"

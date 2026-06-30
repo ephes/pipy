@@ -360,7 +360,14 @@ The highest-impact remaining gaps are now:
    `reasoning: {effort: <off-value>}` (off-value = `thinkingLevelMap.off ?? "none"`
    after the `!== null` gate) when a reasoning-capable model runs with thinking
    off/unset, instead of omitting the field, matching `openai-completions.ts`
-   and mirroring the `anthropic-messages` disabled-thinking off-state.)
+   and mirroring the `anthropic-messages` disabled-thinking off-state; and the
+   DeepSeek reasoning request shape — the `openai-completions` `deepseek` thinking
+   format now emits a top-level `thinking: {type: "enabled"|"disabled"}` object for
+   reasoning-capable models (a Pi-forced explicit disable off/unset) plus top-level
+   `reasoning_effort` on the on-state when the model `supportsReasoningEffort`,
+   with Pi's `getCompat` format precedence and an independently-resolved
+   `supportsReasoningEffort` exclusion list, matching
+   `openai-completions.ts:565-570`.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive

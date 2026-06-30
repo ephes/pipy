@@ -382,6 +382,122 @@ def test_openrouter_unsupported_level_emits_no_reasoning_on_wire(tmp_path):
     assert "reasoning_effort" not in body
 
 
+def _deepseek_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="deepseek",
+        model_id="deepseek-reasoner",
+        display_name="DeepSeek Reasoner",
+        api="openai-completions",
+        base_url="https://api.deepseek.com/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_ds(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"DEEPSEEK_API_KEY": "k"},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_deepseek_on_state_emits_thinking_enabled_and_reasoning_effort(tmp_path):
+    # Pi deepseek format (openai-completions.ts:565-570): a reasoning-capable model
+    # with an active level sets thinking:{type:"enabled"} AND (supportsReasoningEffort
+    # is true for DeepSeek) the top-level reasoning_effort.
+    resolved = _resolve_ds(_deepseek_spec(), tmp_path, "high")
+    assert resolved.body_extra["thinking"] == {"type": "enabled"}
+    assert resolved.reasoning_effort == "high"
+
+
+def test_deepseek_off_state_emits_thinking_disabled_without_effort(tmp_path):
+    # Off/unset on a reasoning DeepSeek model is the Pi-forced explicit disable:
+    # thinking:{type:"disabled"} and no reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_ds(_deepseek_spec(), tmp_path, thinking_level)
+        assert resolved.body_extra["thinking"] == {"type": "disabled"}
+        assert resolved.reasoning_effort is None
+
+
+def test_deepseek_thinking_skipped_for_non_reasoning_model(tmp_path):
+    # Pi gates the whole branch on model.reasoning; a non-reasoning DeepSeek row
+    # emits neither the thinking object nor reasoning_effort.
+    resolved = _resolve_ds(_deepseek_spec(reasoning=False), tmp_path, None)
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_deepseek_unsupported_level_emits_neither(tmp_path):
+    # An unsupported level clamps to None (pipy does not clamp like Pi); the raw
+    # level is neither None nor "off", so neither the on-state nor the off-state
+    # fires (matching the openrouter still-thinking-and-clamp divergence).
+    resolved = _resolve_ds(_deepseek_spec(), tmp_path, "medium")
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_deepseek_explicit_unsupported_reasoning_effort_omits_effort(tmp_path):
+    # supportsReasoningEffort is resolved independently of thinkingFormat. An
+    # explicit compat.supportsReasoningEffort=False keeps thinking:{type:"enabled"}
+    # but drops reasoning_effort (Pi getCompat).
+    spec = _deepseek_spec(compat={"supportsReasoningEffort": False})
+    resolved = _resolve_ds(spec, tmp_path, "high")
+    assert resolved.body_extra["thinking"] == {"type": "enabled"}
+    assert resolved.reasoning_effort is None
+
+
+def test_deepseek_explicit_format_on_excluded_provider_omits_effort(tmp_path):
+    # An explicit thinkingFormat="deepseek" on a base URL Pi excludes from
+    # reasoning_effort support (e.g. Together) yields thinking:{type:"enabled"}
+    # with NO reasoning_effort, because detectCompat resolves
+    # supportsReasoningEffort independently (isTogether -> false).
+    spec = _deepseek_spec(
+        provider_name="together",
+        base_url="https://api.together.xyz/v1",
+        compat={"thinkingFormat": "deepseek"},
+    )
+    resolved = _resolve_ds(spec, tmp_path, "high")
+    assert resolved.body_extra["thinking"] == {"type": "enabled"}
+    assert resolved.reasoning_effort is None
+
+
+def test_deepseek_thinking_reaches_request_body(tmp_path):
+    # The thinking object is a request-shape field to match; it must survive
+    # end-to-end onto the wire through the completions adapter's extra_body
+    # plumbing, in both on- and off-states.
+    on = _resolve_ds(_deepseek_spec(), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["thinking"] == {"type": "enabled"}
+    assert body_on["reasoning_effort"] == "high"
+
+    off = _resolve_ds(_deepseek_spec(), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in body_off
+
+
+def test_explicit_openrouter_format_wins_over_deepseek_base_url(tmp_path):
+    # getCompat precedence: an explicit compat.thinkingFormat="openrouter" on a
+    # deepseek.com base URL uses the nested reasoning object, not the deepseek
+    # thinking shape (explicit compat wins over base-URL detection).
+    spec = _deepseek_spec(compat={"thinkingFormat": "openrouter"})
+    resolved = _resolve_ds(spec, tmp_path, "high")
+    assert resolved.body_extra.get("reasoning") == {"effort": "high"}
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).

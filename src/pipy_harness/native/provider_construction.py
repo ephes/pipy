@@ -132,40 +132,55 @@ def resolve_construction(
 
     # Thinking shape mirrors Pi's per-format handling (openai-completions.ts):
     # OpenRouter normalises reasoning into a nested ``reasoning: {effort}``
-    # object; the OpenAI-style default uses the top-level ``reasoning_effort``.
+    # object; DeepSeek sends a ``thinking: {type}`` object (plus a top-level
+    # ``reasoning_effort`` when supported); the OpenAI-style default uses the
+    # top-level ``reasoning_effort``. ``thinking_format`` follows Pi's getCompat
+    # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
+    # detection). The off-state branches gate on the raw off/unset level — not
+    # merely ``reasoning_value is None`` — so an unsupported clamped level stays
+    # out of the off branch (Pi treats it as still-thinking-and-clamp; pipy does
+    # not clamp, so it emits neither on- nor off-state).
     reasoning_value = map_thinking_level(spec, thinking_level)
-    reasoning_effort: str | None = None
-    if reasoning_value is not None:
-        if _uses_openrouter_thinking(spec):
-            body_extra["reasoning"] = {"effort": reasoning_value}
-        else:
-            reasoning_effort = reasoning_value
-    elif (
-        _uses_openrouter_thinking(spec)
-        and bool(spec.reasoning)
-        and (thinking_level is None or thinking_level == "off")
-    ):
-        # Pi makes the OpenRouter off-state explicit for reasoning-capable models:
-        # ``reasoning: {effort: thinkingLevelMap.off ?? "none"}`` disables reasoning
-        # at the router rather than omitting the field (openai-completions.ts:578-580).
-        # Gate on the raw off/unset level — not merely ``reasoning_value is None`` —
-        # so an unsupported clamped level stays out of the off branch (Pi treats it
-        # as still-thinking-and-clamp), mirroring the anthropic ``thinking_disabled``
-        # gate below.
-        off_effort = _openrouter_off_effort(spec)
-        if off_effort is not None:
-            body_extra["reasoning"] = {"effort": off_effort}
-
-    # Pi makes the off-state explicit for reasoning-capable anthropic-messages
-    # models (``thinkingEnabled === false`` -> ``thinking:{type:"disabled"}``).
-    # Gate on the raw off/unset level — not merely ``reasoning_value is None`` —
-    # so an unsupported level on a reasoning model stays out of the disabled
-    # branch (Pi treats that as still-thinking-and-clamp, never disabled).
-    thinking_disabled = (
+    thinking_off = (
         bool(spec.reasoning)
         and reasoning_value is None
         and (thinking_level is None or thinking_level == "off")
     )
+    reasoning_effort: str | None = None
+    thinking_format = _resolve_thinking_format(spec)
+
+    if thinking_format == "openrouter":
+        if reasoning_value is not None:
+            body_extra["reasoning"] = {"effort": reasoning_value}
+        elif thinking_off:
+            # ``reasoning: {effort: thinkingLevelMap.off ?? "none"}`` disables
+            # reasoning at the router rather than omitting the field
+            # (openai-completions.ts:578-580).
+            off_effort = _openrouter_off_effort(spec)
+            if off_effort is not None:
+                body_extra["reasoning"] = {"effort": off_effort}
+    elif thinking_format == "deepseek" and bool(spec.reasoning):
+        # ``thinking: {type: enabled|disabled}`` is emitted for every
+        # reasoning-capable DeepSeek request; ``reasoning_effort`` rides along on
+        # the on-state only when the model supports it (openai-completions.ts:565-570).
+        if reasoning_value is not None:
+            body_extra["thinking"] = {"type": "enabled"}
+            if _supports_reasoning_effort(spec):
+                reasoning_effort = reasoning_value
+        elif thinking_off:
+            body_extra["thinking"] = {"type": "disabled"}
+    elif reasoning_value is not None:
+        # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
+        # formats (zai/qwen/qwen-chat-template/together/ant-ling/string-thinking)
+        # resolve to their own name and fall here unchanged — a documented
+        # deferral, not a regression.
+        reasoning_effort = reasoning_value
+
+    # Pi makes the off-state explicit for reasoning-capable anthropic-messages
+    # models too (``thinkingEnabled === false`` -> ``thinking:{type:"disabled"}``);
+    # only the anthropic adapter consumes ``thinking_disabled`` (the completions
+    # families above carry their off-state in ``body_extra``).
+    thinking_disabled = thinking_off
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -213,11 +228,66 @@ def _resolve_base_url_placeholders(
     return resolved, None
 
 
-def _uses_openrouter_thinking(spec: NativeModelSpec) -> bool:
+# Provider names / base-URL substrings Pi's ``detectCompat`` excludes from
+# ``supportsReasoningEffort`` (openai-completions.ts:1079-1119). Each entry is
+# ``(provider_names, base_url_substrings)``; a match on either disables
+# ``reasoning_effort``.
+_NO_REASONING_EFFORT_SIGNALS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("xai",), ("api.x.ai",)),  # isGrok
+    (("zai",), ("api.z.ai",)),  # isZai
+    (("moonshotai", "moonshotai-cn"), ("api.moonshot.",)),  # isMoonshot
+    (("together",), ("api.together.ai", "api.together.xyz")),  # isTogether
+    (("cloudflare-ai-gateway",), ("gateway.ai.cloudflare.com",)),  # isCloudflareAiGateway
+    (("nvidia",), ("integrate.api.nvidia.com",)),  # isNvidia
+    (("ant-ling",), ("api.ant-ling.com",)),  # isAntLing
+)
+
+
+def _resolve_thinking_format(spec: NativeModelSpec) -> str:
+    """Resolve the model's openai-completions ``thinkingFormat`` (partial port).
+
+    Mirrors Pi's getCompat precedence (explicit ``model.compat.thinkingFormat``
+    overrides provider/base-URL detection; openai-completions.ts:1174). Only the
+    formats pipy emits a distinct request shape for are detected by name —
+    ``openrouter`` (nested ``reasoning``) and ``deepseek`` (``thinking`` object);
+    every other model resolves to ``"openai"`` (top-level ``reasoning_effort``).
+    The remaining Pi formats (zai/qwen/qwen-chat-template/together/ant-ling/
+    string-thinking) are deferred follow-ons and fall through to the default.
+    """
+
     compat = spec.compat if isinstance(spec.compat, dict) else {}
-    if compat.get("thinkingFormat") == "openrouter":
-        return True
-    return "openrouter.ai" in (spec.base_url or "").lower()
+    explicit = compat.get("thinkingFormat")
+    if isinstance(explicit, str):
+        return explicit
+    provider = (spec.provider_name or "").lower()
+    base_url = (spec.base_url or "").lower()
+    if provider == "deepseek" or "deepseek.com" in base_url:
+        return "deepseek"
+    if provider == "openrouter" or "openrouter.ai" in base_url:
+        return "openrouter"
+    return "openai"
+
+
+def _supports_reasoning_effort(spec: NativeModelSpec) -> bool:
+    """Whether the model accepts a top-level ``reasoning_effort`` (Pi predicate).
+
+    Mirrors Pi's ``detectCompat`` ``supportsReasoningEffort`` (resolved
+    independently of ``thinkingFormat``; openai-completions.ts:1118-1119): an
+    explicit ``compat.supportsReasoningEffort`` bool wins, else ``False`` when the
+    provider/base URL matches one of Pi's exclusion signals, ``True`` otherwise.
+    This is a single bounded predicate, not a full ``detectCompat`` port.
+    """
+
+    compat = spec.compat if isinstance(spec.compat, dict) else {}
+    explicit = compat.get("supportsReasoningEffort")
+    if isinstance(explicit, bool):
+        return explicit
+    provider = (spec.provider_name or "").lower()
+    base_url = (spec.base_url or "").lower()
+    for providers, base_urls in _NO_REASONING_EFFORT_SIGNALS:
+        if provider in providers or any(part in base_url for part in base_urls):
+            return False
+    return True
 
 
 def _openrouter_off_effort(spec: NativeModelSpec) -> str | None:
