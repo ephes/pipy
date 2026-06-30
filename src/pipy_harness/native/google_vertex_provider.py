@@ -68,11 +68,122 @@ GCP_VERTEX_CREDENTIALS_MARKER = "gcp-vertex-credentials"
 # Placeholder pattern (e.g. "<authenticated>") rejected as an express key, per
 # Pi's resolveApiKey (google-vertex.ts:405-407).
 _PLACEHOLDER_API_KEY_RE = re.compile(r"^<[^>]+>$")
+# Model-family regexes for the per-model thinking shape (see _build_thinking_config
+# below). Defined next to _PLACEHOLDER_API_KEY_RE so all module-level compiled
+# patterns (which rely on the module's ``import re``) live together.
+_GEMINI3_PRO_RE = re.compile(r"gemini-3(?:\.\d+)?-pro")
+_GEMINI3_FLASH_RE = re.compile(r"gemini-3(?:\.\d+)?-flash")
 GOOGLE_VERTEX_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("promptTokenCount", "input_tokens"),
     ("candidatesTokenCount", "output_tokens"),
     ("totalTokenCount", "total_tokens"),
 )
+
+# Per-model thinking shape, ported from Pi's ``google-vertex.ts``. Vertex injects
+# ``generationConfig.thinkingConfig`` per model family: a ``thinkingLevel`` enum
+# for Gemini 3 Pro/Flash and a ``thinkingBudget`` token count otherwise. This is
+# the ``THINKING_LEVEL_MAP`` variant of the generative-language surface and
+# deliberately diverges from ``google_provider`` in two places (google-vertex.ts):
+#   * No ``2.5-flash-lite`` budget table — flash-lite falls into the ``2.5-flash``
+#     branch (``getGoogleBudget``: minimal ``128``, not ``512``).
+#   * No Gemma 4 special-casing — Gemma is not a Vertex Gemini model, so it never
+#     uses the level path nor a dedicated disabled config.
+# ``THINKING_LEVEL_MAP`` is identity at the wire level (the vendored ``@google/genai``
+# ``ThinkingLevel`` enum serializes to ``"MINIMAL"``/``"LOW"``/``"MEDIUM"``/``"HIGH"``),
+# so the bare uppercase strings are emitted directly. The ``_GEMINI3_*_RE`` patterns
+# are defined above next to ``_PLACEHOLDER_API_KEY_RE``.
+
+
+def _is_gemini3_pro(model_id: str) -> bool:
+    return bool(_GEMINI3_PRO_RE.search(model_id.lower()))
+
+
+def _is_gemini3_flash(model_id: str) -> bool:
+    return bool(_GEMINI3_FLASH_RE.search(model_id.lower()))
+
+
+def _uses_thinking_level(model_id: str) -> bool:
+    """Families that take a ``thinkingLevel`` enum rather than a token budget.
+
+    Only Gemini 3 Pro/Flash on Vertex (google-vertex.ts:312-320); no Gemma 4.
+    """
+
+    return _is_gemini3_pro(model_id) or _is_gemini3_flash(model_id)
+
+
+def _google_thinking_level(effort: str, model_id: str) -> str:
+    """Map a thinking effort to a ``thinkingLevel`` (Pi's getGemini3ThinkingLevel)."""
+
+    if _is_gemini3_pro(model_id):
+        return "LOW" if effort in ("minimal", "low") else "HIGH"
+    # Gemini 3 Flash: pass the effort through as the enum.
+    return {
+        "minimal": "MINIMAL",
+        "low": "LOW",
+        "medium": "MEDIUM",
+        "high": "HIGH",
+    }.get(effort, "HIGH")
+
+
+def _google_thinking_budget(model_id: str, effort: str) -> int:
+    """Map a thinking effort to a token budget (Pi's getGoogleBudget).
+
+    Returns ``-1`` (Gemini "dynamic"/auto budget) for models without a known
+    budget table or for an unrecognized effort. Vertex has **no** separate
+    ``2.5-flash-lite`` table, so flash-lite matches the ``2.5-flash`` branch.
+    """
+
+    lowered = model_id.lower()
+    if "2.5-pro" in lowered:
+        table = {"minimal": 128, "low": 2048, "medium": 8192, "high": 32768}
+    elif "2.5-flash" in lowered:
+        table = {"minimal": 128, "low": 2048, "medium": 8192, "high": 24576}
+    else:
+        return -1
+    return table.get(effort, -1)
+
+
+def _disabled_thinking_config(model_id: str) -> dict[str, Any]:
+    """Per-model disabled thinking config (Pi's getDisabledThinkingConfig).
+
+    Gemini 3 models cannot fully disable thinking, so Pi pins the lowest
+    supported ``thinkingLevel`` without ``includeThoughts``. Gemini 2.x disables
+    via ``thinkingBudget: 0``. No Gemma 4 branch (not a Vertex model).
+    """
+
+    if _is_gemini3_pro(model_id):
+        return {"thinkingLevel": "LOW"}
+    if _is_gemini3_flash(model_id):
+        return {"thinkingLevel": "MINIMAL"}
+    return {"thinkingBudget": 0}
+
+
+def _build_thinking_config(
+    model_id: str,
+    reasoning_effort: str | None,
+    thinking_disabled: bool,
+) -> dict[str, Any] | None:
+    """Resolve ``generationConfig.thinkingConfig`` or ``None`` to omit it.
+
+    Mirrors Pi's ``buildParams`` thinking block (google-vertex.ts:458-468): when
+    thinking is enabled emit ``includeThoughts: true`` plus a per-family
+    ``thinkingLevel`` or ``thinkingBudget``; when a reasoning model runs with
+    thinking off/unset emit the per-model disabled config; otherwise (a
+    non-reasoning model, or a bare-default construction) omit. ``reasoning_effort``
+    is only set for reasoning models with active thinking, so it takes precedence
+    over ``thinking_disabled``.
+    """
+
+    if reasoning_effort:
+        config: dict[str, Any] = {"includeThoughts": True}
+        if _uses_thinking_level(model_id):
+            config["thinkingLevel"] = _google_thinking_level(reasoning_effort, model_id)
+        else:
+            config["thinkingBudget"] = _google_thinking_budget(model_id, reasoning_effort)
+        return config
+    if thinking_disabled:
+        return _disabled_thinking_config(model_id)
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,10 +285,14 @@ class GoogleVertexProvider:
     provider_name: str = "google-vertex"
     # Catalog-resolved request config. The OAuth2 access token and
     # project/location stay env-resolved (ADC-style, not an api key); catalog
-    # construction injects only ``extra_headers``. Thinking (thinkingConfig) is
-    # per-model (level enum vs budget) like google-generative-ai and not yet
-    # catalog-encoded, so it is intentionally not injected here.
+    # construction injects ``extra_headers`` plus the mapped thinking effort.
+    # ``reasoning_effort``/``thinking_disabled`` drive the per-model
+    # ``generationConfig.thinkingConfig`` shape (level enum vs token budget), the
+    # ``THINKING_LEVEL_MAP`` variant of ``google.ts`` (no flash-lite table, no
+    # Gemma 4); defaults omit thinking. Applies in both Express and ADC modes.
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    reasoning_effort: str | None = None
+    thinking_disabled: bool = False
 
     @property
     def name(self) -> str:
@@ -300,6 +415,13 @@ class GoogleVertexProvider:
                     ],
                 }
             ]
+        # Per-model thinking shape (both Express and ADC modes share this body).
+        thinking_config = _build_thinking_config(
+            self.model_id, self.reasoning_effort, self.thinking_disabled
+        )
+        if thinking_config is not None:
+            generation_config = body.setdefault("generationConfig", {})
+            generation_config["thinkingConfig"] = thinking_config
         headers = {"Content-Type": "application/json", **auth_headers}
         # Merged models.json/model headers.
         for header_name, header_value in self.extra_headers.items():

@@ -41,8 +41,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `includeThoughts: true` when thinking is on, and a per-model disabled config
   (no `includeThoughts`) when a reasoning-capable model runs with thinking
   off/unset — matching Pi's `google.ts` `streamSimpleGoogle`/`buildParams`.
-  Non-reasoning models still omit `thinkingConfig` entirely. The `google-vertex`
-  adapter's per-model `thinkingConfig` remains a separate follow-on.
+  Non-reasoning models still omit `thinkingConfig` entirely.
+- The native `google-vertex` provider now injects Pi's per-model
+  `generationConfig.thinkingConfig` from `google-vertex.ts` (its
+  `THINKING_LEVEL_MAP` variant) in both Express (api-key) and ADC (bearer) modes:
+  a `thinkingLevel` enum for Gemini 3 Pro/Flash, a `thinkingBudget` token count
+  otherwise (`includeThoughts: true` when on), and a per-model disabled config
+  (no `includeThoughts`) when a reasoning-capable model runs with thinking
+  off/unset. Catalog construction forwards the resolved
+  `reasoning_effort`/`thinking_disabled`. It deliberately diverges from
+  `google-generative-ai`: **no** `2.5-flash-lite` budget table (flash-lite falls
+  into the `2.5-flash` branch → minimal `128`, not `512`) and **no** Gemma 4
+  special-casing (Gemma is not a Vertex Gemini model).
 - The native `azure-openai` provider now resolves its endpoint and deployment
   from Pi's config-source env vars: `AZURE_OPENAI_BASE_URL` (the base URL),
   `AZURE_OPENAI_RESOURCE_NAME` (used to build a default

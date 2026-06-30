@@ -137,9 +137,18 @@ Tier 3 catalog construction (shipped 2026-06-03):
   both paths force `display:"summarized"` except on GovCloud targets).
   Custom bedrock headers are merged into the SigV4-signed request with the
   reserved `authorization`/`host`/`x-amz-*` set dropped so they cannot collide
-  with the signing headers. Vertex thinking (thinkingConfig) is per-model and not
-  yet injected (its `THINKING_LEVEL_MAP` detail differs slightly from
-  google-generative-ai, whose thinkingConfig now ships); it remains a follow-on.
+  with the signing headers. Vertex thinking now ships too: catalog construction
+  forwards the resolved `reasoning_effort`/`thinking_disabled` into the
+  `google-vertex` adapter, which injects Pi's per-model
+  `generationConfig.thinkingConfig` from `google-vertex.ts` (its
+  `THINKING_LEVEL_MAP` variant) in both Express (api-key) and ADC (bearer) modes:
+  a `thinkingLevel` enum for Gemini 3 Pro/Flash, a `thinkingBudget` token count
+  otherwise (`includeThoughts: true` when on), and a per-model *disabled* config
+  (no `includeThoughts`) when a reasoning model runs with thinking off/unset. It
+  deliberately diverges from `google-generative-ai` in two places (matching
+  `google-vertex.ts`): **no** `2.5-flash-lite` budget table — flash-lite falls
+  into the `2.5-flash` branch (minimal `128`, not `512`) — and **no** Gemma 4
+  special-casing (Gemma is not a Vertex Gemini model).
   Covered by conformance item 22.
 - `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
   factory builds it with a settings-derived `RetryPolicy` (cli.py) that catalog

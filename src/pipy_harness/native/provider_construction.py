@@ -25,8 +25,9 @@ places the mapped thinking effort in its own native body key
 (completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
 ``reasoning.effort``; anthropic/bedrock: adaptive ``output_config.effort`` for
 the adaptive Claude models and ``thinking.budget_tokens`` otherwise;
-google-generative-ai: per-model ``generationConfig.thinkingConfig`` (level enum
-vs token budget); vertex thinking is per-model and not yet injected).
+google-generative-ai and google-vertex: per-model
+``generationConfig.thinkingConfig`` (level enum vs token budget; vertex uses the
+``THINKING_LEVEL_MAP`` variant — no flash-lite table, no Gemma 4)).
 ``openai-codex-responses``
 and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
 the legacy factory's settings-derived ``RetryPolicy`` injection): they return
@@ -431,7 +432,9 @@ def _build_iam_provider(
     Pi forwarding ``getEnvApiKey()`` into ``options.apiKey`` and filtering it in
     ``resolveApiKey``. Only the model id, provider name, merged headers (and the
     mapped thinking effort for families whose body shape is known) are otherwise
-    injected.
+    injected. Vertex receives the resolved ``reasoning_effort``/``thinking_disabled``
+    so it emits Pi's per-model ``generationConfig.thinkingConfig``; bedrock does
+    not (it carries thinking in its own adaptive body keys).
     """
 
     if resolved.api == "amazon-bedrock":
@@ -452,6 +455,8 @@ def _build_iam_provider(
         api_key=resolved.api_key,
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
+        reasoning_effort=resolved.reasoning_effort,
+        thinking_disabled=resolved.thinking_disabled,
         **http_kwargs,  # type: ignore[arg-type]
     )
 

@@ -315,8 +315,18 @@ Follow-ons:
   enum for Gemini 3 Pro/Flash and Gemma 4, a `thinkingBudget` token count for the
   Gemini 2.5 family (`includeThoughts: true` when on), and a per-model disabled
   config when a reasoning model runs with thinking off/unset — matching
-  `google.ts`. `google-vertex` thinking (its `THINKING_LEVEL_MAP` variant)
-  remains a follow-on;
+  `google.ts`;
+- (shipped) google-vertex thinking: the `google-vertex` adapter now injects Pi's
+  per-model `generationConfig.thinkingConfig` from `google-vertex.ts` (its
+  `THINKING_LEVEL_MAP` variant) — a `thinkingLevel` enum for Gemini 3 Pro/Flash
+  and a `thinkingBudget` token count otherwise, `includeThoughts: true` when
+  thinking is on, and a per-model disabled config when a reasoning model runs
+  with thinking off/unset, in both Express (api-key) and ADC (bearer) request
+  modes. It deliberately diverges from `google-generative-ai` in two places
+  (matching `google-vertex.ts`): no `2.5-flash-lite` budget table (flash-lite
+  falls into the `2.5-flash` branch → minimal `128`, not `512`) and no Gemma 4
+  special-casing (Gemma is not a Vertex Gemini model). Catalog construction
+  forwards the resolved `reasoning_effort`/`thinking_disabled`;
 - (shipped) Vertex API-key auth: the `google-vertex` adapter now supports Pi's
   Vertex Express api-key mode (`GOOGLE_CLOUD_API_KEY`) — global
   `aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`

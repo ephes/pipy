@@ -1141,7 +1141,8 @@ def _check_tier3_construction(checks, tmp: Path):
     # (AWS SigV4 / GCP ADC / Codex OAuth) and the region/project endpoint stay
     # env-resolved by the adapter; catalog construction injects model_id +
     # provider_name + headers + thinking (bedrock Anthropic budget, codex
-    # reasoning.effort; vertex thinking deferred). Bedrock's resolved api_key is
+    # reasoning.effort; vertex per-model generationConfig.thinkingConfig — see
+    # 22f). Bedrock's resolved api_key is
     # NOT forwarded. google-vertex's IS forwarded so the adapter can use Pi's
     # Vertex Express api-key mode (global host + x-goog-api-key); see 22c/22e.
     from datetime import UTC, datetime
@@ -1227,7 +1228,7 @@ def _check_tier3_construction(checks, tmp: Path):
             self.requests = []
 
         def post_json(self, url, *, headers, body, timeout_seconds, cancel_token=None):
-            self.requests.append({"url": url, "headers": dict(headers)})
+            self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
             return JsonResponse(
                 status_code=200,
                 body={
@@ -1249,6 +1250,28 @@ def _check_tier3_construction(checks, tmp: Path):
         and "Authorization" not in vx_sent["headers"]
     )
     checks.append(Check("22_vertex_express_request", vertex_express_ok, "google-vertex: Vertex Express api key produces the global host + x-goog-api-key request"))
+
+    # 22f: catalog-resolved thinking reaches the vertex request body as Pi's
+    # per-model generationConfig.thinkingConfig (2.5-pro high -> budget 32768 +
+    # includeThoughts), proving construction forwards reasoning_effort.
+    vx_think_resolved = resolve_construction(
+        vx_spec,
+        store=vx_state.auth_store,
+        env=vx_state._env(),
+        runtime_api_key=None,
+        models_json_auth=vx_state._models_json_auth("google-vertex"),
+        thinking_level="high",
+    )
+    vx_think_http = _VertexCapturingHTTP()
+    vx_think = build_provider(vx_think_resolved, http_client=vx_think_http)
+    vx_think.complete(_provider_request(Path("."), "google-vertex", "gemini-2.5-pro"))
+    vx_think_body = vx_think_http.requests[-1]["body"]
+    vertex_thinking_ok = (
+        vx_think.reasoning_effort == "high"
+        and vx_think_body.get("generationConfig", {}).get("thinkingConfig")
+        == {"includeThoughts": True, "thinkingBudget": 32768}
+    )
+    checks.append(Check("22_vertex_thinking_config", vertex_thinking_ok, "google-vertex: per-model generationConfig.thinkingConfig (budget + includeThoughts) reaches the request body"))
 
     # 22d: codex is deliberately NOT catalog-constructed (the legacy factory
     # injects a settings-derived RetryPolicy that catalog construction would
