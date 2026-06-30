@@ -132,9 +132,10 @@ def resolve_construction(
 
     # Thinking shape mirrors Pi's per-format handling (openai-completions.ts):
     # OpenRouter normalises reasoning into a nested ``reasoning: {effort}``
-    # object; DeepSeek sends a ``thinking: {type}`` object (plus a top-level
-    # ``reasoning_effort`` when supported); the OpenAI-style default uses the
-    # top-level ``reasoning_effort``. ``thinking_format`` follows Pi's getCompat
+    # object; DeepSeek sends a ``thinking: {type}`` object; Together sends a
+    # ``reasoning: {enabled}`` object (both plus a top-level ``reasoning_effort``
+    # when supported); the OpenAI-style default uses the top-level
+    # ``reasoning_effort``. ``thinking_format`` follows Pi's getCompat
     # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
     # detection). The off-state branches gate on the raw off/unset level — not
     # merely ``reasoning_value is None`` — so an unsupported clamped level stays
@@ -169,11 +170,25 @@ def resolve_construction(
                 reasoning_effort = reasoning_value
         elif thinking_off:
             body_extra["thinking"] = {"type": "disabled"}
+    elif thinking_format == "together" and bool(spec.reasoning):
+        # ``reasoning: {enabled: bool}`` is emitted for every reasoning-capable
+        # Together request; ``reasoning_effort`` rides along on the on-state only
+        # when the model supports it (openai-completions.ts:586-594). Together's
+        # own provider/base URL auto-detects supportsReasoningEffort=False
+        # (isTogether), so the on-state normally omits reasoning_effort unless an
+        # explicit compat flag — or an explicit thinkingFormat="together" on a
+        # non-excluded provider — flips it back on.
+        if reasoning_value is not None:
+            body_extra["reasoning"] = {"enabled": True}
+            if _supports_reasoning_effort(spec):
+                reasoning_effort = reasoning_value
+        elif thinking_off:
+            body_extra["reasoning"] = {"enabled": False}
     elif reasoning_value is not None:
         # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
-        # formats (zai/qwen/qwen-chat-template/together/ant-ling/string-thinking)
-        # resolve to their own name and fall here unchanged — a documented
-        # deferral, not a regression.
+        # formats (zai/qwen/qwen-chat-template/ant-ling/string-thinking) resolve
+        # to their own name and fall here unchanged — a documented deferral, not a
+        # regression.
         reasoning_effort = reasoning_value
 
     # Pi makes the off-state explicit for reasoning-capable anthropic-messages
@@ -250,9 +265,13 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     overrides provider/base-URL detection; openai-completions.ts:1174). Only the
     formats pipy emits a distinct request shape for are detected by name —
     ``openrouter`` (nested ``reasoning``) and ``deepseek`` (``thinking`` object);
-    every other model resolves to ``"openai"`` (top-level ``reasoning_effort``).
-    The remaining Pi formats (zai/qwen/qwen-chat-template/together/ant-ling/
-    string-thinking) are deferred follow-ons and fall through to the default.
+    ``together`` (``reasoning: {enabled}``); every other model resolves to
+    ``"openai"`` (top-level ``reasoning_effort``). The remaining Pi formats
+    (zai/qwen/qwen-chat-template/ant-ling/string-thinking) are deferred follow-ons
+    and fall through to the default. The detection order mirrors Pi's
+    ``detectCompat`` ``thinkingFormat`` chain (isDeepSeek > isZai > isTogether >
+    isAntLing > isOpenRouter; openai-completions.ts:1126-1136), so ``together`` is
+    tested before ``openrouter``.
     """
 
     compat = spec.compat if isinstance(spec.compat, dict) else {}
@@ -263,6 +282,12 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     base_url = (spec.base_url or "").lower()
     if provider == "deepseek" or "deepseek.com" in base_url:
         return "deepseek"
+    if (
+        provider == "together"
+        or "api.together.ai" in base_url
+        or "api.together.xyz" in base_url
+    ):
+        return "together"
     if provider == "openrouter" or "openrouter.ai" in base_url:
         return "openrouter"
     return "openai"

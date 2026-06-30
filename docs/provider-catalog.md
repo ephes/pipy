@@ -238,8 +238,8 @@ Remaining adapter/product follow-ons:
   `thinking: {type: "disabled"}` off-state gate. The on-state nested
   `reasoning: {effort: <level>}` emission is unchanged. Covered by conformance
   item 18 (18d). The other completions `thinkingFormat` variants (zai, qwen,
-  together, ant-ling, string-thinking) and a full `detectCompat` port remain
-  separate follow-ons.
+  ant-ling, string-thinking) and a full `detectCompat` port remain separate
+  follow-ons.
 
 - DeepSeek reasoning request shape has shipped: for the `openai-completions`
   `deepseek` thinking format, a reasoning-capable model emits a top-level
@@ -259,9 +259,33 @@ Remaining adapter/product follow-ons:
   unsupported clamped level emits neither, since pipy does not clamp — the same
   documented divergence as the OpenRouter path). Covered by conformance item 18
   (18h). The remaining completions `thinkingFormat` variants (zai, qwen,
-  together, ant-ling, string-thinking), the `requiresReasoningContentOn
+  ant-ling, string-thinking), the `requiresReasoningContentOn
   AssistantMessages` DeepSeek message transform, and a full `detectCompat` port
   remain separate follow-ons.
+
+- Together reasoning request shape has shipped: for the `openai-completions`
+  `together` thinking format, a reasoning-capable model emits a top-level
+  `reasoning: {enabled: true|false}` object — `enabled: true` when a level is
+  active, `enabled: false` (a Pi-forced explicit disable, like the DeepSeek
+  `type:"disabled"`, OpenRouter `effort:"none"`, and anthropic `type:"disabled"`
+  off-states) when thinking is off/unset — and additionally sends top-level
+  `reasoning_effort` on the on-state **only** when the model
+  `supportsReasoningEffort`, matching Pi's `thinkingFormat === "together"` branch
+  (`openai-completions.ts:586-594`). The format is resolved with Pi's `getCompat`
+  precedence (explicit `compat.thinkingFormat` over the
+  `together`/`api.together.ai`/`api.together.xyz` provider/base-URL detection,
+  which Pi's `detectCompat` chain evaluates **before** `openrouter`), and
+  `supportsReasoningEffort` is resolved **independently** of `thinkingFormat` via
+  Pi's `detectCompat` exclusion list (which **includes** Together) — so an
+  **auto-detected** Together model has `supportsReasoningEffort=false` and omits
+  `reasoning_effort`, while an explicit `compat.supportsReasoningEffort=true` (or
+  an explicit `thinkingFormat="together"` on a non-excluded provider) flips it on
+  and adds `reasoning_effort`. The off-state is gated on the model being
+  reasoning-capable and the raw level being off/unset (an unsupported clamped
+  level emits neither, since pipy does not clamp — the same documented divergence
+  as the DeepSeek/OpenRouter paths). Covered by conformance item 18 (18i). The
+  remaining completions `thinkingFormat` variants (zai, qwen, ant-ling,
+  string-thinking) and a full `detectCompat` port remain separate follow-ons.
 
 Recently shipped closeout wiring:
 

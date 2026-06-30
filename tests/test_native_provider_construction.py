@@ -498,6 +498,123 @@ def test_explicit_openrouter_format_wins_over_deepseek_base_url(tmp_path):
     assert resolved.reasoning_effort is None
 
 
+def _together_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="together",
+        model_id="deepseek-ai/DeepSeek-R1",
+        display_name="Together DeepSeek R1",
+        api="openai-completions",
+        base_url="https://api.together.xyz/v1",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_tg(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"TOGETHER_API_KEY": "k"},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_together_on_state_emits_reasoning_enabled_without_effort(tmp_path):
+    # Pi together format (openai-completions.ts:586-594): a reasoning-capable model
+    # with an active level sets reasoning:{enabled:true}. Together auto-detects
+    # supportsReasoningEffort=False (isTogether), so reasoning_effort is omitted.
+    resolved = _resolve_tg(_together_spec(), tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"enabled": True}
+    assert resolved.reasoning_effort is None
+
+
+def test_together_off_state_emits_reasoning_disabled_without_effort(tmp_path):
+    # Off/unset on a reasoning Together model is the Pi-forced explicit disable:
+    # reasoning:{enabled:false} and no reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_tg(_together_spec(), tmp_path, thinking_level)
+        assert resolved.body_extra["reasoning"] == {"enabled": False}
+        assert resolved.reasoning_effort is None
+
+
+def test_together_thinking_skipped_for_non_reasoning_model(tmp_path):
+    # Pi gates the whole branch on model.reasoning; a non-reasoning Together row
+    # emits neither the reasoning object nor reasoning_effort.
+    resolved = _resolve_tg(_together_spec(reasoning=False), tmp_path, None)
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_together_unsupported_level_emits_neither(tmp_path):
+    # An unsupported level clamps to None (pipy does not clamp like Pi); the raw
+    # level is neither None nor "off", so neither the on-state nor the off-state
+    # fires (matching the deepseek/openrouter still-thinking-and-clamp divergence).
+    resolved = _resolve_tg(_together_spec(), tmp_path, "medium")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_together_explicit_supports_reasoning_effort_adds_effort(tmp_path):
+    # supportsReasoningEffort is resolved independently of thinkingFormat. An
+    # explicit compat.supportsReasoningEffort=True flips Together's auto-False back
+    # on, so the on-state adds reasoning_effort alongside reasoning:{enabled:true}.
+    spec = _together_spec(compat={"supportsReasoningEffort": True})
+    resolved = _resolve_tg(spec, tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"enabled": True}
+    assert resolved.reasoning_effort == "high"
+
+
+def test_together_explicit_format_on_non_excluded_provider_adds_effort(tmp_path):
+    # An explicit thinkingFormat="together" on a base URL Pi does NOT exclude from
+    # reasoning_effort support (e.g. api.openai.com) yields reasoning:{enabled:true}
+    # WITH reasoning_effort, because detectCompat resolves supportsReasoningEffort
+    # independently (no exclusion match -> true). This is the inverse of the
+    # deepseek explicit-format-on-excluded-provider case.
+    spec = _together_spec(
+        provider_name="openai",
+        base_url="https://api.openai.com/v1",
+        compat={"thinkingFormat": "together"},
+    )
+    resolved = _resolve_tg(spec, tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"enabled": True}
+    assert resolved.reasoning_effort == "high"
+
+
+def test_together_thinking_reaches_request_body(tmp_path):
+    # The reasoning object is a request-shape field to match; it must survive
+    # end-to-end onto the wire through the completions adapter's extra_body
+    # plumbing, in both on- and off-states.
+    on = _resolve_tg(_together_spec(), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["reasoning"] == {"enabled": True}
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_tg(_together_spec(), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["reasoning"] == {"enabled": False}
+    assert "reasoning_effort" not in body_off
+
+
+def test_together_detection_precedes_openrouter(tmp_path):
+    # Pi's detectCompat thinkingFormat chain evaluates isTogether before
+    # isOpenRouter (openai-completions.ts:1126-1136), so a row matching both the
+    # together provider and an openrouter.ai base URL resolves to the together
+    # shape (reasoning:{enabled}), not the openrouter nested reasoning:{effort}.
+    spec = _together_spec(base_url="https://openrouter.ai/api/v1")
+    resolved = _resolve_tg(spec, tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"enabled": True}
+    assert resolved.reasoning_effort is None
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).

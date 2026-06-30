@@ -792,6 +792,42 @@ def _check_product_construction(checks, tmp: Path):
     )
     checks.append(Check("18_product_deepseek_thinking", deepseek_ok, "DeepSeek thinking:{type} (+ reasoning_effort on-state)"))
 
+    # 18i: Together thinking format (openai-completions.ts:586-594). A reasoning
+    # Together model emits reasoning:{enabled:true} on-state and
+    # reasoning:{enabled:false} off/unset. Together auto-detects
+    # supportsReasoningEffort=False (isTogether), so reasoning_effort is omitted in
+    # both states.
+    tg_path = tmp / "prod_together.json"
+    tg_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "together": {
+                        "baseUrl": "https://api.together.xyz/v1",
+                        "apiKey": "tg-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "deepseek-ai/DeepSeek-R1", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    tg_state = _state(tmp, tg_path, {"TOGETHER_API_KEY": "tg-key"})
+    tg_spec = tg_state.find("together", "deepseek-ai/DeepSeek-R1")
+    tg_on, _ = _construct_and_capture(tg_state, tg_spec, runtime_api_key=None, thinking_level="high")
+    tg_off, _ = _construct_and_capture(tg_state, tg_spec, runtime_api_key=None, thinking_level=None)
+    together_ok = (
+        tg_on["body"].get("reasoning") == {"enabled": True}
+        and "reasoning_effort" not in tg_on["body"]
+        and tg_off["body"].get("reasoning") == {"enabled": False}
+        and "reasoning_effort" not in tg_off["body"]
+    )
+    checks.append(Check("18_product_together_thinking", together_ok, "Together reasoning:{enabled} (no reasoning_effort, auto supportsReasoningEffort=False)"))
+
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"
