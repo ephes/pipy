@@ -698,10 +698,14 @@ def test_azure_catalog_construction(tmp_path):
     assert provider is not None
     provider.complete(_request(tmp_path))
     sent = http.requests[-1]
-    # Pi's AzureOpenAI v1 surface: <base>/responses?api-version=v1 (default
-    # api-version; AZURE_OPENAI_API_VERSION overrides via the environment). A
-    # non-Azure host base URL is respected verbatim (no /openai/v1
-    # normalization).
+    # Pi's AzureOpenAI v1 surface: <base>/responses?api-version=v1. The default
+    # api-version (v1) is asserted explicitly here. Note that the ``_resolve``
+    # env dict does NOT carry api-version: the adapter's ``api_version`` field
+    # reads the *process* environment (an ``os.environ`` default_factory), not
+    # this dict, so an ``AZURE_OPENAI_API_VERSION`` entry here would be a silent
+    # no-op. The genuine env-override path is exercised in the dedicated
+    # monkeypatch test below. A non-Azure host base URL is respected verbatim
+    # (no /openai/v1 normalization).
     assert sent["url"] == (
         "https://azure-openai.example/responses?api-version=v1"
     )
@@ -712,6 +716,29 @@ def test_azure_catalog_construction(tmp_path):
     assert "Authorization" not in sent["headers"]
     # Azure shares the Responses thinking shape
     assert sent["body"]["reasoning"] == {"effort": "high"}
+
+
+def test_azure_catalog_construction_api_version_env_override(tmp_path, monkeypatch):
+    # The adapter's ``api_version`` is backed by an ``os.environ`` default_factory,
+    # not the ``_resolve`` env dict, so the override path must be exercised by
+    # patching the *process* environment. Without this, the default test's
+    # "AZURE_OPENAI_API_VERSION overrides via the environment" claim is unverified
+    # (a stale env entry equal to the old default would silently pass).
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    resolved = _resolve(
+        _azure_spec(),
+        tmp_path,
+        {"AZURE_OPENAI_API_KEY": "azk"},
+    )
+    http = CapturingHTTPClient()
+    provider = build_provider(resolved, http_client=http)
+    assert provider is not None
+    provider.complete(_request(tmp_path))
+    sent = http.requests[-1]
+    # The process-env override genuinely reaches the composed URL.
+    assert sent["url"] == (
+        "https://azure-openai.example/responses?api-version=2024-12-01-preview"
+    )
 
 
 def test_cloudflare_catalog_construction(tmp_path):
