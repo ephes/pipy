@@ -99,6 +99,23 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    defaults, and any derived identifiers before implementation, so review catches
    preserved versus dropped future data or behavior instead of discovering it only
    after code exists.
+   For any request-shape field gated by a Pi compat flag, also pin — per field —
+   which compat flag(s) gate it and how each of those flags is independently
+   resolved. Pi's `getCompat` resolves every compat field independently (explicit
+   `compat.<flag>` wins, else that flag's own `detectCompat` predicate), so a
+   field's format flag and any secondary gating flag are not coupled: e.g.
+   `thinkingFormat` always emits `thinking:{type}`, but the top-level
+   `reasoning_effort` is added only when `supportsReasoningEffort` is true, and an
+   explicit `compat.thinkingFormat="deepseek"` on a baseUrl that `detectCompat`
+   EXCLUDES from `supportsReasoningEffort`
+   (isGrok/isZai/isMoonshot/isTogether/isCloudflareAiGateway/isNvidia/isAntLing)
+   yields `thinkingFormat=deepseek` AND `supportsReasoningEffort=false` → Pi emits
+   `thinking:{type:enabled}` with NO `reasoning_effort`. Implement each secondary
+   flag as its own faithful bounded predicate (explicit bool wins, else the
+   exclusion list) — a single bounded predicate, not a full `detectCompat` port —
+   and add a test for the explicit-format-on-excluded-provider mismatch. Never
+   default a secondary flag to True because the format flag's detection "implies"
+   it; the different-family reviewer flags that coupling.
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
