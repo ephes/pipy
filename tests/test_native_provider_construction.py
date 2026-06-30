@@ -615,6 +615,122 @@ def test_together_detection_precedes_openrouter(tmp_path):
     assert resolved.reasoning_effort is None
 
 
+def _zai_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="zai",
+        model_id="glm-4.6",
+        display_name="Z.ai GLM 4.6",
+        api="openai-completions",
+        base_url="https://api.z.ai/api/paas/v4",
+        reasoning=True,
+        thinking_level_map={"high": "high"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_zai(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"ZAI_API_KEY": "k"},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_zai_on_state_emits_enable_thinking_true_without_effort(tmp_path):
+    # Pi zai format (openai-completions.ts:556-557): a reasoning-capable model with
+    # an active level sets the boolean enable_thinking=true and emits NO
+    # reasoning_effort (the zai branch never consults supportsReasoningEffort).
+    resolved = _resolve_zai(_zai_spec(), tmp_path, "high")
+    assert resolved.body_extra["enable_thinking"] is True
+    assert resolved.reasoning_effort is None
+
+
+def test_zai_off_state_emits_enable_thinking_false_without_effort(tmp_path):
+    # Off/unset on a reasoning Z.ai model is the Pi-forced explicit disable:
+    # enable_thinking=false and no reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_zai(_zai_spec(), tmp_path, thinking_level)
+        assert resolved.body_extra["enable_thinking"] is False
+        assert resolved.reasoning_effort is None
+
+
+def test_zai_thinking_skipped_for_non_reasoning_model(tmp_path):
+    # Pi gates the whole branch on model.reasoning; a non-reasoning Z.ai row emits
+    # neither enable_thinking nor reasoning_effort.
+    resolved = _resolve_zai(_zai_spec(reasoning=False), tmp_path, None)
+    assert "enable_thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_zai_ignores_supports_reasoning_effort(tmp_path):
+    # Unlike deepseek/together, the zai branch never emits reasoning_effort even
+    # when an explicit compat.supportsReasoningEffort=True flips the (irrelevant)
+    # secondary flag on; the emitted shape stays a bare enable_thinking boolean.
+    spec = _zai_spec(compat={"supportsReasoningEffort": True})
+    resolved = _resolve_zai(spec, tmp_path, "high")
+    assert resolved.body_extra["enable_thinking"] is True
+    assert resolved.reasoning_effort is None
+
+
+def test_zai_unsupported_level_emits_neither(tmp_path):
+    # An unsupported level clamps to None (pipy does not clamp like Pi); the raw
+    # level is neither None nor "off", so neither the on-state nor the off-state
+    # fires (matching the deepseek/together/openrouter still-thinking-and-clamp
+    # divergence).
+    resolved = _resolve_zai(_zai_spec(), tmp_path, "medium")
+    assert "enable_thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_zai_thinking_reaches_request_body(tmp_path):
+    # enable_thinking is a request-shape field to match; it must survive end-to-end
+    # onto the wire through the completions adapter's extra_body plumbing, in both
+    # on- and off-states.
+    on = _resolve_zai(_zai_spec(), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["enable_thinking"] is True
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_zai(_zai_spec(), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["enable_thinking"] is False
+    assert "reasoning_effort" not in body_off
+
+
+def test_zai_detection_precedes_together_and_openrouter(tmp_path):
+    # Pi's detectCompat thinkingFormat chain evaluates isZai before isTogether and
+    # isOpenRouter (openai-completions.ts:1126-1136), so a zai-provider row on a
+    # together or openrouter base URL resolves to the zai shape (enable_thinking),
+    # not together's reasoning:{enabled} or openrouter's nested reasoning:{effort}.
+    for base_url in (
+        "https://api.together.xyz/v1",
+        "https://openrouter.ai/api/v1",
+    ):
+        resolved = _resolve_zai(_zai_spec(base_url=base_url), tmp_path, "high")
+        assert resolved.body_extra["enable_thinking"] is True
+        assert "reasoning" not in resolved.body_extra
+        assert resolved.reasoning_effort is None
+
+
+def test_explicit_openrouter_format_wins_over_zai_base_url(tmp_path):
+    # getCompat precedence: an explicit compat.thinkingFormat="openrouter" on an
+    # api.z.ai base URL uses the nested reasoning object, not enable_thinking.
+    spec = _zai_spec(compat={"thinkingFormat": "openrouter"})
+    resolved = _resolve_zai(spec, tmp_path, "high")
+    assert resolved.body_extra.get("reasoning") == {"effort": "high"}
+    assert "enable_thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).

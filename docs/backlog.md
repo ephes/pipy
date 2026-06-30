@@ -374,9 +374,16 @@ The highest-impact remaining gaps are now:
    on the on-state **only** when the model `supportsReasoningEffort` — which the
    `detectCompat` exclusion list sets False for auto-detected Together unless an
    explicit compat flag flips it on — with Together ordered before `openrouter` in
-   the format-detection chain, matching `openai-completions.ts:586-594`. The
-   remaining completions `thinkingFormat` variants (zai, qwen, ant-ling,
-   string-thinking) and a full `detectCompat` port remain follow-ons.)
+   the format-detection chain, matching `openai-completions.ts:586-594`; and the
+   Z.ai (`zai`) reasoning request shape — the `openai-completions` `zai` thinking
+   format now emits a single top-level boolean `enable_thinking` for
+   reasoning-capable models (`true` on-state, a Pi-forced explicit `false`
+   off/unset) and **no** `reasoning_effort` at all, with `zai`/`api.z.ai`
+   detection ordered before `together` and `openrouter` in the format-detection
+   chain and the branch never consulting `supportsReasoningEffort`, matching
+   `openai-completions.ts:556-557`. The remaining completions `thinkingFormat`
+   variants (qwen, ant-ling, string-thinking) and a full `detectCompat` port
+   remain follow-ons.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive

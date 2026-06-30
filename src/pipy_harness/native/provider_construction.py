@@ -134,7 +134,8 @@ def resolve_construction(
     # OpenRouter normalises reasoning into a nested ``reasoning: {effort}``
     # object; DeepSeek sends a ``thinking: {type}`` object; Together sends a
     # ``reasoning: {enabled}`` object (both plus a top-level ``reasoning_effort``
-    # when supported); the OpenAI-style default uses the top-level
+    # when supported); Z.ai sends a bare ``enable_thinking`` boolean (no
+    # ``reasoning_effort``); the OpenAI-style default uses the top-level
     # ``reasoning_effort``. ``thinking_format`` follows Pi's getCompat
     # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
     # detection). The off-state branches gate on the raw off/unset level — not
@@ -160,6 +161,16 @@ def resolve_construction(
             off_effort = _openrouter_off_effort(spec)
             if off_effort is not None:
                 body_extra["reasoning"] = {"effort": off_effort}
+    elif thinking_format == "zai" and bool(spec.reasoning):
+        # ``enable_thinking: bool`` is the entire Z.ai thinking shape: true when a
+        # reasoning level is active, false when off/unset, for every
+        # reasoning-capable zai-format request (openai-completions.ts:556-557). The
+        # zai branch emits NO reasoning_effort and never consults
+        # supportsReasoningEffort (unlike deepseek/together).
+        if reasoning_value is not None:
+            body_extra["enable_thinking"] = True
+        elif thinking_off:
+            body_extra["enable_thinking"] = False
     elif thinking_format == "deepseek" and bool(spec.reasoning):
         # ``thinking: {type: enabled|disabled}`` is emitted for every
         # reasoning-capable DeepSeek request; ``reasoning_effort`` rides along on
@@ -186,8 +197,8 @@ def resolve_construction(
             body_extra["reasoning"] = {"enabled": False}
     elif reasoning_value is not None:
         # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
-        # formats (zai/qwen/qwen-chat-template/ant-ling/string-thinking) resolve
-        # to their own name and fall here unchanged — a documented deferral, not a
+        # formats (qwen/qwen-chat-template/ant-ling/string-thinking) resolve to
+        # their own name and fall here unchanged — a documented deferral, not a
         # regression.
         reasoning_effort = reasoning_value
 
@@ -264,14 +275,17 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     Mirrors Pi's getCompat precedence (explicit ``model.compat.thinkingFormat``
     overrides provider/base-URL detection; openai-completions.ts:1174). Only the
     formats pipy emits a distinct request shape for are detected by name —
-    ``openrouter`` (nested ``reasoning``) and ``deepseek`` (``thinking`` object);
-    ``together`` (``reasoning: {enabled}``); every other model resolves to
-    ``"openai"`` (top-level ``reasoning_effort``). The remaining Pi formats
-    (zai/qwen/qwen-chat-template/ant-ling/string-thinking) are deferred follow-ons
-    and fall through to the default. The detection order mirrors Pi's
-    ``detectCompat`` ``thinkingFormat`` chain (isDeepSeek > isZai > isTogether >
-    isAntLing > isOpenRouter; openai-completions.ts:1126-1136), so ``together`` is
-    tested before ``openrouter``.
+    ``openrouter`` (nested ``reasoning``), ``deepseek`` (``thinking`` object),
+    ``zai`` (``enable_thinking`` boolean), and ``together``
+    (``reasoning: {enabled}``); every other model resolves to ``"openai"``
+    (top-level ``reasoning_effort``). The remaining Pi formats
+    (qwen/qwen-chat-template/ant-ling/string-thinking) are deferred follow-ons and
+    fall through to the default. The detection order mirrors Pi's ``detectCompat``
+    ``thinkingFormat`` chain (isDeepSeek > isZai > isTogether > isAntLing >
+    isOpenRouter; openai-completions.ts:1126-1136), so ``zai`` is tested before
+    ``together`` and ``openrouter`` (the deferred ``ant-ling`` rung between
+    ``together`` and ``openrouter`` falls through to the default without reordering
+    the implemented rungs).
     """
 
     compat = spec.compat if isinstance(spec.compat, dict) else {}
@@ -282,6 +296,8 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     base_url = (spec.base_url or "").lower()
     if provider == "deepseek" or "deepseek.com" in base_url:
         return "deepseek"
+    if provider == "zai" or "api.z.ai" in base_url:
+        return "zai"
     if (
         provider == "together"
         or "api.together.ai" in base_url

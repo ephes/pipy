@@ -828,6 +828,41 @@ def _check_product_construction(checks, tmp: Path):
     )
     checks.append(Check("18_product_together_thinking", together_ok, "Together reasoning:{enabled} (no reasoning_effort, auto supportsReasoningEffort=False)"))
 
+    # 18j: Z.ai thinking format (openai-completions.ts:556-557). A reasoning Z.ai
+    # model emits a bare enable_thinking=true on-state and enable_thinking=false
+    # off/unset. The zai branch never emits reasoning_effort and never consults
+    # supportsReasoningEffort.
+    zai_path = tmp / "prod_zai.json"
+    zai_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "zai": {
+                        "baseUrl": "https://api.z.ai/api/paas/v4",
+                        "apiKey": "zai-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "glm-4.6", "reasoning": True,
+                             "thinkingLevelMap": {"high": "high"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    zai_state = _state(tmp, zai_path, {"ZAI_API_KEY": "zai-key"})
+    zai_spec = zai_state.find("zai", "glm-4.6")
+    zai_on, _ = _construct_and_capture(zai_state, zai_spec, runtime_api_key=None, thinking_level="high")
+    zai_off, _ = _construct_and_capture(zai_state, zai_spec, runtime_api_key=None, thinking_level=None)
+    zai_ok = (
+        zai_on["body"].get("enable_thinking") is True
+        and "reasoning_effort" not in zai_on["body"]
+        and zai_off["body"].get("enable_thinking") is False
+        and "reasoning_effort" not in zai_off["body"]
+    )
+    checks.append(Check("18_product_zai_thinking", zai_ok, "Z.ai enable_thinking boolean (no reasoning_effort)"))
+
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"

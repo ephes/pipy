@@ -237,7 +237,7 @@ Remaining adapter/product follow-ons:
   still-thinking-and-clamp), mirroring the `anthropic-messages`
   `thinking: {type: "disabled"}` off-state gate. The on-state nested
   `reasoning: {effort: <level>}` emission is unchanged. Covered by conformance
-  item 18 (18d). The other completions `thinkingFormat` variants (zai, qwen,
+  item 18 (18d). The other completions `thinkingFormat` variants (qwen,
   ant-ling, string-thinking) and a full `detectCompat` port remain separate
   follow-ons.
 
@@ -258,7 +258,7 @@ Remaining adapter/product follow-ons:
   the model being reasoning-capable and the raw level being off/unset (an
   unsupported clamped level emits neither, since pipy does not clamp — the same
   documented divergence as the OpenRouter path). Covered by conformance item 18
-  (18h). The remaining completions `thinkingFormat` variants (zai, qwen,
+  (18h). The remaining completions `thinkingFormat` variants (qwen,
   ant-ling, string-thinking), the `requiresReasoningContentOn
   AssistantMessages` DeepSeek message transform, and a full `detectCompat` port
   remain separate follow-ons.
@@ -284,8 +284,29 @@ Remaining adapter/product follow-ons:
   reasoning-capable and the raw level being off/unset (an unsupported clamped
   level emits neither, since pipy does not clamp — the same documented divergence
   as the DeepSeek/OpenRouter paths). Covered by conformance item 18 (18i). The
-  remaining completions `thinkingFormat` variants (zai, qwen, ant-ling,
+  remaining completions `thinkingFormat` variants (qwen, ant-ling,
   string-thinking) and a full `detectCompat` port remain separate follow-ons.
+
+- Z.ai (`zai`) reasoning request shape has shipped: for the `openai-completions`
+  `zai` thinking format, a reasoning-capable model emits a single top-level
+  boolean `enable_thinking` — `true` when a level is active, `false` (a Pi-forced
+  explicit disable, like the DeepSeek `type:"disabled"`, Together
+  `enabled:false`, OpenRouter `effort:"none"`, and anthropic `type:"disabled"`
+  off-states) when thinking is off/unset — and emits **no** `reasoning_effort` at
+  all, matching Pi's `thinkingFormat === "zai"` branch
+  (`openai-completions.ts:556-557`). The format is resolved with Pi's `getCompat`
+  precedence (explicit `compat.thinkingFormat` over the `zai`/`api.z.ai`
+  provider/base-URL detection, which Pi's `detectCompat` chain evaluates **before**
+  `together` and `openrouter` — a `zai` row on a together/openrouter base URL
+  resolves to the `zai` shape). Unlike DeepSeek/Together, the `zai` branch never
+  consults `supportsReasoningEffort` (so an explicit
+  `compat.supportsReasoningEffort=true` does not add `reasoning_effort`). The
+  off-state is gated on the model being reasoning-capable and the raw level being
+  off/unset (an unsupported clamped level emits neither, since pipy does not clamp
+  — the same documented divergence as the DeepSeek/Together/OpenRouter paths).
+  Covered by conformance item 18 (18j). The remaining completions
+  `thinkingFormat` variants (qwen, ant-ling, string-thinking) and a full
+  `detectCompat` port remain separate follow-ons.
 
 Recently shipped closeout wiring:
 

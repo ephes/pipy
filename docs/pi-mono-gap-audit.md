@@ -373,7 +373,7 @@ Follow-ons:
   The format follows Pi's `getCompat` precedence (explicit `compat.thinkingFormat`
   over `deepseek`/`deepseek.com` detection) and `supportsReasoningEffort` is
   resolved independently via Pi's `detectCompat` exclusion list. The remaining
-  completions `thinkingFormat` variants (zai, qwen, ant-ling, string-thinking),
+  completions `thinkingFormat` variants (qwen, ant-ling, string-thinking),
   the DeepSeek `requiresReasoningContentOnAssistantMessages` message transform,
   and a full `detectCompat` port remain separate follow-ons;
 - (shipped) Together reasoning request shape: the `openai-completions` `together`
@@ -388,8 +388,19 @@ Follow-ons:
   exclusion list — which **includes** Together, so an auto-detected Together model
   omits `reasoning_effort` unless an explicit `supportsReasoningEffort=true` (or an
   explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. The
-  remaining completions `thinkingFormat` variants (zai, qwen, ant-ling,
+  remaining completions `thinkingFormat` variants (qwen, ant-ling,
   string-thinking) and a full `detectCompat` port remain separate follow-ons;
+- (shipped) Z.ai (`zai`) reasoning request shape: the `openai-completions` `zai`
+  thinking format now emits a single top-level boolean `enable_thinking` for
+  reasoning-capable models (`true` on-state, a Pi-forced explicit `false`
+  off/unset) and **no** `reasoning_effort` at all, matching Pi
+  `openai-completions.ts:556-557`. The format follows Pi's `getCompat` precedence
+  (explicit `compat.thinkingFormat` over `zai`/`api.z.ai` detection, ordered
+  before `together` and `openrouter` in the `detectCompat` chain). Unlike
+  DeepSeek/Together, the `zai` branch never consults `supportsReasoningEffort`, so
+  no `reasoning_effort` is ever added. The remaining completions `thinkingFormat`
+  variants (qwen, ant-ling, string-thinking) and a full `detectCompat` port remain
+  separate follow-ons;
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).
