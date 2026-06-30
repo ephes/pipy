@@ -99,6 +99,13 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    defaults, and any derived identifiers before implementation, so review catches
    preserved versus dropped future data or behavior instead of discovering it only
    after code exists.
+   When Pi delegates the concrete request shape to a vendored SDK or runtime
+   helper, the Pi source file is not enough: inspect the delegated implementation
+   under the reference checkout's `node_modules` (normally
+   `~/src/pi-mono/node_modules`) or the relevant vendored/runtime path and pin
+   the resulting host, URL path, auth header, and request-body fields in the plan
+   with exact source citations. Do not infer those wire fields from wrapper call
+   names alone.
    If a provider request-shape slice changes only selected fields in a larger Pi
    request path, label the pinned list as the fields this slice changes instead
    of "complete" unless it really is complete; explicitly scope adjacent Pi fields
