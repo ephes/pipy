@@ -934,6 +934,68 @@ def _check_product_construction(checks, tmp: Path):
     )
     checks.append(Check("18_product_qwen_chat_template_thinking", qwct_ok, "Qwen chat_template_kwargs.enable_thinking (no reasoning_effort)"))
 
+    # 18m: ant-ling thinking format (openai-completions.ts:581-585). An
+    # auto-detected (api.ant-ling.com base URL) reasoning model emits a nested
+    # reasoning:{effort:<mapped>} on the on-state from the RAW thinkingLevelMap
+    # lookup, never a top-level reasoning_effort, and has a fully SILENT off-state
+    # (neither reasoning nor reasoning_effort).
+    al_path = tmp / "prod_ant_ling.json"
+    al_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ant-ling": {
+                        "baseUrl": "https://api.ant-ling.com/v1",
+                        "apiKey": "ant-ling-key",
+                        "api": "openai-completions",
+                        "models": [
+                            {"id": "ling-1t-thinking", "reasoning": True,
+                             "thinkingLevelMap": {"high": "hi"}}
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    al_state = _state(tmp, al_path, {"ANT_LING_API_KEY": "ant-ling-key"})
+    al_spec = al_state.find("ant-ling", "ling-1t-thinking")
+    al_on, _ = _construct_and_capture(al_state, al_spec, runtime_api_key=None, thinking_level="high")
+    al_off, _ = _construct_and_capture(al_state, al_spec, runtime_api_key=None, thinking_level=None)
+    al_ok = (
+        al_on["body"].get("reasoning") == {"effort": "hi"}
+        and "reasoning_effort" not in al_on["body"]
+        and "reasoning" not in al_off["body"]
+        and "reasoning_effort" not in al_off["body"]
+    )
+    checks.append(Check("18_product_ant_ling_thinking", al_ok, "ant-ling reasoning:{effort} on-state, silent off-state (no reasoning_effort)"))
+
+    # 18n: ant-ling detection precedence. isAntLing sits before isOpenRouter in
+    # detectCompat's thinkingFormat chain, so an ant-ling provider on an
+    # openrouter.ai base URL with NO map resolves to the (silent) ant-ling shape,
+    # not openrouter's fallback-bearing reasoning:{effort:"high"}.
+    alp_path = tmp / "prod_ant_ling_precedence.json"
+    alp_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ant-ling": {
+                        "baseUrl": "https://openrouter.ai/api/v1",
+                        "apiKey": "ant-ling-key",
+                        "api": "openai-completions",
+                        "models": [{"id": "ling-or", "reasoning": True}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    alp_state = _state(tmp, alp_path, {"ANT_LING_API_KEY": "ant-ling-key"})
+    alp_spec = alp_state.find("ant-ling", "ling-or")
+    alp_on, _ = _construct_and_capture(alp_state, alp_spec, runtime_api_key=None, thinking_level="high")
+    alp_ok = "reasoning" not in alp_on["body"] and "reasoning_effort" not in alp_on["body"]
+    checks.append(Check("18_product_ant_ling_precedes_openrouter", alp_ok, "ant-ling detection precedes openrouter (silent, no map)"))
+
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"

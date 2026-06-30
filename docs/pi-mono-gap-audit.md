@@ -373,7 +373,7 @@ Follow-ons:
   The format follows Pi's `getCompat` precedence (explicit `compat.thinkingFormat`
   over `deepseek`/`deepseek.com` detection) and `supportsReasoningEffort` is
   resolved independently via Pi's `detectCompat` exclusion list. The remaining
-  completions `thinkingFormat` variants (ant-ling, string-thinking),
+  completions `thinkingFormat` variant (string-thinking),
   the DeepSeek `requiresReasoningContentOnAssistantMessages` message transform,
   and a full `detectCompat` port remain separate follow-ons;
 - (shipped) Together reasoning request shape: the `openai-completions` `together`
@@ -388,8 +388,8 @@ Follow-ons:
   exclusion list — which **includes** Together, so an auto-detected Together model
   omits `reasoning_effort` unless an explicit `supportsReasoningEffort=true` (or an
   explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. The
-  remaining completions `thinkingFormat` variants (ant-ling,
-  string-thinking) and a full `detectCompat` port remain separate follow-ons;
+  remaining completions `thinkingFormat` variant (string-thinking) and a full
+  `detectCompat` port remain separate follow-ons;
 - (shipped) Z.ai (`zai`) reasoning request shape: the `openai-completions` `zai`
   thinking format now emits a single top-level boolean `enable_thinking` for
   reasoning-capable models (`true` on-state, a Pi-forced explicit `false`
@@ -399,7 +399,7 @@ Follow-ons:
   before `together` and `openrouter` in the `detectCompat` chain). Unlike
   DeepSeek/Together, the `zai` branch never consults `supportsReasoningEffort`, so
   no `reasoning_effort` is ever added. The remaining completions `thinkingFormat`
-  variants (ant-ling, string-thinking) and a full `detectCompat` port remain
+  variant (string-thinking) and a full `detectCompat` port remain
   separate follow-ons;
 - (shipped) Qwen (`qwen` / `qwen-chat-template`) reasoning request shape: both are
   the same `enable_thinking` bare-boolean family as `zai`. The `openai-completions`
@@ -412,7 +412,20 @@ Follow-ons:
   `detectCompat` has no `qwen` rung, so they are reached only via an explicit
   `compat.thinkingFormat` and add no provider/base-URL detection. Like `zai` they
   never consult `supportsReasoningEffort`. The remaining completions
-  `thinkingFormat` variants (ant-ling, string-thinking) and a full `detectCompat`
+  `thinkingFormat` variant (string-thinking) and a full `detectCompat`
+  port remain separate follow-ons;
+- (shipped) ant-ling reasoning request shape: the `openai-completions` `ant-ling`
+  thinking format now emits a nested `reasoning: {effort: <mapped>}` object on the
+  on-state only, matching Pi `openai-completions.ts:581-585`. The effort is the
+  **raw** `thinkingLevelMap[level]` lookup with no `?? level` fallback (emitted
+  only when that lookup is a string, so a model with no map emits nothing), the
+  off-state is fully **silent** (the only emitting completions variant with no
+  off-state shape), and `supportsReasoningEffort` is never consulted. Unlike
+  `qwen`/`string-thinking`, `ant-ling` **is** auto-detected — Pi's `detectCompat`
+  `thinkingFormat` chain has an `isAntLing` rung ordered after `together` and
+  before `openrouter`, so pipy adds both the detection rung at that position and
+  the request-shape branch (covered by conformance items 18m, 18n). The remaining
+  completions `thinkingFormat` variant (string-thinking) and a full `detectCompat`
   port remain separate follow-ons;
 - broader local-provider maturity and benchmarking.
 

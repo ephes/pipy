@@ -387,8 +387,16 @@ The highest-impact remaining gaps are now:
    `qwen-chat-template` nests it in a `chat_template_kwargs` object with a constant
    `preserve_thinking: true`, both with **no** `reasoning_effort` and both
    explicit-compat-only (Pi's `detectCompat` has no `qwen` rung), matching
-   `openai-completions.ts:558-564`. The remaining completions `thinkingFormat`
-   variants (ant-ling, string-thinking) and a full `detectCompat` port
+   `openai-completions.ts:558-564`; and the ant-ling reasoning request shape —
+   the `openai-completions` `ant-ling` thinking format now emits a nested
+   `reasoning: {effort: <mapped>}` object on the on-state only, using the **raw**
+   `thinkingLevelMap[level]` lookup with no `?? level` fallback (so a model with no
+   map emits nothing), a fully **silent** off-state, and never consulting
+   `supportsReasoningEffort`. Unlike `qwen`/`string-thinking`, `ant-ling` is
+   auto-detected (`isAntLing` rung ordered after `together` and before
+   `openrouter`), so pipy adds both the detection rung and the request-shape branch,
+   matching `openai-completions.ts:581-585`. The remaining completions
+   `thinkingFormat` variant (string-thinking) and a full `detectCompat` port
    remain follow-ons.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped

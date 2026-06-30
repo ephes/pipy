@@ -237,9 +237,8 @@ Remaining adapter/product follow-ons:
   still-thinking-and-clamp), mirroring the `anthropic-messages`
   `thinking: {type: "disabled"}` off-state gate. The on-state nested
   `reasoning: {effort: <level>}` emission is unchanged. Covered by conformance
-  item 18 (18d). The other completions `thinkingFormat` variants (ant-ling,
-  string-thinking) and a full `detectCompat` port remain separate
-  follow-ons.
+  item 18 (18d). The other completions `thinkingFormat` variant (string-thinking) and a
+  full `detectCompat` port remain separate follow-ons.
 
 - DeepSeek reasoning request shape has shipped: for the `openai-completions`
   `deepseek` thinking format, a reasoning-capable model emits a top-level
@@ -258,9 +257,9 @@ Remaining adapter/product follow-ons:
   the model being reasoning-capable and the raw level being off/unset (an
   unsupported clamped level emits neither, since pipy does not clamp — the same
   documented divergence as the OpenRouter path). Covered by conformance item 18
-  (18h). The remaining completions `thinkingFormat` variants (ant-ling,
-  string-thinking), the `requiresReasoningContentOnAssistantMessages` DeepSeek
-  message transform, and a full `detectCompat` port remain separate follow-ons.
+  (18h). The remaining completions `thinkingFormat` variant (string-thinking), the
+  `requiresReasoningContentOnAssistantMessages` DeepSeek message transform, and a
+  full `detectCompat` port remain separate follow-ons.
 
 - Together reasoning request shape has shipped: for the `openai-completions`
   `together` thinking format, a reasoning-capable model emits a top-level
@@ -283,8 +282,8 @@ Remaining adapter/product follow-ons:
   reasoning-capable and the raw level being off/unset (an unsupported clamped
   level emits neither, since pipy does not clamp — the same documented divergence
   as the DeepSeek/OpenRouter paths). Covered by conformance item 18 (18i). The
-  remaining completions `thinkingFormat` variants (ant-ling,
-  string-thinking) and a full `detectCompat` port remain separate follow-ons.
+  remaining completions `thinkingFormat` variant (string-thinking) and a full
+  `detectCompat` port remain separate follow-ons.
 
 - Z.ai (`zai`) reasoning request shape has shipped: for the `openai-completions`
   `zai` thinking format, a reasoning-capable model emits a single top-level
@@ -304,8 +303,8 @@ Remaining adapter/product follow-ons:
   off/unset (an unsupported clamped level emits neither, since pipy does not clamp
   — the same documented divergence as the DeepSeek/Together/OpenRouter paths).
   Covered by conformance item 18 (18j). The remaining completions
-  `thinkingFormat` variants (ant-ling, string-thinking) and a full
-  `detectCompat` port remain separate follow-ons.
+  `thinkingFormat` variant (string-thinking) and a full `detectCompat` port
+  remain separate follow-ons.
 - Qwen (`qwen` / `qwen-chat-template`) reasoning request shape has shipped: both
   are the same `enable_thinking` bare-boolean family as `zai`. For the
   `openai-completions` `qwen` thinking format a reasoning-capable model emits a
@@ -324,7 +323,29 @@ Remaining adapter/product follow-ons:
   reasoning-capable and the raw level being off/unset (an unsupported clamped level
   emits neither, the same no-clamp divergence as the other completions paths).
   Covered by conformance item 18 (18k, 18l). The remaining completions
-  `thinkingFormat` variants (ant-ling, string-thinking) and a full `detectCompat`
+  `thinkingFormat` variant (string-thinking) and a full `detectCompat`
+  port remain separate follow-ons.
+- ant-ling (`ant-ling`) reasoning request shape has shipped: for the
+  `openai-completions` `ant-ling` thinking format a reasoning-capable model emits a
+  nested `reasoning: {effort: <mapped>}` object **only** on the on-state, matching
+  Pi's `thinkingFormat === "ant-ling"` branch (`openai-completions.ts:581-585`).
+  The effort value is the **raw** `thinkingLevelMap[level]` lookup with **no**
+  `?? level` fallback (unlike DeepSeek/Together/OpenRouter), so it is emitted only
+  when that lookup is a string — a reasoning-capable ant-ling model with no
+  `thinkingLevelMap` emits nothing. ant-ling is the only emitting completions
+  variant with a fully **silent** off-state: off/unset emits neither `reasoning`
+  nor `reasoning_effort` (the Pi branch is gated on `options.reasoningEffort`). It
+  never consults `supportsReasoningEffort` (no top-level `reasoning_effort` is ever
+  emitted, even though ant-ling is in Pi's `supportsReasoningEffort` exclusion
+  list). The format is resolved with Pi's `getCompat` precedence (explicit
+  `compat.thinkingFormat` over the `ant-ling`/`api.ant-ling.com` provider/base-URL
+  detection, which Pi's `detectCompat` chain evaluates **after** `together` and
+  **before** `openrouter` — so an ant-ling row on an openrouter.ai base URL
+  resolves to the `ant-ling` shape). The dedicated branch consumes all
+  ant-ling-format cases so a non-reasoning ant-ling model that declares a
+  `thinkingLevelMap` does not leak a top-level `reasoning_effort` through the
+  default branch. Covered by conformance item 18 (18m, 18n). The remaining
+  completions `thinkingFormat` variant (string-thinking) and a full `detectCompat`
   port remain separate follow-ons.
 
 Recently shipped closeout wiring:
@@ -589,7 +610,7 @@ built-in). `thinkingLevelMap` and `compat` are deep-merged.
   (`max_completion_tokens`|`max_tokens`), `requiresToolResultName`,
   `requiresAssistantAfterToolResult`, `requiresThinkingAsText`,
   `requiresReasoningContentOnAssistantMessages`, `thinkingFormat`
-  (`openai`|`openrouter`|`together`|`deepseek`|`zai`|`qwen`|`qwen-chat-template`),
+  (`openai`|`openrouter`|`together`|`deepseek`|`zai`|`qwen`|`qwen-chat-template`|`ant-ling`),
   `cacheControlFormat` (`anthropic`), `openRouterRouting`,
   `vercelGatewayRouting`, `supportsStrictMode`, `supportsLongCacheRetention`.
 - OpenAI Responses compat: `sendSessionIdHeader`, `supportsLongCacheRetention`.

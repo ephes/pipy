@@ -136,7 +136,9 @@ def resolve_construction(
     # ``reasoning: {enabled}`` object (both plus a top-level ``reasoning_effort``
     # when supported); Z.ai and Qwen send a bare ``enable_thinking`` boolean
     # (Qwen-chat-template nests it in ``chat_template_kwargs`` with
-    # ``preserve_thinking: true``) with no ``reasoning_effort``; the OpenAI-style
+    # ``preserve_thinking: true``) with no ``reasoning_effort``; ant-ling sends a
+    # nested ``reasoning: {effort}`` on the on-state only (silent off-state, raw
+    # map lookup, never ``reasoning_effort``); the OpenAI-style
     # default uses the top-level ``reasoning_effort``. ``thinking_format`` follows
     # Pi's getCompat
     # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
@@ -223,10 +225,25 @@ def resolve_construction(
                 reasoning_effort = reasoning_value
         elif thinking_off:
             body_extra["reasoning"] = {"enabled": False}
+    elif thinking_format == "ant-ling":
+        # ``reasoning: {effort}`` is the entire ant-ling thinking shape
+        # (openai-completions.ts:581-585): emitted ONLY on the on-state and ONLY
+        # when the RAW ``thinkingLevelMap[level]`` lookup is a string. Unlike
+        # deepseek/together/openrouter there is no ``?? level`` fallback (a model
+        # with no map emits nothing), there is NO off-state emission at all (the Pi
+        # branch gates on ``options.reasoningEffort``), and ``reasoning_effort`` /
+        # ``supportsReasoningEffort`` are never consulted. The branch is
+        # unconditional on ``thinking_format`` (not gated on ``spec.reasoning``) so
+        # a non-reasoning ant-ling row that declares a ``thinking_level_map`` can
+        # never fall through to the default ``reasoning_effort`` branch below —
+        # ``_ant_ling_effort`` returns ``None`` for it.
+        effort = _ant_ling_effort(spec, thinking_level)
+        if effort is not None:
+            body_extra["reasoning"] = {"effort": effort}
     elif reasoning_value is not None:
         # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
-        # formats (ant-ling/string-thinking) resolve to their own name and fall
-        # here unchanged — a documented deferral, not a regression.
+        # format (string-thinking) resolves to its own name and falls here
+        # unchanged — a documented deferral, not a regression.
         reasoning_effort = reasoning_value
 
     # Pi makes the off-state explicit for reasoning-capable anthropic-messages
@@ -303,20 +320,20 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     overrides provider/base-URL detection; openai-completions.ts:1174). Only the
     formats pipy emits a distinct request shape for are detected by name —
     ``openrouter`` (nested ``reasoning``), ``deepseek`` (``thinking`` object),
-    ``zai`` (``enable_thinking`` boolean), and ``together``
-    (``reasoning: {enabled}``); every other model resolves to ``"openai"``
-    (top-level ``reasoning_effort``). The ``qwen`` / ``qwen-chat-template`` formats
-    are also emitted by the request-shape block but are **explicit-compat-only** —
-    Pi's ``detectCompat`` has no ``isQwen`` rung, so they are reached only through
-    the explicit ``model.compat.thinkingFormat`` branch above and add no detection
-    here. The remaining Pi formats (ant-ling/string-thinking) are deferred
-    follow-ons and fall through to the default. The detection order mirrors Pi's
-    ``detectCompat``
-    ``thinkingFormat`` chain (isDeepSeek > isZai > isTogether > isAntLing >
-    isOpenRouter; openai-completions.ts:1126-1136), so ``zai`` is tested before
-    ``together`` and ``openrouter`` (the deferred ``ant-ling`` rung between
-    ``together`` and ``openrouter`` falls through to the default without reordering
-    the implemented rungs).
+    ``zai`` (``enable_thinking`` boolean), ``together`` (``reasoning: {enabled}``),
+    and ``ant-ling`` (``reasoning: {effort}``); every other model resolves to
+    ``"openai"`` (top-level ``reasoning_effort``). The ``qwen`` /
+    ``qwen-chat-template`` formats are also emitted by the request-shape block but
+    are **explicit-compat-only** — Pi's ``detectCompat`` has no ``isQwen`` rung, so
+    they are reached only through the explicit ``model.compat.thinkingFormat``
+    branch above and add no detection here. The remaining Pi format
+    (``string-thinking``) is a deferred follow-on and falls through to the default.
+    The detection order mirrors Pi's ``detectCompat`` ``thinkingFormat`` chain
+    (isDeepSeek > isZai > isTogether > isAntLing > isOpenRouter;
+    openai-completions.ts:1126-1136), so ``zai`` is tested before ``together``,
+    ``together`` before ``ant-ling``, and ``ant-ling`` before ``openrouter`` (a
+    collision row matching both ``ant-ling`` and ``openrouter`` resolves to
+    ``ant-ling``).
     """
 
     compat = spec.compat if isinstance(spec.compat, dict) else {}
@@ -335,6 +352,8 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
         or "api.together.xyz" in base_url
     ):
         return "together"
+    if provider == "ant-ling" or "api.ant-ling.com" in base_url:
+        return "ant-ling"
     if provider == "openrouter" or "openrouter.ai" in base_url:
         return "openrouter"
     return "openai"
@@ -376,6 +395,28 @@ def _openrouter_off_effort(spec: NativeModelSpec) -> str | None:
     if "off" not in spec.thinking_level_map:
         return "none"
     return spec.thinking_level_map["off"]
+
+
+def _ant_ling_effort(spec: NativeModelSpec, thinking_level: str | None) -> str | None:
+    """Resolve the ant-ling on-state ``reasoning.effort`` value, or ``None``.
+
+    Mirrors Pi's ant-ling branch (openai-completions.ts:581-585):
+    ``effort = model.thinkingLevelMap?.[options.reasoningEffort]`` emitted only
+    when ``typeof effort === "string"``. This is the **raw** map lookup with **no**
+    ``?? options.reasoningEffort`` fallback, so it deliberately does NOT reuse
+    pipy's ``map_thinking_level`` (which falls back to the requested level when a
+    model declares no map). Returns ``None`` — emitting nothing — for the off/unset
+    state, a non-reasoning model, an absent ``thinking_level_map``, or a level that
+    does not map to a string. ant-ling never consults ``supportsReasoningEffort``.
+    """
+
+    if not thinking_level or thinking_level == "off" or not spec.reasoning:
+        return None
+    level_map = spec.thinking_level_map
+    if not level_map:
+        return None
+    value = level_map.get(thinking_level)
+    return value if isinstance(value, str) else None
 
 
 # API families that are fully catalog-constructed here, mapped to the path

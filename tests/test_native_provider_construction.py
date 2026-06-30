@@ -904,6 +904,167 @@ def test_qwen_chat_template_reaches_request_body(tmp_path):
     assert "reasoning_effort" not in body_off
 
 
+# ---- ant-ling thinking format (auto-detected rung) --------------------------
+#
+# Pi's detectCompat thinkingFormat chain DOES have an ant-ling rung
+# (isAntLing = provider "ant-ling" or api.ant-ling.com base URL), placed AFTER
+# isTogether and BEFORE isOpenRouter (openai-completions.ts:1126-1136), so this
+# block exercises auto-detection plus precedence, unlike the explicit-only qwen
+# block. The ant-ling request-shape branch (openai-completions.ts:581-585) is the
+# only emitting completions variant with a fully SILENT off-state, and it uses the
+# RAW thinkingLevelMap lookup with NO `?? level` fallback (a model with no map
+# emits nothing) and never consults supportsReasoningEffort.
+
+
+def _ant_ling_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="ant-ling",
+        model_id="ling-1t-thinking",
+        display_name="Ant Ling 1T Thinking",
+        api="openai-completions",
+        base_url="https://api.ant-ling.com/v1",
+        reasoning=True,
+        thinking_level_map={"high": "hi"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_al(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={"ANT_LING_API_KEY": "k"},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_ant_ling_on_state_emits_mapped_reasoning_effort_object(tmp_path):
+    # Pi ant-ling (openai-completions.ts:581-585): on the on-state emit
+    # reasoning:{effort} where effort is the RAW thinkingLevelMap[level] value (the
+    # mapped "hi", proving it is the map result and not the raw requested "high").
+    # No top-level reasoning_effort.
+    resolved = _resolve_al(_ant_ling_spec(), tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"effort": "hi"}
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_off_state_is_silent(tmp_path):
+    # Unlike every other emitting completions variant, ant-ling has NO off-state
+    # emission at all (the branch gates on options.reasoningEffort), so off/unset
+    # emits neither a reasoning object nor reasoning_effort.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_al(_ant_ling_spec(), tmp_path, thinking_level)
+        assert "reasoning" not in resolved.body_extra
+        assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_non_reasoning_model_emits_neither(tmp_path):
+    # Pi gates the branch on model.reasoning; a non-reasoning ant-ling row emits
+    # nothing even with a level requested.
+    resolved = _resolve_al(_ant_ling_spec(reasoning=False), tmp_path, "high")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_non_reasoning_with_map_does_not_leak_reasoning_effort(tmp_path):
+    # Regression (review finding): the ant-ling branch is unconditional on
+    # thinking_format so a non-reasoning ant-ling model that declares a
+    # thinkingLevelMap can NOT fall through to the default reasoning_effort branch.
+    # map_thinking_level keys off supported_thinking_levels (the map keys) ignoring
+    # model.reasoning, so without the dedicated branch consuming the case this would
+    # wrongly emit a top-level reasoning_effort; Pi emits nothing.
+    spec = _ant_ling_spec(reasoning=False, thinking_level_map={"high": "hi"})
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_unsupported_level_emits_neither(tmp_path):
+    # An unsupported level clamps to None (pipy does not clamp like Pi); the raw
+    # level is neither None nor "off", so the on-state does not fire and ant-ling
+    # has no off-state, leaving the request bare.
+    resolved = _resolve_al(_ant_ling_spec(), tmp_path, "medium")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_no_thinking_level_map_emits_nothing(tmp_path):
+    # Crux raw-lookup divergence: ant-ling uses model.thinkingLevelMap?.[level]
+    # with NO `?? level` fallback, so a reasoning ant-ling model with no map emits
+    # NOTHING even on the on-state — even though pipy's map_thinking_level would
+    # otherwise yield the raw requested level.
+    spec = _ant_ling_spec(thinking_level_map={})
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_ignores_supports_reasoning_effort(tmp_path):
+    # INVERSE secondary-flag guard: ant-ling never reads supportsReasoningEffort, so
+    # an explicit compat.supportsReasoningEffort=True still yields only the nested
+    # reasoning:{effort} object and never a top-level reasoning_effort.
+    spec = _ant_ling_spec(compat={"supportsReasoningEffort": True})
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"effort": "hi"}
+    assert resolved.reasoning_effort is None
+
+
+def test_ant_ling_thinking_reaches_request_body(tmp_path):
+    # The reasoning object is a request-shape field; it must survive end-to-end onto
+    # the wire through the completions adapter's body plumbing, and the silent
+    # off-state must leave both fields off the wire.
+    on = _resolve_al(_ant_ling_spec(), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["reasoning"] == {"effort": "hi"}
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_al(_ant_ling_spec(), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert "reasoning" not in body_off
+    assert "reasoning_effort" not in body_off
+
+
+def test_ant_ling_detection_precedes_openrouter(tmp_path):
+    # Pi's detectCompat chain evaluates isAntLing before isOpenRouter
+    # (openai-completions.ts:1126-1136). With NO map, ant-ling emits nothing while
+    # an openrouter resolution would emit reasoning:{effort:"high"} via its
+    # fallback-bearing value, so the absent reasoning object proves the ant-ling
+    # rung won the collision row.
+    spec = _ant_ling_spec(
+        base_url="https://openrouter.ai/api/v1", thinking_level_map={}
+    )
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert "reasoning" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_together_detection_precedes_ant_ling(tmp_path):
+    # isTogether is earlier than isAntLing in the chain, so an ant-ling provider on
+    # a together base URL resolves to the together shape (reasoning:{enabled}), not
+    # the ant-ling reasoning:{effort}.
+    spec = _ant_ling_spec(base_url="https://api.together.xyz/v1")
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert resolved.body_extra["reasoning"] == {"enabled": True}
+    assert resolved.reasoning_effort is None
+
+
+def test_explicit_openrouter_format_wins_over_ant_ling(tmp_path):
+    # getCompat precedence: an explicit compat.thinkingFormat="openrouter" on an
+    # ant-ling provider/base URL uses the nested openrouter reasoning object
+    # (mapped value), not the ant-ling branch.
+    spec = _ant_ling_spec(compat={"thinkingFormat": "openrouter"})
+    resolved = _resolve_al(spec, tmp_path, "high")
+    assert resolved.body_extra.get("reasoning") == {"effort": "hi"}
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).
