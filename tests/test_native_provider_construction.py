@@ -354,6 +354,34 @@ def test_openrouter_unsupported_level_does_not_emit_off_state(tmp_path):
     assert "reasoning" not in resolved.body_extra
 
 
+def test_openrouter_off_state_reaches_request_body(tmp_path):
+    # The off-state is itself a request-shape field to match: like the anthropic
+    # thinking:{type:"disabled"} off-state, the OpenRouter reasoning:{effort:"none"}
+    # disable must survive end-to-end onto the wire through the completions
+    # adapter's extra_body plumbing, not merely sit in resolved.body_extra. Mirror
+    # test_anthropic_disabled_thinking_when_reasoning_model_off at the adapter
+    # boundary so a regression in build_provider's extra_body wiring is caught.
+    for thinking_level in (None, "off"):
+        resolved = _resolve_or(_openrouter_spec(), tmp_path, thinking_level)
+        http = CapturingHTTPClient()
+        build_provider(resolved, http_client=http).complete(_request(tmp_path))
+        assert http.requests[-1]["body"]["reasoning"] == {"effort": "none"}
+
+
+def test_openrouter_unsupported_level_emits_no_reasoning_on_wire(tmp_path):
+    # The clamped-away level must also stay off the wire, not just out of
+    # body_extra: Pi treats it as still-thinking-and-clamp, so no reasoning key is
+    # sent for the off-state. (No reasoning_effort either, since map_thinking_level
+    # returned None.)
+    spec = _openrouter_spec(thinking_level_map={"high": "high"})
+    resolved = _resolve_or(spec, tmp_path, "medium")
+    http = CapturingHTTPClient()
+    build_provider(resolved, http_client=http).complete(_request(tmp_path))
+    body = http.requests[-1]["body"]
+    assert "reasoning" not in body
+    assert "reasoning_effort" not in body
+
+
 def test_explicit_models_json_authorization_header_preserved(tmp_path):
     # A models.json headers.Authorization without authHeader must be preserved,
     # not overwritten by a Bearer api_key (Pi only overwrites when authHeader).
