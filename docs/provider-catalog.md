@@ -103,9 +103,11 @@ Tier 2 catalog construction (shipped 2026-06-03):
 - `google-generative-ai`, `azure-openai-responses`, and `cloudflare-workers-ai`
   are catalog-constructed by `build_provider` with per-family endpoint
   composition: google builds `base_url/v1beta/models/{model}:generateContent`
-  with the key as the `?key=` query param (no auth header); azure composes
-  `base_url/openai/deployments/{model}/responses?api-version=...` with the
-  `api-key` header and the Responses `reasoning.effort` thinking shape;
+  with the key as the `?key=` query param (no auth header); azure normalizes the
+  base to Pi's `/openai/v1` surface and composes
+  `{normalized_base}/responses?api-version={api_version}` (default `v1`) with the
+  deployment as the body `model` field, the `api-key` header, and the Responses
+  `reasoning.effort` thinking shape;
   cloudflare substitutes `{ENV}` placeholders (e.g. `{CLOUDFLARE_ACCOUNT_ID}`)
   into the `base_url` — failing closed if a referenced var is unset, matching
   Pi's `resolveCloudflareBaseUrl` — appends `/chat/completions`, sends the
@@ -175,12 +177,21 @@ Remaining adapter/product follow-ons:
   (amazon-bedrock.ts:943-949) — it has no disabled shape — and pipy's bedrock
   adapter already omits `thinking` when no effort is resolved, so it is already
   Pi-correct.
-- Azure URL/api-version parity: the azure adapter uses the classic
-  deployment-path surface (`/openai/deployments/{deployment}/responses?api-version=2024-12-01-preview`),
-  a deliberate hand-rolled analogue of Pi's `AzureOpenAI` SDK (which normalizes
-  to a `/openai/v1` base with `api-version=v1`). Aligning the adapter's
-  URL/api-version to Pi's `/openai/v1` form is a separate azure-adapter
-  follow-on; catalog construction reuses the existing adapter contract.
+- Azure URL/api-version parity has shipped: the azure adapter now matches Pi's
+  `AzureOpenAI` SDK v1 surface. The default api-version is `v1` (overridable by
+  `AZURE_OPENAI_API_VERSION`); Azure-host base URLs (`*.openai.azure.com`,
+  `*.cognitiveservices.azure.com`) whose path is empty/`/`/`/openai` are
+  normalized to `/openai/v1` (mirroring Pi's `normalizeAzureBaseUrl`); the
+  request URL is `{normalized_base}/responses?api-version={api_version}` (the
+  deployment is no longer a URL path segment); and the deployment name is carried
+  as the body `model` field (Pi's `buildParams` sets `model: deploymentName`).
+  Custom/non-Azure base URLs are respected verbatim. Covered by conformance
+  item 21. Remaining Azure config-source conveniences in Pi are separate
+  follow-ons: building a default base URL from `AZURE_OPENAI_RESOURCE_NAME`, the
+  `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` model->deployment map, and the
+  `AZURE_OPENAI_BASE_URL` env name (pipy resolves the base via
+  `AZURE_OPENAI_ENDPOINT`/catalog `base_url` and the deployment via the adapter's
+  `deployment` field).
 
 Recently shipped closeout wiring:
 

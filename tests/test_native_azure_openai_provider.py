@@ -70,7 +70,7 @@ def _build_provider(
     model_id: str = "gpt-4o-deployment",
     endpoint_url: str | None = "https://my-resource.openai.azure.com",
     api_key: str | None = "azure-key-test",
-    api_version: str = "2024-12-01-preview",
+    api_version: str = "v1",
     deployment: str | None = None,
 ) -> AzureOpenAIResponsesProvider:
     return AzureOpenAIResponsesProvider(
@@ -238,8 +238,8 @@ def test_http_429_returns_failed_result(tmp_path):
     ).encode("utf-8")
     http_error = urllib.error.HTTPError(
         url=(
-            "https://my-resource.openai.azure.com/openai/deployments/"
-            "gpt-4o-deployment/responses?api-version=2024-12-01-preview"
+            "https://my-resource.openai.azure.com/openai/v1/responses"
+            "?api-version=v1"
         ),
         code=429,
         msg="Too Many Requests",
@@ -330,7 +330,10 @@ def test_uses_api_key_header_not_authorization(tmp_path):
     assert "Authorization" not in headers
 
 
-def test_url_includes_deployment_and_api_version(tmp_path):
+def test_url_uses_openai_v1_surface_and_api_version(tmp_path):
+    # Pi parity: the AzureOpenAI SDK normalizes an Azure host to a /openai/v1
+    # base and posts to <base>/responses?api-version=v1; the deployment is the
+    # body ``model`` field, not a URL path segment.
     client = FakeJsonHTTPClient(
         JsonResponse(
             status_code=200,
@@ -341,19 +344,19 @@ def test_url_includes_deployment_and_api_version(tmp_path):
         client,
         model_id="gpt-4o-deployment",
         endpoint_url="https://my-resource.openai.azure.com/",
-        api_version="2024-12-01-preview",
+        api_version="v1",
     )
 
     provider.complete(_provider_request(tmp_path))
 
     posted_url = client.requests[0]["url"]
     assert posted_url == (
-        "https://my-resource.openai.azure.com/openai/deployments/"
-        "gpt-4o-deployment/responses?api-version=2024-12-01-preview"
+        "https://my-resource.openai.azure.com/openai/v1/responses?api-version=v1"
     )
+    assert client.requests[0]["body"]["model"] == "gpt-4o-deployment"
 
 
-def test_url_uses_explicit_deployment_when_supplied(tmp_path):
+def test_url_uses_explicit_deployment_as_body_model(tmp_path):
     client = FakeJsonHTTPClient(
         JsonResponse(
             status_code=200,
@@ -369,9 +372,54 @@ def test_url_uses_explicit_deployment_when_supplied(tmp_path):
 
     provider.complete(_provider_request(tmp_path))
 
-    posted_url = client.requests[0]["url"]
-    assert (
-        "/openai/deployments/prod-gpt4/responses?api-version=" in posted_url
+    posted = client.requests[0]
+    assert posted["url"] == (
+        "https://my-resource.openai.azure.com/openai/v1/responses?api-version=v1"
+    )
+    # The deployment moves to the body ``model`` field (Pi buildParams).
+    assert posted["body"]["model"] == "prod-gpt4"
+
+
+def test_non_azure_host_base_url_is_left_unnormalized(tmp_path):
+    # A custom gateway base URL is respected verbatim; only /responses and the
+    # api-version query are appended (mirrors Pi normalizeAzureBaseUrl).
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={"status": "completed", "output_text": "ok"},
+        )
+    )
+    provider = _build_provider(
+        client,
+        endpoint_url="https://gateway.example.com/azure-proxy/",
+        api_version="v1",
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["url"] == (
+        "https://gateway.example.com/azure-proxy/responses?api-version=v1"
+    )
+
+
+def test_azure_host_with_existing_path_is_left_unnormalized(tmp_path):
+    # An Azure host that already carries a non-trivial path is not rewritten.
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={"status": "completed", "output_text": "ok"},
+        )
+    )
+    provider = _build_provider(
+        client,
+        endpoint_url="https://my-resource.openai.azure.com/custom/base",
+        api_version="v1",
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["url"] == (
+        "https://my-resource.openai.azure.com/custom/base/responses?api-version=v1"
     )
 
 

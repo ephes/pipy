@@ -35,7 +35,8 @@ _PROVIDER_BASE_URL: dict[str, str] = {
     "google-vertex": "https://aiplatform.googleapis.com",
     "mistral": "https://api.mistral.ai/v1",
     "amazon-bedrock": "https://bedrock-runtime.us-east-1.amazonaws.com",
-    # Azure resource root; construction appends /openai/deployments/{deployment}.
+    # Azure resource root; the adapter normalizes Azure hosts to /openai/v1 and
+    # appends /responses?api-version=v1 (deployment carried as the body model).
     "azure-openai": "https://azure-openai.example",
     # Cloudflare embeds the account id via a {ENV} placeholder (Pi-style);
     # construction substitutes it and appends /chat/completions.

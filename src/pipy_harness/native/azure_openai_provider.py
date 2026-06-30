@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -32,11 +33,37 @@ from pipy_harness.native.tools.messages import (
 )
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
-DEFAULT_AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+DEFAULT_AZURE_OPENAI_API_VERSION = "v1"
+# Azure host suffixes for which the base URL is normalized to ``/openai/v1``,
+# matching Pi's ``normalizeAzureBaseUrl`` (azure-openai-responses.ts).
+_AZURE_HOST_SUFFIXES = (".openai.azure.com", ".cognitiveservices.azure.com")
 AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
+
+
+def _normalize_azure_base_url(base_url: str) -> str:
+    """Normalize an Azure base URL to Pi's ``/openai/v1`` surface.
+
+    Mirrors ``normalizeAzureBaseUrl`` in Pi's ``azure-openai-responses.ts``:
+    for an Azure host (``*.openai.azure.com`` / ``*.cognitiveservices.azure.com``)
+    whose path is empty/``/``/``/openai``, rewrite the path to ``/openai/v1`` and
+    drop the query so the request becomes
+    ``<host>/openai/v1/responses?api-version=...``. Any other base URL (custom
+    gateway, or an Azure host already carrying a path) is returned trimmed with
+    trailing slashes stripped, otherwise unchanged.
+    """
+
+    trimmed = base_url.strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(trimmed)
+    hostname = (parsed.hostname or "").lower()
+    is_azure_host = any(hostname.endswith(suffix) for suffix in _AZURE_HOST_SUFFIXES)
+    normalized_path = parsed.path.rstrip("/")
+    if is_azure_host and normalized_path in ("", "/openai"):
+        rebuilt = parsed._replace(path="/openai/v1", query="")
+        return urllib.parse.urlunsplit(rebuilt).rstrip("/")
+    return trimmed
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,17 +112,22 @@ class AzureOpenAIResponsesProvider:
     """Azure OpenAI Responses API provider behind ProviderPort.
 
     ``model_id`` doubles as the Azure deployment name unless ``deployment``
-    is set explicitly. The endpoint URL is composed as
-    ``{endpoint_url}/openai/deployments/{deployment}/responses?api-version={api_version}``.
-    Authentication uses the ``api-key`` header (Azure's convention), not
-    ``Authorization: Bearer``.
+    is set explicitly. The endpoint URL is composed as Pi's ``AzureOpenAI`` SDK
+    v1 surface: the base URL is normalized to ``/openai/v1`` for Azure hosts and
+    the request is ``{normalized_base}/responses?api-version={api_version}``
+    (default ``api-version=v1``), with the deployment carried as the body
+    ``model`` field rather than in the URL path. Authentication uses the
+    ``api-key`` header (Azure's convention), not ``Authorization: Bearer``.
 
-    This is the classic Azure OpenAI deployment-path surface, a deliberate
-    hand-rolled analogue of Pi (which delegates URL composition to the
-    ``AzureOpenAI`` SDK with a ``/openai/v1`` base and ``api-version=v1``).
-    Catalog construction reuses this existing adapter contract; aligning the
-    URL/api-version to Pi's ``/openai/v1`` normalization is a separate
-    azure-adapter follow-on, not part of catalog construction.
+    This mirrors Pi (``azure-openai-responses.ts``), which delegates URL
+    composition to the ``AzureOpenAI`` SDK with a ``/openai/v1`` base and
+    ``api-version=v1``. Catalog construction reuses this adapter contract.
+    Remaining Azure config-source conveniences in Pi — building a default base
+    URL from ``AZURE_OPENAI_RESOURCE_NAME``, the
+    ``AZURE_OPENAI_DEPLOYMENT_NAME_MAP`` model->deployment map, and the
+    ``AZURE_OPENAI_BASE_URL`` env name — are separate follow-ons; pipy resolves
+    the base via ``endpoint_url`` (``AZURE_OPENAI_ENDPOINT`` / catalog
+    ``base_url``) and the deployment via the ``deployment`` field.
     """
 
     model_id: str
@@ -175,14 +207,15 @@ class AzureOpenAIResponsesProvider:
             )
 
         deployment = self.deployment or self.model_id
-        normalized_endpoint = self.endpoint_url.rstrip("/")
+        normalized_endpoint = _normalize_azure_base_url(self.endpoint_url)
         url = (
-            f"{normalized_endpoint}/openai/deployments/{deployment}/responses"
-            f"?api-version={self.api_version}"
+            f"{normalized_endpoint}/responses?api-version={self.api_version}"
         )
 
         body: dict[str, Any] = {
-            "model": self.model_id,
+            # Pi's AzureOpenAI v1 surface passes the deployment as the body
+            # ``model`` field (buildParams: ``model: deploymentName``).
+            "model": deployment,
             "instructions": request.system_prompt,
             "input": _responses_input(request),
             "store": False,

@@ -690,7 +690,7 @@ def test_azure_catalog_construction(tmp_path):
     resolved = _resolve(
         _azure_spec(),
         tmp_path,
-        {"AZURE_OPENAI_API_KEY": "azk", "AZURE_OPENAI_API_VERSION": "2024-12-01-preview"},
+        {"AZURE_OPENAI_API_KEY": "azk"},
         thinking_level="high",
     )
     http = CapturingHTTPClient()
@@ -698,10 +698,15 @@ def test_azure_catalog_construction(tmp_path):
     assert provider is not None
     provider.complete(_request(tmp_path))
     sent = http.requests[-1]
+    # Pi's AzureOpenAI v1 surface: <base>/responses?api-version=v1 (default
+    # api-version; AZURE_OPENAI_API_VERSION overrides via the environment). A
+    # non-Azure host base URL is respected verbatim (no /openai/v1
+    # normalization).
     assert sent["url"] == (
-        "https://azure-openai.example/openai/deployments/gpt-5.4/responses"
-        "?api-version=2024-12-01-preview"
+        "https://azure-openai.example/responses?api-version=v1"
     )
+    # The deployment (here the model id) is the body ``model`` field.
+    assert sent["body"]["model"] == "gpt-5.4"
     # Azure uses the api-key header, not Authorization: Bearer
     assert sent["headers"]["api-key"] == "azk"
     assert "Authorization" not in sent["headers"]

@@ -1002,7 +1002,8 @@ def _check_tier1_construction(checks, tmp: Path):
 def _check_tier2_construction(checks, tmp: Path):
     # Item 21: catalog construction for the Tier 2 composed-endpoint families.
     # google-generative-ai (model-in-path + ?key=), azure-openai-responses
-    # (deployment + api-version, api-key header), cloudflare-workers-ai (account
+    # (/openai/v1 URL + api-version=v1 + deployment body model, api-key header),
+    # cloudflare-workers-ai (account
     # id substituted into the base_url via {ENV} + OpenAI-compatible body).
 
     # 21a: google-generative-ai built-in row, key from env -> URL ?key=, no auth
@@ -1018,8 +1019,9 @@ def _check_tier2_construction(checks, tmp: Path):
     )
     checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key="))
 
-    # 21b: azure-openai-responses custom provider -> deployment + api-version URL,
-    # api-key header, reasoning.effort thinking.
+    # 21b: azure-openai-responses custom provider -> /openai/v1 URL with
+    # api-version=v1, deployment as the body model, api-key header,
+    # reasoning.effort thinking.
     az_path = tmp / "tier2_azure.json"
     az_path.write_text(
         json.dumps(
@@ -1043,14 +1045,14 @@ def _check_tier2_construction(checks, tmp: Path):
     az_spec = az_state.find("acme-azure", "gpt-x")
     az_sent, _ = _construct_and_capture(az_state, az_spec, runtime_api_key=None, thinking_level="high")
     azure_ok = (
-        az_sent["url"].startswith(
-            "https://acme.openai.azure.com/openai/deployments/gpt-x/responses?api-version="
-        )
+        az_sent["url"]
+        == "https://acme.openai.azure.com/openai/v1/responses?api-version=v1"
+        and az_sent["body"]["model"] == "gpt-x"
         and az_sent["headers"]["api-key"] == "azk"
         and "Authorization" not in az_sent["headers"]
         and az_sent["body"]["reasoning"] == {"effort": "high"}
     )
-    checks.append(Check("21_azure_construction", azure_ok, "azure-openai-responses: deployment/api-version URL + api-key header + reasoning.effort"))
+    checks.append(Check("21_azure_construction", azure_ok, "azure-openai-responses: /openai/v1 URL + api-version=v1 + deployment body model + api-key header + reasoning.effort"))
 
     # 21c: cloudflare-workers-ai built-in row -> account id substituted into the
     # base_url, /chat/completions appended, Bearer token.

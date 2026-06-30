@@ -311,7 +311,13 @@ Follow-ons:
 
 - live Anthropic and GitHub Copilot login UX;
 - Vertex API-key auth;
-- Azure URL/api-version parity;
+- (shipped) Azure URL/api-version parity: the `azure-openai-responses` adapter
+  now matches Pi's `AzureOpenAI` SDK v1 surface — default `api-version=v1`,
+  Azure-host base URLs normalized to `/openai/v1`, request URL
+  `{normalized_base}/responses?api-version=...`, and the deployment carried as
+  the body `model` field. Custom/non-Azure base URLs are respected verbatim. The
+  resource-name default-base builder, the `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`, and
+  the `AZURE_OPENAI_BASE_URL` env name remain separate config-source follow-ons;
 - (shipped) Pi's explicit `thinking: {type: "disabled"}` shape on the
   `anthropic-messages` adapter when a reasoning-capable model runs with thinking
   off/unset; the model's reasoning-capability intent is threaded through
