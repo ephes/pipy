@@ -116,6 +116,23 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    and add a test for the explicit-format-on-excluded-provider mismatch. Never
    default a secondary flag to True because the format flag's detection "implies"
    it; the different-family reviewer flags that coupling.
+   Pin per-variant in the plan whether a secondary flag even APPLIES — not every
+   `thinkingFormat` variant has one. The `enable_thinking` family (`zai`,
+   explicit-only `qwen`, and the `qwen-chat-template` `chat_template_kwargs` shape)
+   is a BARE-BOOLEAN branch: Pi emits `enable_thinking = !!options.reasoningEffort`
+   (openai-completions.ts:556-563) and NOTHING else — it never consults
+   `compat.supportsReasoningEffort` and never emits a top-level `reasoning_effort`,
+   unlike the deepseek/together branches. So do NOT add a `supportsReasoningEffort`
+   gate or a `reasoning_effort` emission to an `enable_thinking`-family branch; the
+   omission is STRUCTURAL to the branch, not a consequence of any exclusion. Note
+   the trap: `zai` (and `qwen`) ARE in `detectCompat`'s `supportsReasoningEffort`
+   exclusion list, which tempts a "zai-excluded → omit `reasoning_effort`" framing
+   — but the branch omits `reasoning_effort` because it never reads the flag, not
+   because the flag resolves false. For the `enable_thinking` family, the right
+   guard is the INVERSE test — force explicit `compat.supportsReasoningEffort=true`
+   and assert the request STILL omits `reasoning_effort` (only `enable_thinking`
+   appears) — instead of the deepseek-style explicit-format-on-excluded-provider
+   mismatch test.
    When the field is resolved by porting one rung of a Pi `detectCompat`-style
    if/else-if DETECTION CHAIN (e.g. the `thinkingFormat` chain isDeepSeek > isZai >
    isTogether > isAntLing > isOpenRouter), pin each ported rung's POSITION relative
