@@ -32,9 +32,12 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
    reviewer fanout. On ISSUES, fix and re-run the gates.
 4. **Sign-off gate.** Any edit to `skill-body.md`, `improve-body.md`, or a
    wrapper (the workflow's own instructions) additionally requires human sign-off
-   OR a judge-agent majority vote before commit. **Rejection is also gated:**
-   deciding a lesson is not worth applying requires the same sign-off — draining
-   via rejection is never free.
+   OR a judge-agent majority vote before commit. The repo operator has granted
+   standing human sign-off for runner-unattended **application** of instruction
+   lessons, but only after a real materializing edit, `just check`, and a
+   different-family CLEAN review. **Rejection is still gated:** deciding a lesson
+   is not worth applying requires attended human/judge sign-off — draining via
+   rejection is never free.
 5. **Commit the edits, naming the lesson ids.** Commit with a message that names
    the lesson id(s) it materializes (e.g. `Closes lessons: 2026-06-22-a3f9c1`),
    then capture the full commit SHA with `git rev-parse HEAD`.
@@ -42,9 +45,9 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
    CWD). **Global options `--repo`/`--ledger` must come *before* the subcommand**
    (argparse rejects them after `mark`). For each consumed lesson:
    `python3 scripts/parity_lessons.py mark <id> applied --sha <SHA>`
-   (add `--signed-off-by <human|judge>` for instruction-area lessons —
-   `target_area: skill-body` or `wrapper`; note that edits to BOTH instruction
-   bodies, `skill-body.md` AND `improve-body.md`, are recorded under
+   (add `--signed-off-by <human|judge|standing-human>` for instruction-area
+   lessons — `target_area: skill-body` or `wrapper`; note that edits to BOTH
+   instruction bodies, `skill-body.md` AND `improve-body.md`, are recorded under
    `target_area: skill-body`, so they require sign-off); for duds
    `python3 scripts/parity_lessons.py mark <id> rejected --reason "<why>"
    --signed-off-by <human|judge>`. The helper refuses to mark `applied` unless the
@@ -58,12 +61,13 @@ the workflow improves over time. Work on trunk (`main`); never self-grade.
 ## Runner unattended mode
 
 When the invocation prompt contains the marker `runner unattended mode` (the
-parity-runner sets it), apply **only** lessons that are gateable without sign-off —
-`target_area` ∈ {`docs`, `tests`, `harness`}, gated by a Pi-CLEAN review as usual —
-and **leave every instruction-area lesson (`skill-body`/`wrapper`) and every
-rejection candidate untouched and `open`**. Never block on, wait for, or fake
-human/judge sign-off in this mode. The runner surfaces the remaining open lessons
-to the operator afterward; do not attempt to drain them here.
+parity-runner sets it), apply all lessons that can be materialized and reviewed:
+`target_area` ∈ {`docs`, `tests`, `harness`, `skill-body`, `wrapper`}. For
+instruction-area applications, use the operator's standing sign-off and mark the
+lesson with `--signed-off-by standing-human` after the materializing commit. Still
+run `just check` and the required different-family review before committing and
+marking any lesson applied. Leave rejection candidates untouched and `open`; the
+standing sign-off does not authorize unattended rejection.
 
 ## Hard rules
 

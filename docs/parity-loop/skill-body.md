@@ -136,6 +136,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
      review mode whose tools can read the path. A tools-disabled reviewer given
      only a file path cannot inspect that file and must not be expected to return
      a verdict.
+   Diff-based review bundles can be diff-only: unchanged imports, helpers, and
+   nearby declarations may be invisible to the reviewer. Make new module-level
+   constructs diff-local when practical, for example by placing new constants
+   beside an existing same-kind construct that uses the same imports or helper
+   dependencies, so the hunk itself refutes import/context false positives.
    *Done-when:* CLEAN verdict (or the Operator-override stop above).
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
    testable task breakdown, written to a file. *Done-when:* numbered plan with

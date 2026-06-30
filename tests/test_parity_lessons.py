@@ -392,6 +392,25 @@ def test_mark_applied_instruction_area_requires_signoff(tmp_path: Path) -> None:
     assert parity_lessons.list_lessons(ledger)[0]["resolution"]["signed_off_by"] == "jochen"
 
 
+def test_mark_applied_instruction_area_accepts_standing_human_signoff(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    ledger = repo / "lessons.jsonl"
+    lid = parity_lessons.append_lesson(
+        ledger, _base_record(target_area="skill-body"), today="2026-06-22", rand="eeeeef"
+    )
+    sha = _commit_file(
+        repo, "docs/parity-loop/skill-body.md", f"edit\n\nCloses lessons: {lid}"
+    )
+
+    parity_lessons.mark_applied(
+        ledger, lid, sha=sha, repo_root=repo, signed_off_by="standing-human"
+    )
+
+    row = parity_lessons.list_lessons(ledger)[0]
+    assert row["status"] == "applied"
+    assert row["resolution"]["signed_off_by"] == "standing-human"
+
+
 def test_mark_unknown_id_raises(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     ledger = repo / "lessons.jsonl"

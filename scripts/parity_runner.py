@@ -341,8 +341,9 @@ def verify_no_gaps(repo: Path, head_before: str, refs_before: dict[str, str]) ->
 def _improve_prompt() -> str:
     return (
         f"Run the `parity-improve` skill in {UNATTENDED_MARKER}, in this repo, on "
-        "`main`. Do not push. Apply only lessons gateable without sign-off "
-        "(docs/tests/harness); leave instruction-area lessons and rejections open. "
+        "`main`. Do not push. Apply lessons that can be materialized and reviewed, "
+        "including instruction-area lessons using the operator's standing human "
+        "sign-off (`--signed-off-by standing-human`). Leave rejection candidates open. "
         "If there are caveats the runner should surface, write them as explicit "
         "`Caveat: ...`, `Blocked: ...`, `Failed: ...`, or `Incomplete: ...` lines."
     )

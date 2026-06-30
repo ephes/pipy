@@ -269,6 +269,7 @@ def test_lesson_gate_drains_then_exit3(tmp_path: Path) -> None:
 
     def fake_improve(prompt: str, timeout: float, log_path: Path) -> int:
         assert pr.UNATTENDED_MARKER in prompt
+        assert "--signed-off-by standing-human" in prompt
         state["open"] = 1
         return 0
 
@@ -654,6 +655,7 @@ def test_run_postloop_backlog_exit3_after_improve(tmp_path: Path) -> None:
 
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
         assert pr.UNATTENDED_MARKER in prompt
+        assert "--signed-off-by standing-human" in prompt
         state["improve_calls"] += 1
         state["open"] = 1
         return 0

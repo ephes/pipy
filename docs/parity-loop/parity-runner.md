@@ -108,6 +108,11 @@ report, it must write explicit `Caveat: ...`, `Blocked: ...`, `Failed: ...`, or
 `safety_net_child_caveats` events. Generic stderr, tool diagnostics, test output,
 or prompt text is intentionally not keyword-scanned into caveats.
 
+Runner-unattended `parity-improve` uses the operator's standing human sign-off
+for instruction-area **applications** (`skill-body`/`wrapper`) after the normal
+materializing edit, `just check`, and different-family CLEAN review. It still
+leaves rejection candidates open for attended human/judge sign-off.
+
 ## Slice reports
 
 `--report-slice [label]` creates or refreshes a Markdown report under
@@ -155,8 +160,10 @@ understanding of the new behavior and the remaining parity boundary.
   off-`main`, invalid ledger, or safety-net dirtied state.
 - `2` — startup precondition failed, so nothing ran: dirty tree or off `main` at
   start, unsafe `--run-dir`, busy lock, duplicate label, or invalid label.
-- `3` — work completed but open lessons still need human sign-off; drain them
-  with `parity-improve`, then the next run can proceed.
+- `3` — work completed but lessons remain open after the safety net, usually
+  because a rejection, blocked application, or incomplete instruction edit still
+  needs attended human/judge handling; drain or reject them with
+  `parity-improve`, then the next run can proceed.
 
 ## Schedule it
 
