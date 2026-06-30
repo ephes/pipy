@@ -105,6 +105,12 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    on that path as already matched, intentionally deferred, or known separate
    gaps. When explaining a forced-default versus upstream-default divergence, cite
    the exact Pi source/comment scope instead of generalizing beyond it.
+   If a gap source groups multiple adapters, providers, or body-family paths
+   together, verify each named path independently against the Pi source and pin
+   per-path behavior in the plan; do not rely on the audit's collective wording as
+   exact implementation scope. If one named path is already Pi-correct, correct
+   the gap-source docs and keep the slice limited to the path that actually
+   diverges.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/superpowers/specs/`). `git add` it, then run the different-family
