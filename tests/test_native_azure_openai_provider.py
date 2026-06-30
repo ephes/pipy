@@ -7,18 +7,39 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderToolCall
 from pipy_harness.native.azure_openai_provider import (
     AzureOpenAIHTTPStatusError,
     AzureOpenAIResponsesProvider,
     JsonResponse,
+    _parse_deployment_name_map,
 )
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
     UserMessage,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_azure_env(monkeypatch) -> None:
+    """Keep config resolution hermetic against the host environment.
+
+    The adapter resolves the base URL and deployment from process env at request
+    time (``AZURE_OPENAI_BASE_URL`` / ``AZURE_OPENAI_RESOURCE_NAME`` /
+    ``AZURE_OPENAI_DEPLOYMENT_NAME_MAP``); clear them so each test controls its
+    own inputs.
+    """
+
+    for name in (
+        "AZURE_OPENAI_BASE_URL",
+        "AZURE_OPENAI_RESOURCE_NAME",
+        "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 class FakeJsonHTTPClient:
@@ -269,7 +290,7 @@ def test_http_429_returns_failed_result(tmp_path):
     assert "SYSTEM_PROMPT" not in (result.error_message or "")
 
 
-def test_missing_endpoint_returns_failed_result(tmp_path):
+def test_missing_base_url_returns_failed_result(tmp_path):
     client = FakeJsonHTTPClient()
     provider = _build_provider(client, endpoint_url=None)
 
@@ -277,8 +298,130 @@ def test_missing_endpoint_returns_failed_result(tmp_path):
 
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "AzureOpenAIConfigurationError"
-    assert "endpoint URL is required" in (result.error_message or "")
+    assert "base URL is required" in (result.error_message or "")
+    assert "AZURE_OPENAI_BASE_URL" in (result.error_message or "")
     assert client.requests == []
+
+
+def test_env_base_url_overrides_catalog_endpoint(tmp_path, monkeypatch):
+    # Pi precedence: AZURE_OPENAI_BASE_URL (env) wins over model.baseUrl
+    # (the catalog/endpoint_url field).
+    monkeypatch.setenv(
+        "AZURE_OPENAI_BASE_URL", "https://env-resource.openai.azure.com"
+    )
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = _build_provider(
+        client, endpoint_url="https://catalog-resource.openai.azure.com"
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["url"] == (
+        "https://env-resource.openai.azure.com/openai/v1/responses?api-version=v1"
+    )
+
+
+def test_resource_name_env_builds_default_base(tmp_path, monkeypatch):
+    # buildDefaultBaseUrl: https://{name}.openai.azure.com/openai/v1, used when
+    # no AZURE_OPENAI_BASE_URL is set; outranks the catalog endpoint_url.
+    monkeypatch.setenv("AZURE_OPENAI_RESOURCE_NAME", "myacct")
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = _build_provider(
+        client, endpoint_url="https://catalog-resource.openai.azure.com"
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["url"] == (
+        "https://myacct.openai.azure.com/openai/v1/responses?api-version=v1"
+    )
+
+
+def test_resource_name_field_outranks_endpoint_but_not_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_BASE_URL", "https://wins.openai.azure.com")
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = AzureOpenAIResponsesProvider(
+        model_id="gpt-4o",
+        resource_name="fieldname",
+        endpoint_url="https://catalog.openai.azure.com",
+        api_key="k",
+        http_client=client,
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    # env AZURE_OPENAI_BASE_URL still wins over the resource_name field.
+    assert client.requests[0]["url"] == (
+        "https://wins.openai.azure.com/openai/v1/responses?api-version=v1"
+    )
+
+
+def test_deployment_name_map_env_resolves_deployment(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+        "other=nope,gpt-4o-deployment=prod-deploy",
+    )
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = _build_provider(client, model_id="gpt-4o-deployment")
+
+    provider.complete(_provider_request(tmp_path))
+
+    # Mapped deployment becomes the body ``model`` field.
+    assert client.requests[0]["body"]["model"] == "prod-deploy"
+
+
+def test_explicit_deployment_field_outranks_map(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "AZURE_OPENAI_DEPLOYMENT_NAME_MAP", "gpt-4o-deployment=from-map"
+    )
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = _build_provider(
+        client, model_id="gpt-4o-deployment", deployment="explicit"
+    )
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["body"]["model"] == "explicit"
+
+
+def test_deployment_name_map_unmapped_model_falls_back_to_model_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", "someone-else=x")
+    client = FakeJsonHTTPClient(
+        JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
+    )
+    provider = _build_provider(client, model_id="gpt-4o-deployment")
+
+    provider.complete(_provider_request(tmp_path))
+
+    assert client.requests[0]["body"]["model"] == "gpt-4o-deployment"
+
+
+def test_parse_deployment_name_map_edge_cases():
+    # JS split("=", 2) discards the remainder: a=b=c -> a:b.
+    assert _parse_deployment_name_map("a=b=c") == {"a": "b"}
+    # No '=' -> skipped; empty deployment / model -> skipped.
+    assert _parse_deployment_name_map("abc") == {}
+    assert _parse_deployment_name_map("a=") == {}
+    assert _parse_deployment_name_map("=x") == {}
+    # Whitespace around entries and sides is trimmed on store.
+    assert _parse_deployment_name_map(" m = d ") == {"m": "d"}
+    # Empty entries between commas are skipped.
+    assert _parse_deployment_name_map("a=b,,c=d") == {"a": "b", "c": "d"}
+    # Later duplicates win (Map.set semantics).
+    assert _parse_deployment_name_map("a=b,a=c") == {"a": "c"}
+    # Empty / None env -> empty map.
+    assert _parse_deployment_name_map("") == {}
+    assert _parse_deployment_name_map(None) == {}
 
 
 def test_missing_api_key_returns_failed_result(tmp_path):

@@ -35,6 +35,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The native `azure-openai` provider now resolves its endpoint and deployment
+  from Pi's config-source env vars: `AZURE_OPENAI_BASE_URL` (the base URL),
+  `AZURE_OPENAI_RESOURCE_NAME` (used to build a default
+  `https://{name}.openai.azure.com/openai/v1` base when no base URL is set),
+  `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` (a `modelId=deployment,...` map overriding
+  the deployment name per model id), and the existing `AZURE_OPENAI_API_VERSION`
+  — matching Pi's `resolveAzureConfig`/`resolveDeploymentName` precedence. The
+  pipy-only `AZURE_OPENAI_ENDPOINT` env name was dropped for parity; provider
+  availability now requires `AZURE_OPENAI_API_KEY` plus one of
+  `AZURE_OPENAI_BASE_URL`/`AZURE_OPENAI_RESOURCE_NAME`.
 - The native `anthropic-messages` provider now emits Pi's explicit
   `thinking: {type: "disabled"}` when a reasoning-capable Claude model runs with
   thinking off/unset, instead of omitting the `thinking` key — matching Pi's

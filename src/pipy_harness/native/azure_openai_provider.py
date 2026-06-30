@@ -43,6 +43,33 @@ AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _parse_deployment_name_map(value: str | None) -> dict[str, str]:
+    """Parse Pi's ``AZURE_OPENAI_DEPLOYMENT_NAME_MAP`` (``modelId=deployment,...``).
+
+    Mirrors ``parseDeploymentNameMap`` in Pi's ``azure-openai-responses.ts``:
+    split the value on commas; trim each entry and skip empties; split the entry
+    on ``=`` taking only the first two parts (Pi uses JS ``split("=", 2)``, which
+    **discards** any remainder, so ``a=b=c`` maps ``a -> b``); skip the entry when
+    either of those raw, pre-trim parts is empty; then store the trimmed model id
+    and deployment name. Later duplicates win (``Map.set`` semantics).
+    """
+
+    result: dict[str, str] = {}
+    if not value:
+        return result
+    for entry in value.split(","):
+        trimmed = entry.strip()
+        if not trimmed:
+            continue
+        parts = trimmed.split("=")
+        model_part = parts[0]
+        deployment_part = parts[1] if len(parts) > 1 else ""
+        if not model_part or not deployment_part:
+            continue
+        result[model_part.strip()] = deployment_part.strip()
+    return result
+
+
 def _normalize_azure_base_url(base_url: str) -> str:
     """Normalize an Azure base URL to Pi's ``/openai/v1`` surface.
 
@@ -122,18 +149,27 @@ class AzureOpenAIResponsesProvider:
     This mirrors Pi (``azure-openai-responses.ts``), which delegates URL
     composition to the ``AzureOpenAI`` SDK with a ``/openai/v1`` base and
     ``api-version=v1``. Catalog construction reuses this adapter contract.
-    Remaining Azure config-source conveniences in Pi — building a default base
-    URL from ``AZURE_OPENAI_RESOURCE_NAME``, the
-    ``AZURE_OPENAI_DEPLOYMENT_NAME_MAP`` model->deployment map, and the
-    ``AZURE_OPENAI_BASE_URL`` env name — are separate follow-ons; pipy resolves
-    the base via ``endpoint_url`` (``AZURE_OPENAI_ENDPOINT`` / catalog
-    ``base_url``) and the deployment via the ``deployment`` field.
+
+    Config-source resolution matches Pi's ``resolveAzureConfig`` /
+    ``resolveDeploymentName``:
+
+    - **Base URL** precedence (``_resolve_base_url``): env ``AZURE_OPENAI_BASE_URL``
+      (trimmed) > a default base built from the resource name (``resource_name``
+      field or env ``AZURE_OPENAI_RESOURCE_NAME``, read verbatim — Pi does not
+      trim it) as ``https://{name}.openai.azure.com/openai/v1`` >
+      ``endpoint_url`` (the catalog/models.json ``base_url``, Pi's
+      ``model.baseUrl``). The resolved base is then run through
+      ``_normalize_azure_base_url``.
+    - **Deployment** precedence: the explicit ``deployment`` field > the
+      ``AZURE_OPENAI_DEPLOYMENT_NAME_MAP`` model->deployment map lookup by
+      ``model_id`` > ``model_id`` itself.
+    - **api-version**: the ``api_version`` field (env ``AZURE_OPENAI_API_VERSION``
+      or ``v1``).
     """
 
     model_id: str
-    endpoint_url: str | None = field(
-        default_factory=lambda: os.environ.get("AZURE_OPENAI_ENDPOINT")
-    )
+    endpoint_url: str | None = None
+    resource_name: str | None = None
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY"), repr=False
     )
@@ -157,6 +193,29 @@ class AzureOpenAIResponsesProvider:
     def name(self) -> str:
         return self.provider_name
 
+    def _resolve_base_url(self) -> str | None:
+        """Resolve the effective Azure base URL (Pi ``resolveAzureConfig``)."""
+
+        env_base = os.environ.get("AZURE_OPENAI_BASE_URL")
+        if env_base and env_base.strip():
+            return env_base.strip()
+        resource_name = self.resource_name or os.environ.get(
+            "AZURE_OPENAI_RESOURCE_NAME"
+        )
+        if resource_name:
+            return f"https://{resource_name}.openai.azure.com/openai/v1"
+        return self.endpoint_url
+
+    def _resolve_deployment(self) -> str:
+        """Resolve the deployment name (Pi ``resolveDeploymentName``)."""
+
+        if self.deployment:
+            return self.deployment
+        mapped = _parse_deployment_name_map(
+            os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME_MAP")
+        ).get(self.model_id)
+        return mapped or self.model_id
+
     def complete(
         self,
         request: ProviderRequest,
@@ -179,15 +238,17 @@ class AzureOpenAIResponsesProvider:
                     f"--native-model is required for native provider {self.name}."
                 ),
             )
-        if not self.endpoint_url:
+        base_url = self._resolve_base_url()
+        if not base_url:
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type="AzureOpenAIConfigurationError",
                 error_message=(
-                    "Azure OpenAI endpoint URL is required in the environment "
-                    f"for native provider {self.name}."
+                    "Azure OpenAI base URL is required: set AZURE_OPENAI_BASE_URL "
+                    "or AZURE_OPENAI_RESOURCE_NAME (or a catalog base URL) for "
+                    f"native provider {self.name}."
                 ),
             )
         has_explicit_auth = any(
@@ -206,8 +267,8 @@ class AzureOpenAIResponsesProvider:
                 ),
             )
 
-        deployment = self.deployment or self.model_id
-        normalized_endpoint = _normalize_azure_base_url(self.endpoint_url)
+        deployment = self._resolve_deployment()
+        normalized_endpoint = _normalize_azure_base_url(base_url)
         url = (
             f"{normalized_endpoint}/responses?api-version={self.api_version}"
         )

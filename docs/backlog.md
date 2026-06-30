@@ -330,16 +330,18 @@ The highest-impact remaining gaps are now:
 3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
    the deliberate `openai-codex-responses` legacy-factory exception for
-   settings-derived retry policy, the remaining Azure config-source conveniences
-   (resource-name default-base builder, `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`,
-   `AZURE_OPENAI_BASE_URL` env name), and broader local-provider benchmarking.
+   settings-derived retry policy, and broader local-provider benchmarking.
    (Shipped: the `anthropic-messages` adaptive-thinking shape; the bedrock
    adaptive/budget `display: "summarized"` field, omitted on GovCloud; the
    explicit `anthropic-messages` `thinking: {type: "disabled"}` shape for a
    reasoning-capable model run with thinking off/unset — bedrock omits thinking
-   fields by design, matching Pi; and Azure URL/api-version parity — the
+   fields by design, matching Pi; Azure URL/api-version parity — the
    `azure-openai-responses` adapter now uses Pi's `/openai/v1` surface with
-   `api-version=v1` and the deployment as the body `model` field.)
+   `api-version=v1` and the deployment as the body `model` field; and the Azure
+   config-source conveniences — the resource-name default-base builder
+   (`AZURE_OPENAI_RESOURCE_NAME`), the `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`
+   model→deployment map, and the `AZURE_OPENAI_BASE_URL` env name, replacing the
+   pipy-only `AZURE_OPENAI_ENDPOINT`.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive

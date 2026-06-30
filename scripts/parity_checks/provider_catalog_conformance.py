@@ -1177,11 +1177,14 @@ def _check_tier3_construction(checks, tmp: Path):
     bedrock_body_ok = (
         bd_sent["url"]
         == "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-4-6-v1/invoke"
-        and bd_sent["body"]["thinking"] == {"type": "adaptive"}
+        and bd_sent["body"]["thinking"] == {
+            "type": "adaptive",
+            "display": "summarized",
+        }
         and bd_sent["body"]["output_config"] == {"effort": "high"}
         and bd_sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
     )
-    checks.append(Check("22_bedrock_thinking_body", bedrock_body_ok, "amazon-bedrock: adaptive thinking (output_config.effort) reaches the SigV4-signed body"))
+    checks.append(Check("22_bedrock_thinking_body", bedrock_body_ok, "amazon-bedrock: adaptive thinking (display + output_config.effort) reaches the SigV4-signed body"))
 
     # 22c: vertex built-in row -> GoogleVertexProvider (auth/project env-resolved).
     vx_state = _state(tmp, tmp / "tier3_vx_missing.json", {"GOOGLE_CLOUD_API_KEY": "vk"})

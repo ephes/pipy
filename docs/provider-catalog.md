@@ -186,12 +186,17 @@ Remaining adapter/product follow-ons:
   deployment is no longer a URL path segment); and the deployment name is carried
   as the body `model` field (Pi's `buildParams` sets `model: deploymentName`).
   Custom/non-Azure base URLs are respected verbatim. Covered by conformance
-  item 21. Remaining Azure config-source conveniences in Pi are separate
-  follow-ons: building a default base URL from `AZURE_OPENAI_RESOURCE_NAME`, the
-  `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` model->deployment map, and the
-  `AZURE_OPENAI_BASE_URL` env name (pipy resolves the base via
-  `AZURE_OPENAI_ENDPOINT`/catalog `base_url` and the deployment via the adapter's
-  `deployment` field).
+  item 21. The Azure config-source conveniences now match Pi's
+  `resolveAzureConfig`/`resolveDeploymentName`: the base URL resolves from env
+  `AZURE_OPENAI_BASE_URL` (trimmed) > a default base built from the resource name
+  (`resource_name` field or env `AZURE_OPENAI_RESOURCE_NAME`, read verbatim) as
+  `https://{name}.openai.azure.com/openai/v1` > the catalog/`models.json`
+  `base_url` (Pi's `model.baseUrl`); the deployment resolves from the explicit
+  `deployment` field > the `AZURE_OPENAI_DEPLOYMENT_NAME_MAP`
+  (`modelId=deployment,...`) map keyed by `model_id` > `model_id` itself; and the
+  api-version resolves from `AZURE_OPENAI_API_VERSION` or `v1`. The pipy-only
+  `AZURE_OPENAI_ENDPOINT` env name was dropped for parity with Pi's
+  `AZURE_OPENAI_BASE_URL`.
 
 Recently shipped closeout wiring:
 

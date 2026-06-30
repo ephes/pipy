@@ -154,9 +154,10 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
             NativeProviderSpec(
                 provider_name="azure-openai",
                 default_model="gpt-4o",
-                availability="env-all:AZURE_OPENAI_ENDPOINT,AZURE_OPENAI_API_KEY",
+                availability="env-azure-openai",
                 unavailable_message=(
-                    "pipy: azure-openai is unavailable because AZURE_OPENAI_ENDPOINT "
+                    "pipy: azure-openai is unavailable because none of "
+                    "AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME is set, "
                     "or AZURE_OPENAI_API_KEY is not set."
                 ),
                 supports_tool_calls=True,
@@ -235,6 +236,11 @@ def native_provider_available(
         return bool(
             env.get("GOOGLE_ACCESS_TOKEN")
             and (env.get("GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_PROJECT_ID"))
+        )
+    if availability == "env-azure-openai":
+        return bool(
+            (env.get("AZURE_OPENAI_BASE_URL") or env.get("AZURE_OPENAI_RESOURCE_NAME"))
+            and env.get("AZURE_OPENAI_API_KEY")
         )
     return False
 

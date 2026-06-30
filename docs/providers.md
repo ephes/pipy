@@ -72,7 +72,7 @@ Common built-in sources:
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `google` | `GOOGLE_API_KEY` or `GEMINI_API_KEY` |
 | `mistral` | `MISTRAL_API_KEY` |
-| `azure-openai` | `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_API_KEY` |
+| `azure-openai` | (`AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`) and `AZURE_OPENAI_API_KEY` |
 | `cloudflare` | `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` |
 | `amazon-bedrock` | AWS environment/profile credentials used by the adapter |
 | `google-vertex` | `GOOGLE_ACCESS_TOKEN`, project, and location environment |
@@ -81,6 +81,21 @@ Common built-in sources:
 `--api-key` is a runtime override for catalog-constructed providers and is kept
 out of archives. Prefer environment variables or `models.json` env-name
 references for repeatable local setup.
+
+### Azure OpenAI configuration
+
+The `azure-openai` provider resolves its endpoint and deployment from these env
+vars (matching Pi):
+
+- `AZURE_OPENAI_BASE_URL` — the base URL. Azure hosts are normalized to the
+  `/openai/v1` surface; custom gateway URLs are used verbatim.
+- `AZURE_OPENAI_RESOURCE_NAME` — used when no base URL is set, to build
+  `https://{name}.openai.azure.com/openai/v1`.
+- `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` — a `modelId=deployment,...` map that
+  overrides the deployment name per model id (otherwise the model id is the
+  deployment).
+- `AZURE_OPENAI_API_VERSION` — the API version (default `v1`).
+- `AZURE_OPENAI_API_KEY` — the `api-key` credential.
 
 ## Custom providers with `models.json`
 
