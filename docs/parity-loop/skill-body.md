@@ -99,6 +99,13 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    defaults, and any derived identifiers before implementation, so review catches
    preserved versus dropped future data or behavior instead of discovering it only
    after code exists.
+   First locate where Pi computes each request-shape field: catalog/model-registry
+   metadata, construction-time mapping, provider-local model-id logic, or a
+   delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
+   add catalog fields or construction outputs for behavior Pi computes inside the
+   provider. For provider-local logic, pin the exact Pi predicates, emitted values
+   including sentinel values, and existing pipy intent fields to reuse before
+   adding new cross-boundary state.
    When Pi delegates the concrete request shape to a vendored SDK or runtime
    helper, the Pi source file is not enough: inspect the delegated implementation
    under the reference checkout's `node_modules` (normally
