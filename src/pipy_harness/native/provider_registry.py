@@ -186,8 +186,9 @@ NATIVE_PROVIDER_REGISTRY: "OrderedDict[str, NativeProviderSpec]" = OrderedDict(
                     "GOOGLE_CLOUD_PROJECT,GOOGLE_PROJECT_ID"
                 ),
                 unavailable_message=(
-                    "pipy: google-vertex is unavailable because GOOGLE_ACCESS_TOKEN "
-                    "or GOOGLE_CLOUD_PROJECT is not set."
+                    "pipy: google-vertex is unavailable because neither "
+                    "GOOGLE_CLOUD_API_KEY nor a GOOGLE_ACCESS_TOKEN + "
+                    "GOOGLE_CLOUD_PROJECT pair is set."
                 ),
                 supports_tool_calls=True,
             ),
@@ -233,6 +234,9 @@ def native_provider_available(
         names = _split_env_names(availability.removeprefix("env-all:"))
         return all(env.get(name) for name in names)
     if availability.startswith("env-google-vertex:"):
+        # Pi: available with either a Vertex Express API key, or ADC creds.
+        if env.get("GOOGLE_CLOUD_API_KEY"):
+            return True
         return bool(
             env.get("GOOGLE_ACCESS_TOKEN")
             and (env.get("GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_PROJECT_ID"))

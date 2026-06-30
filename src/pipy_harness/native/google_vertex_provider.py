@@ -9,15 +9,21 @@ front the same Gemini models. The two providers differ in:
   ``https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/``
   ``locations/{location}/publishers/google/models/{model_id}:generateContent``
   whereas the generative-language surface uses an API key in the URL.
-- **Auth**: Vertex requires an OAuth2 Bearer access token in the
-  ``Authorization`` header. The production path obtains the token by signing
-  a Google service-account JWT (RS256) and exchanging it at
+- **Auth**: two modes, matching Pi's ``google-vertex.ts``. (1) **Vertex Express**
+  (API key): when a ``GOOGLE_CLOUD_API_KEY`` (or a forwarded resolved key) is
+  present and not a placeholder/sentinel, the request goes to the global
+  ``https://aiplatform.googleapis.com/v1/publishers/google/models/{model}``
+  ``:generateContent`` host (no project/location path) with the
+  ``x-goog-api-key`` header. (2) **ADC** (OAuth bearer): otherwise Vertex requires
+  an OAuth2 Bearer access token in the ``Authorization`` header against the
+  regional endpoint. The production ADC path obtains the token by signing a
+  Google service-account JWT (RS256) and exchanging it at
   ``https://oauth2.googleapis.com/token``. Implementing RS256 in pure stdlib
-  requires hand-rolled ASN.1 parsing of PKCS#8 private keys, which the
-  parity track's "no new runtime dependencies" invariant rules out for this
-  slice. Instead this provider accepts a pre-obtained access token via the
-  ``GOOGLE_ACCESS_TOKEN`` environment variable. Callers can produce one with
-  ``gcloud auth print-access-token`` or any other external means. Native
+  requires hand-rolled ASN.1 parsing of PKCS#8 private keys, which the parity
+  track's "no new runtime dependencies" invariant rules out for this slice.
+  Instead the ADC path accepts a pre-obtained access token via the
+  ``GOOGLE_ACCESS_TOKEN`` environment variable (produce one with
+  ``gcloud auth print-access-token`` or any other external means). Native
   JWT/service-account auth is left as a future extension.
 """
 
@@ -25,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -48,6 +55,19 @@ GOOGLE_VERTEX_ENDPOINT_TEMPLATE = (
     "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
     "locations/{location}/publishers/google/models/{model_id}:generateContent"
 )
+# Vertex Express (API-key) mode: the @google/genai SDK routes an API key to the
+# global aiplatform host with no project/location path segment
+# (index.cjs:12978-12982 baseUrl + shouldPrependVertexProjectPath:13104-13105).
+GOOGLE_VERTEX_EXPRESS_ENDPOINT_TEMPLATE = (
+    "https://aiplatform.googleapis.com/v1/publishers/google/models/"
+    "{model_id}:generateContent"
+)
+# Stored-credential sentinel that signals "use ADC", not an express API key
+# (Pi's GCP_VERTEX_CREDENTIALS_MARKER, google-vertex.ts:50).
+GCP_VERTEX_CREDENTIALS_MARKER = "gcp-vertex-credentials"
+# Placeholder pattern (e.g. "<authenticated>") rejected as an express key, per
+# Pi's resolveApiKey (google-vertex.ts:405-407).
+_PLACEHOLDER_API_KEY_RE = re.compile(r"^<[^>]+>$")
 GOOGLE_VERTEX_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("promptTokenCount", "input_tokens"),
     ("candidatesTokenCount", "output_tokens"),
@@ -111,11 +131,21 @@ class GoogleVertexProvider:
     JWT signing is a future extension. The access token is never logged or
     archived; only sanitized metadata leaves the provider boundary.
 
-    This adapter is ADC/OAuth-bearer-token only. Pi also supports a Vertex API
-    key (``GOOGLE_CLOUD_API_KEY``); pipy's catalog construction therefore does
-    not forward the resolved key as a credential (an API key is not an OAuth
-    bearer token), leaving auth env-resolved. A native Vertex API-key auth path
-    is a separate adapter follow-on.
+    The adapter supports two auth modes, matching Pi's ``google-vertex.ts``:
+
+    - **Express (API key)**: when an ``api_key`` resolves (runtime ``--api-key``,
+      stored key, or ``GOOGLE_CLOUD_API_KEY``) and is not a placeholder/sentinel,
+      the request goes to the global ``aiplatform.googleapis.com`` host with no
+      project/location path segment and the ``x-goog-api-key`` header, mirroring
+      the ``@google/genai`` Vertex Express path. No bearer token, project, or
+      location is required.
+    - **ADC (OAuth bearer)**: otherwise the request uses the regional endpoint
+      built from ``project_id`` + ``location`` and the ``Authorization: Bearer``
+      header carrying ``GOOGLE_ACCESS_TOKEN`` (a pre-obtained access token; native
+      service-account JWT signing remains a future extension).
+
+    The API key / access token is never logged or archived; only sanitized
+    metadata leaves the provider boundary.
     """
 
     model_id: str
@@ -129,6 +159,13 @@ class GoogleVertexProvider:
     )
     access_token: str | None = field(
         default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN"), repr=False
+    )
+    # Vertex Express API key. Defaults to ``GOOGLE_CLOUD_API_KEY`` for direct
+    # construction; catalog construction forwards the resolved key (which may be
+    # the ``<authenticated>`` sentinel — rejected by ``_resolve_express_api_key``
+    # so it falls back to ADC, exactly as Pi's ``resolveApiKey`` filters it).
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("GOOGLE_CLOUD_API_KEY"), repr=False
     )
     http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
     endpoint_template: str = GOOGLE_VERTEX_ENDPOINT_TEMPLATE
@@ -145,6 +182,25 @@ class GoogleVertexProvider:
     @property
     def name(self) -> str:
         return self.provider_name
+
+    def _resolve_express_api_key(self) -> str | None:
+        """Return a usable Vertex Express API key, or ``None`` for ADC.
+
+        Mirrors Pi's ``resolveApiKey`` (google-vertex.ts:397-407): trim, and
+        reject an empty string, the ``gcp-vertex-credentials`` marker, or a
+        ``<placeholder>`` value (e.g. the ``<authenticated>`` ambient sentinel).
+        """
+
+        if self.api_key is None:
+            return None
+        trimmed = self.api_key.strip()
+        if (
+            not trimmed
+            or trimmed == GCP_VERTEX_CREDENTIALS_MARKER
+            or _PLACEHOLDER_API_KEY_RE.match(trimmed)
+        ):
+            return None
+        return trimmed
 
     def complete(
         self,
@@ -168,50 +224,66 @@ class GoogleVertexProvider:
                     "--native-model is required for native provider google-vertex."
                 ),
             )
-        project_id = self.project_id.strip() if self.project_id is not None else ""
-        if not project_id:
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type="GoogleVertexConfigurationError",
-                error_message=(
-                    "Google Cloud project id is required in the environment "
-                    "for native provider google-vertex."
-                ),
+        express_key = self._resolve_express_api_key()
+        if express_key is not None:
+            # Vertex Express (API-key) mode: global host, no project/location
+            # path segment, x-goog-api-key auth. No bearer token or project
+            # required.
+            url = GOOGLE_VERTEX_EXPRESS_ENDPOINT_TEMPLATE.format(
+                model_id=urllib.parse.quote(self.model_id, safe=""),
             )
-        access_token = (
-            self.access_token.strip() if self.access_token is not None else ""
-        )
-        if not access_token:
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type="GoogleVertexAuthError",
-                error_message=(
-                    "Google Vertex AI bearer access value must be set in "
-                    "the environment for native provider google-vertex."
-                ),
+            auth_headers = {"x-goog-api-key": express_key}
+            auth_mode = "api-key"
+            location = ""
+        else:
+            project_id = (
+                self.project_id.strip() if self.project_id is not None else ""
             )
-        location = self.location.strip() if self.location else ""
-        if not location:
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type="GoogleVertexConfigurationError",
-                error_message=(
-                    "Google Cloud location is required for native provider "
-                    "google-vertex."
-                ),
+            if not project_id:
+                return failed_provider_result(
+                    request,
+                    provider_name=self.name,
+                    started_at=started_at,
+                    error_type="GoogleVertexConfigurationError",
+                    error_message=(
+                        "Google Cloud project id is required in the environment "
+                        "for native provider google-vertex."
+                    ),
+                )
+            access_token = (
+                self.access_token.strip() if self.access_token is not None else ""
             )
+            if not access_token:
+                return failed_provider_result(
+                    request,
+                    provider_name=self.name,
+                    started_at=started_at,
+                    error_type="GoogleVertexAuthError",
+                    error_message=(
+                        "Google Vertex AI bearer access value must be set in "
+                        "the environment for native provider google-vertex."
+                    ),
+                )
+            location = self.location.strip() if self.location else ""
+            if not location:
+                return failed_provider_result(
+                    request,
+                    provider_name=self.name,
+                    started_at=started_at,
+                    error_type="GoogleVertexConfigurationError",
+                    error_message=(
+                        "Google Cloud location is required for native provider "
+                        "google-vertex."
+                    ),
+                )
+            url = self.endpoint_template.format(
+                location=urllib.parse.quote(location, safe=""),
+                project_id=urllib.parse.quote(project_id, safe=""),
+                model_id=urllib.parse.quote(self.model_id, safe=""),
+            )
+            auth_headers = {"Authorization": f"Bearer {access_token}"}
+            auth_mode = "adc"
 
-        url = self.endpoint_template.format(
-            location=urllib.parse.quote(location, safe=""),
-            project_id=urllib.parse.quote(project_id, safe=""),
-            model_id=urllib.parse.quote(self.model_id, safe=""),
-        )
         body: dict[str, Any] = {
             "contents": _gemini_contents(request),
         }
@@ -228,10 +300,7 @@ class GoogleVertexProvider:
                     ],
                 }
             ]
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {access_token}",
-        }
+        headers = {"Content-Type": "application/json", **auth_headers}
         # Merged models.json/model headers.
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
@@ -272,7 +341,9 @@ class GoogleVertexProvider:
             metadata={
                 "provider_response_store_requested": False,
                 "finish_reason": result.finish_reason,
-                "google_cloud_location": location,
+                "vertex_auth_mode": auth_mode,
+                # Express mode has no region; only ADC sends a location.
+                **({"google_cloud_location": location} if location else {}),
             },
             tool_calls=result.tool_calls,
         )

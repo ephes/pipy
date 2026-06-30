@@ -15,9 +15,12 @@ composed-endpoint families ``google-generative-ai`` (model-in-path + ``?key=``),
 ``azure-openai-responses`` (deployment + api-version, ``api-key`` header) and
 ``cloudflare-workers-ai`` (account id substituted into the base URL via ``{ENV}``
 placeholders, OpenAI-compatible body), and the Tier 3 IAM families
-``amazon-bedrock`` (SigV4) and ``google-vertex`` (ADC token) — whose credentials
-and region/project-derived endpoint stay self-resolved by the adapter from the
-environment (the resolved api key is not forwarded for these). Each adapter
+``amazon-bedrock`` (SigV4) and ``google-vertex`` (ADC token, or a forwarded
+Vertex Express ``GOOGLE_CLOUD_API_KEY``) — whose ADC/SigV4 credentials and
+region/project-derived endpoint stay self-resolved by the adapter from the
+environment (bedrock's resolved api key is not forwarded; vertex's IS, so the
+adapter can use Express api-key mode and otherwise falls back to ADC). Each
+adapter
 places the mapped thinking effort in its own native body key
 (completions/cloudflare: top-level ``reasoning_effort``; responses/azure:
 ``reasoning.effort``; anthropic/bedrock: adaptive ``output_config.effort`` for
@@ -213,10 +216,11 @@ _ENDPOINT_SUFFIX: dict[str, str] = {
 # Tier 2 families compose their endpoint differently (model-in-path query for
 # google, deployment/api-version for azure, account-substituted base for
 # cloudflare), so they are built explicitly rather than via _ENDPOINT_SUFFIX.
-# Tier 3 IAM families: auth (AWS SigV4 / GCP ADC token) and the
-# region/project-derived endpoint stay self-resolved by the adapter from the
-# environment — catalog construction injects only model_id + provider_name +
-# merged headers + mapped thinking where the body shape is known.
+# Tier 3 IAM families: AWS SigV4 / GCP ADC and the region/project-derived
+# endpoint stay self-resolved by the adapter from the environment — catalog
+# construction injects model_id + provider_name + merged headers + mapped
+# thinking where the body shape is known. Exception: google-vertex also receives
+# the forwarded api key so it can use Pi's Vertex Express api-key mode.
 #
 # ``openai-codex-responses`` is deliberately NOT catalog-constructed: the legacy
 # factory builds it with a settings-derived ``RetryPolicy`` (cli.py), which
@@ -411,11 +415,19 @@ def _build_iam_provider(
 ) -> ProviderPort:
     """Construct a Tier 3 IAM/OAuth adapter from a resolved catalog model.
 
-    AWS SigV4 / GCP ADC / Codex OAuth credentials and the region/project-derived
-    endpoint stay self-resolved by the adapter (they are not api keys), so
-    ``resolved.api_key`` is intentionally not forwarded as a credential. Only the
-    model id, provider name, merged headers, and the mapped thinking effort (for
-    families whose body shape is known) are injected.
+    For **bedrock**, the AWS SigV4 credentials and the region-derived endpoint
+    stay self-resolved by the adapter (they are not api keys), so
+    ``resolved.api_key`` is intentionally not forwarded.
+
+    For **google-vertex**, the resolved api key IS forwarded: Pi supports a
+    Vertex Express API key (``GOOGLE_CLOUD_API_KEY``), and the adapter uses it
+    when present (global host + ``x-goog-api-key``), otherwise falls back to its
+    ADC bearer path. Forwarding the ``<authenticated>`` ambient sentinel is safe
+    — the adapter's ``_resolve_express_api_key`` rejects placeholders, mirroring
+    Pi forwarding ``getEnvApiKey()`` into ``options.apiKey`` and filtering it in
+    ``resolveApiKey``. Only the model id, provider name, merged headers (and the
+    mapped thinking effort for families whose body shape is known) are otherwise
+    injected.
     """
 
     if resolved.api == "amazon-bedrock":
@@ -433,6 +445,7 @@ def _build_iam_provider(
 
     return GoogleVertexProvider(
         model_id=resolved.model_id,
+        api_key=resolved.api_key,
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
         **http_kwargs,  # type: ignore[arg-type]

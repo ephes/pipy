@@ -75,7 +75,7 @@ Common built-in sources:
 | `azure-openai` | (`AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`) and `AZURE_OPENAI_API_KEY` |
 | `cloudflare` | `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` |
 | `amazon-bedrock` | AWS environment/profile credentials used by the adapter |
-| `google-vertex` | `GOOGLE_ACCESS_TOKEN`, project, and location environment |
+| `google-vertex` | `GOOGLE_CLOUD_API_KEY` (Vertex Express), or `GOOGLE_ACCESS_TOKEN` + project + location |
 | `openai-codex` | `pipy auth openai-codex login` or `/login openai-codex` |
 
 `--api-key` is a runtime override for catalog-constructed providers and is kept
@@ -162,8 +162,8 @@ current image/file-reference workflows described in [Using pipy](usage.md).
 Provider/model parity is mostly wired, but these user-visible improvements are
 still tracked:
 
-- live Anthropic and GitHub Copilot login UX;
-- Vertex API-key auth;
-- Anthropic adaptive-thinking request shape;
-- Azure URL/api-version parity; and
+- live Anthropic and GitHub Copilot login UX; and
 - broader local-provider maturity and benchmarking.
+
+(Shipped: Vertex API-key (Express) auth via `GOOGLE_CLOUD_API_KEY`; the Anthropic
+adaptive-thinking request shape; Azure URL/api-version parity.)

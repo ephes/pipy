@@ -956,6 +956,29 @@ def test_vertex_catalog_construction(tmp_path):
     assert isinstance(provider, GoogleVertexProvider)
     assert provider.model_id == "gemini-2.5-pro"
     assert provider.provider_name == "google-vertex"
+    # The resolved Vertex Express api key is forwarded so the adapter can use
+    # api-key (express) mode rather than only the ADC bearer path.
+    assert provider.api_key == "vk"
+
+
+def test_vertex_catalog_no_key_resolves_to_adc(tmp_path):
+    # With no Vertex Express key (and no ADC detected) the forwarded api key is
+    # None, so the adapter uses its ADC bearer path.
+    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+
+    spec = NativeModelSpec(
+        provider_name="google-vertex",
+        model_id="gemini-2.5-pro",
+        display_name="Vertex Gemini",
+        api="google-vertex",
+        base_url="https://aiplatform.googleapis.com",
+        cost=NativeModelCost(),
+    )
+    resolved = _resolve(spec, tmp_path, {})
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, GoogleVertexProvider)
+    assert provider.api_key is None
+    assert provider._resolve_express_api_key() is None
 
 
 def test_codex_stays_on_legacy_factory(tmp_path):

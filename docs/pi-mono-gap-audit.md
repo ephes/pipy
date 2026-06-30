@@ -310,7 +310,13 @@ Remaining work is adapter/product polish rather than the broad catalog track.
 Follow-ons:
 
 - live Anthropic and GitHub Copilot login UX;
-- Vertex API-key auth;
+- (shipped) Vertex API-key auth: the `google-vertex` adapter now supports Pi's
+  Vertex Express api-key mode (`GOOGLE_CLOUD_API_KEY`) — global
+  `aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`
+  host with the `x-goog-api-key` header — alongside the existing ADC bearer path.
+  Catalog construction forwards the resolved key; the `<authenticated>` sentinel
+  and `gcp-vertex-credentials` marker fall back to ADC, matching Pi's
+  `resolveApiKey`. Availability now honors `GOOGLE_CLOUD_API_KEY`;
 - (shipped) Azure URL/api-version parity: the `azure-openai-responses` adapter
   now matches Pi's `AzureOpenAI` SDK v1 surface — default `api-version=v1`,
   Azure-host base URLs normalized to `/openai/v1`, request URL

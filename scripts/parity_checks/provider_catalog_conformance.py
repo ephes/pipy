@@ -1129,8 +1129,9 @@ def _check_tier3_construction(checks, tmp: Path):
     # (AWS SigV4 / GCP ADC / Codex OAuth) and the region/project endpoint stay
     # env-resolved by the adapter; catalog construction injects model_id +
     # provider_name + headers + thinking (bedrock Anthropic budget, codex
-    # reasoning.effort; vertex thinking deferred). The resolved api_key is NOT
-    # forwarded as a credential.
+    # reasoning.effort; vertex thinking deferred). Bedrock's resolved api_key is
+    # NOT forwarded. google-vertex's IS forwarded so the adapter can use Pi's
+    # Vertex Express api-key mode (global host + x-goog-api-key); see 22c/22e.
     from datetime import UTC, datetime
 
     from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
@@ -1202,8 +1203,40 @@ def _check_tier3_construction(checks, tmp: Path):
         isinstance(vx_provider, GoogleVertexProvider)
         and vx_provider.model_id == "gemini-2.5-pro"
         and vx_provider.provider_name == "google-vertex"
+        # The resolved Vertex Express api key is forwarded to the adapter.
+        and vx_provider.api_key == "vk"
     )
-    checks.append(Check("22_vertex_construction", vertex_ok, "google-vertex: catalog construction (auth/project env-resolved)"))
+    checks.append(Check("22_vertex_construction", vertex_ok, "google-vertex: catalog construction forwards the Vertex Express api key"))
+
+    # 22e: the forwarded Vertex Express api key reaches the request as Pi's
+    # express shape — global host (no project/location), x-goog-api-key header.
+    class _VertexCapturingHTTP:
+        def __init__(self):
+            self.requests = []
+
+        def post_json(self, url, *, headers, body, timeout_seconds, cancel_token=None):
+            self.requests.append({"url": url, "headers": dict(headers)})
+            return JsonResponse(
+                status_code=200,
+                body={
+                    "candidates": [
+                        {"content": {"parts": [{"text": "OK"}]}, "finishReason": "STOP"}
+                    ],
+                    "usageMetadata": {},
+                },
+            )
+
+    vx_http = _VertexCapturingHTTP()
+    vx_express = build_provider(vx_resolved, http_client=vx_http)
+    vx_express.complete(_provider_request(Path("."), "google-vertex", "gemini-2.5-pro"))
+    vx_sent = vx_http.requests[-1]
+    vertex_express_ok = (
+        vx_sent["url"]
+        == "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:generateContent"
+        and vx_sent["headers"].get("x-goog-api-key") == "vk"
+        and "Authorization" not in vx_sent["headers"]
+    )
+    checks.append(Check("22_vertex_express_request", vertex_express_ok, "google-vertex: Vertex Express api key produces the global host + x-goog-api-key request"))
 
     # 22d: codex is deliberately NOT catalog-constructed (the legacy factory
     # injects a settings-derived RetryPolicy that catalog construction would

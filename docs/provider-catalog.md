@@ -141,11 +141,20 @@ Tier 3 catalog construction (shipped 2026-06-03):
 
 Remaining adapter/product follow-ons:
 
-- Vertex API-key auth: pipy's vertex adapter is ADC/OAuth-bearer-token only
-  (`GOOGLE_ACCESS_TOKEN`). Pi also supports a Vertex API key
-  (`GOOGLE_CLOUD_API_KEY`); catalog construction does not forward the resolved
-  key (an API key is not an OAuth bearer token), so a native Vertex API-key auth
-  path is a separate adapter follow-on.
+- Vertex API-key auth has shipped: the vertex adapter now supports Pi's Vertex
+  Express api-key mode alongside the existing ADC bearer path. When an api key
+  resolves (runtime `--api-key`, stored key, or `GOOGLE_CLOUD_API_KEY`) and is not
+  a placeholder/sentinel, the request goes to the global
+  `https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`
+  host (no project/location path segment) with the `x-goog-api-key` header,
+  mirroring the `@google/genai` Express path that Pi's `createClientWithApiKey`
+  drives. Catalog construction forwards the resolved key to the adapter (bedrock's
+  is still not forwarded); the `<authenticated>` ambient sentinel and the
+  `gcp-vertex-credentials` marker are rejected as express keys (placeholder
+  pattern) and fall back to ADC, matching Pi's `resolveApiKey`. `google-vertex`
+  is now available with either `GOOGLE_CLOUD_API_KEY` or ADC creds. Covered by
+  conformance item 22 (22c/22e). Native service-account JWT signing for the ADC
+  path remains a future extension.
 - Anthropic-messages adaptive thinking has shipped: the `anthropic-messages`
   adapter now switches the adaptive Claude models (Opus 4.6/4.7/4.8, Sonnet 4.6,
   per Pi's `compat.forceAdaptiveThinking`) to the adaptive

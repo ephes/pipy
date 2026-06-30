@@ -71,6 +71,9 @@ def _make_provider(
         "project_id": "my-gcp-project",
         "location": "us-central1",
         "access_token": "ya29.EXAMPLE_ACCESS_TOKEN",
+        # Keep ADC tests hermetic regardless of a developer's ambient
+        # GOOGLE_CLOUD_API_KEY (which would otherwise flip on express mode).
+        "api_key": None,
         "http_client": client,
     }
     defaults.update(overrides)
@@ -118,6 +121,7 @@ def test_success_returns_final_text(tmp_path):
     assert result.metadata == {
         "provider_response_store_requested": False,
         "finish_reason": "STOP",
+        "vertex_auth_mode": "adc",
         "google_cloud_location": "us-central1",
     }
 
@@ -379,3 +383,126 @@ def test_malformed_json_response_returns_failed_result(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "GoogleVertexResponseParseError"
     assert result.final_text is None
+
+
+def _ok_response() -> JsonResponse:
+    return JsonResponse(
+        status_code=200,
+        body={
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "ok"}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {},
+        },
+    )
+
+
+def test_express_api_key_uses_global_endpoint_and_header(tmp_path):
+    # Vertex Express mode: an API key routes to the global aiplatform host with
+    # no project/location path segment and the x-goog-api-key header. No access
+    # token or project is required.
+    client = FakeJsonHTTPClient(_ok_response())
+    provider = _make_provider(
+        client,
+        api_key="EXPRESS_API_KEY_VALUE",
+        access_token=None,
+        project_id=None,
+    )
+
+    result = provider.complete(_provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "ok"
+    posted = client.requests[0]
+    assert posted["url"] == (
+        "https://aiplatform.googleapis.com/v1/publishers/google/models/"
+        "gemini-2.0-flash-001:generateContent"
+    )
+    assert posted["headers"]["x-goog-api-key"] == "EXPRESS_API_KEY_VALUE"
+    assert "Authorization" not in posted["headers"]
+    # The api key must ride in the header, never in the URL or body.
+    assert "EXPRESS_API_KEY_VALUE" not in posted["url"]
+    body_text = json.dumps(posted["body"], sort_keys=True)
+    assert "EXPRESS_API_KEY_VALUE" not in body_text
+    # Auth-mode metadata reflects express; no location is sent in this mode.
+    assert result.metadata["vertex_auth_mode"] == "api-key"
+    assert "google_cloud_location" not in result.metadata
+
+
+def test_express_api_key_serializes_body_like_adc(tmp_path):
+    # The request body (contents/systemInstruction/tools) is identical between
+    # express and ADC mode; only host/auth differ.
+    client = FakeJsonHTTPClient(_ok_response())
+    provider = _make_provider(
+        client,
+        api_key="EXPRESS_API_KEY_VALUE",
+        access_token=None,
+        project_id=None,
+    )
+    request = ProviderRequest(
+        system_prompt="SYS",
+        user_prompt="hello there",
+        provider_name="google-vertex",
+        model_id="gemini-2.0-flash-001",
+        cwd=tmp_path,
+    )
+
+    result = provider.complete(request)
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    posted = client.requests[0]
+    assert posted["body"]["systemInstruction"] == {"parts": [{"text": "SYS"}]}
+    assert posted["body"]["contents"] == [
+        {"role": "user", "parts": [{"text": "hello there"}]}
+    ]
+
+
+def test_placeholder_api_key_falls_back_to_adc(tmp_path):
+    # The ambient <authenticated> sentinel matches Pi's placeholder pattern, so
+    # it must NOT be used as an express key — fall back to the ADC bearer path.
+    client = FakeJsonHTTPClient(_ok_response())
+    provider = _make_provider(client, api_key="<authenticated>")
+
+    result = provider.complete(_provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    posted = client.requests[0]
+    assert posted["headers"]["Authorization"] == "Bearer ya29.EXAMPLE_ACCESS_TOKEN"
+    assert "x-goog-api-key" not in posted["headers"]
+    assert "us-central1-aiplatform.googleapis.com" in posted["url"]
+    assert result.metadata["vertex_auth_mode"] == "adc"
+
+
+def test_marker_api_key_falls_back_to_adc(tmp_path):
+    # Pi's gcp-vertex-credentials marker signals "use ADC", not an express key.
+    client = FakeJsonHTTPClient(_ok_response())
+    provider = _make_provider(client, api_key="gcp-vertex-credentials")
+
+    result = provider.complete(_provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    posted = client.requests[0]
+    assert posted["headers"]["Authorization"] == "Bearer ya29.EXAMPLE_ACCESS_TOKEN"
+    assert "x-goog-api-key" not in posted["headers"]
+    assert result.metadata["vertex_auth_mode"] == "adc"
+
+
+def test_express_api_key_merges_extra_headers(tmp_path):
+    client = FakeJsonHTTPClient(_ok_response())
+    provider = _make_provider(
+        client,
+        api_key="EXPRESS_API_KEY_VALUE",
+        access_token=None,
+        project_id=None,
+        extra_headers={"x-custom": "v1"},
+    )
+
+    result = provider.complete(_provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    posted = client.requests[0]
+    assert posted["headers"]["x-goog-api-key"] == "EXPRESS_API_KEY_VALUE"
+    assert posted["headers"]["x-custom"] == "v1"

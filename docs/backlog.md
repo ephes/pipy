@@ -328,10 +328,14 @@ The highest-impact remaining gaps are now:
    in parallel with implementation tracks.
    Spec: [user-documentation.md](user-documentation.md).
 3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
-   adapter/product polish: live Anthropic/Copilot login UX, Vertex API-key auth,
-   the deliberate `openai-codex-responses` legacy-factory exception for
-   settings-derived retry policy, and broader local-provider benchmarking.
-   (Shipped: the `anthropic-messages` adaptive-thinking shape; the bedrock
+   adapter/product polish: live Anthropic/Copilot login UX, the deliberate
+   `openai-codex-responses` legacy-factory exception for settings-derived retry
+   policy, and broader local-provider benchmarking.
+   (Shipped: Vertex API-key (Express) auth — the `google-vertex` adapter uses the
+   global `aiplatform.googleapis.com/v1/publishers/google/models/{model}` host
+   with the `x-goog-api-key` header when `GOOGLE_CLOUD_API_KEY` (or a forwarded
+   resolved key) is present, falling back to ADC otherwise; the
+   `anthropic-messages` adaptive-thinking shape; the bedrock
    adaptive/budget `display: "summarized"` field, omitted on GovCloud; the
    explicit `anthropic-messages` `thinking: {type: "disabled"}` shape for a
    reasoning-capable model run with thinking off/unset — bedrock omits thinking
