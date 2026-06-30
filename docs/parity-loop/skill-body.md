@@ -146,6 +146,27 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    matches two rungs (e.g. a together provider on an openrouter.ai base URL →
    together shape). The different-family plan reviewer flags exactly this ordering
    bug.
+   The INVERSE case is an EXPLICIT-COMPAT-ONLY variant — one with NO `detectCompat`
+   rung — and it needs ZERO resolver work and NO precedence test. Pi's
+   `thinkingFormat` `detectCompat` chain is isDeepSeek > isZai > isTogether >
+   isAntLing > isOpenRouter > openai (openai-completions.ts:1126-1136); there is no
+   `isQwen` or `isStringThinking`, so the `qwen`, `qwen-chat-template`, and
+   `string-thinking` variants are reachable ONLY through an explicit
+   `model.compat.thinkingFormat`. pipy's `_resolve_thinking_format` already returns
+   any explicit `compat.thinkingFormat` verbatim in its first branch, so for these
+   variants you add ONLY the request-shape `elif` branch in `provider_construction`
+   and change NEITHER the resolver NOR its docstring detection order — and you write
+   NO detection-chain/precedence test, because there is no collision row to
+   disambiguate. Helper test specs for these variants must set
+   `compat={thinkingFormat: <variant>}` explicitly. Contrast `ant-ling`, which IS in
+   the chain (isAntLing) and therefore DOES need an ordered detection rung plus a
+   precedence test when ported. So in the plan, pin per remaining variant whether it
+   is auto-detected (needs a rung at its Pi-faithful chain position) or explicit-only
+   (request-shape branch only), so the diff is not over-built with an unused
+   detection rung. Also pin any constant companion field a variant's branch forces
+   regardless of the reasoning state: e.g. `qwen-chat-template` emits a Pi-forced
+   literal `preserve_thinking: true` present in BOTH the reasoning-on and
+   reasoning-off sub-states, independent of the toggled `enable_thinking` boolean.
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
