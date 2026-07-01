@@ -173,11 +173,17 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    reusing it. deepseek/together/openrouter/string-thinking all do
    `model.thinkingLevelMap?.[level] ?? level`, but `ant-ling`
    (openai-completions.ts:581-585) does a RAW `model.thinkingLevelMap?.[level]`
-   lookup with NO fallback. pipy's `reasoning_value` falls back to the raw requested
-   level when a model has no map, so reusing it for a no-fallback branch emits
-   `reasoning:{effort:<raw level>}` where Pi emits nothing — add a dedicated
-   string-only raw-lookup helper and a no-`thinkingLevelMap` on-state test asserting
-   the field is omitted.
+   lookup with NO fallback. For any off/unset branch that mirrors Pi's
+   `model.thinkingLevelMap?.off !== null` gate plus `?? "none"` (including
+   string-thinking), pin and test all three states separately: missing `off` MUST
+   emit the forced default string `"none"`, string `off` emits that string, and
+   explicit `off: null` suppresses the field. In Python, gate with key membership
+   before lookup; never use `dict.get("off")` as the branch condition, because it
+   conflates a missing key with explicit `None`. pipy's `reasoning_value` falls
+   back to the raw requested level when a model has no map, so reusing it for a
+   no-fallback branch emits `reasoning:{effort:<raw level>}` where Pi emits nothing
+   — add a dedicated string-only raw-lookup helper and a no-`thinkingLevelMap`
+   on-state test asserting the field is omitted.
    Also guard the non-reasoning + `thinkingLevelMap` DEFAULT-BRANCH LEAK: a branch
    gated `elif thinking_format == X and bool(spec.reasoning):` can FALL THROUGH to
    the default `elif reasoning_value is not None: reasoning_effort = reasoning_value`
