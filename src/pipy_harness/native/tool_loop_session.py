@@ -24,7 +24,8 @@ Invariants pinned by the focused tests:
   violation) are returned to the model as `ToolResultMessage(is_error=True)`
   observations and increment a streak counter; three consecutive malformed
   turns end the loop with a deterministic stderr diagnostic.
-- One successful invocation resets the malformed streak.
+- One valid tool invocation resets the malformed streak, even if the tool
+  returns an execution error such as a failed read or timed-out shell command.
 - The session does not write prompts, model text, tool payloads, file
   contents, or diffs to the archive; only safe counters and labels.
 """
@@ -3893,7 +3894,11 @@ class NativeToolReplSession:
                         active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
                         try:
-                            observation, tool_interrupt = self._invoke_interruptible(
+                            (
+                                observation,
+                                tool_interrupt,
+                                tool_call_malformed,
+                            ) = self._invoke_interruptible(
                                 call=call,
                                 context=context,
                                 registry=run_tool_registry,
@@ -3959,7 +3964,7 @@ class NativeToolReplSession:
                                 session_tree.append_message(skipped)
                             tool_interrupted_turn = True
                             break
-                        if observation.is_error:
+                        if tool_call_malformed:
                             malformed_argument_count += 1
                             consecutive_malformed_streak += 1
                             messages.append(observation)
@@ -5733,7 +5738,7 @@ class NativeToolReplSession:
         context: ToolContext,
         registry: dict[str, ToolPort] | None = None,
         terminal_ui: ToolLoopTerminalUi | None = None,
-    ) -> tuple[ToolResultMessage, str]:
+    ) -> tuple[ToolResultMessage, str, bool]:
         """Invoke a tool while the live TUI can submit local commands.
 
         Model-driven bash tools run tests/builds on the tool loop's main path.
@@ -5745,11 +5750,14 @@ class NativeToolReplSession:
         """
 
         if terminal_ui is None:
-            return self._invoke(call=call, context=context, registry=registry), TURN_SETTLED
+            observation, malformed = self._invoke(
+                call=call, context=context, registry=registry
+            )
+            return observation, TURN_SETTLED, malformed
 
         cancel_event = threading.Event()
         done_event = threading.Event()
-        result_holder: list[ToolResultMessage] = []
+        result_holder: list[tuple[ToolResultMessage, bool]] = []
         error_holder: list[BaseException] = []
         cancellable_context = replace(context, cancel_event=cancel_event)
 
@@ -5788,15 +5796,18 @@ class NativeToolReplSession:
                         call=call, output_text=f"tool cancelled by {label}"
                     ),
                     outcome,
+                    False,
                 )
         worker.join()
         if error_holder:
             raise error_holder[0]
         if result_holder:
-            return result_holder[0], outcome
+            observation, malformed = result_holder[0]
+            return observation, outcome, malformed
         return (
             self._error_observation(call=call, output_text="tool cancelled"),
             outcome,
+            False,
         )
 
     def _invoke(
@@ -5805,21 +5816,27 @@ class NativeToolReplSession:
         call: ProviderToolCall,
         context: ToolContext,
         registry: dict[str, ToolPort] | None = None,
-    ) -> ToolResultMessage:
+    ) -> tuple[ToolResultMessage, bool]:
         tool = (registry if registry is not None else self.tool_registry).get(
             call.tool_name
         )
         if tool is None:
-            return self._error_observation(
-                call=call,
-                output_text=f"unknown tool: {call.tool_name}",
+            return (
+                self._error_observation(
+                    call=call,
+                    output_text=f"unknown tool: {call.tool_name}",
+                ),
+                True,
             )
         try:
             raw_args = json.loads(call.arguments_json)
         except json.JSONDecodeError as exc:
-            return self._error_observation(
-                call=call,
-                output_text=f"invalid arguments JSON: {exc.msg}",
+            return (
+                self._error_observation(
+                    call=call,
+                    output_text=f"invalid arguments JSON: {exc.msg}",
+                ),
+                True,
             )
         try:
             validated = validate_arguments(
@@ -5828,7 +5845,7 @@ class NativeToolReplSession:
                 arguments=raw_args,
             )
         except ToolArgumentError as exc:
-            return self._error_observation(call=call, output_text=str(exc))
+            return self._error_observation(call=call, output_text=str(exc)), True
 
         request_id = make_tool_request_id()
         tool_request = ToolRequest(
@@ -5840,17 +5857,20 @@ class NativeToolReplSession:
         try:
             execution_result = tool.invoke(tool_request, context)
         except ToolArgumentError as exc:
-            return self._error_observation(call=call, output_text=str(exc))
+            return self._error_observation(call=call, output_text=str(exc)), True
 
         if not isinstance(execution_result, ToolExecutionResult):
             raise TypeError(
                 f"tool {call.tool_name!r} returned non-ToolExecutionResult value"
             )
-        return ToolResultMessage(
-            tool_request_id=execution_result.tool_request_id,
-            output_text=execution_result.output_text,
-            is_error=execution_result.is_error,
-            provider_correlation_id=execution_result.provider_correlation_id,
+        return (
+            ToolResultMessage(
+                tool_request_id=execution_result.tool_request_id,
+                output_text=execution_result.output_text,
+                is_error=execution_result.is_error,
+                provider_correlation_id=execution_result.provider_correlation_id,
+            ),
+            False,
         )
 
     @staticmethod

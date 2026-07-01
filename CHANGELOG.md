@@ -78,6 +78,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Valid model-selected tool executions that return error observations (for
+  example read failures or timed-out shell commands) no longer count as
+  malformed provider tool calls, so the product tool loop keeps feeding those
+  observations back to the model instead of aborting after three such errors.
 - Terminal color detection now uses truecolor RGB styling only when the
   terminal explicitly advertises it (`COLORTERM=truecolor`/`24bit` or a
   direct-color `TERM`), so ordinary `*-256color` sessions use Pi's 256-color

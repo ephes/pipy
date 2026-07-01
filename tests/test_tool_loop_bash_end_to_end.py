@@ -4,8 +4,8 @@ These drive ``NativeToolReplSession.run`` with a scripted tool-capable
 provider and the real ``production_tool_registry`` so the test exercises the
 exact dispatch the product uses: provider emits a ``bash`` tool call, the loop
 runs it through the sandbox, feeds the observation back, and the provider
-returns final text. A second case proves a sandbox refusal is surfaced as a
-tool error the loop counts as malformed.
+returns final text. Shell command failures are ordinary tool observations, not
+malformed provider tool calls.
 """
 
 from __future__ import annotations

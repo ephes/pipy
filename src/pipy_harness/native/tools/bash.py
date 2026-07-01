@@ -19,8 +19,8 @@ still returned as the tool result regardless of whether a sink is present.
 Contract with the tool loop:
 
 - A timeout or a failure to start the shell is surfaced as ``is_error=True``
-  with a safe reason label. The loop counts these toward its malformed-call
-  streak, matching the other tools.
+  with a safe reason label. The loop treats these as valid tool execution
+  errors, not malformed provider tool calls.
 - A command that runs to completion — even with a non-zero exit code — is
   ``is_error=False``. A failing build or test is a normal observation the model
   should reason about, not a malformed tool call; the exit code is reported in

@@ -82,6 +82,33 @@ class _FixtureEchoTool:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _FixtureErrorTool:
+    """Test-only tool that returns a valid execution error observation."""
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="fail",
+            description="Return a tool execution error.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        )
+
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        del context
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text="fail error: expected fixture failure",
+            is_error=True,
+            provider_correlation_id=request.provider_correlation_id,
+        )
+
+
 def _make_call(
     tool_name: str,
     arguments_json: str,
@@ -479,6 +506,31 @@ def test_session_invokes_fixture_tool_and_reports_metadata(tmp_path: Path):
     assert "pipy v" in stderr  # chrome present
 
 
+def test_tool_execution_errors_do_not_count_as_malformed(tmp_path: Path):
+    tool = _FixtureErrorTool()
+    script = (
+        (_make_call("fail", "{}", correlation_id="a"),),
+        (_make_call("fail", "{}", correlation_id="b"),),
+        (_make_call("fail", "{}", correlation_id="c"),),
+        (),
+    )
+
+    result, _stdout, stderr = _run_session(
+        tool_calls_script=script,
+        tool_registry={"fail": tool},
+        user_inputs=("call failing tool",),
+        tmp_path=tmp_path,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.exit_code == 0
+    assert result.tool_invocation_count == 3
+    assert result.malformed_argument_count == 0
+    assert result.consecutive_malformed_streak == 0
+    assert result.error_type is None
+    assert "3 consecutive malformed tool calls" not in stderr
+
+
 # ----------------------------- unknown tool name ----------------------------
 
 
@@ -618,6 +670,30 @@ def test_one_success_resets_malformed_streak(tmp_path: Path):
     assert result.tool_invocation_count == 1
     assert result.malformed_argument_count == 4
     assert result.consecutive_malformed_streak == 2
+
+
+def test_tool_execution_error_resets_malformed_streak(tmp_path: Path):
+    tool = _FixtureErrorTool()
+    script = (
+        (_make_call("missing", "{}", correlation_id="a"),),
+        (_make_call("missing", "{}", correlation_id="b"),),
+        (_make_call("fail", "{}", correlation_id="c"),),
+        (_make_call("missing", "{}", correlation_id="d"),),
+        (),
+    )
+
+    result, _stdout, stderr = _run_session(
+        tool_calls_script=script,
+        tool_registry={"fail": tool},
+        user_inputs=("go",),
+        tmp_path=tmp_path,
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.tool_invocation_count == 1
+    assert result.malformed_argument_count == 3
+    assert result.consecutive_malformed_streak == 1
+    assert "3 consecutive malformed tool calls" not in stderr
 
 
 # --------------------------- per-turn budget enforcement --------------------

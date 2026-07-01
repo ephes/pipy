@@ -534,8 +534,9 @@ entry in `docs/pi-parity.md` (`Native Tool-Loop Parity Track`).
    `programmable_tool_calls` for tests; real adapters stay inert.
 4. `NativeToolReplSession` skeleton: bounded turn loop with `--tool-budget`
    defaulting to 10 (max 25), malformed tool arguments returned to the model as
-   an observation (fatal after three consecutive malformed turns), a test-only
-   `_FixtureTool` injected by tests, and an empty production tool registry.
+   an observation (fatal after three consecutive malformed turns), valid tool
+   execution errors returned as ordinary observations, a test-only `_FixtureTool`
+   injected by tests, and an empty production tool registry.
 5. `read` tool: reuses `read_only_tool.py` validation. The first real provider
    adapter flips `supports_tool_calls` to `True`; a manual smoke run lands with
    the slice.
