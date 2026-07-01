@@ -21,7 +21,7 @@
      exercises the new delivery semantics.
    - Acceptance: `docs/extension-api.md`, `docs/pi-mono-gap-audit.md`, and
      `docs/backlog.md` mark idle `triggerTurn` / `nextTurn` as shipped and keep
-     streaming `steer` / `followUp` deferred.
+     streaming `steer` / `followUp` as shipped.
 
 4. Verify and review.
    - Acceptance: `just check` passes, prek is run if configured, and the

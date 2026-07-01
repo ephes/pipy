@@ -259,10 +259,10 @@ Follow-ons:
    reactive `footerData.onBranchChange` delivery beyond the landed Pi-shaped
    footer data snapshot, *multi-widget* message components beyond the landed single-component rich
    message renderer (item C), richer tool-output expansion integration beyond
-   the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped idle
-   `send_message` `triggerTurn` / `deliverAs: "nextTurn"` delivery (streaming
-   `steer`/`followUp`, in-session full-history redraw on `/resume` switches,
-   rendering a `CustomMessageEntry` beyond stored display replay), live tool-render invalidation beyond the landed
+   the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
+   `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, and streaming
+   `steer`/`followUp` delivery (in-session full-history redraw on `/resume`
+   switches, rendering a `CustomMessageEntry` beyond stored display replay), live tool-render invalidation beyond the landed
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed

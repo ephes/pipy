@@ -1379,6 +1379,8 @@ class NativeToolReplSession:
         # next accepted turn but do not start a standalone turn.
         extension_pending_messages: list[str] = []
         extension_pending_next_turn_custom_messages: list[str] = []
+        extension_pending_steering_messages: list[str] = []
+        extension_pending_follow_up_messages: list[str] = []
         extension_in_agent_turn = False
         # Positional prompts from ``pipy "<prompt>"`` seed the first user turn(s)
         # before the loop blocks on stdin. They drain ahead of everything else so
@@ -1712,6 +1714,10 @@ class NativeToolReplSession:
                 deliver_as = options.get("deliver_as")
             if deliver_as == "nextTurn":
                 extension_pending_next_turn_custom_messages.append(content)
+            elif deliver_as == "steer":
+                extension_pending_steering_messages.append(content)
+            elif deliver_as in {"followUp", "follow_up"}:
+                extension_pending_follow_up_messages.append(content)
             elif (
                 not extension_in_agent_turn
                 and (options.get("triggerTurn") is True or options.get("trigger_turn") is True)
@@ -2129,6 +2135,8 @@ class NativeToolReplSession:
             # provider context must not leak into the replacement session.
             extension_pending_messages.clear()
             extension_pending_next_turn_custom_messages.clear()
+            extension_pending_steering_messages.clear()
+            extension_pending_follow_up_messages.clear()
 
         def rebuild_messages_from_tree() -> None:
             """Rebuild the live provider-visible list from the active branch.
@@ -2292,6 +2300,16 @@ class NativeToolReplSession:
                 # parsed as a local command (so a queued "/hotkeys" is a
                 # prompt, not the hotkeys command). They come after user steering and
                 # before blocking on fresh input.
+                if (
+                    drained is None
+                    and pending_command is None
+                    and (extension_pending_steering_messages or extension_pending_follow_up_messages)
+                ):
+                    drained = (
+                        extension_pending_steering_messages.pop(0)
+                        if extension_pending_steering_messages
+                        else extension_pending_follow_up_messages.pop(0)
+                    )
                 if (
                     drained is None
                     and pending_command is None

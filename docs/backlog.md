@@ -1527,9 +1527,10 @@ snapshot with `getGitBranch()`, `getExtensionStatuses()`,
 live branch-change delivery remains deferred. Extension custom-message sending now also ships for the local
 session/display slice: `api.send_message` / `api.sendMessage` and
 `ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages;
-idle `triggerTurn` starts a deterministic provider turn and
-`deliverAs: "nextTurn"` injects custom context into the next accepted turn.
-Streaming `steer` / `followUp` delivery remains deferred. The next largest remaining parity topic is still
+idle `triggerTurn` starts a deterministic provider turn,
+`deliverAs: "nextTurn"` injects custom context into the next accepted turn, and
+`deliverAs: "steer"` / `"followUp"` queue provider-visible content through the
+existing steering/follow-up drain. The next largest remaining parity topic is still
 the broader extension/package platform follow-on area.
 
 Initial slice boundaries for the next topic:

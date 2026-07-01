@@ -760,6 +760,58 @@ def test_extension_send_message_trigger_turn_runs_provider_turn(
     assert result.user_turn_count == 1
 
 
+def test_extension_send_message_steer_and_follow_up_queue_provider_prompts(
+    tmp_path, monkeypatch
+) -> None:
+    # Extension custom messages delivered as steer/followUp use the same
+    # provider-visible drain as TUI queued steering/follow-ups. They are not
+    # parsed as local commands even when the content begins with a slash.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "custom_queue.py").write_text(
+        "def activate(api):\n"
+        "    def queue(ctx, args):\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': '/not-a-command'},\n"
+        "            {'deliverAs': 'followUp'},\n"
+        "        )\n"
+        "        ctx.send_message(\n"
+        "            {'customType': 'note', 'content': args or 'steered'},\n"
+        "            {'deliverAs': 'steer'},\n"
+        "        )\n"
+        "    api.register_command('queue-custom', 'queue custom', queue)\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    native_session = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        native_session=native_session,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO("/queue-custom steer content\n"),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "steer content",
+        "/not-a-command",
+    ]
+    custom_messages = [
+        e for e in native_session.entries if isinstance(e, CustomMessageEntry)
+    ]
+    assert [(e.custom_type, e.content, e.display) for e in custom_messages] == [
+        ("note", "/not-a-command", True),
+        ("note", "steer content", True),
+    ]
+    assert result.user_turn_count == 2
+
+
 def test_extension_send_message_next_turn_injects_next_provider_context(
     tmp_path, monkeypatch
 ) -> None:

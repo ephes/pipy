@@ -613,8 +613,12 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
         "        ctx.send_message({'customType': 'note', 'content': args}, {'triggerTurn': True})\n"
         "    def queue(ctx, args):\n"
         "        ctx.send_message({'customType': 'note', 'content': args}, {'deliverAs': 'nextTurn'})\n"
+        "    def stream(ctx, args):\n"
+        "        ctx.send_message({'customType': 'note', 'content': '/slash-content'}, {'deliverAs': 'followUp'})\n"
+        "        ctx.send_message({'customType': 'note', 'content': args}, {'deliverAs': 'steer'})\n"
         "    api.register_command('trigger-custom', 'trigger custom', trigger)\n"
-        "    api.register_command('queue-custom', 'queue custom', queue)\n",
+        "    api.register_command('queue-custom', 'queue custom', queue)\n"
+        "    api.register_command('stream-custom', 'stream custom', stream)\n",
         encoding="utf-8",
     )
 
@@ -630,6 +634,14 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
     NativeToolReplSession(provider=next_provider, tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/queue-custom custom context\nreal prompt\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    stream_provider = _CapturingProvider()
+    NativeToolReplSession(provider=stream_provider, tool_registry={}).run(
+        workspace_root=workspace,
+        input_stream=io.StringIO("/stream-custom steer content\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
@@ -652,6 +664,12 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
             ]
             == ["real prompt", "custom context"],
             "send_message deliverAs=nextTurn injects custom context into the next turn",
+        ),
+        Check(
+            "send_message_steer_follow_up_delivery",
+            [request.user_prompt for request in stream_provider.requests]
+            == ["steer content", "/slash-content"],
+            "send_message deliverAs=steer/followUp queues provider-visible prompts",
         ),
     ]
 
