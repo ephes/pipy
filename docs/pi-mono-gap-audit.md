@@ -387,9 +387,7 @@ Follow-ons:
   `supportsReasoningEffort` is resolved independently via Pi's `detectCompat`
   exclusion list — which **includes** Together, so an auto-detected Together model
   omits `reasoning_effort` unless an explicit `supportsReasoningEffort=true` (or an
-  explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. The
-  remaining completions `thinkingFormat` variant (string-thinking) and a full
-  `detectCompat` port remain separate follow-ons;
+  explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. A full `detectCompat` port remains a separate follow-on;
 - (shipped) Z.ai (`zai`) reasoning request shape: the `openai-completions` `zai`
   thinking format now emits a single top-level boolean `enable_thinking` for
   reasoning-capable models (`true` on-state, a Pi-forced explicit `false`
@@ -398,9 +396,7 @@ Follow-ons:
   (explicit `compat.thinkingFormat` over `zai`/`api.z.ai` detection, ordered
   before `together` and `openrouter` in the `detectCompat` chain). Unlike
   DeepSeek/Together, the `zai` branch never consults `supportsReasoningEffort`, so
-  no `reasoning_effort` is ever added. The remaining completions `thinkingFormat`
-  variant (string-thinking) and a full `detectCompat` port remain
-  separate follow-ons;
+  no `reasoning_effort` is ever added. A full `detectCompat` port remains a separate follow-on;
 - (shipped) Qwen (`qwen` / `qwen-chat-template`) reasoning request shape: both are
   the same `enable_thinking` bare-boolean family as `zai`. The `openai-completions`
   `qwen` format emits a top-level boolean `enable_thinking` for reasoning-capable
@@ -411,9 +407,7 @@ Follow-ons:
   with no `reasoning_effort`. Both are **explicit-compat-only** — Pi's
   `detectCompat` has no `qwen` rung, so they are reached only via an explicit
   `compat.thinkingFormat` and add no provider/base-URL detection. Like `zai` they
-  never consult `supportsReasoningEffort`. The remaining completions
-  `thinkingFormat` variant (string-thinking) and a full `detectCompat`
-  port remain separate follow-ons;
+  never consult `supportsReasoningEffort`. A full `detectCompat` port remains a separate follow-on;
 - (shipped) ant-ling reasoning request shape: the `openai-completions` `ant-ling`
   thinking format now emits a nested `reasoning: {effort: <mapped>}` object on the
   on-state only, matching Pi `openai-completions.ts:581-585`. The effort is the
@@ -424,9 +418,22 @@ Follow-ons:
   `qwen`/`string-thinking`, `ant-ling` **is** auto-detected — Pi's `detectCompat`
   `thinkingFormat` chain has an `isAntLing` rung ordered after `together` and
   before `openrouter`, so pipy adds both the detection rung at that position and
-  the request-shape branch (covered by conformance items 18m, 18n). The remaining
-  completions `thinkingFormat` variant (string-thinking) and a full `detectCompat`
-  port remain separate follow-ons;
+  the request-shape branch (covered by conformance items 18m, 18n). A full `detectCompat` port remains a separate follow-on;
+
+- String-thinking reasoning request shape has shipped: for the `openai-completions`
+  `string-thinking` format, a reasoning-capable model emits a top-level string
+  `thinking` field on both the on-state and off-state, matching Pi's
+  `thinkingFormat === "string-thinking"` branch (`openai-completions.ts:595-601`).
+  The on-state uses the mapped thinking value with the same `?? level` fallback as
+  DeepSeek/Together/OpenRouter; the off-state uses `thinkingLevelMap.off ??
+  "none"` after the `!== null` gate, so absent `off` emits `"none"`, explicit
+  `null`/`None` suppresses the field, and a string off mapping is emitted
+  verbatim. The branch never consults `supportsReasoningEffort` and never emits
+  top-level `reasoning_effort`. It is **explicit-compat-only** — Pi's
+  `detectCompat` has no `string-thinking` rung — so pipy adds only the
+  request-shape branch and no provider/base-URL detection. A full `detectCompat`
+  port remains a separate follow-on.
+
 - broader local-provider maturity and benchmarking.
 
 Owning spec: [provider-catalog.md](provider-catalog.md).

@@ -395,9 +395,13 @@ The highest-impact remaining gaps are now:
    `supportsReasoningEffort`. Unlike `qwen`/`string-thinking`, `ant-ling` is
    auto-detected (`isAntLing` rung ordered after `together` and before
    `openrouter`), so pipy adds both the detection rung and the request-shape branch,
-   matching `openai-completions.ts:581-585`. The remaining completions
-   `thinkingFormat` variant (string-thinking) and a full `detectCompat` port
-   remain follow-ons.)
+   matching `openai-completions.ts:581-585`; and the string-thinking reasoning
+   request shape — the `openai-completions` `string-thinking` format now emits a
+   top-level string `thinking` field, with mapped/fallback on-state values,
+   `thinkingLevelMap.off ?? "none"` off-state semantics, no
+   `reasoning_effort`, and no detection rung because it is explicit-compat-only,
+   matching `openai-completions.ts:595-601`. A full `detectCompat` port remains a
+   follow-on.)
    Spec: [provider-catalog.md](provider-catalog.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive

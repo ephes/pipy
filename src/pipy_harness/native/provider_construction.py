@@ -139,11 +139,12 @@ def resolve_construction(
     # ``preserve_thinking: true``) with no ``reasoning_effort``; ant-ling sends a
     # nested ``reasoning: {effort}`` on the on-state only (silent off-state, raw
     # map lookup, never ``reasoning_effort``); the OpenAI-style
-    # default uses the top-level ``reasoning_effort``. ``thinking_format`` follows
-    # Pi's getCompat
-    # precedence (explicit ``compat.thinkingFormat`` over provider/base-URL
-    # detection). The off-state branches gate on the raw off/unset level — not
-    # merely ``reasoning_value is None`` — so an unsupported clamped level stays
+    # default uses the top-level ``reasoning_effort``. String-thinking sends a
+    # top-level string ``thinking`` field and never ``reasoning_effort``.
+    # ``thinking_format`` follows Pi's getCompat precedence (explicit
+    # ``compat.thinkingFormat`` over provider/base-URL detection). The off-state
+    # branches gate on the raw off/unset level — not merely
+    # ``reasoning_value is None`` — so an unsupported clamped level stays
     # out of the off branch (Pi treats it as still-thinking-and-clamp; pipy does
     # not clamp, so it emits neither on- nor off-state).
     reasoning_value = map_thinking_level(spec, thinking_level)
@@ -240,10 +241,22 @@ def resolve_construction(
         effort = _ant_ling_effort(spec, thinking_level)
         if effort is not None:
             body_extra["reasoning"] = {"effort": effort}
+    elif thinking_format == "string-thinking":
+        # ``thinking: string`` is the entire string-thinking shape
+        # (openai-completions.ts:595-601): on-state uses the mapped value with the
+        # same fallback-bearing value helper as openrouter/deepseek/together; the
+        # off-state emits ``thinkingLevelMap.off ?? "none"`` unless the off value
+        # is explicit null; ``reasoning_effort`` / ``supportsReasoningEffort`` are
+        # never consulted. Consume all string-thinking cases so non-reasoning rows
+        # with a map cannot fall through to the default reasoning_effort branch.
+        if bool(spec.reasoning) and reasoning_value is not None:
+            body_extra["thinking"] = reasoning_value
+        elif thinking_off:
+            off_thinking = _string_thinking_off_value(spec)
+            if off_thinking is not None:
+                body_extra["thinking"] = off_thinking
     elif reasoning_value is not None:
-        # Default OpenAI-style top-level ``reasoning_effort``. The not-yet-ported
-        # format (string-thinking) resolves to its own name and falls here
-        # unchanged — a documented deferral, not a regression.
+        # Default OpenAI-style top-level ``reasoning_effort``.
         reasoning_effort = reasoning_value
 
     # Pi makes the off-state explicit for reasoning-capable anthropic-messages
@@ -323,11 +336,11 @@ def _resolve_thinking_format(spec: NativeModelSpec) -> str:
     ``zai`` (``enable_thinking`` boolean), ``together`` (``reasoning: {enabled}``),
     and ``ant-ling`` (``reasoning: {effort}``); every other model resolves to
     ``"openai"`` (top-level ``reasoning_effort``). The ``qwen`` /
-    ``qwen-chat-template`` formats are also emitted by the request-shape block but
-    are **explicit-compat-only** — Pi's ``detectCompat`` has no ``isQwen`` rung, so
-    they are reached only through the explicit ``model.compat.thinkingFormat``
-    branch above and add no detection here. The remaining Pi format
-    (``string-thinking``) is a deferred follow-on and falls through to the default.
+    ``qwen-chat-template`` / ``string-thinking`` formats are also emitted by the
+    request-shape block but are **explicit-compat-only** — Pi's ``detectCompat``
+    has no ``isQwen``/``isStringThinking`` rung, so they are reached only through
+    the explicit ``model.compat.thinkingFormat`` branch above and add no detection
+    here.
     The detection order mirrors Pi's ``detectCompat`` ``thinkingFormat`` chain
     (isDeepSeek > isZai > isTogether > isAntLing > isOpenRouter;
     openai-completions.ts:1126-1136), so ``zai`` is tested before ``together``,
@@ -390,6 +403,20 @@ def _openrouter_off_effort(spec: NativeModelSpec) -> str | None:
     and a string value is emitted verbatim. An absent key and a key mapped to
     ``None`` are distinct here, so membership is tested before lookup rather than
     via ``.get`` (which conflates them).
+    """
+
+    if "off" not in spec.thinking_level_map:
+        return "none"
+    return spec.thinking_level_map["off"]
+
+
+def _string_thinking_off_value(spec: NativeModelSpec) -> str | None:
+    """Resolve the string-thinking off-state ``thinking`` value, or ``None``.
+
+    Mirrors Pi's ``model.thinkingLevelMap?.off !== null`` gate plus the
+    ``?? "none"`` fallback (openai-completions.ts:599-601): an absent ``off`` key
+    emits ``"none"``, an explicit ``None`` (Pi ``null``) suppresses emission, and
+    a string value is emitted verbatim.
     """
 
     if "off" not in spec.thinking_level_map:

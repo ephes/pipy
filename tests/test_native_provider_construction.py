@@ -903,6 +903,113 @@ def test_qwen_chat_template_reaches_request_body(tmp_path):
     }
     assert "reasoning_effort" not in body_off
 
+# ---- string-thinking format (explicit-compat-only) --------------------------
+#
+# Pi's detectCompat thinkingFormat chain has NO string-thinking rung
+# (openai-completions.ts:1126-1136), so it is reachable only through explicit
+# compat.thinkingFormat. The request shape is a top-level string `thinking` field:
+# on-state uses the mapped value with `?? level` fallback; off-state uses
+# thinkingLevelMap.off ?? "none" unless off is explicit null. It never consults
+# supportsReasoningEffort and never emits reasoning_effort.
+
+
+def _string_thinking_spec(**over: Any) -> NativeModelSpec:
+    base: dict[str, Any] = dict(
+        provider_name="string-vendor",
+        model_id="string-thinking-model",
+        display_name="String Thinking Model",
+        api="openai-completions",
+        base_url="https://string-thinking.example/v1",
+        reasoning=True,
+        thinking_level_map={"high": "verbose"},
+        compat={"thinkingFormat": "string-thinking"},
+        cost=NativeModelCost(),
+    )
+    base.update(over)
+    return NativeModelSpec(**base)
+
+
+def _resolve_st(spec: NativeModelSpec, tmp_path: Path, thinking_level):
+    return resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level=thinking_level,
+    )
+
+
+def test_string_thinking_on_state_emits_mapped_string_without_effort(tmp_path):
+    resolved = _resolve_st(_string_thinking_spec(), tmp_path, "high")
+    assert resolved.body_extra["thinking"] == "verbose"
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_on_state_without_map_falls_back_to_level(tmp_path):
+    spec = _string_thinking_spec(thinking_level_map={})
+    resolved = _resolve_st(spec, tmp_path, "high")
+    assert resolved.body_extra["thinking"] == "high"
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_unsupported_level_emits_neither(tmp_path):
+    resolved = _resolve_st(_string_thinking_spec(), tmp_path, "medium")
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_off_state_defaults_to_none_string(tmp_path):
+    for thinking_level in (None, "off"):
+        resolved = _resolve_st(_string_thinking_spec(), tmp_path, thinking_level)
+        assert resolved.body_extra["thinking"] == "none"
+        assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_off_state_uses_mapped_off_value(tmp_path):
+    spec = _string_thinking_spec(thinking_level_map={"high": "verbose", "off": "minimal"})
+    resolved = _resolve_st(spec, tmp_path, None)
+    assert resolved.body_extra["thinking"] == "minimal"
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_off_state_explicit_null_suppresses(tmp_path):
+    spec = _string_thinking_spec(thinking_level_map={"high": "verbose", "off": None})
+    resolved = _resolve_st(spec, tmp_path, None)
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_skipped_for_non_reasoning_model(tmp_path):
+    resolved = _resolve_st(_string_thinking_spec(reasoning=False), tmp_path, "high")
+    assert "thinking" not in resolved.body_extra
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_ignores_supports_reasoning_effort(tmp_path):
+    spec = _string_thinking_spec(
+        compat={"thinkingFormat": "string-thinking", "supportsReasoningEffort": True}
+    )
+    resolved = _resolve_st(spec, tmp_path, "high")
+    assert resolved.body_extra["thinking"] == "verbose"
+    assert resolved.reasoning_effort is None
+
+
+def test_string_thinking_reaches_request_body(tmp_path):
+    on = _resolve_st(_string_thinking_spec(), tmp_path, "high")
+    http_on = CapturingHTTPClient()
+    build_provider(on, http_client=http_on).complete(_request(tmp_path))
+    body_on = http_on.requests[-1]["body"]
+    assert body_on["thinking"] == "verbose"
+    assert "reasoning_effort" not in body_on
+
+    off = _resolve_st(_string_thinking_spec(), tmp_path, None)
+    http_off = CapturingHTTPClient()
+    build_provider(off, http_client=http_off).complete(_request(tmp_path))
+    body_off = http_off.requests[-1]["body"]
+    assert body_off["thinking"] == "none"
+    assert "reasoning_effort" not in body_off
+
 
 # ---- ant-ling thinking format (auto-detected rung) --------------------------
 #
