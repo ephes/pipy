@@ -70,7 +70,7 @@ treat those shapes as less stable than the named `pipy_harness.sdk` exports.
 
 ## Relationship to JSON/RPC Automation
 
-The planned Pi-style `--mode json` and `--mode rpc` transports are the
+The shipped Pi-style `--mode json` and `--mode rpc` transports are the
 out-of-process headless surfaces. They are specified in
 [Automation & RPC](automation-rpc.md) and are intended for non-Python callers or
 callers that want process isolation, JSONL framing, asynchronous events, and
@@ -87,5 +87,5 @@ privacy-conscious by default and does not store prompts, assistant content, tool
 payloads, stdout/stderr, or secrets unless a future explicit full-content
 surface says otherwise.
 
-The planned JSON/RPC live transports are different: they are full-content
-automation streams by design, while archive privacy remains unchanged.
+The JSON/RPC live transports are different: they are full-content automation
+streams by design, while archive privacy remains unchanged.

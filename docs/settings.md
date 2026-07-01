@@ -62,7 +62,7 @@ The notes call out the most important limits.
 | `defaultModel` | string | Default model id for the provider. |
 | `defaultThinkingLevel` | string | `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`; provider request mapping is still provider-dependent. |
 | `hideThinkingBlock` | boolean | Hide thinking blocks where the renderer/provider supports it. |
-| `enabledModels` | string[] | Patterns used by `/scoped-models` and Ctrl+P cycling. |
+| `enabledModels` | string array | Patterns used by `/scoped-models` and Ctrl+P cycling. |
 
 ### UI and startup
 
@@ -105,10 +105,10 @@ The notes call out the most important limits.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `packages` | array | Installed local-path or managed-git package sources, or objects with resource filters. |
-| `extensions` | string[] | Extension path patterns. |
-| `skills` | string[] | Skill path patterns. |
-| `prompts` | string[] | Prompt-template path patterns. |
-| `themes` | string[] | Theme path patterns. |
+| `extensions` | string array | Extension path patterns. |
+| `skills` | string array | Skill path patterns. |
+| `prompts` | string array | Prompt-template path patterns. |
+| `themes` | string array | Theme path patterns. |
 | `enableSkillCommands` | boolean | Register skills as slash-command resources. |
 
 Resource arrays support include/exclude patterns as used by `pipy config`.

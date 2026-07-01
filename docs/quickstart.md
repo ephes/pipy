@@ -85,8 +85,8 @@ pipy auth openai-codex login
 
 Some provider polish is still tracked in
 [Provider Catalog](provider-catalog.md): live Anthropic and GitHub Copilot login
-UX, Vertex API-key auth, Anthropic adaptive-thinking request shape, and Azure
-URL/api-version parity.
+UX, plus broader local-provider maturity and benchmarking. Vertex API-key auth,
+Anthropic adaptive thinking, and Azure URL/API-version parity have shipped.
 
 ## Give pipy project instructions
 

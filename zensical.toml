@@ -1,5 +1,9 @@
 [project]
 site_name = "pipy"
+# Gitignored parity-loop run bundles under docs/parity-loop/runs contain raw
+# diffs and Python type syntax such as list[str]. Keep real link validation on,
+# but do not warn on reference-style Markdown tokens from those scratch files.
+validation = { unresolved_references = false }
 nav = [
   {"Home" = "index.md"},
   {"Quickstart" = "quickstart.md"},
