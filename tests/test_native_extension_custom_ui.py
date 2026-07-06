@@ -20,6 +20,7 @@ from typing import TextIO, cast
 from pipy_harness.native.extension_runtime import (
     CustomComponent,
     ExtensionUi,
+    ExtensionUiDriver,
     RegisteredCommand,
     _CollectingUi,
     dispatch_extension_command,
@@ -325,6 +326,21 @@ class _FakeUiDriver:
     def set_hidden_thinking_label(self, label: str | None = None) -> None:
         self.chrome.append(("set_hidden_thinking_label", label))
 
+    def add_terminal_input_listener(self, handler: object):
+        self.terminal_input_handlers.append(handler)
+
+        def dispose():
+            if handler in self.terminal_input_handlers:
+                self.terminal_input_handlers.remove(handler)
+
+        return dispose
+
+    def get_tools_expanded(self) -> bool:
+        return False
+
+    def set_tools_expanded(self, expanded: bool) -> None:
+        self.chrome.append(("set_tools_expanded", expanded))
+
     def get_editor_text(self) -> str:
         return ""
 
@@ -341,14 +357,16 @@ class _FakeUiDriver:
     def add_autocomplete_provider(self, factory: object) -> None:
         self.chrome.append(("add_autocomplete_provider", factory))
 
-    def add_terminal_input_listener(self, handler: object):
-        self.terminal_input_handlers.append(handler)
+    def set_editor_component(self, factory: object | None) -> None:
+        self.chrome.append(("set_editor_component", factory))
 
-        def dispose():
-            if handler in self.terminal_input_handlers:
-                self.terminal_input_handlers.remove(handler)
+    def get_editor_component(self) -> object | None:
+        return None
 
-        return dispose
+
+def test_fake_ui_driver_is_complete_extension_ui_driver() -> None:
+    """Guard the custom-UI structural fake as `ExtensionUiDriver` grows."""
+    assert isinstance(_FakeUiDriver(), ExtensionUiDriver)
 
 
 def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
