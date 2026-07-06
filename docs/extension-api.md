@@ -1029,6 +1029,10 @@ plus the follow-on per-run source-loading flags for explicit extensions, skills,
 prompt templates, and themes. Discovery never imports extension code; activation
 imports only loadable descriptors.
 
+When adding a shipped item to the numbered implementation-slice list below,
+renumber subsequent entries in the same change so the Markdown source stays
+unambiguous for reviewers and future diffs.
+
 Beyond the first numbered slices, an **interactive command-context block** has also
 landed to support porting Pi's `answer.ts`
 (`docs/examples/extensions/answer.py`): the command/shortcut context now exposes
