@@ -98,7 +98,11 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    Pi-forced default values, whether those defaults diverge from the upstream API
    defaults, and any derived identifiers before implementation, so review catches
    preserved versus dropped future data or behavior instead of discovering it only
-   after code exists.
+   after code exists. For extension API callback surfaces, also pin callback
+   arity, ownership, disposal, and subscription lifetime from Pi before coding;
+   e.g. `FooterData.onBranchChange` callbacks are zero-argument functions kept in
+   a `Set` until disposed, so factory re-renders must not accidentally accumulate
+   stale registrations or invoke callbacks with branch data Pi never supplies.
    For any request-shape field gated by a Pi compat flag, also pin — per field —
    which compat flag(s) gate it and how each of those flags is independently
    resolved. Pi's `getCompat` resolves every compat field independently (explicit
