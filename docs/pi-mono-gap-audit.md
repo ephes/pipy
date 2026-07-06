@@ -5,8 +5,9 @@ written 2026-06-02 and groomed 2026-06-17 after session CLI/pickers,
 settings/keybindings, TUI workflow, provider-catalog construction, JSON/RPC
 automation, and extension/package slice-12 runtime composition shipped. The
 extension follow-on section was refreshed 2026-06-20 after extension
-live-session hooks, dynamic tool-loop flags, simple `ctx.ui` primitives, and
-the first custom session-entry/message-rendering slice shipped.
+live-session hooks, dynamic tool-loop flags, simple `ctx.ui` primitives, the
+first custom session-entry/message-rendering slice, and bounded extension OAuth
+`/login` auth-store wiring shipped.
 
 This audit compares pipy's current docs/specs and command help with the local Pi
 reference in `/Users/jochen/src/pi-mono` plus the installed `pi 0.78.0` help.
@@ -242,6 +243,14 @@ Pipy current state:
   contexts can call `ctx.ui.set_hidden_thinking_label` /
   `setHiddenThinkingLabel` to change the folded-thinking label, and headless
   contexts no-op like Pi RPC.
+- Extension OAuth `/login` auth-store wiring has shipped: OAuth-backed
+  extension providers use the normalized provider name as Pi's derived OAuth id,
+  `/login <provider>` invokes the extension's sync `login(callbacks)` with
+  Pi-shaped stdio auth/device/prompt/select/progress callbacks, stores
+  `{type:"oauth", ...credentials}` in `AuthStore`, and `/logout <provider>`
+  removes it. OAuth-backed extension providers are `login-required` until stored
+  credentials exist; non-OAuth extension providers remain factory-owned and
+  available.
 - Extension chrome `requestRender` parity has shipped: widget/header/footer factories receive a Pi-shaped live TUI handle, factory components re-render every frame, and `requestRender()` repaints without a provider turn.
 - Extension footer-data provider parity has shipped: `ctx.ui.set_footer` passes
   read-only Pi-shaped `FooterData` with `getGitBranch()`,
@@ -274,7 +283,9 @@ Follow-ons:
    calls paint immediately, broader dynamic-flag integration beyond the landed
    tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and broader extension state helpers beyond the landed command/shortcut
    session-manager view and name/label metadata actions.
-2. OAuth-provider extension `/login` and auth-storage wiring plus broader provider/auth helpers (metadata registration now ships).
+2. Broader provider/auth helpers beyond the landed extension OAuth `/login`
+   auth-store wiring, including declarative API-backed provider config and any
+   future credential injection boundary for provider factories.
 3. Future PyPI/npm package sources only after a broader supply-chain/update
    policy; managed git sources and package `update` now ship.
 

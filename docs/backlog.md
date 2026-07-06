@@ -1512,9 +1512,14 @@ Candidate next slices:
 - multi-widget message components;
 - full custom editor rendering/input integration beyond the in-memory
   `setEditorComponent` store; or
-- OAuth-provider `/login` and auth-storage wiring.
+- broader provider/auth helpers beyond the landed OAuth-provider `/login`
+  auth-storage wiring.
 
-Do not expand into PyPI/npm package sources until the broader supply-chain
+The bounded OAuth-provider `/login` slice has shipped: extension OAuth metadata
+is projected under the provider-name id, `/login <provider>` stores
+`{"type":"oauth", ...credentials}` in `AuthStore`, `/logout <provider>` removes
+it, and OAuth-backed extension providers are `login-required` until credentials
+exist. Do not expand into PyPI/npm package sources until the broader supply-chain
 policy is written.
 
 ## Recent Closeout

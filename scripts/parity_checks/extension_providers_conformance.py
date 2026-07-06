@@ -11,7 +11,9 @@ slice-11 invariants from `docs/extension-api.md`:
 4. a duplicate provider name across extensions disables the later one;
 5. an invalid provider (empty name / non-callable factory) disables the
    extension;
-6. a factory that raises is bounded (yields None, no crash).
+6. a factory that raises is bounded (yields None, no crash);
+7. OAuth metadata is projected under Pi's derived provider-name id without
+   invoking callbacks.
 
 The catalog / `/model` selection wiring is the provider-catalog track's
 follow-on; this gate proves the registration mechanism + ProviderPort
@@ -37,6 +39,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     build_extension_provider_port,
+    extension_oauth_providers,
     extension_providers,
     extension_unregistered_providers,
 )
@@ -109,6 +112,16 @@ def run_checks(base: Path) -> list[Check]:
     )
     _write(
         reg,
+        "oauthprov",
+        "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='corp-ai', default_model='m',\n"
+        "        models=('m',), factory=lambda ctx: None,\n"
+        "        oauth=ExtensionOAuthConfig(name='Corporate SSO', login=lambda cb: {'access': 'x'},\n"
+        "            refresh_token=lambda cred: cred, get_api_key=lambda cred: cred['access'])))\n",
+    )
+    _write(
+        reg,
         "crashprov",
         "from pipy_harness.extensions import ExtensionProvider\n"
         "def _boom(ctx):\n    raise RuntimeError('x')\n"
@@ -145,6 +158,14 @@ def run_checks(base: Path) -> list[Check]:
             "unregister_recorded",
             "openai-codex" in extension_unregistered_providers(activated),
             "unregister_provider is recorded",
+        )
+    )
+    oauth_map = extension_oauth_providers(activated)
+    checks.append(
+        Check(
+            "oauth_provider_projected",
+            sorted(oauth_map) == ["corp-ai"] and oauth_map["corp-ai"].provider.oauth is not None,
+            "OAuth metadata is projected under the derived provider id without invoking callbacks",
         )
     )
     aaa = next((a for a in activated if a.name == "aaa"), None)

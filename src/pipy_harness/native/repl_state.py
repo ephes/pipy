@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import stat
@@ -44,6 +45,75 @@ class NativeModelSelection:
 # ``AutomationFakeProvider``) rather than the inert ``fake-native-bootstrap``
 # used by the one-shot ``pipy run`` path.
 REPL_FAKE_FALLBACK_SELECTION = NativeModelSelection("fake", AUTOMATION_FAKE_MODEL_ID)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExtensionOAuthCallbacks:
+    input_stream: TextIO
+    output_stream: TextIO
+
+    def on_auth(self, info: Mapping[str, object]) -> None:
+        url = sanitize_text(str(info.get("url", ""))).strip()
+        instructions = sanitize_text(str(info.get("instructions", ""))).strip()
+        if url:
+            print(f"Open this URL in your browser:\n{url}", file=self.output_stream)
+        if instructions:
+            print(instructions, file=self.output_stream)
+
+    def onAuth(self, info: Mapping[str, object]) -> None:  # noqa: N802 - Pi shape
+        self.on_auth(info)
+
+    def on_device_code(self, info: Mapping[str, object]) -> None:
+        uri = sanitize_text(str(info.get("verificationUri", info.get("url", "")))).strip()
+        code = sanitize_text(str(info.get("userCode", ""))).strip()
+        if uri:
+            print(f"Open this URL in your browser:\n{uri}", file=self.output_stream)
+        if code:
+            print(f"Enter code: {code}", file=self.output_stream)
+
+    def onDeviceCode(self, info: Mapping[str, object]) -> None:  # noqa: N802 - Pi shape
+        self.on_device_code(info)
+
+    def on_prompt(self, prompt: Mapping[str, object]) -> str:
+        message = sanitize_text(str(prompt.get("message", ""))).strip() or "Prompt"
+        placeholder = sanitize_text(str(prompt.get("placeholder", ""))).strip()
+        suffix = f" ({placeholder})" if placeholder else ""
+        print(f"{message}{suffix}: ", end="", file=self.output_stream)
+        self.output_stream.flush()
+        return self.input_stream.readline().rstrip("\r\n")
+
+    def onPrompt(self, prompt: Mapping[str, object]) -> str:  # noqa: N802 - Pi shape
+        return self.on_prompt(prompt)
+
+    def on_select(self, prompt: Mapping[str, object]) -> object | None:
+        message = sanitize_text(str(prompt.get("message", ""))).strip() or "Select"
+        options = prompt.get("options")
+        option_list = list(options) if isinstance(options, list) else []
+        print(message, file=self.output_stream)
+        for index, option in enumerate(option_list, start=1):
+            label = option.get("label") if isinstance(option, Mapping) else option
+            print(f"  {index}. {sanitize_text(str(label))}", file=self.output_stream)
+        print(f"Enter number (1-{len(option_list)}): ", end="", file=self.output_stream)
+        self.output_stream.flush()
+        try:
+            selected = int(self.input_stream.readline().strip()) - 1
+        except ValueError:
+            return None
+        if selected < 0 or selected >= len(option_list):
+            return None
+        option = option_list[selected]
+        if isinstance(option, Mapping):
+            return option.get("id")
+        return option
+
+    def onSelect(self, prompt: Mapping[str, object]) -> object | None:  # noqa: N802 - Pi shape
+        return self.on_select(prompt)
+
+    def on_progress(self, message: object) -> None:
+        print(sanitize_text(str(message)), file=self.output_stream)
+
+    def onProgress(self, message: object) -> None:  # noqa: N802 - Pi shape
+        self.on_progress(message)
 
 
 def normalize_repl_fake_selection(
@@ -382,28 +452,77 @@ class NativeReplProviderState:
 
     def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
         provider = provider_name.strip() or "openai-codex"
-        if provider != "openai-codex":
-            return False, "pipy: unsupported login provider. Only openai-codex OAuth is supported."
-        self.auth_manager_factory().login_interactive(
-            input_stream=input_stream,
-            output_stream=output_stream,
-            open_browser=True,
-        )
-        return True, "pipy: openai-codex OAuth login stored."
+        if provider == "openai-codex":
+            self.auth_manager_factory().login_interactive(
+                input_stream=input_stream,
+                output_stream=output_stream,
+                open_browser=True,
+            )
+            return True, "pipy: openai-codex OAuth login stored."
+        if self.catalog_state is not None:
+            registered = self.catalog_state.extension_oauth_provider_for(provider)  # type: ignore[attr-defined]
+            if registered is not None:
+                return self._extension_oauth_login(
+                    registered, input_stream=input_stream, output_stream=output_stream
+                )
+        return False, "pipy: unsupported login provider."
 
     def logout(self, provider_name: str) -> tuple[bool, str]:
         provider = provider_name.strip() or "openai-codex"
-        if provider != "openai-codex":
-            return False, "pipy: unsupported logout provider. Only openai-codex OAuth is supported."
-        removed = self.auth_manager_factory().logout()
-        if self.selection.provider_name == "openai-codex":
-            # Persist the shared inert default; the product REPL normalizes the
-            # live selection to a tool-capable fake at its consumption point.
-            self.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
-            self._save_default(self.selection)
+        if provider == "openai-codex":
+            removed = self.auth_manager_factory().logout()
+            if self.selection.provider_name == "openai-codex":
+                # Persist the shared inert default; the product REPL normalizes the
+                # live selection to a tool-capable fake at its consumption point.
+                self.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+                self._save_default(self.selection)
+            if removed:
+                return True, "pipy: openai-codex OAuth credentials removed."
+            return True, "pipy: no openai-codex OAuth credentials were stored."
+        if self.catalog_state is not None:
+            registered = self.catalog_state.extension_oauth_provider_for(provider)  # type: ignore[attr-defined]
+            if registered is not None:
+                return self._extension_oauth_logout(registered)
+        return False, "pipy: unsupported logout provider."
+
+    def _extension_oauth_login(
+        self,
+        registered: object,
+        *,
+        input_stream: TextIO,
+        output_stream: TextIO,
+    ) -> tuple[bool, str]:
+        oauth = registered.provider.oauth  # type: ignore[attr-defined]
+        provider_name = registered.provider.name  # type: ignore[attr-defined]
+        try:
+            credentials = oauth.login(
+                _ExtensionOAuthCallbacks(input_stream=input_stream, output_stream=output_stream)
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as err:  # noqa: BLE001 - extension-owned callback
+            return False, f"pipy: {provider_name} OAuth login failed with {type(err).__name__}."
+        if inspect.isawaitable(credentials):
+            close = getattr(credentials, "close", None)
+            if callable(close):
+                close()
+            return False, "pipy: extension OAuth login returned unsupported awaitable."
+        if not isinstance(credentials, Mapping):
+            return False, "pipy: extension OAuth login returned invalid credentials."
+        assert self.catalog_state is not None
+        store = self.catalog_state.auth_store  # type: ignore[attr-defined]
+        store.set(provider_name, {"type": "oauth", **dict(credentials)})
+        return True, f"pipy: {provider_name} OAuth login stored."
+
+    def _extension_oauth_logout(self, registered: object) -> tuple[bool, str]:
+        provider_name = registered.provider.name  # type: ignore[attr-defined]
+        assert self.catalog_state is not None
+        removed = self.catalog_state.auth_store.remove(provider_name)  # type: ignore[attr-defined]
+        if self.selection.provider_name == provider_name:
+            self.reset_to_first_available_model(require_tool_calls=False)
         if removed:
-            return True, "pipy: openai-codex OAuth credentials removed."
-        return True, "pipy: no openai-codex OAuth credentials were stored."
+            return True, f"pipy: {provider_name} OAuth credentials removed."
+        return True, f"pipy: no {provider_name} OAuth credentials were stored."
 
     def _resolve_model_reference(self, reference: str) -> tuple[NativeModelSelection | None, str]:
         if "/" in reference:

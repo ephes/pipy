@@ -75,6 +75,9 @@ class ProviderCatalogState:
     runtime_api_key: str | None = None
     extension_providers: tuple[RegisteredProvider, ...] = ()
     extension_unregistered_providers: tuple[str, ...] = ()
+    extension_oauth_provider_map: dict[str, RegisteredProvider] = field(
+        init=False, default_factory=dict
+    )
 
     catalog: ModelCatalog = field(init=False)
     _extension_provider_map: dict[str, RegisteredProvider] = field(
@@ -91,6 +94,7 @@ class ProviderCatalogState:
             extra_providers=self._extra_providers(),
         )
         self._rebuild_extension_provider_map()
+        self._rebuild_extension_oauth_provider_map()
         self._apply_oauth_modifiers()
 
     def _apply_oauth_modifiers(self) -> None:
@@ -158,6 +162,7 @@ class ProviderCatalogState:
         if self.auth_store is not None:
             self.auth_store.reload()
         self._rebuild_extension_provider_map()
+        self._rebuild_extension_oauth_provider_map()
 
     def set_extension_provider_contributions(
         self,
@@ -174,6 +179,7 @@ class ProviderCatalogState:
         self.extension_providers = tuple(providers)
         self.extension_unregistered_providers = tuple(unregistered)
         self._rebuild_extension_provider_map()
+        self._rebuild_extension_oauth_provider_map()
 
     def extension_provider_for(self, provider: str) -> RegisteredProvider | None:
         return self._extension_provider_map.get(provider.lower())
@@ -193,6 +199,16 @@ class ProviderCatalogState:
                 continue
             provider_map.setdefault(name.lower(), registered)
         self._extension_provider_map = provider_map
+
+    def _rebuild_extension_oauth_provider_map(self) -> None:
+        self.extension_oauth_provider_map = {
+            name: registered
+            for name, registered in self._extension_provider_map.items()
+            if registered.provider.oauth is not None
+        }
+
+    def extension_oauth_provider_for(self, provider: str) -> RegisteredProvider | None:
+        return self.extension_oauth_provider_map.get(provider.lower())
 
     def _rows_with_extension_providers(self) -> list[NativeModelSpec]:
         rows = self.catalog.get_all()
@@ -241,8 +257,14 @@ class ProviderCatalogState:
         )
 
     def provider_available(self, provider: str) -> bool:
-        if self.extension_provider_for(provider) is not None:
-            return True
+        extension_provider = self.extension_provider_for(provider)
+        if extension_provider is not None:
+            if extension_provider.provider.oauth is None:
+                return True
+            if self.auth_store is None:
+                return False
+            cred = self.auth_store.get(extension_provider.provider.name)
+            return bool(cred and cred.get("type") == "oauth")
         if provider == "fake":
             return True
         if provider == "openai-codex":
@@ -261,7 +283,7 @@ class ProviderCatalogState:
     def availability_reason(self, provider: str) -> str | None:
         if self.provider_available(provider):
             return None
-        if provider == "openai-codex":
+        if provider == "openai-codex" or self.extension_oauth_provider_for(provider) is not None:
             return "login-required"
         return "auth-missing"
 

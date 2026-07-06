@@ -2743,6 +2743,24 @@ def extension_providers(
     return tuple(providers)
 
 
+def extension_oauth_providers(
+    activated: Sequence[ActivatedExtension],
+) -> dict[str, RegisteredProvider]:
+    """OAuth-capable extension providers keyed by derived provider id.
+
+    Pi derives a dynamic OAuth provider's id from the registered provider name
+    (`{...oauth, id: providerName}`). Pipy projects only already-accepted
+    provider registrations here and never invokes OAuth callbacks while building
+    the map.
+    """
+
+    return {
+        registered.provider.name.lower(): registered
+        for registered in extension_providers(activated)
+        if registered.provider.oauth is not None
+    }
+
+
 def extension_unregistered_providers(
     activated: Sequence[ActivatedExtension],
 ) -> tuple[str, ...]:

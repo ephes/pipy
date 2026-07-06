@@ -17,10 +17,12 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     build_extension_provider_port,
+    extension_oauth_providers,
     extension_providers,
     extension_unregistered_providers,
     try_build_extension_provider_port,
 )
+from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.extension_provider_catalog import (
@@ -114,6 +116,61 @@ def test_register_provider_is_collected(tmp_path: Path) -> None:
     assert [p.provider.name for p in providers] == ["myprov"]
     assert providers[0].provider.default_model == "myprov/big"
     assert providers[0].provider.models == ("myprov/big", "myprov/small")
+
+
+def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "oauthprov",
+        "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"
+        "def _login(callbacks):\n"
+        "    callbacks.onAuth({'url': 'https://login.example.test', 'instructions': 'do it'})\n"
+        "    answer = callbacks.onPrompt({'message': 'Tenant', 'placeholder': 'corp'})\n"
+        "    choice = callbacks.onSelect({'message': 'Pick', 'options': [{'id': 'one', 'label': 'One'}]})\n"
+        "    callbacks.onProgress('done')\n"
+        "    return {'access': 'tok-' + answer, 'choice': choice}\n"
+        "def activate(api):\n"
+        "    api.register_provider(ExtensionProvider(name='corp-ai', default_model='m',\n"
+        "        models=('m',), factory=lambda ctx: None,\n"
+        "        oauth=ExtensionOAuthConfig(name='Corporate SSO', login=_login,\n"
+        "            refresh_token=lambda cred: cred, get_api_key=lambda cred: cred['access'])))\n",
+    )
+    activated = _activate(workspace)
+    oauth_map = extension_oauth_providers(activated)
+    assert sorted(oauth_map) == ["corp-ai"]
+
+    store = AuthStore(tmp_path / "auth.json")
+    state = ProviderCatalogState(models_json_path=tmp_path / "absent.json", auth_store=store)
+    state.set_extension_provider_contributions(extension_providers(activated), ())
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("legacy factory must not build extension providers")
+        ),
+        catalog_state=state,
+        persist_defaults=False,
+    )
+
+    assert state.provider_available("corp-ai") is False
+    assert state.availability_reason("corp-ai") == "login-required"
+
+    import io
+
+    out = io.StringIO()
+    ok, message = repl_state.login("corp-ai", input_stream=io.StringIO("acme\n1\n"), output_stream=out)
+
+    assert ok, message
+    assert message == "pipy: corp-ai OAuth login stored."
+    assert "https://login.example.test" in out.getvalue()
+    assert store.get("corp-ai") == {"type": "oauth", "access": "tok-acme", "choice": "one"}
+    assert state.provider_available("corp-ai") is True
+
+    ok, message = repl_state.logout("corp-ai")
+    assert ok, message
+    assert message == "pipy: corp-ai OAuth credentials removed."
+    assert store.get("corp-ai") is None
+    assert state.provider_available("corp-ai") is False
 
 
 def test_factory_builds_a_working_provider_port(tmp_path: Path) -> None:

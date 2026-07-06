@@ -56,11 +56,16 @@ shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 not source-compatible with Pi's TypeScript extensions, and it still lacks
 several mature Pi surfaces: full custom editor rendering/input integration
 beyond the landed in-memory component store, multi-widget message components,
-in-session full-history redraw on `/resume` switches, OAuth-provider extension
-`/login` wiring, remote PyPI/npm package distribution, and broader package
-ecosystem polish. The custom session-entry/message rendering surface has
-landed, including extension provider OAuth metadata and **rich message
-renderers**: extensions
+remote PyPI/npm package distribution, and broader package ecosystem polish. The
+bounded OAuth-provider extension `/login` slice now ships: extension providers
+with `ExtensionOAuthConfig` are projected under the provider name as the derived
+OAuth id, `/login <provider>` invokes the extension callback with stdio auth /
+device-code / prompt / select / progress callbacks, and stores
+`{"type":"oauth", ...credentials}` in pipy's `AuthStore`; `/logout <provider>`
+removes it. Provider-factory credential injection and broader declarative
+provider config remain deferred. The custom session-entry/message rendering
+surface has landed, including extension provider OAuth metadata and **rich
+message renderers**: extensions
 register a renderer for a custom entry type and command/shortcut handlers append
 JSON-safe custom entries to the native product session tree; a renderer that
 requires a second `(data, ctx)` parameter receives a `MessageRenderContext` and
@@ -627,12 +632,20 @@ class ExtensionProvider:
 snake_case. Pipy validates malformed OAuth metadata fail-closed during extension
 activation and preserves the callbacks without invoking them during activation or
 provider construction. Pi derives the OAuth provider id from the registered
-provider name; pipy preserves the normalized provider name as that future id
-source. The actual `/login` selector/auth-store integration and declarative
-API-backed provider config (`baseUrl`/`api`/`apiKey-or-oauth`) remain deferred.
+provider name; pipy uses the normalized provider name as that id. For activated
+OAuth-backed extension providers, `/login <provider>` calls `login(callbacks)`
+with deterministic stdio callbacks (`onAuth`, `onDeviceCode`, `onPrompt`,
+`onSelect`, `onProgress`, plus snake_case aliases), then stores the returned
+mapping as `{"type": "oauth", ...credentials}` in pipy's `AuthStore` under the
+provider name. `/logout <provider>` removes that stored entry. OAuth-backed
+extension provider rows are unavailable with `login-required` until that entry is
+present; non-OAuth extension providers remain factory-owned and available as
+before. The declarative API-backed provider config
+(`baseUrl`/`api`/`apiKey-or-oauth`) and passing shared credentials into arbitrary
+provider factories remain deferred.
 
-Provider extensions must not receive existing auth stores wholesale. They
-should either read their own environment variables or use this future auth
+Provider extensions must not receive existing auth stores wholesale. They should
+either read their own environment variables or use the bounded OAuth login
 capability with explicit provider labels.
 
 Mirroring Pi, the provider surface supports both registration and
@@ -1332,7 +1345,17 @@ and the live `scripts/tmux_answer_verify.sh`.
     `scripts/parity_checks/extension_conformance_gate.py --json` records the
     `message_renderer_component` marker proving the rich renderer ran end to end
     with no leak.
-20. Extension UI editor helpers — **landed for command/shortcut contexts**:
+20. Extension OAuth `/login` wiring — **landed for provider auth storage**:
+    `ExtensionOAuthConfig` providers are projected under the derived provider id
+    (the registered provider name), `/login <provider>` invokes the extension's
+    sync `login(callbacks)` with Pi-shaped stdio callbacks, and pipy stores the
+    returned mapping as `{"type":"oauth", ...credentials}` in `AuthStore` under
+    that provider name. `/logout <provider>` removes it. OAuth-backed extension
+    providers are `login-required` until stored credentials exist; non-OAuth
+    extension providers retain the previous factory-owned availability. Broader
+    declarative provider config and credential injection into provider factories
+    remain deferred. Gate: `scripts/parity_checks/extension_providers_conformance.py --json`.
+21. Extension UI editor helpers — **landed for command/shortcut contexts**:
     `ctx.ui.editor(title, prefill=None)` opens a focused multi-line product-TUI
     overlay in interactive sessions and returns `None` deterministically in
     headless/non-interactive contexts. The editor submits on Enter, inserts a
@@ -1356,7 +1379,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     opaque in-memory live factory, and `None` clears it. Headless contexts no-op
     and return `None`, matching Pi RPC. Full custom editor rendering/input
     integration remains deferred.
-21. Extension UI theme controls — **landed for command/shortcut contexts**
+22. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,
     default first), `ctx.ui.get_theme(name)` (palette by name, `None` when
@@ -1370,20 +1393,20 @@ and the live `scripts/tmux_answer_verify.sh`.
     mechanism so the next frame repaints. `path` is always `None`: the session
     theme registry retains only `name -> palette` and pipy does not leak package
     theme file paths to extension code.
-22. Tool-output expansion controls — **landed for command/shortcut contexts**:
+23. Tool-output expansion controls — **landed for command/shortcut contexts**:
     `ctx.ui.get_tools_expanded()` / `getToolsExpanded()` read the same live
     product-TUI expansion bit that drives built-in tool-row expansion, and
     `ctx.ui.set_tools_expanded(expanded)` / `setToolsExpanded(expanded)` set it
     (coerced to bool) and request a repaint. Headless/no-UI contexts match Pi
     RPC/no-op behavior: getters return `False` and setters do nothing. The state
     is live-only and never archived.
-23. Hidden-thinking label control — **landed for live product-TUI command/
+24. Hidden-thinking label control — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.set_hidden_thinking_label(label=None)` and
     Pi-shaped `ctx.ui.setHiddenThinkingLabel(label=None)` set the label shown
     when thinking blocks are folded. Omitting/passing `None` restores Pi's
     default `Thinking...`; headless contexts no-op like Pi RPC; the label is
     live-only and never archived.
-24. Raw terminal input subscriptions — **landed for live product-TUI command/
+25. Raw terminal input subscriptions — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.on_terminal_input(handler)` and Pi-shaped
     `ctx.ui.onTerminalInput(handler)` register decoded-key listeners that run
     before built-in editor handling. Handlers may consume the key or replace it
@@ -1391,7 +1414,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     handlers fail soft, and the returned disposer is idempotent. Headless
     contexts return a no-op disposer and never invoke the handler; raw inputs
     are live-only and never archived.
-25. Autocomplete provider wrappers — **landed for live product-TUI command/
+26. Autocomplete provider wrappers — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
     Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around
     the built-in editor provider. Providers receive full editor `lines`,
