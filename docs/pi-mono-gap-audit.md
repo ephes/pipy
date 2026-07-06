@@ -242,6 +242,7 @@ Pipy current state:
   contexts can call `ctx.ui.set_hidden_thinking_label` /
   `setHiddenThinkingLabel` to change the folded-thinking label, and headless
   contexts no-op like Pi RPC.
+- Extension chrome `requestRender` parity has shipped: widget/header/footer factories receive a Pi-shaped live TUI handle, factory components re-render every frame, and `requestRender()` repaints without a provider turn.
 - Extension footer-data provider parity has shipped: `ctx.ui.set_footer` passes
   read-only Pi-shaped `FooterData` with `getGitBranch()`,
   `getExtensionStatuses()`, `getAvailableProviderCount()`, and live product-TUI
@@ -262,9 +263,6 @@ Follow-ons:
 
 1. Richer Pi extension APIs: full custom editor component rendering/input
    integration beyond the landed `setEditorComponent` in-memory store,
-   live per-frame
-   component `render()`/`requestRender` re-rendering of chrome
-   components (the working indicator already animates via the spinner loop) /
    multi-widget message components beyond the landed single-component rich
    message renderer (item C), richer tool-output expansion integration beyond
    the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped

@@ -315,8 +315,8 @@ The highest-impact remaining gaps are now:
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls, rich message renderers, editor helpers,
    session-manager helpers, terminal-input hooks, footer data, and
-   custom-message delivery now ship. Pi remains ahead on live per-frame
-   component invalidation, in-session full-history redraw on `/resume` switches,
+   custom-message delivery and live chrome `requestRender` re-rendering now
+   ship. Pi remains ahead on in-session full-history redraw on `/resume` switches,
    richer multi-widget message components, full custom editor rendering/input
    integration beyond the landed in-memory component store, OAuth-provider
    extension `/login` wiring, remote PyPI/npm sources, and the broader package
@@ -1509,8 +1509,6 @@ reopening the completed redraw slice.
 
 Candidate next slices:
 
-- live per-frame `invalidate` / `requestRender` for custom renderers beyond the
-  landed render-once snapshots;
 - multi-widget message components;
 - full custom editor rendering/input integration beyond the in-memory
   `setEditorComponent` store; or

@@ -121,14 +121,38 @@ def run_checks() -> list[Check]:
 
     # 6. resize re-render of a factory widget.
     ui = _ui()
-    ui.set_extension_widget("k", lambda theme: _WComp())
+    ui.set_extension_widget("k", lambda tui, theme: _WComp())
     l40 = ui._extension_widgets_lines("above_editor", 40)
     l70 = ui._extension_widgets_lines("above_editor", 70)
     checks.append(Check("resize_rerender",
                         any("40" in fl.text for fl in l40) and any("70" in fl.text for fl in l70),
                         "factory widget reflows on width change"))
 
-    # 7. dispose called on replace + clear.
+    # 7. same-width live re-render + Pi-shaped requestRender handle.
+    ui = _ui()
+    state = {"value": "a"}
+    handles = []
+
+    class _LiveComp:
+        def render(self, width):
+            return [state["value"]]
+
+    ui.set_extension_widget("k", lambda tui, theme: handles.append(tui) or _LiveComp())
+    first = ui._extension_widgets_lines("above_editor", 70)
+    state["value"] = "b"
+    second = ui._extension_widgets_lines("above_editor", 70)
+    request_ok = bool(handles) and hasattr(handles[0], "requestRender")
+    before = ui.terminal_stream.getvalue()
+    handles[0].requestRender()
+    after = ui.terminal_stream.getvalue()
+    checks.append(Check("live_rerender_request_render",
+                        any("a" in fl.text for fl in first)
+                        and any("b" in fl.text for fl in second)
+                        and request_ok
+                        and after != before,
+                        "same-width render refresh + requestRender repaint"))
+
+    # 8. dispose called on replace + clear.
     ui = _ui()
     disposed = []
     ui.set_extension_widget("k", lambda theme: _DComp(disposed))

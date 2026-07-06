@@ -197,6 +197,107 @@ def test_factory_widget_rerenders_on_width_change():
     assert any("W70" in line for line in _frame_text(ui, width=70))
 
 
+def test_chrome_factory_gets_pi_shaped_tui_handle_and_theme():
+    ui = _ui()
+    seen = []
+
+    class _Comp:
+        def render(self, width):
+            return ["ok"]
+
+    def factory(tui, theme):
+        seen.append((hasattr(tui, "requestRender"), hasattr(tui, "request_render"), theme))
+        return _Comp()
+
+    ui.set_extension_widget("k", factory)
+    assert seen and seen[0][0] is True and seen[0][1] is True and seen[0][2] is not None
+
+
+def test_footer_factory_gets_pi_shaped_tui_theme_and_footer_data():
+    ui = _ui()
+    seen = []
+
+    class _Comp:
+        def render(self, width):
+            return ["footer"]
+
+    def factory(tui, theme, footer_data):
+        seen.append((hasattr(tui, "requestRender"), theme, footer_data))
+        return _Comp()
+
+    ui.set_extension_footer(factory)
+    assert seen and seen[0][0] is True and seen[0][1] is not None and seen[0][2] is not None
+
+
+def test_factory_widget_rerenders_each_frame_at_same_width():
+    ui = _ui()
+    state = {"value": "one"}
+    renders = []
+
+    class _Comp:
+        def render(self, width):
+            renders.append(width)
+            return [state["value"]]
+
+    ui.set_extension_widget("k", lambda tui, theme: _Comp())
+    assert any("one" in line for line in _frame_text(ui, width=70))
+    state["value"] = "two"
+    assert any("two" in line for line in _frame_text(ui, width=70))
+    assert len(renders) >= 3  # initial set + two same-width frame renders
+
+
+def test_chrome_request_render_repaints_live_frame():
+    ui = _ui()
+    handles = []
+    renders = []
+
+    class _Comp:
+        def render(self, width):
+            renders.append(width)
+            return [f"render-{len(renders)}"]
+
+    def factory(tui, theme):
+        handles.append(tui)
+        return _Comp()
+
+    ui.set_extension_widget("k", factory)
+    before = len(renders)
+    handles[0].requestRender()
+    handles[0].request_render(True)
+    assert len(renders) >= before + 2
+
+
+def test_request_render_inside_render_is_coalesced_not_recursive():
+    ui = _ui()
+    renders = []
+
+    class _Comp:
+        def __init__(self, tui):
+            self.tui = tui
+
+        def render(self, width):
+            renders.append(width)
+            if len(renders) == 1:
+                self.tui.requestRender()
+            return ["ok"]
+
+    ui.set_extension_widget("k", lambda tui, theme: _Comp(tui))
+    assert len(renders) == 2
+
+
+def test_chrome_factory_typeerror_body_is_not_reinvoked_with_legacy_arity():
+    ui = _ui()
+    calls = []
+
+    def factory(tui, theme):
+        calls.append("called")
+        raise TypeError("body failure")
+
+    ui.set_extension_widget("k", factory)
+    assert calls == ["called"]
+    assert "k" not in ui.extension_widgets_above
+
+
 def test_tall_chrome_clamped_and_input_preserved():
     ui = _ui()
     for i in range(16):  # _WIDGET_MAX_COUNT widgets, each _WIDGET_MAX_LINES tall

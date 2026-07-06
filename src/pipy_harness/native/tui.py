@@ -10,6 +10,7 @@ paint.
 
 from __future__ import annotations
 
+import inspect
 import os
 import re
 import select
@@ -308,6 +309,34 @@ class _ChromeRegion:
     snapshot: tuple[str, ...]
     width: int
     is_factory: bool
+
+
+class _ExtensionChromeTuiHandle:
+    """Small Pi-shaped TUI handle passed to extension chrome factories."""
+
+    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
+        self._ui = ui
+
+    def requestRender(self, force: bool = False) -> None:  # noqa: N802 - Pi API
+        """Request a live repaint without producing a provider turn.
+
+        Pi accepts a ``force`` flag that clears its incremental renderer state.
+        Pipy's live-region renderer already repaints the full frame; the flag is
+        accepted for API shape and currently needs no distinct handling.
+        """
+
+        del force
+        try:
+            self._ui.request_extension_chrome_render()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a repaint request is fail-soft
+            return
+
+    def request_render(self, force: bool = False) -> None:
+        """Pythonic alias for extensions that prefer snake_case."""
+
+        self.requestRender(force)
 
 
 class _ExtensionSelectComponent:
@@ -832,6 +861,8 @@ class ToolLoopTerminalUi:
     _live_height: int = 0
     _live_input_row: int = 0
     _paint_lock: Any = field(default_factory=threading.RLock)
+    _painting: bool = False
+    _paint_requested_during_paint: bool = False
     # Editor ergonomics state.
     #
     # ``input_history`` is an in-memory, session-scoped ring of submitted
@@ -1966,28 +1997,49 @@ class ToolLoopTerminalUi:
     def _chrome_theme(self) -> object:
         return build_tool_render_theme(chrome_style_for(self.terminal_stream))
 
+    @staticmethod
+    def _call_chrome_factory(
+        source: object, args: tuple[object, ...], legacy_args: tuple[object, ...]
+    ) -> object:
+        """Call a chrome factory using Pi-shaped args when its arity allows it."""
+
+        try:
+            sig = inspect.signature(cast(Callable[..., object], source))
+        except (TypeError, ValueError):
+            return cast(Callable[..., object], source)(*args)
+        try:
+            sig.bind(*args)
+        except TypeError:
+            sig.bind(*legacy_args)
+            return cast(Callable[..., object], source)(*legacy_args)
+        return cast(Callable[..., object], source)(*args)
+
     def _build_region(
         self, source: object, *, footer_data: object | None, max_lines: int
     ) -> "_ChromeRegion | None":
-        """Build a region by rendering ``source`` once at the current width.
+        """Build a region by rendering ``source`` at the current width.
 
         A callable ``source`` is a factory (built once); a bare component object
         (callable ``render``) is retained directly. BOTH are reactive — their
-        ``render(width)`` is re-called on resize and their optional
-        ``invalidate()``/``dispose()`` run on resize/replace/clear. A
-        ``str``/``Sequence[str]`` source is static."""
+        ``render(width)`` is re-called for each frame, their optional
+        ``invalidate()`` runs on resize, and ``dispose()`` runs on replace/clear.
+        A ``str``/``Sequence[str]`` source is static."""
         width, _height = self._dimensions()
         component: object | None = None
         is_factory = False
         render_source: object = source
         if callable(source) and not isinstance(source, (str, bytes, bytearray)):
             theme = self._chrome_theme()
+            tui_handle = _ExtensionChromeTuiHandle(self)
             try:
-                component = (
-                    source(theme, footer_data)
-                    if footer_data is not None
-                    else source(theme)
-                )
+                if footer_data is not None:
+                    component = self._call_chrome_factory(
+                        source, (tui_handle, theme, footer_data), (theme, footer_data)
+                    )
+                else:
+                    component = self._call_chrome_factory(
+                        source, (tui_handle, theme), (theme,)
+                    )
             except (KeyboardInterrupt, SystemExit):
                 raise
             except BaseException:  # noqa: BLE001 - a bad factory falls back
@@ -3335,11 +3387,33 @@ class ToolLoopTerminalUi:
             for line in frame[:height]
         ]
 
+    def request_extension_chrome_render(self) -> None:
+        """Request a chrome repaint, coalescing calls made during render()."""
+
+        if self._closed:
+            return
+        with self._paint_lock:
+            if self._painting:
+                self._paint_requested_during_paint = True
+                return
+        self.paint()
+
     def paint(self) -> None:
         if self._closed:
             return
         with self._paint_lock:
-            self._paint_locked()
+            if self._painting:
+                self._paint_requested_during_paint = True
+                return
+            self._painting = True
+            try:
+                self._paint_locked()
+                if self._paint_requested_during_paint and not self._closed:
+                    self._paint_requested_during_paint = False
+                    self._paint_locked()
+            finally:
+                self._painting = False
+                self._paint_requested_during_paint = False
 
     def _paint_locked(self) -> None:
         width, height = self._dimensions()
@@ -3692,22 +3766,23 @@ class ToolLoopTerminalUi:
     ) -> tuple[str, ...] | None:
         """Return the region's snapshot lines (UNCLIPPED; the caller width-clips
         each line at frame-build time), or ``None`` when a factory re-render
-        failed (the caller then drops the region — fail soft). A factory region
-        re-renders when the width changes (component retained, not re-invoked); a
-        static region keeps its original lines unchanged, so narrowing-then-
-        widening is non-lossy."""
+        failed (the caller then drops the region — fail soft). Factory/component
+        regions re-render every frame (component retained, not re-invoked), and
+        invalidate on width changes; static regions keep their original lines
+        unchanged, so narrowing-then-widening is non-lossy."""
         if not region.is_factory:
             return region.snapshot
-        if region.width == width or region.component is None:
+        if region.component is None:
             return region.snapshot
-        invalidate = getattr(region.component, "invalidate", None)
-        if callable(invalidate):
-            try:
-                invalidate()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001
-                pass
+        if region.width != width:
+            invalidate = getattr(region.component, "invalidate", None)
+            if callable(invalidate):
+                try:
+                    invalidate()
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:  # noqa: BLE001
+                    pass
         lines = render_chrome_component(
             lambda: region.component, width=width, max_lines=max_lines
         )
