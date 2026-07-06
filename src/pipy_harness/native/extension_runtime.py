@@ -893,17 +893,22 @@ class ChromeComponent(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class FooterData:
-    """Read-only snapshot handed to a footer factory.
+    """Read-only data handed to a footer factory.
 
     This mirrors Pi's ``ReadonlyFooterDataProvider`` method surface while keeping
-    pipy's current footer data as a snapshot rather than a reactive provider.
-    ``extension_statuses`` is copied into a read-only proxy so a caller-passed
-    ``dict`` cannot be mutated through the snapshot.
+    pipy's scalar fields snapshot-based. Live product-TUI snapshots may carry an
+    optional branch-change registrar for Pi-shaped ``onBranchChange`` delivery;
+    headless/offline snapshots keep a safe no-op disposer. ``extension_statuses``
+    is copied into a read-only proxy so a caller-passed ``dict`` cannot be
+    mutated through the snapshot.
     """
 
     git_branch: str | None
     extension_statuses: Mapping[str, str]
     available_provider_count: int = 0
+    branch_change_registrar: (
+        Callable[[Callable[[], object]], Callable[[], None]] | None
+    ) = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -936,19 +941,20 @@ class FooterData:
         return self.get_available_provider_count()
 
     def on_branch_change(
-        self, _callback: Callable[[str | None], object]
+        self, callback: Callable[[], object]
     ) -> Callable[[], None]:
         """Register for branch changes and return a safe disposer.
 
-        Pi's provider is reactive; pipy's current footer data is a snapshot.
-        The no-op registration keeps translated extensions source-shaped
-        without promising live branch-change delivery in this slice.
+        Live TUI snapshots delegate to the UI registrar. Headless snapshots keep
+        translated extensions source-shaped with a no-op disposer.
         """
 
+        if self.branch_change_registrar is not None:
+            return self.branch_change_registrar(callback)
         return lambda: None
 
     def onBranchChange(  # noqa: N802 - Pi-shaped API
-        self, callback: Callable[[str | None], object]
+        self, callback: Callable[[], object]
     ) -> Callable[[], None]:
         return self.on_branch_change(callback)
 

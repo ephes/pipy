@@ -35,6 +35,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Extension custom footers now receive live product-TUI `FooterData.onBranchChange(...)` callbacks that rebuild/repaint the footer on git branch changes; headless snapshots keep the safe no-op disposer.
 - The native `google-generative-ai` provider now injects Pi's per-model
   `generationConfig.thinkingConfig`: a `thinkingLevel` enum (Gemini 3 Pro/Flash,
   Gemma 4) or a `thinkingBudget` token count (Gemini 2.5 family) with

@@ -1526,10 +1526,10 @@ Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name
 well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
 `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live product-TUI
 expansion state, while headless contexts return `False` and no-op writes like Pi
-RPC. Custom footer factories now receive a read-only Pi-shaped `FooterData`
-snapshot with `getGitBranch()`, `getExtensionStatuses()`,
-`getAvailableProviderCount()`, and a safe no-op `onBranchChange(...)` disposer;
-live branch-change delivery remains deferred. Extension custom-message sending now also ships for the local
+RPC. Custom footer factories now receive read-only Pi-shaped `FooterData` with
+`getGitBranch()`, `getExtensionStatuses()`, `getAvailableProviderCount()`, and
+live product-TUI `onBranchChange(...)` callbacks; headless snapshots keep a safe
+no-op disposer. Extension custom-message sending now also ships for the local
 session/display slice: `api.send_message` / `api.sendMessage` and
 `ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages;
 idle `triggerTurn` starts a deterministic provider turn,
@@ -1727,7 +1727,7 @@ ship for live product-TUI `@` and forced Tab completion. They do not yet cover
 Pi's richer extension APIs: live (invalidate-driven) tool rendering beyond the
 landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, full custom
 editor rendering/input integration beyond the landed in-memory component store,
-reactive footer branch-change delivery, message-entry APIs beyond the shipped
+message-entry APIs beyond the shipped
 append/startup replay and idle `send_message` delivery, TypeScript source
 compatibility, OAuth-provider extension `/login` wiring, broader dynamic
 extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface,

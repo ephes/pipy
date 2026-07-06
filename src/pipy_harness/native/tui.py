@@ -22,6 +22,7 @@ import termios
 import tempfile
 import textwrap
 import threading
+import time
 import tty
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -682,6 +683,20 @@ class ToolLoopTerminalUi:
     extension_widgets_below: dict[str, "_ChromeRegion"] = field(default_factory=dict)
     extension_header: "_ChromeRegion | None" = None
     extension_footer: "_ChromeRegion | None" = None
+    _extension_footer_factory: object | None = None
+    _extension_footer_branch: str | None = None
+    _footer_branch_callbacks: dict[int, Callable[[], object]] = field(
+        default_factory=dict
+    )
+    _footer_branch_callback_next_id: int = 0
+    _footer_branch_slots: tuple[int, ...] = ()
+    _footer_branch_rebuild_slots: tuple[int, ...] | None = None
+    _footer_branch_rebuild_index: int = 0
+    _footer_branch_rebuild_active_ids: frozenset[int] = frozenset()
+    _footer_branch_rebuild_new_slots: list[int] = field(default_factory=list)
+    _footer_branch_rebuild_fire_ids: list[int] = field(default_factory=list)
+    _footer_branch_last_check: float = 0.0
+    _footer_branch_check_interval: float = 0.25
     extension_title: str | None = None
     _extension_title_pushed: bool = False
     extension_indicator_frames: tuple[str, ...] | None = None
@@ -2030,6 +2045,142 @@ class ToolLoopTerminalUi:
                     target[safe_key] = region
         self.paint()
 
+    def _detect_extension_footer_branch(self) -> str | None:
+        """Return the current git branch label for live footer data."""
+
+        candidate: Path | None = self.cwd
+        while candidate is not None and candidate != candidate.parent:
+            head = candidate / ".git" / "HEAD"
+            try:
+                text = head.read_text(encoding="utf-8")
+            except OSError:
+                candidate = candidate.parent
+                continue
+            text = text.strip()
+            if text.startswith("ref: refs/heads/"):
+                return text.split("refs/heads/", 1)[1]
+            if text:
+                return "detached"
+            return None
+        return None
+
+    def register_footer_branch_change_callback(
+        self, callback: Callable[[], object]
+    ) -> Callable[[], None]:
+        """Register a Pi-shaped footer branch-change callback."""
+
+        # _paint_lock is a threading.RLock, so footer factories may safely call
+        # onBranchChange while _build_region is already running under the same
+        # paint lock during set/rebuild.
+        with self._paint_lock:
+            if self._footer_branch_rebuild_slots is not None:
+                if self._footer_branch_rebuild_index < len(
+                    self._footer_branch_rebuild_slots
+                ):
+                    callback_id = self._footer_branch_rebuild_slots[
+                        self._footer_branch_rebuild_index
+                    ]
+                else:
+                    callback_id = self._footer_branch_callback_next_id
+                    self._footer_branch_callback_next_id += 1
+                self._footer_branch_rebuild_index += 1
+                self._footer_branch_rebuild_new_slots.append(callback_id)
+                if callback_id in self._footer_branch_rebuild_active_ids:
+                    self._footer_branch_rebuild_fire_ids.append(callback_id)
+            else:
+                callback_id = self._footer_branch_callback_next_id
+                self._footer_branch_callback_next_id += 1
+                self._footer_branch_slots = (*self._footer_branch_slots, callback_id)
+            self._footer_branch_callbacks[callback_id] = callback
+            self._footer_branch_last_check = 0.0
+
+        disposed = False
+
+        def dispose() -> None:
+            nonlocal disposed
+            if disposed:
+                return
+            disposed = True
+            with self._paint_lock:
+                self._footer_branch_callbacks.pop(callback_id, None)
+
+        return dispose
+
+    def _footer_data_snapshot(self) -> FooterData:
+        branch = self._detect_extension_footer_branch()
+        self._extension_footer_branch = branch
+        return FooterData(
+            git_branch=branch,
+            extension_statuses=dict(self.extension_status),
+            available_provider_count=int(self.available_provider_count or 0),
+            branch_change_registrar=self.register_footer_branch_change_callback,
+        )
+
+    def _clear_footer_branch_callbacks(self) -> None:
+        self._footer_branch_callbacks.clear()
+        self._footer_branch_slots = ()
+        self._footer_branch_last_check = 0.0
+
+    def _refresh_extension_footer_branch(self, *, force: bool = False) -> None:
+        factory = self._extension_footer_factory
+        if factory is None:
+            return
+        now = time.monotonic()
+        if (
+            not force
+            and now - self._footer_branch_last_check < self._footer_branch_check_interval
+        ):
+            return
+        self._footer_branch_last_check = now
+        branch = self._detect_extension_footer_branch()
+        if not force and branch == self._extension_footer_branch:
+            return
+        with self._paint_lock:
+            slots_before = self._footer_branch_slots
+            active_before = frozenset(self._footer_branch_callbacks)
+            self._extension_footer_branch = branch
+            self._footer_branch_callbacks.clear()
+            self._footer_branch_rebuild_slots = slots_before
+            self._footer_branch_rebuild_index = 0
+            self._footer_branch_rebuild_active_ids = active_before
+            self._footer_branch_rebuild_new_slots = []
+            self._footer_branch_rebuild_fire_ids = []
+            self._dispose_region(self.extension_footer)
+            try:
+                self.extension_footer = self._build_region(
+                    factory,
+                    footer_data=FooterData(
+                        git_branch=branch,
+                        extension_statuses=dict(self.extension_status),
+                        available_provider_count=int(self.available_provider_count or 0),
+                        branch_change_registrar=self.register_footer_branch_change_callback,
+                    ),
+                    max_lines=_FOOTER_MAX_LINES,
+                )
+                self._footer_branch_slots = tuple(self._footer_branch_rebuild_new_slots)
+                callbacks = tuple(
+                    self._footer_branch_callbacks[callback_id]
+                    for callback_id in self._footer_branch_rebuild_fire_ids
+                    if callback_id in self._footer_branch_callbacks
+                )
+            finally:
+                self._footer_branch_rebuild_slots = None
+                self._footer_branch_rebuild_index = 0
+                self._footer_branch_rebuild_active_ids = frozenset()
+                self._footer_branch_rebuild_new_slots = []
+                self._footer_branch_rebuild_fire_ids = []
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                continue
+        self.paint()
+
+    def poll_extension_footer_branch(self) -> None:
+        """Check for branch changes for tests and live input-loop ticks."""
+
+        self._refresh_extension_footer_branch(force=False)
+
     def set_extension_header(self, factory: object | None) -> None:
         with self._paint_lock:
             self._dispose_region(self.extension_header)
@@ -2046,17 +2197,20 @@ class ToolLoopTerminalUi:
     ) -> None:
         with self._paint_lock:
             self._dispose_region(self.extension_footer)
+            self._clear_footer_branch_callbacks()
+            self._extension_footer_factory = factory
             if factory is None:
                 self.extension_footer = None
+                self._extension_footer_branch = None
             else:
                 fd = (
-                    footer_data
-                    if footer_data is not None
-                    else FooterData(
-                        git_branch=None,
-                        extension_statuses=dict(self.extension_status),
-                    )
+                    footer_data if footer_data is not None else self._footer_data_snapshot()
                 )
+                if isinstance(fd, FooterData):
+                    # Seed from the same detector used by the poller so the
+                    # first poll does not rebuild solely because an external
+                    # driver formatted its snapshot differently.
+                    self._extension_footer_branch = self._detect_extension_footer_branch()
                 self.extension_footer = self._build_region(
                     factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
                 )
@@ -4325,6 +4479,7 @@ class ToolLoopTerminalUi:
         """
 
         while True:
+            self.poll_extension_footer_branch()
             self._poll_resize_repaint()
             if self._pending_input_bytes:
                 return self._read_key(fd)

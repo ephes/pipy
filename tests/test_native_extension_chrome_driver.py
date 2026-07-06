@@ -1,5 +1,3 @@
-import subprocess
-
 from pipy_harness.native.extension_runtime import (
     FooterData,
     LifecycleEvent,
@@ -34,7 +32,7 @@ class _FakeUi:
     def set_extension_header(self, factory):
         self.calls.append(("header", factory))
 
-    def set_extension_footer(self, factory, footer_data):
+    def set_extension_footer(self, factory, footer_data=None):
         self.calls.append(("footer", factory, footer_data))
 
     def set_extension_title(self, title):
@@ -69,19 +67,14 @@ def test_driver_delegates_all_five(tmp_path):
     assert ui.calls[0] == ("widget", "k", ["a"], "below_editor")
 
 
-def test_driver_footer_builds_footerdata_with_branch_and_statuses(tmp_path):
-    subprocess.run(["git", "init", "-b", "feature-x"], cwd=tmp_path, check=True,
-                   capture_output=True)
+def test_driver_footer_delegates_snapshot_to_terminal_ui(tmp_path):
     ui = _FakeUi()
     driver = _LiveExtensionUiDriver(ui, tmp_path)
     factory = lambda theme, fd: None  # noqa: E731
     driver.set_footer(factory)
     _kind, passed_factory, footer_data = ui.calls[-1]
     assert passed_factory is factory
-    assert isinstance(footer_data, FooterData)
-    assert footer_data.git_branch == "feature-x"
-    assert footer_data.extension_statuses == {"s": "v"}
-    assert footer_data.getAvailableProviderCount() == 2
+    assert footer_data is None
 
 
 def test_driver_footer_none_passes_none(tmp_path):
@@ -153,3 +146,30 @@ def test_lifecycle_hook_no_driver_records_but_does_not_raise(tmp_path):
         cwd=str(tmp_path),
         has_ui=False,
     )  # must not raise
+
+
+def test_footerdata_branch_change_registrar_invokes_disposer():
+    callbacks = []
+
+    def registrar(callback):
+        callbacks.append(callback)
+        return lambda: callbacks.remove(callback)
+
+    footer_data = FooterData(
+        git_branch="main",
+        extension_statuses={},
+        branch_change_registrar=registrar,
+    )
+    seen = []
+    dispose = footer_data.onBranchChange(lambda: seen.append("called"))
+    callbacks[0]()
+    dispose()
+    assert seen == ["called"]
+    assert callbacks == []
+
+
+def test_footerdata_branch_change_noop_disposer_is_idempotent():
+    footer_data = FooterData(git_branch=None, extension_statuses={})
+    dispose = footer_data.onBranchChange(lambda: None)
+    dispose()
+    dispose()

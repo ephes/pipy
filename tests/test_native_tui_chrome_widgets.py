@@ -262,3 +262,186 @@ def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
     frame = ui._frame_lines(width=80, height=h, pad=False)
     assert len(frame) <= h
     assert any(fl.kind == "input" for fl in frame)
+
+
+def test_footer_branch_change_rebuilds_and_invokes_callbacks(tmp_path):
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=tmp_path,
+    )
+    seen = []
+    rendered = []
+    disposers = []
+
+    class _Footer:
+        def __init__(self, branch):
+            self.branch = branch
+
+        def render(self, width):
+            return [f"branch={self.branch}"]
+
+    def factory(theme, footer_data):
+        rendered.append(footer_data.getGitBranch())
+        disposers.append(
+            footer_data.onBranchChange(lambda: seen.append(footer_data.getGitBranch()))
+        )
+        return _Footer(footer_data.getGitBranch())
+
+    ui.set_extension_footer(factory)
+    assert rendered == ["main"]
+
+    subprocess.run(
+        ["git", "checkout", "-b", "next"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui._footer_branch_last_check = 0.0
+    ui.poll_extension_footer_branch()
+
+    assert seen == ["next"]
+    assert rendered[-1] == "next"
+    assert ui.extension_footer is not None
+    assert ui.extension_footer.snapshot == ("branch=next",)
+
+
+def test_footer_branch_change_disposer_and_clear_suppress_callbacks(tmp_path):
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=tmp_path,
+    )
+    seen = []
+    disposers = []
+
+    def factory(theme, footer_data):
+        disposers.append(footer_data.onBranchChange(lambda: seen.append("changed")))
+        return [footer_data.getGitBranch() or "none"]
+
+    ui.set_extension_footer(factory)
+    disposers[-1]()
+    disposers[-1]()
+    subprocess.run(
+        ["git", "checkout", "-b", "next"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui._footer_branch_last_check = 0.0
+    ui.poll_extension_footer_branch()
+    assert seen == []
+
+    ui.set_extension_footer(None)
+    subprocess.run(
+        ["git", "checkout", "-b", "third"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui._footer_branch_last_check = 0.0
+    ui.poll_extension_footer_branch()
+    assert seen == []
+
+
+def test_footer_branch_change_detached_head_uses_stable_label(tmp_path):
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    (tmp_path / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "initial",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "--detach"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=tmp_path,
+    )
+    seen = []
+    rendered = []
+
+    def factory(theme, footer_data):
+        rendered.append(footer_data.getGitBranch())
+        footer_data.onBranchChange(lambda: seen.append(footer_data.getGitBranch()))
+        return [footer_data.getGitBranch() or "none"]
+
+    ui.set_extension_footer(factory)
+    assert rendered == ["detached"]
+
+    subprocess.run(
+        ["git", "checkout", "-b", "next"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui._footer_branch_last_check = 0.0
+    ui.poll_extension_footer_branch()
+
+    assert rendered[-1] == "next"
+    assert seen == ["next"]
+
+
+def test_footer_branch_change_preserves_disposed_callback_slots(tmp_path):
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=tmp_path,
+    )
+    seen = []
+    disposers = []
+
+    def factory(theme, footer_data):
+        branch = footer_data.getGitBranch()
+        disposers.append(footer_data.onBranchChange(lambda: seen.append(f"a:{branch}")))
+        disposers.append(footer_data.onBranchChange(lambda: seen.append(f"b:{branch}")))
+        return [branch or "none"]
+
+    ui.set_extension_footer(factory)
+    disposers[0]()
+
+    subprocess.run(
+        ["git", "checkout", "-b", "next"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    ui._footer_branch_last_check = 0.0
+    ui.poll_extension_footer_branch()
+
+    assert seen == ["b:next"]

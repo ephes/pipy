@@ -169,7 +169,6 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionTool,
     ExtensionUiDriver,
-    FooterData,
     HookHandler,
     LifecycleEvent,
     QueuedCustomMessage,
@@ -598,18 +597,7 @@ class _LiveExtensionUiDriver:
         self._terminal_ui.set_extension_header(factory)
 
     def set_footer(self, factory: object | None) -> None:
-        footer_data = (
-            None
-            if factory is None
-            else FooterData(
-                git_branch=_detect_git_branch(self._cwd),
-                extension_statuses=dict(self._terminal_ui.extension_status),
-                available_provider_count=int(
-                    getattr(self._terminal_ui, "available_provider_count", 0) or 0
-                ),
-            )
-        )
-        self._terminal_ui.set_extension_footer(factory, footer_data)
+        self._terminal_ui.set_extension_footer(factory)
 
     def set_title(self, title: str) -> None:
         self._terminal_ui.set_extension_title(title)

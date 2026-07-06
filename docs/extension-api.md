@@ -73,10 +73,10 @@ call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
 (`ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`).
-The footer factory receives a read-only, Pi-shaped `FooterData` snapshot with
+The footer factory receives read-only, Pi-shaped `FooterData` with
 `getGitBranch()`, `getExtensionStatuses()`, `getAvailableProviderCount()`, and
-a safe no-op `onBranchChange(...)` disposer; live branch-change callbacks remain
-deferred.
+live product-TUI `onBranchChange(...)` callbacks; headless snapshots keep a safe
+no-op disposer.
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
 `user_bash`, and `before_provider_request` provider-payload hooks now ship as a
@@ -1269,8 +1269,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     existing spinner loop at `interval_ms` (default interval otherwise). Deferred
     liveness follow-on: no per-frame component `render()`/`requestRender`
     re-rendering of the widget/header/footer components (they are width-reactive
-    snapshots, re-rendered only on resize) and no reactive `footerData` re-render
-    between width changes, and non-lifecycle event hooks
+    snapshots, re-rendered only on resize except for live footer branch-change
+    re-renders), and non-lifecycle event hooks
     (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) do not yet thread
     the live `ui_driver`, so chrome calls from those contexts are recorded but
     do not paint until a context that has the live driver runs. Gate
