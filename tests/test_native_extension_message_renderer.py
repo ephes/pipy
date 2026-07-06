@@ -146,3 +146,78 @@ def test_message_render_component_is_tool_render_component_alias():
     assert MessageRenderComponent is ToolRenderComponent
     component = lines_component(["x"])
     assert isinstance(component, MessageRenderComponent)
+
+class _NoopTty:
+    def write(self, text):
+        return len(text)
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return True
+
+
+def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
+    from io import StringIO
+    from typing import TextIO, cast
+
+    from pipy_harness.native.tui import ToolLoopTerminalUi
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, StringIO()),
+        terminal_stream=cast(TextIO, _NoopTty()),
+        cwd=tmp_path,
+    )
+    ui.add_custom_entry("old", ["OLD-BODY"])
+    ui.add_notice("ordinary history remains")
+
+    ui.redraw_custom_entries((
+        ("styled", "card", ("\x1b[1mNEW-STYLED\x1b[0m",)),
+        ("plain", "note", ("NEW-PLAIN",)),
+    ))
+
+    blocks = ui.custom_entry_blocks()
+    assert blocks == (
+        ("custom_message_custom", ("\x1b[1mNEW-STYLED\x1b[0m",)),
+        ("custom", ("[note]", "NEW-PLAIN")),
+    )
+    frame = "\n".join(ui.render_lines(width=80, height=20))
+    assert "NEW-STYLED" in frame
+    assert "NEW-PLAIN" in frame
+    assert "ordinary history remains" in frame
+    assert "OLD-BODY" not in frame
+
+
+def test_custom_entry_redraw_rows_dispatches_branch_entries():
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
+    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+
+    called = []
+
+    def render(custom_type, data):
+        called.append((custom_type, data))
+        if custom_type == "card":
+            return RenderedCustomEntry(lines=("STYLED",), styled=True)
+        return RenderedCustomEntry(lines=("PLAIN",), styled=False)
+
+    now = datetime.now(UTC)
+    rows = _custom_entry_redraw_rows(
+        (
+            CustomEntry("1", None, now, "card", {"x": 1}),
+            CustomMessageEntry("2", None, now, "hidden", "HIDDEN", False, None),
+            CustomMessageEntry("3", None, now, "shown", "LINE1\nLINE2", True, None),
+            CustomEntry("4", None, now, "note", {"y": 2}),
+        ),
+        render,
+    )
+
+    assert called == [("card", {"x": 1}), ("note", {"y": 2})]
+    assert rows == [
+        ("styled", "card", ("STYLED",)),
+        ("plain", "shown", ("LINE1", "LINE2")),
+        ("plain", "note", ("PLAIN",)),
+    ]

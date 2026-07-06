@@ -15,6 +15,9 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
+from io import StringIO
+from pathlib import Path
+from typing import TextIO, cast
 
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.extension_runtime import (
@@ -22,6 +25,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredMessageRenderer,
     render_extension_message,
 )
+from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
 @dataclass
@@ -214,6 +218,36 @@ def run_checks() -> list[Check]:
         "one_arg_capture_default_and_render_object_plain",
         capture_ok and render_object_plain,
         "1-arg capture-default keeps default; 1-arg .render() object stays plain",
+    ))
+
+    # 12. Resume redraw semantics: replacing active-branch custom rows removes
+    # stale custom rows while preserving ordinary history and current rendered rows.
+    class _NoopTty:
+        def write(self, text):
+            return len(text)
+
+        def flush(self):
+            pass
+
+        def isatty(self):
+            return True
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, StringIO()),
+        terminal_stream=cast(TextIO, _NoopTty()),
+        cwd=Path.cwd(),
+    )
+    ui.add_custom_entry("old", ["OLD-BODY"])
+    ui.add_notice("ordinary history remains")
+    ui.redraw_custom_entries((("styled", "card", ("NEW-STYLED",)), ("plain", "note", ("NEW-PLAIN",))))
+    frame = "\n".join(ui.render_lines(width=80, height=20))
+    checks.append(Check(
+        "resume_redraw_replaces_custom_rows",
+        "NEW-STYLED" in frame
+        and "NEW-PLAIN" in frame
+        and "ordinary history remains" in frame
+        and "OLD-BODY" not in frame,
+        "resume redraw replaces stale custom-entry rows with active-branch rows",
     ))
 
     return checks

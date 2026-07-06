@@ -266,6 +266,32 @@ from pipy_harness.native.tools import (
 )
 
 
+def _custom_entry_redraw_rows(
+    branch: Iterable[object],
+    render_custom_entry: Callable[[str, object | None], RenderedCustomEntry],
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Build TUI redraw rows for active-branch extension custom entries."""
+
+    rows: list[tuple[str, str, tuple[str, ...]]] = []
+    for entry in branch:
+        if isinstance(entry, _CustomEntry):
+            rendered = render_custom_entry(
+                entry.custom_type, safe_custom_entry_data(entry.data)
+            )
+            rows.append((
+                "styled" if rendered.styled else "plain",
+                entry.custom_type,
+                tuple(rendered.lines),
+            ))
+        elif isinstance(entry, _CustomMessageEntry) and entry.display:
+            rows.append((
+                "plain",
+                entry.custom_type,
+                tuple(entry.content.splitlines() or [""]),
+            ))
+    return rows
+
+
 @dataclass(frozen=True, slots=True)
 class _PricingEntry:
     """Per-million-token pricing for one (provider, model) pair.
@@ -1655,6 +1681,25 @@ class NativeToolReplSession:
                             entry.custom_type,
                             entry.content.splitlines() or [""],
                         )
+
+        def redraw_custom_entries_for_active_branch() -> None:
+            if terminal_ui is None or not hasattr(terminal_ui, "redraw_custom_entries"):
+                return
+
+            def render_for_redraw(
+                custom_type: str, data: object | None
+            ) -> RenderedCustomEntry:
+                return render_extension_custom_entry(
+                    custom_type,
+                    data,
+                    width=terminal_ui._dimensions()[0],
+                    expanded=terminal_ui.tools_expanded,
+                    stream=terminal_ui.terminal_stream,
+                )
+
+            terminal_ui.redraw_custom_entries(
+                _custom_entry_redraw_rows(session_tree.get_branch(), render_for_redraw)
+            )
 
         def extension_append_entry(custom_type: str, data: object | None = None) -> object:
             safe_type = str(custom_type).strip()
@@ -3120,6 +3165,7 @@ class NativeToolReplSession:
                                 continue
                             session_tree = NativeSessionTree.open(picked_session)
                             rebuild_messages_from_tree()
+                            redraw_custom_entries_for_active_branch()
                             diag(
                                 "pipy: resumed native session "
                                 f"{sanitize_label_text(session_tree.session_id[:8])} "
@@ -3179,6 +3225,7 @@ class NativeToolReplSession:
                                 continue
                             session_tree = NativeSessionTree.open(target)
                             rebuild_messages_from_tree()
+                            redraw_custom_entries_for_active_branch()
                             diag(
                                 "pipy: resumed native session "
                                 f"{sanitize_label_text(session_tree.session_id[:8])} "

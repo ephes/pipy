@@ -2959,6 +2959,58 @@ class ToolLoopTerminalUi:
         self._history_blocks.append(("settings", tuple(lines) or ("",)))
         self.paint()
 
+    def redraw_custom_entries(
+        self,
+        entries: Iterable[tuple[str, str, tuple[str, ...]]],
+    ) -> None:
+        """Replace committed custom-entry rows with a freshly rendered branch.
+
+        Pi clears and rebuilds the chat when an interactive session switch
+        completes. Pipy keeps normal scrollback committed, but extension custom
+        entries are live renderer snapshots and need the same active-branch
+        replacement semantics on ``/resume``. ``entries`` contains already
+        rendered/sanitized rows tagged as ``plain`` (label + sanitized body) or
+        ``styled`` (renderer-owned SGR-safe rows).
+        """
+
+        self._settle_reasoning()
+        self.working_text = ""
+        self.tool_output_text = ""
+        replacement_blocks: list[tuple[str, tuple[str, ...]]] = []
+        for render_kind, custom_type, lines in entries:
+            if render_kind == "styled":
+                replacement_blocks.append(("custom_message_custom", tuple(lines) or ("",)))
+            else:
+                label = sanitize_label_text(str(custom_type).strip()) or "custom"
+                safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
+                replacement_blocks.append(("custom", (f"[{label}]", *safe_lines)))
+
+        next_replacement = iter(replacement_blocks)
+        rebuilt: list[tuple[str, tuple[str, ...]]] = []
+        inserted_remaining = False
+        for block in self._history_blocks:
+            if block[0] not in {"custom", "custom_message_custom"}:
+                rebuilt.append(block)
+                continue
+            if not inserted_remaining:
+                replacement = next(next_replacement, None)
+                if replacement is not None:
+                    rebuilt.append(replacement)
+                    continue
+                inserted_remaining = True
+        rebuilt.extend(next_replacement)
+        self._history_blocks = rebuilt
+        self._force_full_redraw()
+
+    def custom_entry_blocks(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Return committed custom-entry blocks for focused conformance tests."""
+
+        return tuple(
+            block
+            for block in self._history_blocks
+            if block[0] in {"custom", "custom_message_custom"}
+        )
+
     def add_custom_entry(self, custom_type: str, lines: Iterable[str]) -> None:
         """Render an extension custom session entry into committed history."""
 
@@ -3045,6 +3097,16 @@ class ToolLoopTerminalUi:
         self.working_text = ""
         self.tool_output_text = ""
         self._history_blocks.append(("custom_message_custom", tuple(lines) or ("",)))
+        self.paint()
+
+    def _force_full_redraw(self) -> None:
+        try:
+            self.terminal_stream.write("\x1b[2J\x1b[H")
+        except (OSError, ValueError):
+            return
+        self._painted_block_count = 0
+        self._live_height = 0
+        self._live_input_row = 0
         self.paint()
 
     def render_lines(

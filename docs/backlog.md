@@ -1500,40 +1500,25 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension rich message resume/redraw follow-on — SELECTED
+### Extension platform follow-on queue — SELECTED
 
-The broader extension/package platform remains the highest-impact parity area,
-but the next implementation slice should be narrow: close the custom
-session-entry/message-rendering gap around session switching.
+The rich message resume/redraw slice has shipped. The broader
+extension/package platform remains the highest-impact parity area; choose the
+next small follow-on from the remaining deferred Pi-shaped APIs rather than
+reopening the completed redraw slice.
 
-Scope this slice to the landed `api.register_message_renderer(...)`,
-`ctx.append_entry(...)`, and `api.send_message(...)` surfaces. Implement
-in-session product-TUI redraw for custom entries when `/resume` switches the
-active branch/session, so custom entries render with the best registered
-renderer for the current run after the switch. Preserve the current startup-open
-replay behavior, headless fallback behavior, archive privacy, and fail-soft
-renderer semantics. Do not expand into live per-frame `invalidate`, multi-widget
-message components, full custom editor rendering/input integration,
-OAuth-provider `/login` wiring, or PyPI/npm package sources.
+Candidate next slices:
 
-Initial slice boundaries:
+- live per-frame `invalidate` / `requestRender` for custom renderers beyond the
+  landed render-once snapshots;
+- rendering persisted `CustomMessageEntry` values with a registered renderer;
+- multi-widget message components;
+- full custom editor rendering/input integration beyond the in-memory
+  `setEditorComponent` store; or
+- OAuth-provider `/login` and auth-storage wiring.
 
-- replay/redraw only active-branch custom entries visible after an in-session
-  `/resume` switch;
-- keep renderer output live-only, with only JSON-safe entry data in the native
-  product session tree and no body leaks to `pipy-session`;
-- use the existing registered renderer map for the current run and fall back to
-  the bounded generic renderer when absent or failing; and
-- update [extension-api.md](extension-api.md) and focused conformance coverage
-  for the new redraw behavior.
-
-Acceptance criteria:
-
-```sh
-uv run python scripts/parity_checks/extension_message_renderer_conformance.py --json
-uv run python scripts/parity_checks/extension_conformance_gate.py --json
-just check
-```
+Do not expand into PyPI/npm package sources until the broader supply-chain
+policy is written.
 
 ## Recent Closeout
 

@@ -247,6 +247,11 @@ Pipy current state:
   `getExtensionStatuses()`, `getAvailableProviderCount()`, and live product-TUI
   `onBranchChange(...)` callbacks; headless snapshots keep a safe no-op
   disposer.
+- Extension rich-message resume/redraw parity has shipped: active-branch
+  `ctx.append_entry` custom entries replay into startup-opened TUI sessions and
+  are redrawn with the current run's registered renderer after successful
+  in-session `/resume` switches; renderer output remains live-only and
+  fail-soft.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -263,9 +268,9 @@ Follow-ons:
    multi-widget message components beyond the landed single-component rich
    message renderer (item C), richer tool-output expansion integration beyond
    the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
-   `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, and streaming
-   `steer`/`followUp` delivery (in-session full-history redraw on `/resume`
-   switches, rendering a `CustomMessageEntry` beyond stored display replay), live tool-render invalidation beyond the landed
+   `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, streaming
+   `steer`/`followUp` delivery, and custom-entry `/resume` redraw (rendering a
+   `CustomMessageEntry` beyond stored display replay), live tool-render invalidation beyond the landed
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed

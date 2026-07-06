@@ -1209,11 +1209,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     identifier registered with the renderer (1-200 characters); unknown or differently-cased types
     render through the bounded generic fallback. This first slice renders custom
     entries when they are appended; active-branch custom entries are also
-    replayed into startup-opened TUI sessions with the registered renderer
-    available for the new run. This is the first Pi-shaped `appendEntry` /
-    `registerMessageRenderer` slice. Multi-widget message components,
-    in-session full-history redraw on `/resume` switches, and extension
-    session-manager helpers remain follow-ons.
+    replayed into startup-opened TUI sessions and redrawn after successful
+    in-session `/resume` switches with the registered renderer available for
+    the current run. This is the first Pi-shaped `appendEntry` /
+    `registerMessageRenderer` slice. Multi-widget message components and
+    extension session-manager helpers remain follow-ons.
     The rich **Component** upgrade landed in slice 19 below (rich-UI item C): a
     renderer that **requires** a second positional parameter `(data, ctx)`
     receives a `MessageRenderContext` and may return a component, committed
@@ -1321,10 +1321,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     (no message body, data, or exception text leaked). The rendered body is
     **live-only** — it is never archived; only the JSON-safe entry `data` lives
     in the native product session tree. Active-branch custom entries replay into
-    startup-opened TUI sessions through the same renderer dispatch; if the
-    renderer is absent or fails, pipy falls back to the plain sanitized path, and
-    replay itself never mutates the session file. Deferred:
-    in-session full-history redraw on `/resume` switches, rendering a
+    startup-opened TUI sessions and are redrawn after successful in-session
+    `/resume` switches through the same renderer dispatch; if the renderer is
+    absent or fails, pipy falls back to the plain sanitized path, and replay or
+    redraw never mutates the session file. Deferred: rendering a
     `CustomMessageEntry`, multi-widget message components, and live per-frame
     `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
