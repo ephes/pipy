@@ -31,7 +31,8 @@ port of Pi's `answer.ts`): `ctx.conversation.last_assistant_message()`, a
 bounded one-shot `ctx.complete(system_prompt, user_text)`, a full-screen
 custom interactive overlay `ctx.ui.custom(...)`, Pi-shaped simple UI primitives
 (`ctx.ui.select`, `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.editor`,
-`ctx.ui.set_status`, `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`), and
+`ctx.ui.set_status`, `ctx.ui.set_working_message`, `ctx.ui.set_working_visible`,
+and `ctx.ui.set_hidden_thinking_label` / `setHiddenThinkingLabel`), and
 keyboard-shortcut registration `api.register_shortcut(...)`. Theme controls
 also ship (`ctx.ui.theme`, `ctx.ui.get_all_themes`, `ctx.ui.get_theme`,
 `ctx.ui.set_theme`), mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`
@@ -539,10 +540,14 @@ so Pi extensions translate naturally:
   `editor(title, prefill) -> str | None`. These simple command/shortcut
   primitives now ship; `editor` also supports Pi's Ctrl+G `$VISUAL`/`$EDITOR`
   external-editor handoff in interactive TTY sessions.
-- Status and indicators: `set_status(key, text)`, working-message and
-  working-indicator controls, and a hidden-thinking label, mirroring Pi's
-  `setStatus` / `setWorkingMessage` / `setWorkingIndicator` /
-  `setHiddenThinkingLabel`.
+- Status and indicators **(shipped for command/shortcut contexts)**:
+  `set_status(key, text)`, working-message and working-indicator controls, and
+  `ctx.ui.set_hidden_thinking_label(label=None)` /
+  `setHiddenThinkingLabel(label=None)`, mirroring Pi's `setStatus` /
+  `setWorkingMessage` / `setWorkingIndicator` / `setHiddenThinkingLabel`. The
+  hidden-thinking label is live-only: it changes the label shown while thinking
+  is folded, `None` restores Pi's default `Thinking...`, and headless contexts
+  no-op like Pi RPC.
 - Widgets and chrome: `set_widget(key, content, options)` above/below the
   editor, plus custom header/footer/title (Pi's `setWidget` / `setFooter` /
   `setHeader` / `setTitle`).
@@ -1370,7 +1375,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     (coerced to bool) and request a repaint. Headless/no-UI contexts match Pi
     RPC/no-op behavior: getters return `False` and setters do nothing. The state
     is live-only and never archived.
-23. Raw terminal input subscriptions — **landed for live product-TUI command/
+23. Hidden-thinking label control — **landed for live product-TUI command/
+    shortcut contexts**: `ctx.ui.set_hidden_thinking_label(label=None)` and
+    Pi-shaped `ctx.ui.setHiddenThinkingLabel(label=None)` set the label shown
+    when thinking blocks are folded. Omitting/passing `None` restores Pi's
+    default `Thinking...`; headless contexts no-op like Pi RPC; the label is
+    live-only and never archived.
+24. Raw terminal input subscriptions — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.on_terminal_input(handler)` and Pi-shaped
     `ctx.ui.onTerminalInput(handler)` register decoded-key listeners that run
     before built-in editor handling. Handlers may consume the key or replace it
@@ -1378,7 +1389,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     handlers fail soft, and the returned disposer is idempotent. Headless
     contexts return a no-op disposer and never invoke the handler; raw inputs
     are live-only and never archived.
-24. Autocomplete provider wrappers — **landed for live product-TUI command/
+25. Autocomplete provider wrappers — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
     Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around
     the built-in editor provider. Providers receive full editor `lines`,

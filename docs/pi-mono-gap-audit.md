@@ -237,7 +237,11 @@ Pipy current state:
   `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
   `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
   product-TUI expansion state used by built-in tool-row expansion, repainting on
-  writes; headless contexts return `False` and no-op writes like Pi RPC.
+  writes; headless contexts return `False` and no-op writes like Pi RPC. The
+  Pi-shaped hidden-thinking label control also ships: live command/shortcut
+  contexts can call `ctx.ui.set_hidden_thinking_label` /
+  `setHiddenThinkingLabel` to change the folded-thinking label, and headless
+  contexts no-op like Pi RPC.
 - Extension footer-data provider parity has shipped: `ctx.ui.set_footer` passes
   read-only Pi-shaped `FooterData` with `getGitBranch()`,
   `getExtensionStatuses()`, `getAvailableProviderCount()`, and live product-TUI

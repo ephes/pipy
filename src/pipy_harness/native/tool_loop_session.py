@@ -605,6 +605,9 @@ class _LiveExtensionUiDriver:
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
         self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
 
+    def set_hidden_thinking_label(self, label: str | None = None) -> None:
+        self._terminal_ui.set_extension_hidden_thinking_label(label)
+
     def get_editor_text(self) -> str:
         return self._terminal_ui.get_input_text()
 

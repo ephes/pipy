@@ -68,6 +68,9 @@ class _BaseDriver:
     def set_working_indicator(self, frames, interval_ms):
         pass
 
+    def set_hidden_thinking_label(self, label=None):
+        pass
+
     def get_editor_text(self):
         return ""
 

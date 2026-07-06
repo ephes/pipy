@@ -28,11 +28,23 @@ def _frame_text(ui: ToolLoopTerminalUi) -> str:
 
 
 class TestThinkingFold:
-    def test_hidden_reasoning_not_rendered_live(self, tmp_path: Path) -> None:
+    def test_hidden_reasoning_renders_default_label_not_body(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
         ui.thinking_hidden = True
         ui.reasoning_text = "SECRET-THOUGHT"
+        frame = _frame_text(ui)
+        assert "SECRET-THOUGHT" not in frame
+        assert "Thinking..." in frame
+
+    def test_hidden_reasoning_uses_custom_label_and_resets(self, tmp_path: Path) -> None:
+        ui = _ui(tmp_path)
+        ui.thinking_hidden = True
+        ui.reasoning_text = "SECRET-THOUGHT"
+        ui.set_extension_hidden_thinking_label("Still thinking")
+        assert "Still thinking" in _frame_text(ui)
         assert "SECRET-THOUGHT" not in _frame_text(ui)
+        ui.set_extension_hidden_thinking_label()
+        assert "Thinking..." in _frame_text(ui)
 
     def test_visible_reasoning_rendered_live(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)

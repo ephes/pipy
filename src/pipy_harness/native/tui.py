@@ -795,6 +795,7 @@ class ToolLoopTerminalUi:
     # full retro-rebuild, which would rewrite the host terminal's scrollback).
     tools_expanded: bool = False
     thinking_hidden: bool = False
+    hidden_thinking_label: str = "Thinking..."
     # Reasoning blocks that settled while thinking was folded (Ctrl+T). They are
     # retained rather than dropped so toggling visibility back reveals them
     # (committed fresh at toggle time, not retro-written into scrollback).
@@ -2931,6 +2932,11 @@ class ToolLoopTerminalUi:
             self._deferred_reasoning.clear()
             self.paint()
 
+    def set_extension_hidden_thinking_label(self, label: str | None = None) -> None:
+        """Set the live folded-thinking label; ``None`` restores Pi's default."""
+        self.hidden_thinking_label = "Thinking..." if label is None else str(label)
+        self.paint()
+
     def add_notice(self, text: str) -> None:
         self._settle_reasoning()
         safe_lines = tuple(
@@ -3069,11 +3075,13 @@ class ToolLoopTerminalUi:
                     width=width,
                 )
             )
-        if self.reasoning_text and not self.thinking_hidden:
+        if self.reasoning_text:
             history_lines.extend(
                 self._block_frame_lines(
                     "reasoning",
-                    self.reasoning_text.splitlines() or [""],
+                    [self.hidden_thinking_label]
+                    if self.thinking_hidden
+                    else (self.reasoning_text.splitlines() or [""]),
                     width=width,
                 )
             )
@@ -3848,11 +3856,13 @@ class ToolLoopTerminalUi:
                     width=width,
                 )
             )
-        if self.reasoning_text and not self.thinking_hidden:
+        if self.reasoning_text:
             lines.extend(
                 self._block_frame_lines(
                     "reasoning",
-                    self.reasoning_text.splitlines() or [""],
+                    [self.hidden_thinking_label]
+                    if self.thinking_hidden
+                    else (self.reasoning_text.splitlines() or [""]),
                     width=width,
                 )
             )

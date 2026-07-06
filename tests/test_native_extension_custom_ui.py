@@ -322,6 +322,9 @@ class _FakeUiDriver:
     def set_working_indicator(self, frames, interval_ms: int | None) -> None:
         self.chrome.append(("set_working_indicator", (frames, interval_ms)))
 
+    def set_hidden_thinking_label(self, label: str | None = None) -> None:
+        self.chrome.append(("set_hidden_thinking_label", label))
+
     def get_editor_text(self) -> str:
         return ""
 

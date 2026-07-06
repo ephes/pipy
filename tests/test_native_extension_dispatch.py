@@ -239,6 +239,9 @@ class _FakeEditorUiDriver:
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
         pass
 
+    def set_hidden_thinking_label(self, label: str | None = None) -> None:
+        self.hidden_thinking_label = "Thinking..." if label is None else str(label)
+
     def get_editor_text(self) -> str:
         return self.text
 
@@ -350,6 +353,57 @@ def test_dispatch_tool_expansion_helpers_are_headless_noops(tmp_path: Path) -> N
     assert dispatch.ran is True
     assert dispatch.messages == (("info", "False"), ("info", "False"))
     assert driver.get_tools_expanded() is False
+
+
+def test_dispatch_exposes_hidden_thinking_label_to_live_ui(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "hiddenlabel",
+        "def activate(api):\n"
+        "    def label(ctx, args):\n"
+        "        ctx.ui.set_hidden_thinking_label('Custom')\n"
+        "        ctx.ui.setHiddenThinkingLabel()\n"
+        "    api.register_command('hidden-label', 'hidden label', label)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/hidden-label",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert getattr(driver, "hidden_thinking_label", None) == "Thinking..."
+
+
+def test_dispatch_hidden_thinking_label_helpers_are_headless_noops(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "hiddenlabel",
+        "def activate(api):\n"
+        "    def label(ctx, args):\n"
+        "        ctx.ui.setHiddenThinkingLabel('Ignored')\n"
+        "    api.register_command('hidden-label', 'hidden label', label)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/hidden-label",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=False,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert not hasattr(driver, "hidden_thinking_label")
 
 
 def test_dispatch_exposes_editor_component_store_to_live_ui(tmp_path: Path) -> None:

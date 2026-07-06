@@ -41,6 +41,9 @@ class _FakeUi:
     def set_extension_working_indicator(self, frames, interval_ms):
         self.calls.append(("indicator", frames, interval_ms))
 
+    def set_extension_hidden_thinking_label(self, label=None):
+        self.calls.append(("hidden-thinking-label", label))
+
     def get_input_text(self):
         return self.input_text
 
@@ -62,8 +65,9 @@ def test_driver_delegates_all_five(tmp_path):
     driver.set_header(factory)
     driver.set_title("t")
     driver.set_working_indicator(["x"], 120)
+    driver.set_hidden_thinking_label("Thinking hard")
     kinds = [c[0] for c in ui.calls]
-    assert kinds == ["widget", "header", "title", "indicator"]
+    assert kinds == ["widget", "header", "title", "indicator", "hidden-thinking-label"]
     assert ui.calls[0] == ("widget", "k", ["a"], "below_editor")
 
 

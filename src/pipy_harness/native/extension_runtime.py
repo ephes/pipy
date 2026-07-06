@@ -1031,6 +1031,8 @@ class ExtensionUiDriver(Protocol):
         self, frames: Sequence[str] | None, interval_ms: int | None
     ) -> None: ...
 
+    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
+
     def get_editor_text(self) -> str: ...
 
     def set_editor_text(self, text: str) -> None: ...
@@ -1091,6 +1093,10 @@ class ExtensionUi(Protocol):
         *,
         interval_ms: int | None = None,
     ) -> None: ...
+
+    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
+
+    def setHiddenThinkingLabel(self, label: str | None = None) -> None: ...
 
     def get_editor_text(self) -> str: ...
 
@@ -1507,6 +1513,24 @@ class _CollectingUi:
                 self._ui_driver.set_working_indicator(safe_frames, interval_ms)
             except Exception:  # noqa: BLE001 - a UI driver must not break the handler
                 pass
+
+    def set_hidden_thinking_label(self, label: str | None = None) -> None:
+        """Set the live label shown when thinking blocks are folded.
+
+        Headless/no-UI contexts mirror Pi RPC mode: the TUI-only message
+        rendering surface is unsupported, so this is a deterministic no-op.
+        """
+        if self._ui_driver is None or not self.has_ui:
+            return
+        try:
+            set_label = getattr(self._ui_driver, "set_hidden_thinking_label", None)
+            if callable(set_label):
+                set_label(None if label is None else str(label))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            pass
+
+    def setHiddenThinkingLabel(self, label: str | None = None) -> None:
+        self.set_hidden_thinking_label(label)
 
     def get_editor_text(self) -> str:
         """Return the live core editor text, or ``""`` when headless.
