@@ -24,7 +24,7 @@ import textwrap
 import threading
 import time
 import tty
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO, cast
@@ -718,6 +718,15 @@ class ToolLoopTerminalUi:
     # the bound handler. Keys the decoder cannot produce (e.g. ``ctrl-.`` on a
     # non-kitty terminal) simply never fire — the registration is still valid.
     extension_shortcut_keys: frozenset[str] = frozenset()
+    # Pi-shaped ExtensionUIContext.onTerminalInput listeners. These are
+    # live-only raw-input hooks: they see decoded key strings before built-in
+    # editor handling, can consume them, or can replace them with another
+    # decoded key string. They are cleared with extension chrome on reload.
+    _extension_terminal_input_listeners: dict[int, Callable[[str], object]] = field(
+        default_factory=dict
+    )
+    _extension_terminal_input_next_id: int = 0
+    _extension_terminal_input_last_replaced: bool = False
     slash_menu_open: bool = False
     slash_menu_selection: int = 0
     # Editor autocomplete popup state (the ``@`` file picker and Tab path
@@ -898,6 +907,10 @@ class ToolLoopTerminalUi:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
                     return ""
+                key = self._apply_extension_terminal_input_listeners(key)
+                if key is None:
+                    self.paint()
+                    continue
                 if key == "enter":
                     if self.autocomplete_open:
                         # Enter accepts the highlighted completion (Pi: Enter/Tab
@@ -1045,7 +1058,10 @@ class ToolLoopTerminalUi:
                     self._redo_edit()
                     self.paint()
                     continue
-                if len(key) == 1 and key.isprintable():
+                if (
+                    key.isprintable()
+                    and (len(key) == 1 or self._extension_terminal_input_last_replaced)
+                ):
                     self._insert_input_text(key)
                     self.paint()
         finally:
@@ -2257,6 +2273,59 @@ class ToolLoopTerminalUi:
                 self.extension_indicator_interval_ms = None
         self.paint()
 
+    def add_extension_terminal_input_listener(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]:
+        """Register a Pi-shaped live terminal-input listener.
+
+        The returned disposer is idempotent. Listener failures are handled by
+        :meth:`_apply_extension_terminal_input_listeners` so a bad extension
+        cannot break the editor loop.
+        """
+
+        if not callable(handler):
+            return lambda: None
+        listener_id = self._extension_terminal_input_next_id
+        self._extension_terminal_input_next_id += 1
+        self._extension_terminal_input_listeners[listener_id] = handler
+
+        def dispose() -> None:
+            self._extension_terminal_input_listeners.pop(listener_id, None)
+
+        return dispose
+
+    def _apply_extension_terminal_input_listeners(self, key: str) -> str | None:
+        self._extension_terminal_input_last_replaced = False
+        if not self._extension_terminal_input_listeners:
+            return key
+        current = key
+        for handler in tuple(self._extension_terminal_input_listeners.values()):
+            try:
+                result = handler(current)
+            except Exception:  # noqa: BLE001 - extension hooks fail soft
+                continue
+            consume = False
+            replacement: object = None
+            has_replacement = False
+            if isinstance(result, Mapping):
+                consume = bool(result.get("consume"))
+                if "data" in result:
+                    replacement = result.get("data")
+                    has_replacement = True
+            elif result is not None:
+                consume = bool(getattr(result, "consume", False))
+                if hasattr(result, "data"):
+                    replacement = getattr(result, "data")
+                    has_replacement = True
+            if consume:
+                return None
+            if has_replacement:
+                current = "" if replacement is None else str(replacement)
+                self._extension_terminal_input_last_replaced = True
+        if current == "":
+            return None
+        return current
+
     def clear_extension_chrome(self) -> None:
         """Dispose + drop all extension-owned chrome (used on /reload + shutdown)."""
         with self._paint_lock:
@@ -2273,6 +2342,7 @@ class ToolLoopTerminalUi:
             self.extension_footer = None
             self.extension_title = None
             self.extension_indicator_frames = None
+            self._extension_terminal_input_listeners.clear()
             self.extension_indicator_interval_ms = None
             self._restore_terminal_title()
         self.paint()

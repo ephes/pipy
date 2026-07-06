@@ -100,10 +100,55 @@ def test_clear_extension_chrome_resets_all():
     ui.set_extension_widget("k", ["a"])
     ui.set_extension_header(lambda theme: type("C", (), {"render": lambda self, w: ["h"]})())
     ui.set_extension_title("t")
+    ui.add_extension_terminal_input_listener(lambda key: None)
     ui.clear_extension_chrome()
     assert ui.extension_widgets_above == {}
     assert ui.extension_header is None
     assert ui.extension_title is None
+    assert ui._extension_terminal_input_listeners == {}
+
+
+def test_terminal_input_listeners_transform_consume_and_dispose():
+    ui = _ui()
+    seen: list[str] = []
+
+    dispose_first = ui.add_extension_terminal_input_listener(
+        lambda key: {"data": "b"} if key == "a" else None
+    )
+    ui.add_extension_terminal_input_listener(lambda key: seen.append(key) or None)
+
+    assert ui._apply_extension_terminal_input_listeners("a") == "b"
+    assert seen == ["b"]
+
+    ui.add_extension_terminal_input_listener(lambda key: {"data": "xy"} if key == "b" else None)
+    assert ui._apply_extension_terminal_input_listeners("a") == "xy"
+
+    ui.add_extension_terminal_input_listener(lambda key: {"consume": True})
+    assert ui._apply_extension_terminal_input_listeners("x") is None
+
+    dispose_first()
+    dispose_first()
+    assert len(ui._extension_terminal_input_listeners) == 3
+
+
+def test_terminal_input_symbolic_fallthrough_not_marked_replaced():
+    ui = _ui()
+    assert ui._apply_extension_terminal_input_listeners("pageup") == "pageup"
+    assert ui._extension_terminal_input_last_replaced is False
+
+
+def test_terminal_input_listener_failsoft_and_object_result():
+    ui = _ui()
+
+    class Result:
+        data = "z"
+
+    def boom(_key):
+        raise RuntimeError("bad listener")
+
+    ui.add_extension_terminal_input_listener(boom)
+    ui.add_extension_terminal_input_listener(lambda key: Result())
+    assert ui._apply_extension_terminal_input_listeners("a") == "z"
 
 
 def _frame_text(ui, width=60, height=24):

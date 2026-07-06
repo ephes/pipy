@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import subprocess
 from pathlib import Path
+from collections.abc import Callable
 from typing import TextIO, cast
 
 from pipy_harness.native.extension_runtime import (
@@ -283,6 +284,7 @@ class _FakeUiDriver:
         self.working_messages: list[str | None] = []
         self.working_visible: list[bool] = []
         self.chrome: list[tuple[str, object]] = []
+        self.terminal_input_handlers: list[object] = []
 
     def select(self, title: str, options) -> str | None:
         return f"{title}:{options[1]}"
@@ -336,6 +338,15 @@ class _FakeUiDriver:
     def add_autocomplete_provider(self, factory: object) -> None:
         self.chrome.append(("add_autocomplete_provider", factory))
 
+    def add_terminal_input_listener(self, handler: object):
+        self.terminal_input_handlers.append(handler)
+
+        def dispose():
+            if handler in self.terminal_input_handlers:
+                self.terminal_input_handlers.remove(handler)
+
+        return dispose
+
 
 def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
     driver = _FakeUiDriver()
@@ -356,6 +367,31 @@ def test_collecting_ui_dialogs_and_status_delegate_to_driver() -> None:
     assert ui.statuses == {}
     assert ui.working_message == "Thinking"
     assert ui.working_visible is False
+
+
+def test_collecting_ui_terminal_input_live_and_headless_disposer() -> None:
+    driver = _FakeUiDriver()
+    ui = _CollectingUi(has_ui=True, ui_driver=driver)
+    seen: list[str] = []
+
+    def record_key(key: str) -> None:
+        seen.append(key)
+
+    dispose = ui.on_terminal_input(record_key)
+    ui.onTerminalInput(lambda key: {"consume": key == "esc"})
+    assert len(driver.terminal_input_handlers) == 2
+
+    handler = cast("Callable[[str], object]", driver.terminal_input_handlers[0])
+    handler("a")
+    assert seen == ["a"]
+    dispose()
+    dispose()
+    assert len(driver.terminal_input_handlers) == 1
+
+    headless = _CollectingUi(has_ui=False, ui_driver=driver)
+    noop = headless.onTerminalInput(lambda key: seen.append(key))
+    noop()
+    assert len(driver.terminal_input_handlers) == 1
 
 
 def test_collecting_ui_dialogs_are_deterministic_without_ui() -> None:

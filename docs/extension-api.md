@@ -42,7 +42,12 @@ expansion state, and `ctx.ui.set_tools_expanded(...)` / `setToolsExpanded(...)`
 set it; headless contexts match Pi RPC by returning `False` and no-oping writes.
 The extension
 editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
-Ctrl+G. Autocomplete provider wrappers ship for live product-TUI command/
+Ctrl+G. Raw terminal input subscriptions ship for live product-TUI command/
+shortcut contexts via `ctx.ui.on_terminal_input(handler)` /
+`ctx.ui.onTerminalInput(handler)`: handlers see decoded key strings before
+built-in editor handling, may consume or replace them, and receive an
+idempotent disposer; headless contexts return a no-op disposer like Pi RPC.
+Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /
 `getSuggestions`, `apply_completion` / `applyCompletion`, and optional
@@ -577,8 +582,13 @@ so Pi extensions translate naturally:
   theme registry retains only `name -> palette` and does not leak package theme
   file paths to extension code ("only the palette name reaches any persisted
   state").
-- Raw terminal input subscription in interactive mode, mirroring Pi's
-  `onTerminalInput`.
+- Raw terminal input subscription **(shipped for live command/shortcut
+  contexts)**: `ctx.ui.on_terminal_input(handler)` / `onTerminalInput(handler)`
+  register a decoded-key listener before built-in editor handling and return an
+  idempotent disposer. A handler may return `{"consume": True}` to swallow the
+  key or `{"data": "..."}` to replace the key string for later listeners and
+  built-in handling. Headless contexts return a no-op disposer and never invoke
+  the handler, matching Pi RPC. Inputs are live-only and are not archived.
 
 Every UI method must have deterministic behavior in non-interactive contexts:
 return a safe default, raise a typed unsupported-mode error, or record a safe
@@ -1360,7 +1370,15 @@ and the live `scripts/tmux_answer_verify.sh`.
     (coerced to bool) and request a repaint. Headless/no-UI contexts match Pi
     RPC/no-op behavior: getters return `False` and setters do nothing. The state
     is live-only and never archived.
-23. Autocomplete provider wrappers — **landed for live product-TUI command/
+23. Raw terminal input subscriptions — **landed for live product-TUI command/
+    shortcut contexts**: `ctx.ui.on_terminal_input(handler)` and Pi-shaped
+    `ctx.ui.onTerminalInput(handler)` register decoded-key listeners that run
+    before built-in editor handling. Handlers may consume the key or replace it
+    for later listeners/built-ins with Pi's `{consume, data}` result shape, bad
+    handlers fail soft, and the returned disposer is idempotent. Headless
+    contexts return a no-op disposer and never invoke the handler; raw inputs
+    are live-only and never archived.
+24. Autocomplete provider wrappers — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
     Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around
     the built-in editor provider. Providers receive full editor `lines`,

@@ -614,6 +614,9 @@ class _LiveExtensionUiDriver:
     def paste_to_editor(self, text: str) -> None:
         self._terminal_ui.paste_input_text(text)
 
+    def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
+        return self._terminal_ui.add_extension_terminal_input_listener(handler)
+
     def get_tools_expanded(self) -> bool:
         return bool(self._terminal_ui.tools_expanded)
 

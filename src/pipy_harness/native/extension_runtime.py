@@ -44,7 +44,7 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, cast, runtime_checkable
 
 from pipy_harness.native.extensions import ExtensionDescriptor
 from pipy_harness.native.themes import (
@@ -1111,6 +1111,10 @@ class ExtensionUi(Protocol):
 
     def addAutocompleteProvider(self, factory: object) -> None: ...
 
+    def on_terminal_input(self, handler: Callable[[str], object]) -> Callable[[], None]: ...
+
+    def onTerminalInput(self, handler: Callable[[str], object]) -> Callable[[], None]: ...
+
     def set_editor_component(self, factory: object | None) -> None: ...
 
     def setEditorComponent(self, factory: object | None) -> None: ...
@@ -1619,6 +1623,30 @@ class _CollectingUi:
 
     def setToolsExpanded(self, expanded: bool) -> None:
         self.set_tools_expanded(expanded)
+
+    def on_terminal_input(self, handler: Callable[[str], object]) -> Callable[[], None]:
+        """Register a live raw terminal-input listener.
+
+        Headless/no-UI contexts mirror Pi RPC mode by returning a safe no-op
+        disposer and never invoking the handler.
+        """
+
+        if not callable(handler):
+            return lambda: None
+        if self._ui_driver is None or not self.has_ui:
+            return lambda: None
+        try:
+            add_listener = getattr(
+                self._ui_driver, "add_terminal_input_listener", None
+            )
+            if callable(add_listener):
+                return cast(Callable[[], None], add_listener(handler))
+        except Exception:  # noqa: BLE001 - a UI driver must not break the handler
+            return lambda: None
+        return lambda: None
+
+    def onTerminalInput(self, handler: Callable[[str], object]) -> Callable[[], None]:
+        return self.on_terminal_input(handler)
 
     def notify(self, message: str, kind: str = "info") -> None:
         safe_kind = kind if kind in ("info", "warning", "error") else "info"
