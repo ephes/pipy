@@ -71,10 +71,11 @@ treat those shapes as less stable than the named `pipy_harness.sdk` exports.
 ## Relationship to JSON/RPC Automation
 
 The shipped Pi-style `--mode json` and `--mode rpc` transports are the
-out-of-process headless surfaces. They are specified in
-[Automation & RPC](automation-rpc.md) and are intended for non-Python callers or
-callers that want process isolation, JSONL framing, asynchronous events, and
-mid-turn control.
+out-of-process headless surfaces. Start with the user-facing [JSON Mode](json.md)
+and [RPC Mode](rpc.md) pages; the full protocol contract is specified in
+[Automation & RPC](automation-rpc.md). These modes are intended for non-Python
+callers or callers that want process isolation, JSONL framing, asynchronous
+events, and mid-turn control.
 
 The SDK and JSON/RPC modes should reuse the same native runtime. JSON/RPC must
 not fork a separate product path.

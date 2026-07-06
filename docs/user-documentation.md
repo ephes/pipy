@@ -39,8 +39,8 @@ Create or reshape user-facing pages under `docs/`:
   platform as planned until it ships; do not imply TypeScript compatibility.
 - `models.md`, `custom-provider.md` — `models.json` schema, examples, routing,
   auth, and local/custom-provider setup.
-- `json.md`, `rpc.md`, `sdk.md` — current SDK/streaming surfaces and the
-  planned Pi-style JSON/RPC modes.
+- `json.md`, `rpc.md`, `sdk.md` — shipped Pi-style JSON/RPC automation and the
+  current Python SDK/headless embedding surface.
 - `terminal-setup.md`, `tmux.md`, and optional platform notes — terminal
   behavior, scrollback, bracketed paste, keyboard caveats, and PTY testing
   expectations.
@@ -106,8 +106,9 @@ them only for deeper design detail.
    ([extension-api.md](extension-api.md)) and custom providers
    ([providers.md](providers.md)). Deeper extension/package authoring docs follow
    the extension platform.
-7. **Automation docs.** JSON/RPC pages land with the automation track; SDK docs
-   can start with the current Python SDK.
+7. **Automation docs.** **Shipped:** [JSON Mode](json.md), [RPC Mode](rpc.md),
+   and [Python SDK and Headless Embedding](sdk.md) cover full-event one-shot
+   automation, long-lived JSONL control, and in-process Python embedding.
 8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](/terminal-setup/)
    and [tmux Setup](/tmux/) cover TUI behavior, tmux, paste, scrollback,
    keyboard caveats, clipboard/image/drop behavior, and platform-specific
