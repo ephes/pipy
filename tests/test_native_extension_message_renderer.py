@@ -147,6 +147,89 @@ def test_message_render_component_is_tool_render_component_alias():
     component = lines_component(["x"])
     assert isinstance(component, MessageRenderComponent)
 
+
+def test_custom_message_renderer_payload_fields():
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.session_tree import CustomMessageEntry
+    from pipy_harness.native.tool_loop_session import _custom_message_renderer_payload
+
+    entry = CustomMessageEntry(
+        "1",
+        None,
+        datetime.now(UTC),
+        "card",
+        "BODY",
+        True,
+        {"answer": 42},
+    )
+
+    assert _custom_message_renderer_payload(entry) == {
+        "customType": "card",
+        "content": "BODY",
+        "display": True,
+        "details": {"answer": 42},
+    }
+
+
+def test_custom_entry_redraw_rows_renders_custom_messages():
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
+    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+
+    now = datetime.now(UTC)
+    rows = _custom_entry_redraw_rows(
+        (
+            CustomEntry("1", None, now, "note", {"x": 1}),
+            CustomMessageEntry("2", None, now, "hidden", "HIDDEN", False, None),
+            CustomMessageEntry("3", None, now, "card", "BODY", True, {"k": "v"}),
+        ),
+        lambda custom_type, data: RenderedCustomEntry(("ENTRY",), False),
+        lambda entry: RenderedCustomEntry(
+            (f"MSG:{entry.content}:{entry.details['k']}",), True
+        ),
+    )
+
+    assert rows == [
+        ("plain", "note", ("ENTRY",)),
+        ("styled", "card", ("MSG:BODY:v",)),
+    ]
+
+
+def test_custom_entry_redraw_rows_custom_message_falls_back_to_content():
+    from datetime import UTC, datetime
+
+    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.session_tree import CustomMessageEntry
+    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+
+    now = datetime.now(UTC)
+    rows = _custom_entry_redraw_rows(
+        (CustomMessageEntry("1", None, now, "card", "A\nB", True, None),),
+        lambda custom_type, data: RenderedCustomEntry(("unused",), False),
+    )
+
+    assert rows == [("plain", "card", ("A", "B"))]
+
+
+def test_render_extension_message_custom_message_payload_rich_component():
+    def renderer(message, ctx):
+        return lines_component([
+            f"{message['customType']}:{message['content']}:{message['details']['n']}:w={ctx.width}"
+        ])
+
+    out = render_extension_message(
+        _renderers("card", renderer),
+        "card",
+        {"customType": "card", "content": "BODY", "display": True, "details": {"n": 7}},
+        width=55,
+    )
+
+    assert out.styled is True
+    assert out.lines == ("card:BODY:7:w=55",)
+
 class _NoopTty:
     def write(self, text):
         return len(text)

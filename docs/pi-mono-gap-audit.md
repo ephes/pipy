@@ -269,8 +269,8 @@ Follow-ons:
    message renderer (item C), richer tool-output expansion integration beyond
    the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
    `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, streaming
-   `steer`/`followUp` delivery, and custom-entry `/resume` redraw (rendering a
-   `CustomMessageEntry` beyond stored display replay), live tool-render invalidation beyond the landed
+   `steer`/`followUp` delivery, custom-entry `/resume` redraw, and
+   `CustomMessageEntry` renderer dispatch), live tool-render invalidation beyond the landed
    render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
    calls paint immediately, broader dynamic-flag integration beyond the landed

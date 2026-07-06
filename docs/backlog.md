@@ -1511,7 +1511,6 @@ Candidate next slices:
 
 - live per-frame `invalidate` / `requestRender` for custom renderers beyond the
   landed render-once snapshots;
-- rendering persisted `CustomMessageEntry` values with a registered renderer;
 - multi-widget message components;
 - full custom editor rendering/input integration beyond the in-memory
   `setEditorComponent` store; or

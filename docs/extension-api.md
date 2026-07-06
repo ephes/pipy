@@ -76,7 +76,7 @@ delivery: `triggerTurn` starts a deterministic provider turn and
 `deliverAs: "nextTurn"` injects custom context into the next accepted turn;
 `deliverAs: "steer"` / `"followUp"` now queue provider-visible content through
 pipy's steering/follow-up drain. In-session full-history redraw on `/resume`
-switches and richer `CustomMessageEntry` rendering remain deferred. Extensions can also render their own tool
+switches and `CustomMessageEntry` rendering through registered renderers now ship. Extensions can also render their own tool
 call/result rows with themed color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
@@ -1324,8 +1324,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     startup-opened TUI sessions and are redrawn after successful in-session
     `/resume` switches through the same renderer dispatch; if the renderer is
     absent or fails, pipy falls back to the plain sanitized path, and replay or
-    redraw never mutates the session file. Deferred: rendering a
-    `CustomMessageEntry`, multi-widget message components, and live per-frame
+    redraw never mutates the session file. `ctx.send_message` / persisted
+    `CustomMessageEntry` values with `display=True` also render through a
+    registered renderer using a Pi-shaped payload (`customType`, `content`,
+    `display`, `details`) and fall back to stored content when no renderer is
+    registered. Deferred: multi-widget message components and live per-frame
     `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
     proves the dispatch/coercion units; the golden

@@ -266,9 +266,22 @@ from pipy_harness.native.tools import (
 )
 
 
+def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, object]:
+    """Return the Pi-shaped payload passed to CustomMessageEntry renderers."""
+
+    return {
+        "customType": entry.custom_type,
+        "content": entry.content,
+        "display": entry.display,
+        "details": safe_custom_entry_data(entry.details),
+    }
+
+
 def _custom_entry_redraw_rows(
     branch: Iterable[object],
     render_custom_entry: Callable[[str, object | None], RenderedCustomEntry],
+    render_custom_message_entry: Callable[[_CustomMessageEntry], RenderedCustomEntry]
+    | None = None,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
     """Build TUI redraw rows for active-branch extension custom entries."""
 
@@ -284,11 +297,19 @@ def _custom_entry_redraw_rows(
                 tuple(rendered.lines),
             ))
         elif isinstance(entry, _CustomMessageEntry) and entry.display:
-            rows.append((
-                "plain",
-                entry.custom_type,
-                tuple(entry.content.splitlines() or [""]),
-            ))
+            if render_custom_message_entry is not None:
+                rendered = render_custom_message_entry(entry)
+                rows.append((
+                    "styled" if rendered.styled else "plain",
+                    entry.custom_type,
+                    tuple(rendered.lines),
+                ))
+            else:
+                rows.append((
+                    "plain",
+                    entry.custom_type,
+                    tuple(entry.content.splitlines() or [""]),
+                ))
     return rows
 
 
@@ -1664,10 +1685,47 @@ class NativeToolReplSession:
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
+            add_rendered_entry_to_terminal(custom_type, rendered)
+
+        def render_custom_message_entry(
+            entry: _CustomMessageEntry,
+            *,
+            width: int,
+            expanded: bool,
+            stream: TextIO,
+        ) -> RenderedCustomEntry:
+            if entry.custom_type not in extension_renderer_map:
+                return RenderedCustomEntry(
+                    tuple(entry.content.splitlines() or [""]), False
+                )
+            return render_extension_custom_entry(
+                entry.custom_type,
+                _custom_message_renderer_payload(entry),
+                width=width,
+                expanded=expanded,
+                stream=stream,
+            )
+
+        def add_rendered_entry_to_terminal(
+            custom_type: str, rendered: RenderedCustomEntry
+        ) -> None:
+            if terminal_ui is None:
+                return
             if rendered.styled:
                 terminal_ui.add_custom_entry_styled(rendered.lines)
             else:
                 terminal_ui.add_custom_entry(custom_type, rendered.lines)
+
+        def add_custom_message_entry_to_terminal(entry: _CustomMessageEntry) -> None:
+            if terminal_ui is None or not entry.display:
+                return
+            rendered = render_custom_message_entry(
+                entry,
+                width=terminal_ui._dimensions()[0],
+                expanded=terminal_ui.tools_expanded,
+                stream=terminal_ui.terminal_stream,
+            )
+            add_rendered_entry_to_terminal(entry.custom_type, rendered)
 
         def replay_custom_entries_to_terminal() -> None:
             if terminal_ui is not None:
@@ -1677,10 +1735,7 @@ class NativeToolReplSession:
                             entry.custom_type, safe_custom_entry_data(entry.data)
                         )
                     elif isinstance(entry, _CustomMessageEntry) and entry.display:
-                        terminal_ui.add_custom_entry(
-                            entry.custom_type,
-                            entry.content.splitlines() or [""],
-                        )
+                        add_custom_message_entry_to_terminal(entry)
 
         def redraw_custom_entries_for_active_branch() -> None:
             if terminal_ui is None or not hasattr(terminal_ui, "redraw_custom_entries"):
@@ -1697,8 +1752,22 @@ class NativeToolReplSession:
                     stream=terminal_ui.terminal_stream,
                 )
 
+            def render_message_for_redraw(
+                entry: _CustomMessageEntry,
+            ) -> RenderedCustomEntry:
+                return render_custom_message_entry(
+                    entry,
+                    width=terminal_ui._dimensions()[0],
+                    expanded=terminal_ui.tools_expanded,
+                    stream=terminal_ui.terminal_stream,
+                )
+
             terminal_ui.redraw_custom_entries(
-                _custom_entry_redraw_rows(session_tree.get_branch(), render_for_redraw)
+                _custom_entry_redraw_rows(
+                    session_tree.get_branch(),
+                    render_for_redraw,
+                    render_message_for_redraw,
+                )
             )
 
         def extension_append_entry(custom_type: str, data: object | None = None) -> object:
@@ -1740,14 +1809,16 @@ class NativeToolReplSession:
             )
             if display:
                 if terminal_ui is not None:
-                    terminal_ui.add_custom_entry(
-                        custom_type, content.splitlines() or [""]
-                    )
+                    add_custom_message_entry_to_terminal(appended)
                 else:
+                    rendered = render_custom_message_entry(
+                        appended, width=80, expanded=False, stream=error_stream
+                    )
+                    lines = "\n".join(str(line) for line in rendered.lines)
                     self._emit_diagnostic(
                         terminal_ui,
                         error_stream,
-                        f"{custom_type}:\n{content}" if content else custom_type,
+                        f"{custom_type}:\n{lines}" if lines else custom_type,
                     )
             deliver_as = options.get("deliverAs")
             if deliver_as is None:

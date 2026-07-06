@@ -23,7 +23,13 @@ from pipy_harness.extensions import lines_component
 from pipy_harness.native.extension_runtime import (
     _CUSTOM_RENDER_MAX_CHARS,
     RegisteredMessageRenderer,
+    RenderedCustomEntry,
     render_extension_message,
+)
+from pipy_harness.native.session_tree import CustomMessageEntry
+from pipy_harness.native.tool_loop_session import (
+    _custom_entry_redraw_rows,
+    _custom_message_renderer_payload,
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -239,15 +245,27 @@ def run_checks() -> list[Check]:
     )
     ui.add_custom_entry("old", ["OLD-BODY"])
     ui.add_notice("ordinary history remains")
-    ui.redraw_custom_entries((("styled", "card", ("NEW-STYLED",)), ("plain", "note", ("NEW-PLAIN",))))
+    custom_message = CustomMessageEntry(
+        "entry-1", None, "2026-07-06T00:00:00Z", "card", "BODY", True, {"n": 3}
+    )
+    rows = _custom_entry_redraw_rows(
+        (custom_message,),
+        lambda custom_type, data: RenderedCustomEntry(("unused",), False),
+        lambda entry: RenderedCustomEntry(
+            (f"MSG:{_custom_message_renderer_payload(entry)['content']}:{entry.details['n']}",),
+            True,
+        ),
+    )
+    ui.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
     frame = "\n".join(ui.render_lines(width=80, height=20))
     checks.append(Check(
-        "resume_redraw_replaces_custom_rows",
-        "NEW-STYLED" in frame
+        "resume_redraw_replaces_custom_rows_and_renders_custom_messages",
+        rows == [("styled", "card", ("MSG:BODY:3",))]
+        and "MSG:BODY:3" in frame
         and "NEW-PLAIN" in frame
         and "ordinary history remains" in frame
         and "OLD-BODY" not in frame,
-        "resume redraw replaces stale custom-entry rows with active-branch rows",
+        "resume redraw replaces stale rows and routes CustomMessageEntry through renderer",
     ))
 
     return checks
