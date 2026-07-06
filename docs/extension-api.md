@@ -54,14 +54,16 @@ shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `getSuggestions`, `apply_completion` / `applyCompletion`, and optional
 `should_trigger_file_completion` / `shouldTriggerFileCompletion` methods. It is
 not source-compatible with Pi's TypeScript extensions, and it still lacks
-several mature Pi surfaces: a custom editor component and live per-frame
-component
+several mature Pi surfaces: full custom editor rendering/input integration
+beyond the landed in-memory component store, live per-frame component
 `render()`/`requestRender` re-rendering of chrome components (the working
 indicator already animates via the spinner loop; widget/header/footer
 components are width-reactive snapshots), multi-widget message components,
-extension state/session-manager helpers, remote PyPI/npm package distribution,
-and broader package ecosystem polish. The custom session-entry/message
-rendering surface has landed, including extension provider OAuth metadata and **rich message renderers**: extensions
+in-session full-history redraw on `/resume` switches, OAuth-provider extension
+`/login` wiring, remote PyPI/npm package distribution, and broader package
+ecosystem polish. The custom session-entry/message rendering surface has
+landed, including extension provider OAuth metadata and **rich message
+renderers**: extensions
 register a renderer for a custom entry type and command/shortcut handlers append
 JSON-safe custom entries to the native product session tree; a renderer that
 requires a second `(data, ctx)` parameter receives a `MessageRenderContext` and
@@ -1322,9 +1324,9 @@ and the live `scripts/tmux_answer_verify.sh`.
     startup-opened TUI sessions through the same renderer dispatch; if the
     renderer is absent or fails, pipy falls back to the plain sanitized path, and
     replay itself never mutates the session file. Deferred:
-    streaming `steer`/`followUp` semantics for `send_message`, in-session
-    full-history redraw on `/resume` switches, rendering a `CustomMessageEntry`, multi-widget message
-    components, and live per-frame `invalidate`. Gate
+    in-session full-history redraw on `/resume` switches, rendering a
+    `CustomMessageEntry`, multi-widget message components, and live per-frame
+    `invalidate`. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
     proves the dispatch/coercion units; the golden
     `scripts/parity_checks/extension_conformance_gate.py --json` records the

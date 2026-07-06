@@ -269,12 +269,13 @@ compared at the terminal-layer checkpoint. The current direction is a narrow
 custom terminal layer stay on the table for when the product needs a fuller UI
 surface or lower-level terminal ownership.
 
-### Current Largest Pi Feature Gaps (groomed 2026-06-17)
+### Current Largest Pi Feature Gaps (groomed 2026-07-06)
 
-This snapshot supersedes the 2026-06-15 ranking after the extension/package
-slice-12 closeout shipped package runtime composition and the managed git
-package-source/update follow-on. It is a slice-selection aid, not a replacement
-for `docs/pi-parity.md` or the per-topic specs.
+This snapshot supersedes the 2026-06-17 ranking after the package
+install/update docs, custom session-entry/message rendering, editor helpers,
+session-manager helpers, terminal-input hooks, footer data, and custom-message
+delivery follow-ons shipped. It is a slice-selection aid, not a replacement for
+`docs/pi-parity.md` or the per-topic specs.
 
 Shipped foundations that should no longer be selected as large topics:
 
@@ -296,7 +297,11 @@ Shipped foundations that should no longer be selected as large topics:
   provider-registration mechanics wired into `--list-models`, startup
   resolution, `/model`, and `/reload`, local-path/managed-git package CLI,
   package `update`, and package runtime composition for
-  extensions/skills/prompts/themes; and
+  extensions/skills/prompts/themes;
+- extension API follow-ons for custom session entries and rich message
+  renderers, command/shortcut editor helpers, session-manager views and metadata
+  actions, tool-output expansion controls, hidden-thinking labels, terminal
+  input subscriptions, footer data, and custom-message delivery; and
 - product export/import/share/distribution baseline: `/export` HTML and JSONL,
   `/import`, `/share`, top-level `--export`, self-update planning, install docs,
   and `scripts/parity_checks/export_distribution_conformance.py --json`.
@@ -308,27 +313,17 @@ The highest-impact remaining gaps are now:
    local-path/managed-git package resources flow through discovery at lowest precedence
    with `+/-pattern` filters. Live-session hooks/controls for `user_bash`,
    `before_provider_request`, session-operation gates, and active
-   tool/model/thinking controls and the first custom session-entry/message-
-   rendering slice now ship. Pi remains ahead on rich TUI extension UI, live
-   tool-render invalidation (render-once tool renderers ship), broader extension state/session-manager helpers, broader dynamic-flag
-   integration, OAuth-provider extension `/login` wiring, remote PyPI/npm sources,
-   and the broader package ecosystem. Managed git
-  sources and package `update` now ship behind a pipy-owned cache; the next
-  extension/package slices are richer API follow-ons and any future PyPI/npm
-  source kinds after a broader supply-chain policy.
-2. **User documentation parity.** Pipy still has mostly maintainer/agent specs
-   rather than complete Pi-like product docs for install/update deep dives.
-   Terminal setup, tmux, platform caveats, quickstart/usage, provider/model
-   setup, settings/keybindings, sessions, compaction, customization, automation,
-   and SDK/RPC now have user-facing pages: [quickstart.md](quickstart.md),
-   [usage.md](usage.md), [providers.md](providers.md), [settings.md](settings.md),
-   [keybindings.md](keybindings.md), [customization.md](customization.md),
-   [sessions.md](sessions.md), [compaction.md](compaction.md),
-   [json.md](json.md), [rpc.md](rpc.md), [sdk.md](sdk.md),
-   [terminal-setup.md](terminal-setup.md), [tmux.md](tmux.md). The remaining
-   install/update deep-dive docs can run in parallel with implementation tracks.
-   Spec: [user-documentation.md](user-documentation.md).
-3. **Provider/model catalog follow-ons.** Remaining provider work is narrower
+   tool/model/thinking controls, rich message renderers, editor helpers,
+   session-manager helpers, terminal-input hooks, footer data, and
+   custom-message delivery now ship. Pi remains ahead on live per-frame
+   component invalidation, in-session full-history redraw on `/resume` switches,
+   richer multi-widget message components, full custom editor rendering/input
+   integration beyond the landed in-memory component store, OAuth-provider
+   extension `/login` wiring, remote PyPI/npm sources, and the broader package
+   ecosystem. Managed git sources and package `update` now ship behind a
+   pipy-owned cache; the next extension/package slices are richer API follow-ons
+   and any future PyPI/npm source kinds after a broader supply-chain policy.
+2. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, the deliberate
    `openai-codex-responses` legacy-factory exception for settings-derived retry
    policy, and broader local-provider benchmarking.
@@ -403,6 +398,13 @@ The highest-impact remaining gaps are now:
    matching `openai-completions.ts:595-601`. A full `detectCompat` port remains a
    follow-on.)
    Spec: [provider-catalog.md](provider-catalog.md).
+3. **User documentation polish.** Product docs are no longer a blocking parity
+   gap: terminal setup, tmux, platform caveats, quickstart/usage,
+   provider/model setup, settings/keybindings, sessions, compaction,
+   customization, automation, SDK/RPC, and package install/update now have
+   user-facing pages. Remaining work is examples, cross-linking, and keeping the
+   docs synchronized as implementation slices land.
+   Spec: [user-documentation.md](user-documentation.md).
 4. **Top-level CLI compatibility and parity cleanup — largely shipped
    (2026-06-20).** Bare `pipy` / `pipy "<prompt>"` now launch the interactive
    product session, while subcommands remain reachable with the documented
@@ -1498,71 +1500,38 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension and package platform follow-ons — SELECTED
+### Extension rich message resume/redraw follow-on — SELECTED
 
-The install/update user-documentation gap has shipped in [packages.md](packages.md),
-covering trusted package installation, local-path and managed-git sources,
-resource filtering, update behavior, and current remote-source limitations.
+The broader extension/package platform remains the highest-impact parity area,
+but the next implementation slice should be narrow: close the custom
+session-entry/message-rendering gap around session switching.
 
-The first custom session-entry/message-rendering slice has shipped:
-`api.register_message_renderer(custom_type, renderer)` registers a bounded text
-renderer, and command/shortcut handlers can call `ctx.append_entry(custom_type,
-data)` to persist JSON-safe custom entries in the native product session tree
-and render them locally without a provider turn. Active-branch custom entries
-now replay into startup-opened TUI sessions through the registered renderer
-available for that run. The extension UI editor helper has also shipped:
-`ctx.ui.editor(...)` opens a focused multi-line product-TUI overlay in
-interactive command/shortcut contexts and returns `None` headlessly; the same
-contexts can now read and replace the core prompt via
-`ctx.ui.get_editor_text()` and `ctx.ui.set_editor_text(text)`, with
-`ctx.ui.paste_to_editor(text)` inserting literal text at the current cursor
-through the live paste path. The Pi-shaped custom editor component store now
-ships too: `ctx.ui.set_editor_component` / `setEditorComponent` and
-`ctx.ui.get_editor_component` / `getEditorComponent` round-trip an opaque
-in-memory live factory and clear it on `None`, while headless contexts no-op and
-return `None` like Pi RPC; full custom editor rendering/input integration stays
-deferred. The command/shortcut session-manager helper has shipped too: `ctx.session_manager` /
-`ctx.sessionManager` expose immutable views of the active native session's cwd,
-file/id/header, entries, labels, branch/tree, leaf, and session name; the narrow
-Pi-shaped session metadata action follow-up now also ships `ctx.set_session_name` /
-`ctx.setSessionName`, `ctx.get_session_name` / `ctx.getSessionName`, and
-`ctx.set_label` / `ctx.setLabel`. Tool-output expansion controls now ship as
-well: `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
-`ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live product-TUI
-expansion state, while headless contexts return `False` and no-op writes like Pi
-RPC. Hidden-thinking label control now ships for live product-TUI command/
-shortcut contexts too: `ctx.ui.set_hidden_thinking_label` /
-`setHiddenThinkingLabel` changes the folded-thinking label, with no-op headless
-behavior. Raw terminal input subscriptions now also ship for live product-TUI
-command/shortcut contexts: `ctx.ui.on_terminal_input` / `onTerminalInput`
-register decoded-key listeners with Pi-shaped consume/replace semantics and
-return no-op disposers headlessly. Custom footer factories now receive read-only Pi-shaped `FooterData` with
-`getGitBranch()`, `getExtensionStatuses()`, `getAvailableProviderCount()`, and
-live product-TUI `onBranchChange(...)` callbacks; headless snapshots keep a safe
-no-op disposer. Extension custom-message sending now also ships for the local
-session/display slice: `api.send_message` / `api.sendMessage` and
-`ctx.send_message` / `ctx.sendMessage` append bounded Pi-shaped custom messages;
-idle `triggerTurn` starts a deterministic provider turn,
-`deliverAs: "nextTurn"` injects custom context into the next accepted turn, and
-`deliverAs: "steer"` / `"followUp"` queue provider-visible content through the
-existing steering/follow-up drain. The next largest remaining parity topic is still
-the broader extension/package platform follow-on area.
+Scope this slice to the landed `api.register_message_renderer(...)`,
+`ctx.append_entry(...)`, and `api.send_message(...)` surfaces. Implement
+in-session product-TUI redraw for custom entries when `/resume` switches the
+active branch/session, so custom entries render with the best registered
+renderer for the current run after the switch. Preserve the current startup-open
+replay behavior, headless fallback behavior, archive privacy, and fail-soft
+renderer semantics. Do not expand into live per-frame `invalidate`, multi-widget
+message components, full custom editor rendering/input integration,
+OAuth-provider `/login` wiring, or PyPI/npm package sources.
 
-Initial slice boundaries for the next topic:
+Initial slice boundaries:
 
-- start from the shipped local extension/package runtime baseline;
-- choose a narrow follow-on from [extension-api.md](extension-api.md), such as
-  richer hooks/UI, OAuth-provider extension `/login` wiring, extension state
-  helpers beyond the landed session-manager view, broader dynamic-flag
-  integration, or future
-  PyPI/npm package sources after supply-chain policy; and
-- keep any future non-git remote source work behind explicit supply-chain
-  policy and an isolated cache.
+- replay/redraw only active-branch custom entries visible after an in-session
+  `/resume` switch;
+- keep renderer output live-only, with only JSON-safe entry data in the native
+  product session tree and no body leaks to `pipy-session`;
+- use the existing registered renderer map for the current run and fall back to
+  the bounded generic renderer when absent or failing; and
+- update [extension-api.md](extension-api.md) and focused conformance coverage
+  for the new redraw behavior.
 
 Acceptance criteria:
 
 ```sh
-uv run python scripts/parity_checks/extension_package_conformance.py --json
+uv run python scripts/parity_checks/extension_message_renderer_conformance.py --json
+uv run python scripts/parity_checks/extension_conformance_gate.py --json
 just check
 ```
 
