@@ -55,8 +55,8 @@ shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `should_trigger_file_completion` / `shouldTriggerFileCompletion` methods. It is
 not source-compatible with Pi's TypeScript extensions, and it still lacks
 several mature Pi surfaces: full custom editor rendering/input integration
-beyond the landed in-memory component store, multi-widget message components,
-remote PyPI/npm package distribution, and broader package ecosystem polish. The
+beyond the landed in-memory component store, live custom message component
+invalidation/re-rendering, remote PyPI/npm package distribution, and broader package ecosystem polish. The
 bounded OAuth-provider extension `/login` slice now ships: extension providers
 with `ExtensionOAuthConfig` are projected under the provider name as the derived
 OAuth id, `/login <provider>` invokes the extension callback with stdio auth /
@@ -1342,8 +1342,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     `CustomMessageEntry` values with `display=True` also render through a
     registered renderer using a Pi-shaped payload (`customType`, `content`,
     `display`, `details`) and fall back to stored content when no renderer is
-    registered. Deferred: multi-widget message components and live per-frame
-    `invalidate`. Gate
+    registered. Deferred: live per-frame `invalidate`/re-render. Pi's
+    `MessageRenderer` returns one `Component | undefined` per custom message,
+    so pipy intentionally keeps one component per entry and does not add a
+    separate multi-widget message collection API. Gate
     `scripts/parity_checks/extension_message_renderer_conformance.py --json`
     proves the dispatch/coercion units; the golden
     `scripts/parity_checks/extension_conformance_gate.py --json` records the

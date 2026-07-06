@@ -272,9 +272,9 @@ Follow-ons:
 
 1. Richer Pi extension APIs: full custom editor component rendering/input
    integration beyond the landed `setEditorComponent` in-memory store,
-   multi-widget message components beyond the landed single-component rich
-   message renderer (item C), richer tool-output expansion integration beyond
-   the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
+   live custom message component invalidation/re-rendering beyond the landed
+   single-component rich message renderer (item C), richer tool-output
+   expansion integration beyond the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
    `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, streaming
    `steer`/`followUp` delivery, custom-entry `/resume` redraw, and
    `CustomMessageEntry` renderer dispatch), live tool-render invalidation beyond the landed

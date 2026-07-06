@@ -317,8 +317,8 @@ The highest-impact remaining gaps are now:
    session-manager helpers, terminal-input hooks, footer data, and
    custom-message delivery and live chrome `requestRender` re-rendering now
    ship. Pi remains ahead on in-session full-history redraw on `/resume` switches,
-   richer multi-widget message components, full custom editor rendering/input
-   integration beyond the landed in-memory component store, OAuth-provider
+   live custom message component invalidation/re-rendering, full custom editor
+   rendering/input integration beyond the landed in-memory component store, OAuth-provider
    extension `/login` wiring, remote PyPI/npm sources, and the broader package
    ecosystem. Managed git sources and package `update` now ship behind a
    pipy-owned cache; the next extension/package slices are richer API follow-ons
@@ -1509,7 +1509,8 @@ reopening the completed redraw slice.
 
 Candidate next slices:
 
-- multi-widget message components;
+- live custom message component invalidation/re-render for the already shipped
+  single-component `register_message_renderer` surface;
 - full custom editor rendering/input integration beyond the in-memory
   `setEditorComponent` store; or
 - broader provider/auth helpers beyond the landed OAuth-provider `/login`
@@ -1664,7 +1665,7 @@ metadata-first archive remains unaffected. Render-once custom tool renderers now
 ship (slice 17), and their renderer map refreshes across `/reload` so added,
 changed, or removed extension renderers take effect without restarting the
 session. Live (invalidate-driven) tool renderers, in-session full-history redraw
-on `/resume` switches, and multi-widget message components remain follow-ons.
+on `/resume` switches, and live custom message component invalidation/re-rendering remain follow-ons.
 
 Extension UI editor follow-on: command/shortcut handlers can call
 `ctx.ui.editor(title, prefill=None)` to open a focused multi-line editor overlay
