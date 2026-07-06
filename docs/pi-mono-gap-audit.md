@@ -290,11 +290,13 @@ Implement in pipy:
    metadata, and current follow-ons.
 3. Settings and keybindings user docs now ship in [settings.md](settings.md)
    and [keybindings.md](keybindings.md).
-4. Customization user docs now ship in [customization.md](customization.md):
-   skills, prompt templates, custom slash commands, and chrome themes (discovery
-   roots, per-run source flags, settings filters, invocation). Automation and
+4. Customization and package user docs now ship in
+   [customization.md](customization.md) and [packages.md](packages.md): skills,
+   prompt templates, custom slash commands, chrome themes, trusted package
+   install/remove/list/config/update workflows, local-path and managed-git
+   sources, filtering, and current remote-source limitations. Automation and
    embedding user docs now ship in [json.md](json.md), [rpc.md](rpc.md), and
-   [sdk.md](sdk.md). Remaining user docs: install/update deep dives.
+   [sdk.md](sdk.md).
 5. Keep README short and outside-in.
 6. Separate shipped behavior from target specs; do not present pipy-only
    divergences as parity.

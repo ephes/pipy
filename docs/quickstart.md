@@ -194,6 +194,8 @@ commit secrets or local state files to a project.
 
 - [Using pipy](usage.md) — interactive mode, slash commands, sessions, context
   files, and CLI reference.
+- [Pipy Packages](packages.md) — install, update, filter, and share trusted
+  local or managed-git extensions, skills, prompts, and themes.
 - [Terminal Setup](/terminal-setup/) and [tmux Setup](/tmux/) — terminal
   behavior, paste, scrollback, clipboard/images, and key caveats.
 - [Python SDK and Headless Embedding](sdk.md) — in-process embedding.

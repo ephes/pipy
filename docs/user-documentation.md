@@ -35,8 +35,10 @@ Create or reshape user-facing pages under `docs/`:
 - `customization.md` — **shipped:** skills, prompt templates, custom slash
   commands, and chrome themes consolidated into one page (pipy's bounded Markdown
   and TOML resource behavior plus its Pi divergences).
-- `extensions.md`, `packages.md` — clearly mark the Python extension/package
-  platform as planned until it ships; do not imply TypeScript compatibility.
+- `packages.md` — document the shipped Python package platform honestly;
+  extension authoring remains in `extension-api.md` until a separate user-facing
+  extension page exists. Do not imply TypeScript compatibility or unshipped
+  remote package-source support.
 - `models.md`, `custom-provider.md` — `models.json` schema, examples, routing,
   auth, and local/custom-provider setup.
 - `json.md`, `rpc.md`, `sdk.md` — shipped Pi-style JSON/RPC automation and the
@@ -99,13 +101,14 @@ them only for deeper design detail.
    [Keybindings](keybindings.md) cover pipy's global/project settings files,
    reload workflow, common Pi-shaped fields and pipy divergences, key syntax,
    namespaced action ids, defaults, and customization examples.
-6. **Customization docs.** **Shipped:** [Customization](customization.md) covers
-   skills, prompt templates, custom slash commands, and chrome themes — discovery
-   roots, per-run source flags, settings filters, and `/skill`/template/command
-   invocation — and cross-links extensions/packages
-   ([extension-api.md](extension-api.md)) and custom providers
-   ([providers.md](providers.md)). Deeper extension/package authoring docs follow
-   the extension platform.
+6. **Customization and package docs.** **Shipped:**
+   [Customization](customization.md) covers skills, prompt templates, custom
+   slash commands, and chrome themes — discovery roots, per-run source flags,
+   settings filters, and `/skill`/template/command invocation. [Pipy Packages](packages.md)
+   covers installed package sources, install/remove/list/config/update workflows,
+   package layout, filtering, and current local-path/managed-git limitations.
+   Both pages cross-link extensions ([extension-api.md](extension-api.md)) and
+   custom providers ([providers.md](providers.md)).
 7. **Automation docs.** **Shipped:** [JSON Mode](json.md), [RPC Mode](rpc.md),
    and [Python SDK and Headless Embedding](sdk.md) cover full-event one-shot
    automation, long-lived JSONL control, and in-process Python embedding.

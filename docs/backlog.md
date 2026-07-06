@@ -1500,6 +1500,10 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ### Extension and package platform follow-ons — SELECTED
 
+The install/update user-documentation gap has shipped in [packages.md](packages.md),
+covering trusted package installation, local-path and managed-git sources,
+resource filtering, update behavior, and current remote-source limitations.
+
 The first custom session-entry/message-rendering slice has shipped:
 `api.register_message_renderer(custom_type, renderer)` registers a bounded text
 renderer, and command/shortcut handlers can call `ctx.append_entry(custom_type,

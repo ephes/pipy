@@ -179,7 +179,8 @@ pipy config
 ```
 
 Local paths and managed git sources are supported. PyPI/npm package sources are
-deferred pending supply-chain policy.
+deferred pending supply-chain policy. See [Pipy Packages](packages.md) for
+source syntax, security notes, package layout, filtering, and update behavior.
 
 ### Modes
 

@@ -12,6 +12,7 @@ nav = [
   {"Settings" = "settings.md"},
   {"Keybindings" = "keybindings.md"},
   {"Customization" = "customization.md"},
+  {"Packages" = "packages.md"},
   {"Sessions" = "sessions.md"},
   {"Compaction" = "compaction.md"},
   {"JSON Mode" = "json.md"},
