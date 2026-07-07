@@ -54,8 +54,8 @@ shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `getSuggestions`, `apply_completion` / `applyCompletion`, and optional
 `should_trigger_file_completion` / `shouldTriggerFileCompletion` methods. It is
 not source-compatible with Pi's TypeScript extensions, and it still lacks
-several mature Pi surfaces: full custom editor rendering/input integration
-beyond the landed in-memory component store, live custom message component
+several mature Pi surfaces: broader custom editor component-library parity
+beyond the landed live integration, live custom message component
 invalidation/re-rendering, remote PyPI/npm package distribution, and broader package ecosystem polish. The
 bounded OAuth-provider extension `/login` slice now ships: extension providers
 with `ExtensionOAuthConfig` are projected under the provider name as the derived
@@ -559,12 +559,13 @@ so Pi extensions translate naturally:
   read/write the core input editor text and paste literal text at the current
   cursor (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
   `ctx.ui.paste_to_editor`, mirroring Pi's `getEditorText` / `setEditorText` /
-  `pasteToEditor`). The Pi-shaped custom editor component store also ships
+  `pasteToEditor`). The Pi-shaped custom editor component integration also ships
   (`ctx.ui.set_editor_component` / `setEditorComponent` and
-  `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts retain an
-  opaque in-memory factory object and `None` clears it, while headless contexts
-  no-op/return `None` like Pi RPC. Rendering/input integration for a fully
-  custom editor component remains deferred.
+  `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts call the
+  factory, route keys to the returned component, wire submit/change callbacks,
+  forward autocomplete providers, preserve text when clearing, and headless
+  contexts no-op/return `None` like Pi RPC. Broader Pi component-library parity
+  remains deferred.
 - Custom overlays: a focused custom component with keyboard focus, mirroring
   Pi's `custom(...)` overlay.
 - Tool-output expansion **(shipped)**: `ctx.ui.get_tools_expanded()` /
@@ -1382,12 +1383,13 @@ and the live `scripts/tmux_answer_verify.sh`.
     draft text and pasted newlines, matching Pi's bracketed-paste path. These
     helpers are live-only mutations: headless reads return `""`, headless
     writes/pastes no-op, and live driver failures fail soft. The Pi-shaped
-    custom editor component store also ships for API compatibility:
+    custom editor component live integration also ships:
     `ctx.ui.set_editor_component(factory)` / `setEditorComponent(factory)` and
-    `ctx.ui.get_editor_component()` / `getEditorComponent()` store and return an
-    opaque in-memory live factory, and `None` clears it. Headless contexts no-op
-    and return `None`, matching Pi RPC. Full custom editor rendering/input
-    integration remains deferred.
+    `ctx.ui.get_editor_component()` / `getEditorComponent()` store and return a
+    live factory, and `None` clears it. Headless contexts no-op and return
+    `None`, matching Pi RPC. The live product TUI now calls the factory, routes
+    keys, wires submit/change callbacks, forwards autocomplete, and preserves
+    text when clearing. Broader Pi component-library parity remains deferred.
 22. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,
@@ -1433,7 +1435,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     `should_trigger_file_completion`/`shouldTriggerFileCompletion`; and fail
     soft back to the built-in provider. Headless contexts accept the call as a
     deterministic no-op.
-    Deferred: full custom editor component rendering/input integration and live
+    Deferred: broader custom editor component-library parity and live
     per-frame component invalidation.
 
 ## Open Questions

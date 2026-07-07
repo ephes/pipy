@@ -317,8 +317,8 @@ The highest-impact remaining gaps are now:
    session-manager helpers, terminal-input hooks, footer data, and
    custom-message delivery and live chrome `requestRender` re-rendering now
    ship. Pi remains ahead on in-session full-history redraw on `/resume` switches,
-   live custom message component invalidation/re-rendering, full custom editor
-   rendering/input integration beyond the landed in-memory component store, OAuth-provider
+   live custom message component invalidation/re-rendering, broader custom editor
+   component-library parity beyond the landed live integration, OAuth-provider
    extension `/login` wiring, remote PyPI/npm sources, and the broader package
    ecosystem. Managed git sources and package `update` now ship behind a
    pipy-owned cache; the next extension/package slices are richer API follow-ons
@@ -1505,12 +1505,12 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 The rich message resume/redraw slice has shipped. The broader
 extension/package platform remains the highest-impact parity area; choose the
 next small follow-on from the remaining deferred Pi-shaped APIs rather than
-reopening the completed redraw slice.
+reopening completed rich-UI slices.
 
 Candidate next slices:
 
-- full custom editor rendering/input integration beyond the in-memory
-  `setEditorComponent` store; or
+- broader custom editor component-library parity beyond the live
+  `setEditorComponent` integration; or
 - broader provider/auth helpers beyond the landed OAuth-provider `/login`
   auth-storage wiring.
 
@@ -1673,8 +1673,8 @@ Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
 basic cursor movement/backspace, cancels on Esc/Ctrl-C, and opens `$VISUAL` or
 `$EDITOR` on Ctrl+G like Pi; successful editor exits replace the buffer and
 failed exits keep the prior text. Main-prompt read/write/paste helpers,
-autocomplete provider wrappers, and the Pi-shaped custom editor component store
-now ship; full custom editor rendering/input integration remains a follow-on.
+autocomplete provider wrappers, and bounded live custom editor component integration
+now ship; broader Pi component-library parity remains a follow-on.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1690,8 +1690,8 @@ live-session operation gates, user-bash adapters, provider-request transforms,
 and active tool/model/thinking controls. Autocomplete provider wrappers now
 ship for live product-TUI `@` and forced Tab completion. They do not yet cover
 Pi's richer extension APIs: live (invalidate-driven) tool rendering beyond the
-landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, full custom
-editor rendering/input integration beyond the landed in-memory component store,
+landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, broader custom
+editor component-library parity beyond the landed live integration,
 message-entry APIs beyond the shipped
 append/startup replay and idle `send_message` delivery, TypeScript source
 compatibility, OAuth-provider extension `/login` wiring, broader dynamic

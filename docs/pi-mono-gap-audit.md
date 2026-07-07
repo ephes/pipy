@@ -229,12 +229,7 @@ Pipy current state:
   `get_suggestions`/`apply_completion`/optional
   `should_trigger_file_completion` methods for `@` and forced Tab completion,
   while headless contexts remain deterministic no-ops.
-- Extension slice 24 has shipped: Pi-shaped custom editor component store —
-  `ctx.ui.set_editor_component` / `setEditorComponent` and
-  `ctx.ui.get_editor_component` / `getEditorComponent` retain an opaque factory
-  object in live command/shortcut contexts and clear it on `None`, while
-  headless contexts no-op/return `None` like Pi RPC. Full custom editor
-  rendering/input integration remains deferred.
+- Extension slice 24 has shipped and now includes bounded live custom editor integration: `ctx.ui.set_editor_component` / `setEditorComponent` calls the factory in the product TUI, routes decoded keys to the returned component, wires submit/change callbacks, forwards autocomplete providers, preserves editor text when clearing back to the default editor, and keeps headless contexts no-op/return `None` like Pi RPC. Broader Pi component-library parity remains deferred.
 - Extension slice 25 has shipped: tool-output expansion controls —
   `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
   `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live

@@ -910,6 +910,16 @@ class ToolLoopTerminalUi:
     # Editor rehydration: a ``/tree`` user-message selection pre-fills the next
     # prompt with the selected text so the user can edit it into a new branch.
     _pending_initial_text: str | None = None
+    # Live extension custom editor component (Pi ``ctx.ui.setEditorComponent``).
+    # The component is trusted extension code and is duck-typed: factories may
+    # return objects with render/handle_input/get_text/set_text plus callback
+    # attributes. The built-in editor remains the persistence/source-of-truth
+    # boundary; switching in either direction preserves the current buffer.
+    _custom_editor_factory: object | None = None
+    _custom_editor_component: object | None = None
+    _custom_editor_active: bool = False
+    _custom_editor_submitted: str | None = None
+    _custom_editor_changed_text: str | None = None
     # Resize handling.
     _resize_pending: bool = False
     _last_painted_size: tuple[int, int] = (0, 0)
@@ -956,6 +966,8 @@ class ToolLoopTerminalUi:
         else:
             self.input_text = ""
             self.input_cursor = 0
+        if self._custom_editor_active:
+            self._set_custom_editor_text(self.input_text)
         self.slash_menu_open = False
         self.slash_menu_selection = 0
         self._close_autocomplete()
@@ -969,6 +981,14 @@ class ToolLoopTerminalUi:
                 if key is None:
                     return ""
                 key = self._apply_extension_terminal_input_listeners(key)
+                if self._custom_editor_active:
+                    submitted = self._handle_custom_editor_key(key)
+                    if submitted is not None:
+                        self._record_history(submitted)
+                        self._reset_line_editor_state()
+                        self.paint()
+                        return f"{submitted}\n"
+                    continue
                 if key is None:
                     self.paint()
                     continue
@@ -1637,6 +1657,8 @@ class ToolLoopTerminalUi:
         """
 
         value = str(text)
+        if self._custom_editor_active:
+            self._set_custom_editor_text(value)
         self._pending_initial_text = value
         self.input_text = value
         self.input_cursor = len(value)
@@ -1645,9 +1667,160 @@ class ToolLoopTerminalUi:
     def get_input_text(self) -> str:
         """Return the current core editor text, including pending prefill."""
 
+        if self._custom_editor_active:
+            return self._custom_editor_text()
         if self._pending_initial_text is not None:
             return self._pending_initial_text
         return self.input_text
+
+    def set_editor_component(self, factory: object | None) -> None:
+        """Install or clear a live extension custom editor component.
+
+        Pi calls ``factory(tui, theme, keybindings)`` and swaps the returned
+        editor into the main editor container. Pipy keeps the same ownership
+        boundary with a small duck-typed adapter instead of a Pi TUI port:
+        trusted extension components may render rows, consume decoded keys, and
+        submit through wired callbacks. Bad factories fail closed to the built-in
+        editor, and clearing preserves the component's current text.
+        """
+
+        current_text = self.get_input_text()
+        self._custom_editor_submitted = None
+        self._custom_editor_changed_text = None
+        if factory is None:
+            self._custom_editor_component = None
+            self._custom_editor_active = False
+            self.set_input_text(current_text)
+            self.paint()
+            return
+        if not callable(factory):
+            return
+        self._custom_editor_factory = factory
+        try:
+            component = factory(self, chrome_style_for(self.terminal_stream), None)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - extension factory fails closed
+            self._custom_editor_component = None
+            self._custom_editor_active = False
+            self.paint()
+            return
+        self._custom_editor_component = component
+        self._custom_editor_active = component is not None
+        if component is not None:
+            self._wire_custom_editor_component(component)
+            self._set_custom_editor_text(current_text)
+            self._forward_autocomplete_to_custom_editor(component)
+        self.paint()
+
+    def get_editor_component(self) -> object | None:
+        return self._custom_editor_factory if self._custom_editor_active else None
+
+    def _wire_custom_editor_component(self, component: object) -> None:
+        def submit(value: object | None = None) -> None:
+            text = self._custom_editor_text() if value is None else str(value)
+            self._custom_editor_submitted = text
+            self.input_text = text
+            self.input_cursor = len(text)
+
+        def change(value: object | None = None) -> None:
+            text = self._custom_editor_text() if value is None else str(value)
+            self._custom_editor_changed_text = text
+            self.input_text = text
+            self.input_cursor = len(text)
+
+        for name in ("on_submit", "onSubmit"):
+            self._set_component_attr_if_possible(component, name, submit)
+        for name in ("on_change", "onChange"):
+            self._set_component_attr_if_possible(component, name, change)
+        # Pi copies app-level action handlers for CustomEditor subclasses. Pipy
+        # does not expose the full Pi editor action-handler map yet; built-in
+        # exit/model/thinking hotkeys remain a broader component-library parity
+        # follow-on, while this bounded slice requires custom editors to submit
+        # or cancel through their own key handling.
+
+    @staticmethod
+    def _set_component_attr_if_possible(
+        component: object, name: str, value: object
+    ) -> None:
+        try:
+            setattr(component, name, value)
+        except Exception:  # noqa: BLE001 - duck-typed object may forbid attrs
+            pass
+
+    def _forward_autocomplete_to_custom_editor(self, component: object) -> None:
+        setter = getattr(component, "set_autocomplete_provider", None) or getattr(
+            component, "setAutocompleteProvider", None
+        )
+        if not callable(setter) or not self._autocomplete_provider_factories:
+            return
+        try:
+            setter(self._autocomplete_provider())
+        except Exception:  # noqa: BLE001 - fail-soft extension UI adapter
+            pass
+
+    def _custom_editor_text(self) -> str:
+        component = self._custom_editor_component
+        if component is None:
+            return self.input_text
+        for name in ("get_text", "getText"):
+            getter = getattr(component, name, None)
+            if callable(getter):
+                try:
+                    return str(getter())
+                except Exception:  # noqa: BLE001 - fall back to mirrored text
+                    break
+        if self._custom_editor_changed_text is not None:
+            return self._custom_editor_changed_text
+        return self.input_text
+
+    def _set_custom_editor_text(self, text: str) -> None:
+        component = self._custom_editor_component
+        self.input_text = str(text)
+        self.input_cursor = len(self.input_text)
+        if component is None:
+            return
+        for name in ("set_text", "setText"):
+            setter = getattr(component, name, None)
+            if callable(setter):
+                try:
+                    setter(self.input_text)
+                except Exception:  # noqa: BLE001 - keep built-in mirror
+                    pass
+                return
+
+    def _handle_custom_editor_key(self, key: str | None) -> str | None:
+        if key is None:
+            self.paint()
+            return None
+        component = self._custom_editor_component
+        if component is None:
+            return None
+        self._custom_editor_submitted = None
+        handler = getattr(component, "handle_input", None) or getattr(
+            component, "handleInput", None
+        )
+        if callable(handler):
+            try:
+                result = handler(key)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - bad custom editor falls back
+                self.set_editor_component(None)
+                return None
+            if isinstance(result, str):
+                self._custom_editor_submitted = result
+        elif key == "enter":
+            self._custom_editor_submitted = self._custom_editor_text()
+        if self._custom_editor_submitted is not None:
+            submitted = self._custom_editor_submitted
+            self._custom_editor_submitted = None
+            self._set_custom_editor_text("")
+            return submitted
+        self.input_text = self._custom_editor_text()
+        self.input_cursor = len(self.input_text)
+        self.paint()
+        return None
 
     def paste_input_text(self, text: str) -> None:
         """Paste text into the core editor through the paste path.
@@ -4622,6 +4795,9 @@ class ToolLoopTerminalUi:
         pinned.
         """
 
+        if self._custom_editor_active:
+            return self._custom_editor_frame_lines(width, max_rows=max_rows)
+
         rows, cursor_row, cursor_col = self._wrapped_input_rows(width)
         if max_rows is not None and max_rows > 0 and len(rows) > max_rows:
             start = min(
@@ -4635,6 +4811,42 @@ class ToolLoopTerminalUi:
             meta = {"cursor_col": cursor_col} if index == cursor_row else None
             rendered.append(_FrameLine(self._clip(row or " ", width), "input", meta))
         return rendered or [_FrameLine("", "input", {"cursor_col": 0})]
+
+    def _custom_editor_frame_lines(
+        self, width: int, *, max_rows: int | None = None
+    ) -> list[_FrameLine]:
+        component = self._custom_editor_component
+        raw: object = None
+        if component is not None:
+            renderer = getattr(component, "render", None)
+            if callable(renderer):
+                try:
+                    raw = renderer(width)
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:  # noqa: BLE001 - fail-soft render
+                    raw = ["(custom editor render error)"]
+        if raw is None:
+            raw = [self._display_input_text(self._custom_editor_text()) or " "]
+        if isinstance(raw, str):
+            raw_lines = raw.splitlines() or [raw]
+        elif isinstance(raw, Iterable):
+            raw_lines = [str(line) for line in raw]
+        else:
+            raw_lines = [str(raw)]
+        if max_rows is not None and max_rows > 0 and len(raw_lines) > max_rows:
+            raw_lines = raw_lines[-max_rows:]
+        lines = [
+            self._clip(_sanitize_custom_overlay_text(line or " "), width)
+            for line in raw_lines
+        ]
+        if not lines:
+            lines = [" "]
+        meta = {"cursor_col": min(len(lines[-1]), max(0, width - 1))}
+        return [
+            _FrameLine(line, "input", meta if index == len(lines) - 1 else None)
+            for index, line in enumerate(lines)
+        ]
 
     def _wrapped_input_rows(self, width: int) -> tuple[list[str], int, int]:
         display = self._display_input_text(self.input_text)
@@ -5204,6 +5416,8 @@ class ToolLoopTerminalUi:
     def add_extension_autocomplete_provider(self, factory: object) -> None:
         if callable(factory):
             self._autocomplete_provider_factories.append(factory)
+            if self._custom_editor_component is not None:
+                self._forward_autocomplete_to_custom_editor(self._custom_editor_component)
 
     def _autocomplete_provider(self) -> object:
         provider: object = _BuiltinAutocompleteProvider(self)

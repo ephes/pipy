@@ -56,6 +56,13 @@ class _FakeUi:
         self.pasted.append(text)
         self.input_text = text
 
+    def set_editor_component(self, factory):
+        self.calls.append(("set-editor-component", factory))
+        self.editor_component = factory
+
+    def get_editor_component(self):
+        return getattr(self, "editor_component", None)
+
 
 def test_driver_delegates_all_five(tmp_path):
     ui = _FakeUi()
@@ -105,7 +112,7 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert ui.calls[-1] == ("paste-input", "paste")
 
 
-def test_live_driver_stores_editor_component_in_memory(tmp_path):
+def test_live_driver_delegates_editor_component_to_terminal_ui(tmp_path):
     ui = _FakeUi()
     driver = _LiveExtensionUiDriver(ui, tmp_path)
     factory = object()
@@ -115,7 +122,10 @@ def test_live_driver_stores_editor_component_in_memory(tmp_path):
     assert driver.get_editor_component() is factory
     driver.set_editor_component(None)
     assert driver.get_editor_component() is None
-    assert ui.calls == []
+    assert ui.calls == [
+        ("set-editor-component", factory),
+        ("set-editor-component", None),
+    ]
 
 
 def test_lifecycle_hook_reaches_live_ui_driver(tmp_path):

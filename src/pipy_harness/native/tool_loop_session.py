@@ -704,13 +704,13 @@ class _LiveExtensionUiDriver:
         self._terminal_ui.add_extension_autocomplete_provider(factory)
 
     def set_editor_component(self, factory: object | None) -> None:
-        # API-compatibility store only: full custom editor rendering/input
-        # integration remains a later parity slice. The opaque object is kept
-        # in memory and is never called or persisted by pipy.
-        self._editor_component = factory
+        self._terminal_ui.set_editor_component(factory)
+        self._editor_component = self._terminal_ui.get_editor_component()
 
     def get_editor_component(self) -> object | None:
-        return self._editor_component
+        component = self._terminal_ui.get_editor_component()
+        self._editor_component = component
+        return component
 
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
