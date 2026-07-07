@@ -82,6 +82,13 @@ class _IdentityAutocompleteProvider:
         return f"provider:{col}"
 
 
+class _CamelActionCustomEditor(_CustomEditor):
+    def __init__(self) -> None:
+        super().__init__()
+        del self.action_handlers
+        self.actionHandlers: dict[str, object] = {}
+
+
 def test_custom_editor_read_line_routes_keys_only_to_custom_component(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -117,6 +124,52 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
     keys = iter(("y", "enter"))
     assert ui.read_line("> ") == "y\n"
     assert component.keys == ["x", "enter", "y", "enter"]
+
+
+def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CamelActionCustomEditor()
+
+    def handle_input(key: str) -> None:
+        assert component.keybindings is not None
+        if getattr(component.keybindings, "matches")(
+            key, "app.model.cycleForward"
+        ):
+            handler = component.actionHandlers["app.model.cycleForward"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+            return
+        component.text += key
+        if component.on_change is not None:
+            component.on_change(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("draft", "ctrl+p"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    def factory(tui: object, theme: object, keybindings: object) -> _CamelActionCustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    assert ui.read_line("> ") == "\x00pipy-hotkey:model-cycle-next\n"
+    assert ui._pending_initial_text == "draft"
+
+    keys = iter(("enter",))
+    assert ui.read_line("> ") == "draft\n"
+    assert component.get_text() == ""
 
 
 def test_custom_editor_read_line_forwards_resolved_autocomplete_provider(
