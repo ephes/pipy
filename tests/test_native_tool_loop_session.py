@@ -1051,6 +1051,47 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
     assert "old:two" not in err
 
 
+def test_reload_fires_session_start_reload_for_new_extension_generation(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    proof = tmp_path / "session_start_reasons.txt"
+    extension_file = extension_dir / "reload_lifecycle.py"
+    extension_file.write_text(
+        "from pathlib import Path\n"
+        "def activate(api):\n"
+        f"    proof = Path({str(proof)!r})\n"
+        "    marker = Path(__file__).with_name('reload_marker.txt')\n"
+        "    generation = marker.read_text(encoding='utf-8') if marker.exists() else 'initial'\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        with proof.open('a', encoding='utf-8') as fh:\n"
+        "            fh.write((event.reason or '') + ':' + generation + '\\n')\n"
+        "        if event.reason == 'reload':\n"
+        "            ctx.ui.notify('reload-session-start:' + generation)\n"
+        "    def flip(ctx, args):\n"
+        "        marker.write_text('reloaded', encoding='utf-8')\n"
+        "    api.register_command('flip-lifecycle', 'flip lifecycle marker', flip)\n",
+        encoding="utf-8",
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    error_stream = io.StringIO()
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/flip-lifecycle\n/reload\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert proof.read_text(encoding="utf-8").splitlines() == [
+        "startup:initial",
+        "reload:reloaded",
+    ]
+    assert "reload-session-start:reloaded" in error_stream.getvalue()
+    assert provider._call_counter[0] == 0
+
+
 class _TtyBuffer:
     """Minimal TTY-like stream so a real ``terminal_ui`` is built for a run."""
 

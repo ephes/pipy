@@ -216,8 +216,8 @@ def test_pty_session_renders_then_reload_clears_chrome(
         assert _wait_for(err_chunks, "DEMO_WIDGET"), "widget never painted"
 
         # Remove the extension, then /reload: chrome must be cleared. The
-        # session_start hook does not re-fire on reload and the file is gone,
-        # so nothing re-sets the widget -> it must vanish from the frame.
+        # reloaded extension generation has no session_start hook because the
+        # file is gone, so nothing re-sets the widget -> it must vanish.
         ext_file.unlink()
         os.write(in_master, b"/reload\n")
         assert _wait_until_absent(
@@ -225,6 +225,91 @@ def test_pty_session_renders_then_reload_clears_chrome(
         ), "widget still on screen after /reload cleared chrome"
 
         os.write(in_master, b"\x03")  # ctrl-c exits the prompt
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x03")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_reload_session_start_hook_restores_chrome_live(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "sessions"))
+
+    ext_dir = tmp_path / ".pipy" / "extensions"
+    ext_dir.mkdir(parents=True)
+    ext_file = ext_dir / "chrome-reload.py"
+    ext_file.write_text(
+        "from pathlib import Path\n"
+        "def activate(api):\n"
+        "    marker = Path(__file__).with_name('reload_marker.txt')\n"
+        "    generation = marker.read_text(encoding='utf-8') if marker.exists() else 'initial'\n"
+        "    @api.on('session_start')\n"
+        "    def _s(event, ctx):\n"
+        "        ctx.ui.set_widget('demo', ['RELOAD_WIDGET_' + (event.reason or '') + '_' + generation])\n"
+        "    def _flip(ctx, args):\n"
+        "        marker.write_text('reloaded', encoding='utf-8')\n"
+        "        ctx.ui.notify('reload-widget-flipped')\n"
+        "    api.register_command('flip-reload-widget', 'flip reload widget', _flip)\n",
+        encoding="utf-8",
+    )
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(provider=_Provider(), tool_registry={})
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
+    )
+
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "RELOAD_WIDGET_startup_initial"), (
+            "startup session_start widget never painted"
+        )
+        os.write(in_master, b"/flip-reload-widget\n")
+        assert _wait_for(err_chunks, "reload-widget-flipped"), (
+            "extension command did not finish before reload"
+        )
+        os.write(in_master, b"/reload\n")
+        assert _wait_for(err_chunks, "RELOAD_WIDGET_reload_reloaded"), (
+            "reload session_start widget never repainted with the reloaded generation"
+        )
+
+        os.write(in_master, b"\x03")
         worker.join(timeout=8.0)
     finally:
         try:

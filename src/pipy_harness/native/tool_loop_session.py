@@ -2890,6 +2890,7 @@ class NativeToolReplSession:
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
                     emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
+                    emitter.set_flags(extension_flag_values)
                     # Re-apply the edited theme (settings is source of truth over the
                     # persisted store) and the derived UI settings.
                     reloaded_theme = settings.get_theme()
@@ -2918,6 +2919,7 @@ class NativeToolReplSession:
                             )
                     if self.verbose_startup or not settings.get_quiet_startup():
                         print_startup_chrome(error_stream, cwd=cwd)
+                    emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
                     self._emit_diagnostic(
                         terminal_ui,
                         error_stream,
