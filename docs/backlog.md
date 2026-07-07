@@ -315,15 +315,16 @@ The highest-impact remaining gaps are now:
    `before_provider_request`, session-operation gates, and active
    tool/model/thinking controls, rich message renderers, editor helpers,
    session-manager helpers, terminal-input hooks, footer data, and
-   custom-message delivery and live chrome `requestRender` re-rendering now
-   ship. Pi remains ahead on live custom message component
-   invalidation/re-rendering, broader custom editor/component-library parity
+   custom-message delivery, live chrome `requestRender` re-rendering, reactive
+   footer branch-change callbacks, and extension OAuth-provider `/login` wiring
+   now ship. Pi remains ahead on broader custom editor/component-library parity
    beyond the landed live integration, a full custom overlay stack beyond the
-   bounded `ctx.ui.custom(..., options)` support, remote PyPI/npm sources, and
-   the broader package ecosystem. Managed git sources and package `update` now
-   ship behind a pipy-owned cache; the next extension/package slices are richer
-   API follow-ons and any future PyPI/npm source kinds after a broader
-   supply-chain policy.
+   bounded `ctx.ui.custom(..., options)` support, richer multi-widget UI/message
+   components, live tool-render invalidation beyond the render-once snapshot,
+   remote PyPI/npm sources, and the broader package ecosystem. Managed git
+   sources and package `update` now ship behind a pipy-owned cache; the next
+   extension/package slices are richer API follow-ons and any future PyPI/npm
+   source kinds after a broader supply-chain policy.
 2. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, the deliberate
    `openai-codex-responses` legacy-factory exception for settings-derived retry
@@ -1501,26 +1502,25 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Extension platform follow-on queue — SELECTED
+### Broader custom editor/component-library parity — SELECTED
 
-The rich message resume/redraw slice has shipped. The broader
-extension/package platform remains the highest-impact parity area; choose the
-next small follow-on from the remaining deferred Pi-shaped APIs rather than
-reopening completed rich-UI slices.
+The rich message resume/redraw slice and bounded OAuth-provider `/login` slice
+have shipped. The broader extension/package platform remains the highest-impact
+parity area; the next small follow-on is custom editor/component-library parity
+beyond the landed live `setEditorComponent` integration and bounded
+`ctx.ui.custom(..., options)` overlay path.
 
-Candidate next slices:
-
-- broader custom editor/component-library parity beyond the live
-  `setEditorComponent` integration and bounded custom overlay options; or
-- broader provider/auth helpers beyond the landed OAuth-provider `/login`
-  auth-storage wiring.
+Keep this slice focused on one Pi-shaped editor/component API increment. Do not
+reopen completed rich-message, chrome `requestRender`, footer branch-change,
+idle custom-message delivery, or extension OAuth-provider `/login` work unless
+the chosen custom editor slice exposes a direct integration bug in those paths.
 
 The bounded OAuth-provider `/login` slice has shipped: extension OAuth metadata
 is projected under the provider-name id, `/login <provider>` stores
 `{"type":"oauth", ...credentials}` in `AuthStore`, `/logout <provider>` removes
 it, and OAuth-backed extension providers are `login-required` until credentials
-exist. Do not expand into PyPI/npm package sources until the broader supply-chain
-policy is written.
+exist. Do not expand into PyPI/npm package sources until the broader
+supply-chain policy is written.
 
 ## Recent Closeout
 
@@ -1696,9 +1696,9 @@ landed render-once snapshot, richer multi-widget `ctx.ui` dialogs, broader custo
 editor component-library parity beyond the landed live integration,
 message-entry APIs beyond the shipped
 append/startup replay and idle `send_message` delivery, TypeScript source
-compatibility, OAuth-provider extension `/login` wiring, broader dynamic
-extension flag integration beyond the landed `api.get_flag`/`ctx.flags` surface,
-or PyPI/npm package distribution. Managed git sources and package `update` now
+compatibility, broader dynamic extension flag integration beyond the landed
+`api.get_flag`/`ctx.flags` surface, or PyPI/npm package distribution. Managed
+git sources, package `update`, and extension OAuth-provider `/login` wiring now
 ship; broader remote package sources remain deferred.
 
 Acceptance criteria:
@@ -1813,10 +1813,10 @@ Invariants that must hold for any near-term slice:
   provider-request cancellation now ship. Theme controls
   (`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme`) and autocomplete
   provider wrappers also ship. Still deferred are the remaining richer
-  extension-owned UI surfaces Pi exposes: editor replacement
-  (`setEditorComponent`) and a full custom overlay stack beyond the bounded
-  Python `ctx.ui.custom(factory, options=None)` path and custom
-  session-entry/message-rendering paths.
+  extension-owned UI surfaces Pi exposes: broader editor/component-library
+  behavior beyond the landed live `setEditorComponent` path, a full custom
+  overlay stack beyond the bounded Python `ctx.ui.custom(factory, options=None)`
+  path, and custom session-entry/message-rendering follow-ons.
   Render-once custom tool rendering now ships; live (invalidate-driven) tool
   rendering remains deferred.
 - Extension/package platform follow-ons: package runtime composition for
@@ -1824,11 +1824,9 @@ Invariants that must hold for any near-term slice:
   source-loading flags, live-session operation gates, `user_bash`,
   provider-request transforms, dynamic active tool/model/thinking controls, and
   the first custom session-entry/message-rendering slice have landed. Remaining
-  Pi gaps are broader dynamic-flag integration, extension state/session-manager views,
-  richer extension UI/rendering,
-  OAuth-provider extension `/login` wiring, PyPI/npm package sources, and the
-  corresponding supply-chain/security model. The target specification is
-  [extension-api.md](extension-api.md).
+  Pi gaps are broader dynamic-flag integration, richer extension UI/rendering,
+  PyPI/npm package sources, and the corresponding supply-chain/security model.
+  The target specification is [extension-api.md](extension-api.md).
 - Provider/model catalog follow-ons after the selected closeout slices: live
   Anthropic/Copilot login UX and adapter parity polish.
 - RPC and automation follow-ons: the stdin/stdout JSON/RPC mode ships; true
