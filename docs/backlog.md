@@ -1509,8 +1509,6 @@ reopening the completed redraw slice.
 
 Candidate next slices:
 
-- live custom message component invalidation/re-render for the already shipped
-  single-component `register_message_renderer` surface;
 - full custom editor rendering/input integration beyond the in-memory
   `setEditorComponent` store; or
 - broader provider/auth helpers beyond the landed OAuth-provider `/login`
@@ -1665,7 +1663,7 @@ metadata-first archive remains unaffected. Render-once custom tool renderers now
 ship (slice 17), and their renderer map refreshes across `/reload` so added,
 changed, or removed extension renderers take effect without restarting the
 session. Live (invalidate-driven) tool renderers, in-session full-history redraw
-on `/resume` switches, and live custom message component invalidation/re-rendering remain follow-ons.
+on `/resume` switches, and per-resize custom message component invalidation/re-rendering remains a follow-on.
 
 Extension UI editor follow-on: command/shortcut handlers can call
 `ctx.ui.editor(title, prefill=None)` to open a focused multi-line editor overlay

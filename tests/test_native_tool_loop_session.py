@@ -1074,6 +1074,8 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    monkeypatch.setenv("COLUMNS", "101")
+    monkeypatch.setenv("LINES", "31")
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "cards.py").write_text(
@@ -1081,7 +1083,8 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
         "def activate(api):\n"
         "    api.register_message_renderer('plain-card', lambda data: ['PLAIN:' + data['title']])\n"
         "    def render_rich(data, ctx):\n"
-        "        text = ctx.theme.fg('accent', 'RICH:' + data['title']) if ctx.theme else 'RICH:' + data['title']\n"
+        "        body = f\"RICH:{data['title']}:expanded={ctx.expanded}:width={ctx.width}:theme={ctx.theme is not None}\"\n"
+        "        text = ctx.theme.fg('accent', body) if ctx.theme else body\n"
         "        return lines_component([text])\n"
         "    api.register_message_renderer('rich-card', render_rich)\n",
         encoding="utf-8",
@@ -1154,11 +1157,19 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     assert any(kind == "custom_message_custom" for kind, _ in history)
     assert "PLAIN:ROOT" in committed_frame
     assert "RICH:ACTIVE" in committed_frame
+    assert "expanded=False:width=101:theme=True" in committed_frame
     assert "FALLBACK" in committed_frame
     assert "LEGACY_SHOW" in committed_frame
     assert "OFF_BRANCH" not in committed_frame
     assert "LEGACY_HIDE" not in committed_frame
     assert tree.path.read_text(encoding="utf-8") == before
+
+    terminal_ui.tools_expanded = True
+    terminal_ui.rerender_custom_messages()
+    rerendered_frame = "\n".join(
+        terminal_ui.render_lines(width=101, height=24, pad=False)
+    )
+    assert "RICH:ACTIVE:expanded=True:width=101:theme=True" in rerendered_frame
 
 
 def test_rich_message_renderer_styles_scrollback_and_does_not_leak(

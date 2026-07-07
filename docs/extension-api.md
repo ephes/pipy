@@ -1327,8 +1327,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     SGR-preserving under the dedicated `custom_message_custom` TUI line-kind with
     **no forced `[custom_type]` label** (the component owns its box, matching
     Pi's custom-message component replacing the default box). Rendering is
-    **render-once / snapshot** at the append-time width (no live
-    `invalidate`/re-render runtime), length-bounded, and **fail-soft**: a
+    a retained live snapshot in the product TUI: pipy re-renders the existing
+    custom-message block in place when Ctrl+O / `ctx.ui.set_tools_expanded(...)`
+    changes `ctx.expanded`, without appending a duplicate or mutating the
+    session file. Width-change invalidation remains deferred. Rendering is
+    length-bounded and **fail-soft**: a
     renderer (or its `render()`) that raises, returns a `str`/`Sequence[str]`, or
     returns an uncoercible value falls back to the slice-16 plain, sanitized
     path; a raising renderer surfaces only a bounded `render error:` diagnostic
@@ -1342,7 +1345,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     `CustomMessageEntry` values with `display=True` also render through a
     registered renderer using a Pi-shaped payload (`customType`, `content`,
     `display`, `details`) and fall back to stored content when no renderer is
-    registered. Deferred: live per-frame `invalidate`/re-render. Pi's
+    registered. Deferred: live per-resize `invalidate`/re-render beyond expanded-flag refresh. Pi's
     `MessageRenderer` returns one `Component | undefined` per custom message,
     so pipy intentionally keeps one component per entry and does not add a
     separate multi-widget message collection API. Gate

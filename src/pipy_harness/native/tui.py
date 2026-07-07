@@ -53,7 +53,11 @@ from pipy_harness.native.editor_completion import (
     extract_path_prefix,
     path_candidates,
 )
-from pipy_harness.native.extension_runtime import FooterData
+from pipy_harness.native.extension_runtime import (
+    FooterData,
+    RegisteredMessageRenderer,
+    render_extension_message,
+)
 from pipy_harness.native.tool_renderers import (
     build_tool_render_theme,
     render_chrome_component,
@@ -686,6 +690,31 @@ def _clip_custom_overlay_text(text: str, width: int) -> str:
     return "".join(clipped)
 
 
+class _HistoryBlockTuple(tuple):
+    """Tuple-compatible history block with optional live render metadata."""
+
+    state: object | None
+
+    def __new__(cls, kind: str, lines: tuple[str, ...], state: object | None = None):
+        obj = tuple.__new__(cls, (kind, lines))
+        obj.state = state
+        return obj
+
+
+@dataclass(slots=True)
+class _CustomMessageRenderState:
+    """Live-only state needed to refresh a styled custom message in place."""
+
+    custom_type: str
+    data: object | None
+    renderers: Mapping[str, RegisteredMessageRenderer]
+    styled: bool
+    lines: tuple[str, ...]
+
+
+_HistoryBlock = tuple[str, tuple[str, ...]]
+
+
 @dataclass(slots=True)
 class ToolLoopTerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
@@ -850,7 +879,7 @@ class ToolLoopTerminalUi:
     clipboard_image_read: Callable[[], ImageClipboardResult] | None = None
     clipboard_temp_dir: Path | None = None
     _clipboard_image_count: int = 0
-    _history_blocks: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    _history_blocks: list[_HistoryBlock] = field(default_factory=list)
     _old_termios: Any = None
     _closed: bool = False
     # Inline scrollback rendering state: committed history is printed once into
@@ -2895,7 +2924,7 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         self.assistant_text = ""
         self.working_text = ""
-        self._history_blocks.append(("user", tuple(text.splitlines() or [""])))
+        self._history_blocks.append(_HistoryBlockTuple("user", tuple(text.splitlines() or [""])))
         self.paint()
 
     def begin_assistant_turn(self) -> None:
@@ -2928,7 +2957,7 @@ class ToolLoopTerminalUi:
             self.assistant_text = final_text
         if self.assistant_text:
             self._history_blocks.append(
-                ("assistant", tuple(self.assistant_text.splitlines() or [""]))
+                _HistoryBlockTuple("assistant", tuple(self.assistant_text.splitlines() or [""]))
             )
             self.assistant_text = ""
         self.paint()
@@ -2938,10 +2967,10 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         if self.assistant_text:
             self._history_blocks.append(
-                ("assistant", tuple(self.assistant_text.splitlines() or [""]))
+                _HistoryBlockTuple("assistant", tuple(self.assistant_text.splitlines() or [""]))
             )
             self.assistant_text = ""
-        self._history_blocks.append(("error", ("Operation aborted",)))
+        self._history_blocks.append(_HistoryBlockTuple("error", ("Operation aborted",)))
         self.paint()
 
     def append_reasoning(self, chunk: str) -> None:
@@ -2962,7 +2991,7 @@ class ToolLoopTerminalUi:
             self._deferred_reasoning.append(self.reasoning_text)
         else:
             self._history_blocks.append(
-                ("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
+                _HistoryBlockTuple("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
             )
         self.reasoning_text = ""
 
@@ -2979,7 +3008,7 @@ class ToolLoopTerminalUi:
         if not hidden and self._deferred_reasoning:
             for text in self._deferred_reasoning:
                 self._history_blocks.append(
-                    ("reasoning", tuple(text.splitlines() or [""]))
+                    _HistoryBlockTuple("reasoning", tuple(text.splitlines() or [""]))
                 )
             self._deferred_reasoning.clear()
             self.paint()
@@ -2994,7 +3023,7 @@ class ToolLoopTerminalUi:
         safe_lines = tuple(
             sanitize_label_text(line) for line in str(text).splitlines()
         ) or ("",)
-        self._history_blocks.append(("notice", safe_lines))
+        self._history_blocks.append(_HistoryBlockTuple("notice", safe_lines))
         self.paint()
 
     def show_settings(self, lines: Iterable[str]) -> None:
@@ -3008,12 +3037,21 @@ class ToolLoopTerminalUi:
 
         self._settle_reasoning()
         self.working_text = ""
-        self._history_blocks.append(("settings", tuple(lines) or ("",)))
+        self._history_blocks.append(_HistoryBlockTuple("settings", tuple(lines) or ("",)))
         self.paint()
 
     def redraw_custom_entries(
         self,
-        entries: Iterable[tuple[str, str, tuple[str, ...]]],
+        entries: Iterable[
+            tuple[str, str, tuple[str, ...]]
+            | tuple[
+                str,
+                str,
+                tuple[str, ...],
+                object | None,
+                Mapping[str, RegisteredMessageRenderer],
+            ]
+        ],
     ) -> None:
         """Replace committed custom-entry rows with a freshly rendered branch.
 
@@ -3028,17 +3066,30 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         self.working_text = ""
         self.tool_output_text = ""
-        replacement_blocks: list[tuple[str, tuple[str, ...]]] = []
-        for render_kind, custom_type, lines in entries:
+        replacement_blocks: list[_HistoryBlock] = []
+        for row in entries:
+            render_kind, custom_type, lines = row[:3]
             if render_kind == "styled":
-                replacement_blocks.append(("custom_message_custom", tuple(lines) or ("",)))
+                rendered_lines = tuple(lines) or ("",)
+                state = None
+                if len(row) >= 5:
+                    state = _CustomMessageRenderState(
+                        custom_type=str(custom_type),
+                        data=row[3],
+                        renderers=cast(Mapping[str, RegisteredMessageRenderer], row[4]),
+                        styled=True,
+                        lines=rendered_lines,
+                    )
+                replacement_blocks.append(
+                    _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
+                )
             else:
                 label = sanitize_label_text(str(custom_type).strip()) or "custom"
                 safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-                replacement_blocks.append(("custom", (f"[{label}]", *safe_lines)))
+                replacement_blocks.append(_HistoryBlockTuple("custom", (f"[{label}]", *safe_lines)))
 
         next_replacement = iter(replacement_blocks)
-        rebuilt: list[tuple[str, tuple[str, ...]]] = []
+        rebuilt: list[_HistoryBlock] = []
         inserted_remaining = False
         for block in self._history_blocks:
             if block[0] not in {"custom", "custom_message_custom"}:
@@ -3058,9 +3109,9 @@ class ToolLoopTerminalUi:
         """Return committed custom-entry blocks for focused conformance tests."""
 
         return tuple(
-            block
-            for block in self._history_blocks
-            if block[0] in {"custom", "custom_message_custom"}
+            (kind, lines)
+            for kind, lines in self._history_blocks
+            if kind in {"custom", "custom_message_custom"}
         )
 
     def add_custom_entry(self, custom_type: str, lines: Iterable[str]) -> None:
@@ -3070,7 +3121,7 @@ class ToolLoopTerminalUi:
         self.working_text = ""
         label = sanitize_label_text(str(custom_type).strip()) or "custom"
         safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-        self._history_blocks.append(("custom", (f"[{label}]", *safe_lines)))
+        self._history_blocks.append(_HistoryBlockTuple("custom", (f"[{label}]", *safe_lines)))
         self.paint()
 
     def add_tool_call(self, header: str) -> None:
@@ -3078,9 +3129,9 @@ class ToolLoopTerminalUi:
         self.working_text = ""
         self.tool_output_text = ""
         if header.startswith("read ") or header.startswith("read resource "):
-            self._history_blocks.append(("tool_read", (_compact_read_header(header),)))
+            self._history_blocks.append(_HistoryBlockTuple("tool_read", (_compact_read_header(header),)))
         else:
-            self._history_blocks.append(("tool", (header,)))
+            self._history_blocks.append(_HistoryBlockTuple("tool", (header,)))
         self.paint()
 
     def append_tool_output(self, chunk: str) -> None:
@@ -3115,7 +3166,7 @@ class ToolLoopTerminalUi:
             rendered.append("[error] tool reported a failure")
         if duration_seconds is not None:
             rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(("tool_result", tuple(rendered or [""])))
+        self._history_blocks.append(_HistoryBlockTuple("tool_result", tuple(rendered or [""])))
         self.paint()
 
     def add_tool_call_custom(self, lines: Iterable[str]) -> None:
@@ -3123,7 +3174,7 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         self.working_text = ""
         self.tool_output_text = ""
-        self._history_blocks.append(("tool_call_custom", tuple(lines) or ("",)))
+        self._history_blocks.append(_HistoryBlockTuple("tool_call_custom", tuple(lines) or ("",)))
         self.paint()
 
     def add_tool_result_custom(
@@ -3135,21 +3186,92 @@ class ToolLoopTerminalUi:
         rendered = list(lines)
         if duration_seconds is not None:
             rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(("tool_result_custom", tuple(rendered or [""])))
+        self._history_blocks.append(_HistoryBlockTuple("tool_result_custom", tuple(rendered or [""])))
         self.paint()
 
-    def add_custom_entry_styled(self, lines: Iterable[str]) -> None:
+    def add_custom_entry_styled(
+        self,
+        lines: Iterable[str],
+        *,
+        custom_type: str | None = None,
+        data: object | None = None,
+        renderers: Mapping[str, RegisteredMessageRenderer] | None = None,
+    ) -> None:
         """Commit extension-rendered custom-entry lines (pre-styled, SGR-safe).
 
         Unlike ``add_custom_entry`` (sanitized + ``[label]`` prefix), the rich
         renderer's component owns its full styling; no label line is injected
-        (matches Pi's custom-message component replacing the default box)."""
+        (matches Pi's custom-message component replacing the default box). When
+        renderer metadata is supplied, the block can be refreshed in-place when
+        Ctrl+O changes the live expanded flag."""
 
         self._settle_reasoning()
         self.working_text = ""
         self.tool_output_text = ""
-        self._history_blocks.append(("custom_message_custom", tuple(lines) or ("",)))
+        rendered_lines = tuple(lines) or ("",)
+        state = None
+        if custom_type is not None and renderers is not None:
+            state = _CustomMessageRenderState(
+                custom_type=custom_type,
+                data=data,
+                renderers=renderers,
+                styled=True,
+                lines=rendered_lines,
+            )
+        self._history_blocks.append(_HistoryBlockTuple("custom_message_custom", rendered_lines, state))
         self.paint()
+
+    def rerender_custom_messages(self) -> None:
+        """Refresh retained rich custom-message rows for the current view flag."""
+
+        width = self._dimensions()[0]
+        style = chrome_style_for(self.terminal_stream)
+        theme = build_tool_render_theme(style)
+        changed = False
+        rebuilt: list[_HistoryBlock] = []
+        for block in self._history_blocks:
+            kind, lines = block
+            state = cast(_CustomMessageRenderState | None, getattr(block, "state", None))
+            if state is None:
+                rebuilt.append(_HistoryBlockTuple(kind, lines, state))
+                continue
+            rendered = render_extension_message(
+                state.renderers,
+                state.custom_type,
+                state.data,
+                width=width,
+                expanded=self.tools_expanded,
+                theme=theme,
+            )
+            if rendered.styled:
+                next_kind = "custom_message_custom"
+                next_lines = tuple(rendered.lines) or ("",)
+                next_state = _CustomMessageRenderState(
+                    custom_type=state.custom_type,
+                    data=state.data,
+                    renderers=state.renderers,
+                    styled=True,
+                    lines=next_lines,
+                )
+            else:
+                label = sanitize_label_text(str(state.custom_type).strip()) or "custom"
+                safe_lines = tuple(sanitize_label_text(line) for line in rendered.lines) or ("",)
+                next_kind = "custom"
+                next_lines = (f"[{label}]", *safe_lines)
+                next_state = _CustomMessageRenderState(
+                    custom_type=state.custom_type,
+                    data=state.data,
+                    renderers=state.renderers,
+                    styled=False,
+                    lines=next_lines,
+                )
+            changed = changed or next_kind != kind or next_lines != lines
+            rebuilt.append(_HistoryBlockTuple(next_kind, next_lines, next_state))
+        if changed:
+            self._history_blocks = rebuilt
+            self._force_full_redraw()
+        else:
+            self.paint()
 
     def _force_full_redraw(self) -> None:
         try:
@@ -4166,8 +4288,8 @@ class ToolLoopTerminalUi:
         # input loops repaint when they next poll.
         self._resize_pending = True
 
-    def _startup_blocks(self) -> list[tuple[str, tuple[str, ...]]]:
-        blocks: list[tuple[str, tuple[str, ...]]] = [
+    def _startup_blocks(self) -> list[_HistoryBlock]:
+        raw_blocks: list[tuple[str, tuple[str, ...]]] = [
             ("normal", ("",)),
             ("title", (f" pipy v{pipy_version_label()}",)),
             (
@@ -4190,43 +4312,48 @@ class ToolLoopTerminalUi:
             ),
             ("normal", ("", "")),
         ]
+        blocks: list[_HistoryBlock] = [_HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks]
         context = discover_loaded_resource_names(self.cwd, "context")
         if context:
             blocks.append(
-                (
+                _HistoryBlockTuple(
                     "section",
                     (
                         "[Context]",
                     ),
+                    None,
                 )
             )
             blocks.append(
-                (
+                _HistoryBlockTuple(
                     "resource",
                     (
                         f"  {', '.join(context)}",
                         "",
                     ),
+                    None,
                 )
             )
         skills = discover_loaded_resource_names(self.cwd, "skills")
         if skills:
             blocks.append(
-                (
+                _HistoryBlockTuple(
                     "section",
                     (
                         "[Skills]",
                     ),
+                    None,
                 )
             )
             blocks.append(
-                (
+                _HistoryBlockTuple(
                     "resource",
                     (
                         f"  {', '.join(skills)}",
                         "",
                         "",
                     ),
+                    None,
                 )
             )
         return blocks

@@ -40,7 +40,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
-from typing import Any, ClassVar, TextIO
+from typing import Any, ClassVar, TextIO, TypeAlias
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
@@ -277,33 +277,53 @@ def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, ob
     }
 
 
+_CustomEntryRedrawRow: TypeAlias = (
+    tuple[str, str, tuple[str, ...]]
+    | tuple[
+        str,
+        str,
+        tuple[str, ...],
+        object | None,
+        Mapping[str, RegisteredMessageRenderer],
+    ]
+)
+
+
 def _custom_entry_redraw_rows(
     branch: Iterable[object],
     render_custom_entry: Callable[[str, object | None], RenderedCustomEntry],
     render_custom_message_entry: Callable[[_CustomMessageEntry], RenderedCustomEntry]
     | None = None,
-) -> list[tuple[str, str, tuple[str, ...]]]:
+    *,
+    render_metadata: Mapping[str, RegisteredMessageRenderer] | None = None,
+) -> list[_CustomEntryRedrawRow]:
     """Build TUI redraw rows for active-branch extension custom entries."""
 
-    rows: list[tuple[str, str, tuple[str, ...]]] = []
+    rows: list[_CustomEntryRedrawRow] = []
     for entry in branch:
         if isinstance(entry, _CustomEntry):
-            rendered = render_custom_entry(
-                entry.custom_type, safe_custom_entry_data(entry.data)
-            )
-            rows.append((
+            data = safe_custom_entry_data(entry.data)
+            rendered = render_custom_entry(entry.custom_type, data)
+            row: _CustomEntryRedrawRow = (
                 "styled" if rendered.styled else "plain",
                 entry.custom_type,
                 tuple(rendered.lines),
-            ))
+            )
+            if render_metadata is not None:
+                row = (*row, data, render_metadata)
+            rows.append(row)
         elif isinstance(entry, _CustomMessageEntry) and entry.display:
             if render_custom_message_entry is not None:
+                data = _custom_message_renderer_payload(entry)
                 rendered = render_custom_message_entry(entry)
-                rows.append((
+                row = (
                     "styled" if rendered.styled else "plain",
                     entry.custom_type,
                     tuple(rendered.lines),
-                ))
+                )
+                if render_metadata is not None:
+                    row = (*row, data, render_metadata)
+                rows.append(row)
             else:
                 rows.append((
                     "plain",
@@ -672,9 +692,13 @@ class _LiveExtensionUiDriver:
 
     def set_tools_expanded(self, expanded: bool) -> None:
         self._terminal_ui.tools_expanded = bool(expanded)
-        paint = getattr(self._terminal_ui, "paint", None)
-        if callable(paint):
-            paint()
+        rerender = getattr(self._terminal_ui, "rerender_custom_messages", None)
+        if callable(rerender):
+            rerender()
+        else:
+            paint = getattr(self._terminal_ui, "paint", None)
+            if callable(paint):
+                paint()
 
     def add_autocomplete_provider(self, factory: object) -> None:
         self._terminal_ui.add_extension_autocomplete_provider(factory)
@@ -1685,7 +1709,7 @@ class NativeToolReplSession:
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
-            add_rendered_entry_to_terminal(custom_type, rendered)
+            add_rendered_entry_to_terminal(custom_type, rendered, data)
 
         def render_custom_message_entry(
             entry: _CustomMessageEntry,
@@ -1707,12 +1731,17 @@ class NativeToolReplSession:
             )
 
         def add_rendered_entry_to_terminal(
-            custom_type: str, rendered: RenderedCustomEntry
+            custom_type: str, rendered: RenderedCustomEntry, data: object | None
         ) -> None:
             if terminal_ui is None:
                 return
             if rendered.styled:
-                terminal_ui.add_custom_entry_styled(rendered.lines)
+                terminal_ui.add_custom_entry_styled(
+                    rendered.lines,
+                    custom_type=custom_type,
+                    data=data,
+                    renderers=extension_renderer_map,
+                )
             else:
                 terminal_ui.add_custom_entry(custom_type, rendered.lines)
 
@@ -1725,7 +1754,9 @@ class NativeToolReplSession:
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
-            add_rendered_entry_to_terminal(entry.custom_type, rendered)
+            add_rendered_entry_to_terminal(
+                entry.custom_type, rendered, _custom_message_renderer_payload(entry)
+            )
 
         def replay_custom_entries_to_terminal() -> None:
             if terminal_ui is not None:
@@ -1767,6 +1798,7 @@ class NativeToolReplSession:
                     session_tree.get_branch(),
                     render_for_redraw,
                     render_message_for_redraw,
+                    render_metadata=extension_renderer_map,
                 )
             )
 
@@ -4708,6 +4740,7 @@ class NativeToolReplSession:
             new_value = not (terminal_ui.tools_expanded if terminal_ui else False)
             if terminal_ui is not None:
                 terminal_ui.tools_expanded = new_value
+                terminal_ui.rerender_custom_messages()
             label = "expanded" if new_value else "collapsed"
             self._emit_diagnostic(
                 terminal_ui, error_stream, f"pipy: tool output: {label}"

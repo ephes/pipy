@@ -189,10 +189,11 @@ Pipy current state:
 - Extension slice 19 has shipped: rich message renderers (rich-UI item C) — a
   `register_message_renderer` renderer that requires a second `(data, ctx)`
   parameter receives a `MessageRenderContext` and may return a themed component,
-  committed SGR-preserving with no forced `[custom_type]` label (render-once
-  snapshot at append width, fail-soft to the plain path); a 1-arg
-  `renderer(data)` keeps slice-16 plain behavior. The rendered body is live-only
-  and never archived. Active-branch custom entries now replay into
+  committed SGR-preserving with no forced `[custom_type]` label. The retained
+  TUI snapshot re-renders in place when Ctrl+O / `ctx.ui.set_tools_expanded(...)`
+  changes `ctx.expanded` (fail-soft to the plain path, no duplicate rows); a
+  1-arg `renderer(data)` keeps slice-16 plain behavior. The rendered body is
+  live-only and never archived. Active-branch custom entries now replay into
   startup-opened TUI sessions through the same renderer dispatch without
   mutating the session file.
 - Extension slice 20 has shipped: the command/shortcut `ctx.ui.editor(...)`

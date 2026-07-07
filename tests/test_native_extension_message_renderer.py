@@ -304,3 +304,116 @@ def test_custom_entry_redraw_rows_dispatches_branch_entries():
         ("plain", "shown", ("LINE1", "LINE2")),
         ("plain", "note", ("PLAIN",)),
     ]
+
+
+def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
+    from datetime import UTC, datetime
+    from io import StringIO
+    from typing import TextIO, cast
+
+    from pipy_harness.native.session_tree import CustomMessageEntry
+    from pipy_harness.native.tool_loop_session import (
+        _custom_entry_redraw_rows,
+        _custom_message_renderer_payload,
+    )
+    from pipy_harness.native.tui import ToolLoopTerminalUi
+
+    def render(data, ctx):
+        return lines_component([f"expanded={ctx.expanded}:{data['content']}"])
+
+    renderers = _renderers("card", render)
+    entry = CustomMessageEntry(
+        "1",
+        None,
+        datetime.now(UTC),
+        "card",
+        "BODY",
+        True,
+        None,
+    )
+    rows = _custom_entry_redraw_rows(
+        (entry,),
+        lambda custom_type, data: render_extension_message(renderers, custom_type, data),
+        lambda message: render_extension_message(
+            renderers,
+            message.custom_type,
+            _custom_message_renderer_payload(message),
+            expanded=False,
+        ),
+        render_metadata=renderers,
+    )
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, StringIO()),
+        terminal_stream=cast(TextIO, _NoopTty()),
+        cwd=tmp_path,
+    )
+    ui.redraw_custom_entries(rows)
+    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=False:BODY",)),)
+
+    ui.tools_expanded = True
+    ui.rerender_custom_messages()
+
+    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=True:BODY",)),)
+
+
+def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
+    from io import StringIO
+    from typing import TextIO, cast
+
+    from pipy_harness.native.tui import ToolLoopTerminalUi
+
+    def render(data, ctx):
+        return lines_component([f"expanded={ctx.expanded}:{data['title']}"])
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, StringIO()),
+        terminal_stream=cast(TextIO, _NoopTty()),
+        cwd=tmp_path,
+    )
+    renderers = _renderers("card", render)
+    ui.add_custom_entry_styled(
+        ("expanded=False:alpha",),
+        custom_type="card",
+        data={"title": "alpha"},
+        renderers=renderers,
+    )
+
+    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=False:alpha",)),)
+    ui.tools_expanded = True
+    ui.rerender_custom_messages()
+
+    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=True:alpha",)),)
+
+
+def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_path):
+    from io import StringIO
+    from typing import TextIO, cast
+
+    from pipy_harness.native.tui import ToolLoopTerminalUi
+
+    def render(data, ctx):
+        raise RuntimeError(f"secret {data['secret']}")
+
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, StringIO()),
+        terminal_stream=cast(TextIO, _NoopTty()),
+        cwd=tmp_path,
+    )
+    renderers = _renderers("card", render)
+    ui.add_custom_entry_styled(
+        ("initial",),
+        custom_type="card",
+        data={"secret": "TOPSECRET"},
+        renderers=renderers,
+    )
+
+    ui.tools_expanded = True
+    ui.rerender_custom_messages()
+
+    blocks = ui.custom_entry_blocks()
+    assert blocks[0][0] == "custom"
+    body = "\n".join(blocks[0][1])
+    assert "render error:" in body
+    assert "TOPSECRET" not in body
+    assert "secret" not in body
