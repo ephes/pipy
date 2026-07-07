@@ -230,6 +230,13 @@ Pipy current state:
   `should_trigger_file_completion` methods for `@` and forced Tab completion,
   while headless contexts remain deterministic no-ops.
 - Extension slice 24 has shipped and now includes bounded live custom editor integration: `ctx.ui.set_editor_component` / `setEditorComponent` calls the factory in the product TUI, routes decoded keys to the returned component, wires submit/change callbacks, forwards autocomplete providers, preserves editor text when clearing back to the default editor, and keeps headless contexts no-op/return `None` like Pi RPC. Broader Pi component-library parity remains deferred.
+- Bounded custom overlay options have shipped for `ctx.ui.custom`: command and
+  shortcut contexts accept `custom(factory, options=None)` with Pi-shaped
+  `overlay`, `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle`
+  fields. Pipy keeps both overlay modes on its existing inline renderer in this
+  slice, but honors width hints, exposes a minimal hide/update/requestRender
+  handle, disposes components on close, and preserves deterministic headless
+  no-construction behavior.
 - Extension slice 25 has shipped: tool-output expansion controls —
   `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
   `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
@@ -266,8 +273,9 @@ Pipy current state:
 
 Follow-ons:
 
-1. Richer Pi extension APIs: full custom editor component rendering/input
-   integration beyond the landed `setEditorComponent` in-memory store,
+1. Richer Pi extension APIs: broader custom editor/component-library parity
+   beyond the landed live `setEditorComponent` integration and bounded custom
+   overlay options,
    live custom message component invalidation/re-rendering beyond the landed
    single-component rich message renderer (item C), richer tool-output
    expansion integration beyond the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped

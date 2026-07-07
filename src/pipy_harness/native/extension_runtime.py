@@ -790,7 +790,8 @@ class CustomComponent(Protocol):
 # A factory that builds a CustomComponent given a `done(result)` callback.
 CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
 # The live driver that takes over the terminal to run a custom component.
-CustomComponentDriver = Callable[[CustomComponentFactory], object]
+CustomComponentOptions = Mapping[str, object]
+CustomComponentDriver = Callable[[CustomComponentFactory, CustomComponentOptions | None], object]
 
 
 ThemeColor = Literal["text", "accent", "success", "warning", "error", "dim"]
@@ -1071,7 +1072,11 @@ class ExtensionUi(Protocol):
 
     def set_working_visible(self, visible: bool) -> None: ...
 
-    def custom(self, factory: CustomComponentFactory) -> object: ...
+    def custom(
+        self,
+        factory: CustomComponentFactory,
+        options: CustomComponentOptions | None = None,
+    ) -> object: ...
 
     def set_widget(
         self,
@@ -1367,16 +1372,22 @@ class _CollectingUi:
         self._custom_driver = custom_driver
         self._ui_driver = ui_driver
 
-    def custom(self, factory: "CustomComponentFactory") -> object:
+    def custom(
+        self,
+        factory: "CustomComponentFactory",
+        options: "CustomComponentOptions | None" = None,
+    ) -> object:
         """Run a custom interactive component, or no-op deterministically.
 
         Returns the component's result when a live driver is wired and a UI is
         available; otherwise returns ``None`` without constructing or driving
-        the component (deterministic non-interactive behavior).
+        the component (deterministic non-interactive behavior).  The optional
+        ``options`` mapping accepts Pi-shaped custom-overlay fields; headless
+        contexts still ignore it without constructing the component.
         """
         if self._custom_driver is None or not self.has_ui:
             return None
-        return self._custom_driver(factory)
+        return self._custom_driver(factory, options)
 
     def select(self, title: str, options: Sequence[str]) -> str | None:
         choices = tuple(str(option) for option in options if str(option))

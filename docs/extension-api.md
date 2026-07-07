@@ -566,8 +566,13 @@ so Pi extensions translate naturally:
   forward autocomplete providers, preserve text when clearing, and headless
   contexts no-op/return `None` like Pi RPC. Broader Pi component-library parity
   remains deferred.
-- Custom overlays: a focused custom component with keyboard focus, mirroring
-  Pi's `custom(...)` overlay.
+- Custom overlays **(bounded options shipped)**: a focused custom component with
+  keyboard focus, mirroring Pi's `custom(...)` overlay. The live product TUI
+  accepts `custom(factory, options=None)` with Pi-shaped `overlay`,
+  `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle` fields; both
+  overlay modes use pipy's existing inline overlay renderer in this bounded
+  slice, while width hints, handle callbacks, dispose-on-close, and headless
+  no-construction behavior are covered.
 - Tool-output expansion **(shipped)**: `ctx.ui.get_tools_expanded()` /
   `getToolsExpanded()` read the current live product-TUI expansion state, and
   `ctx.ui.set_tools_expanded(expanded)` / `setToolsExpanded(expanded)` set the
@@ -1041,8 +1046,14 @@ landed to support porting Pi's `answer.ts`
 `ctx.session_manager` / `ctx.sessionManager` view over the active native session
 (id/file/dir/cwd/header/entries/labels/branch/tree/name), a bounded one-shot
 `ctx.complete(system_prompt, user_text)` on the active provider, a full-screen
-`ctx.ui.custom(factory)` interactive overlay (`ToolLoopTerminalUi.run_custom_component`),
-and `api.register_shortcut(key, handler)` keyboard shortcuts. The simple UI
+`ctx.ui.custom(factory, options=None)` interactive overlay
+(`ToolLoopTerminalUi.run_custom_component`), and
+`api.register_shortcut(key, handler)` keyboard shortcuts. The `custom` options
+surface accepts Pi-shaped `overlay`, `overlayOptions`/`overlay_options`, and
+`onHandle`/`on_handle` fields: pipy's bounded inline overlay path honors static
+or callable width hints, exposes a minimal hide/update/requestRender handle,
+disposes components on close, and keeps headless contexts as no-construction
+no-ops. The simple UI
 primitive follow-on then added `ctx.ui.select`, `ctx.ui.input`,
 `ctx.ui.confirm`, `ctx.ui.set_status`, `ctx.ui.set_working_message`, and
 `ctx.ui.set_working_visible`: interactive runs delegate to the product TUI
@@ -1435,8 +1446,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     `should_trigger_file_completion`/`shouldTriggerFileCompletion`; and fail
     soft back to the built-in provider. Headless contexts accept the call as a
     deterministic no-op.
-    Deferred: broader custom editor component-library parity and live
-    per-frame component invalidation.
+    Deferred: broader custom editor component-library parity, a full custom
+    overlay stack/component library, and live per-frame component invalidation.
 
 ## Open Questions
 

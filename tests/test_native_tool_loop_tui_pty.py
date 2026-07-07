@@ -19,8 +19,10 @@ import json
 import os
 import stat
 import pty
+import select
 import threading
 import time
+import errno
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +45,10 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
+_DETACHED_PTY_STREAMS: list[object] = []
+_ABANDONED_PTY_FDS: list[int] = []
+_DRAINER_STOPS: dict[threading.Thread, threading.Event] = {}
+
 
 class _ClipboardRecorder:
     def __init__(self) -> None:
@@ -60,19 +66,28 @@ class _ClipboardRecorder:
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
     collected: list[bytes] = []
+    stop = threading.Event()
 
     def _drain() -> None:
-        while True:
+        while not stop.is_set():
+            readable, _, _ = select.select([fd], [], [], 0.05)
+            if not readable:
+                continue
             try:
                 chunk = os.read(fd, 65536)
-            except OSError:
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    time.sleep(0.01)
+                    continue
                 return
             if not chunk:
-                return
+                time.sleep(0.01)
+                continue
             collected.append(chunk)
 
     thread = threading.Thread(target=_drain, daemon=True)
     thread.start()
+    _DRAINER_STOPS[thread] = stop
     return thread, collected
 
 
@@ -97,6 +112,52 @@ def _wait_for_predicate(
     return False
 
 
+def _detach_text_stream(stream: TextIO) -> None:
+    try:
+        stream.flush()
+    except (OSError, ValueError):
+        pass
+    detach = getattr(stream, "detach", None)
+    if callable(detach):
+        try:
+            _DETACHED_PTY_STREAMS.append(detach())
+        except (OSError, ValueError):
+            pass
+
+
+def _stream_fd(stream: TextIO) -> int | None:
+    try:
+        return stream.fileno()
+    except (OSError, ValueError):
+        return None
+
+
+def _close_pty_session(
+    stdin: TextIO,
+    terminal: TextIO,
+    in_master: int,
+    err_master: int,
+    err_thread: threading.Thread,
+) -> None:
+    # Closing pty descriptors can block in close(2) on macOS. These streams are
+    # opened with closefd=False, so detach wrappers, stop the nonblocking
+    # drainer, and leave the bounded descriptor reclaim to process teardown
+    # instead of blocking the pytest worker.
+    stop = _DRAINER_STOPS.pop(err_thread, None)
+    if stop is not None:
+        stop.set()
+    stdin_fd = _stream_fd(stdin)
+    terminal_fd = _stream_fd(terminal)
+    _detach_text_stream(stdin)
+    _detach_text_stream(terminal)
+    if stdin_fd is not None:
+        _ABANDONED_PTY_FDS.append(stdin_fd)
+    if terminal_fd is not None:
+        _ABANDONED_PTY_FDS.append(terminal_fd)
+    _ABANDONED_PTY_FDS.extend([in_master, err_master])
+    err_thread.join(timeout=2.0)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 @pytest.mark.parametrize(
     ("columns", "rows", "label"),
@@ -118,8 +179,8 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     # A long answer that overflows the window once committed, so it must scroll
@@ -180,12 +241,7 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label} session did not exit"
     assert result_holder, f"{label} session produced no result"
@@ -282,8 +338,8 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     seen: list[tuple[str, str]] = []
@@ -357,12 +413,7 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "selector session did not exit"
     assert result_holder, "selector session produced no result"
@@ -394,8 +445,8 @@ def test_pty_inline_tui_slash_menu_is_honest(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = FakeNativeProvider(supports_tool_calls=True)
@@ -439,12 +490,7 @@ def test_pty_inline_tui_slash_menu_is_honest(
             os.write(in_master, b"\x03")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     menu_text = "\n".join(snapshot.viewport)
     assert provider._call_counter[0] == 0  # opening the menu runs no turn
@@ -506,8 +552,8 @@ def _run_editor_pty(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = ToolLoopTerminalUi(
@@ -542,12 +588,7 @@ def _run_editor_pty(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "editor session did not exit"
     return b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -641,8 +682,8 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = ToolLoopTerminalUi(
@@ -704,12 +745,7 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: paste session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -868,8 +904,8 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     auth_path = tmp_path / "openai-codex.json"
@@ -937,12 +973,7 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "auth session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -990,8 +1021,8 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
     _set_winsize(err_slave, start_rows, start_cols)
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = FakeNativeProvider(supports_tool_calls=True)
@@ -1047,12 +1078,7 @@ def test_pty_resize_repaints_inline_with_overlay_open(
                 os.write(in_master, byte)
             except OSError:
                 pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "resize session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -1125,8 +1151,8 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
     _set_winsize(err_slave, start_rows, start_cols)
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = ToolLoopTerminalUi(
@@ -1191,12 +1217,7 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "resize/paste session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -1229,8 +1250,8 @@ def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
     _set_winsize(err_slave, start_rows, start_cols)
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = ToolLoopTerminalUi(
@@ -1284,12 +1305,7 @@ def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "resize/long-input session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -1319,8 +1335,8 @@ def _start_pty_repl_session(
     err_master, err_slave = pty.openpty()
     if winsize is not None:
         _set_winsize(err_slave, winsize[1], winsize[0])
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
     ui = ToolLoopTerminalUi(
         input_stream=cast(TextIO, stdin),
@@ -1374,18 +1390,7 @@ def _finish_pty_repl_session(ctx: SimpleNamespace) -> str:
             os.write(ctx.in_master, byte)
         except OSError:
             pass
-    try:
-        ctx.terminal.flush()
-        ctx.terminal.close()
-    except OSError:
-        pass
-    try:
-        ctx.stdin.close()
-    except OSError:
-        pass
-    ctx.err_thread.join(timeout=8.0)
-    os.close(ctx.in_master)
-    os.close(ctx.err_master)
+    _close_pty_session(ctx.stdin, ctx.terminal, ctx.in_master, ctx.err_master, ctx.err_thread)
     return b"".join(ctx.err_chunks).decode("utf-8", errors="replace")
 
 
@@ -1899,8 +1904,8 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     # The first turn blocks until cancelled at the provider boundary; the
@@ -1964,12 +1969,7 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -2042,8 +2042,8 @@ def test_pty_at_file_picker_ranks_and_accepts(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("PICKER_TURN_DONE")
@@ -2095,12 +2095,7 @@ def test_pty_at_file_picker_ranks_and_accepts(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
@@ -2132,8 +2127,8 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("RECALL_DONE")
@@ -2210,12 +2205,7 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = _text()
@@ -2235,8 +2225,8 @@ def test_pty_slash_quit_during_local_shell_output_exits(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     prompts: list[str] = []
@@ -2274,12 +2264,7 @@ def test_pty_slash_quit_during_local_shell_output_exits(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "slash /quit did not exit during shell output"
     assert prompts == []
@@ -2332,8 +2317,8 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = BashToolCallProvider()
@@ -2370,12 +2355,7 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "slash /quit did not exit during bash tool output"
     assert provider.calls == 1
@@ -2456,8 +2436,8 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = MultiToolCallProvider()
@@ -2499,12 +2479,7 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), "session did not exit after balanced interruption"
 
@@ -2547,8 +2522,8 @@ def test_pty_thinking_and_model_cycle_hotkeys(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("TURN_DONE")
@@ -2608,12 +2583,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = _text()
@@ -2639,8 +2609,8 @@ def test_pty_folding_toggles_thinking_and_tool_output(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("TURN_DONE")
@@ -2688,12 +2658,7 @@ def test_pty_folding_toggles_thinking_and_tool_output(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     captured = b"".join(err_chunks).decode("utf-8", "replace")
@@ -2724,8 +2689,8 @@ def test_pty_never_enables_mouse_tracking(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _PromptCapturingProvider("MOUSE_TURN_DONE")
@@ -2766,12 +2731,7 @@ def test_pty_never_enables_mouse_tracking(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     for mode in ("?1000h", "?1002h", "?1003h", "?1006h", "?1015h"):
@@ -2837,8 +2797,8 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     provider = _SteeringProvider()
@@ -2894,12 +2854,7 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     # The first turn was the original; then steering drained before follow-up.
@@ -2936,8 +2891,8 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     from pipy_harness.native.clipboard import ImageClipboardResult
@@ -2994,12 +2949,7 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     assert provider.calls == 1
@@ -3033,8 +2983,8 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
 
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     from pipy_harness.native.settings import SettingsManager
@@ -3095,12 +3045,7 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
             os.write(in_master, b"\x04")
         except OSError:
             pass
-        terminal.flush()
-        terminal.close()
-        stdin.close()
-        err_thread.join(timeout=8.0)
-        os.close(in_master)
-        os.close(err_master)
+        _close_pty_session(stdin, terminal, in_master, err_master, err_thread)
 
     assert not worker.is_alive(), f"{label}: session did not exit"
     # The chosen scope persisted as enabledModels patterns.

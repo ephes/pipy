@@ -355,6 +355,7 @@ def _opts(repo: Path, tmp_path: Path, **over: Any) -> Any:
         "time_budget": 7200.0,
         "per_gap_timeout": 2400.0,
         "min_gap_slice": 600.0,
+        "provider_failure_retries": 1,
         "dry_run": False,
     }
     base.update(over)
@@ -601,8 +602,10 @@ def test_run_blocked_records_human_cleanup(tmp_path: Path) -> None:
 
 def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
+    calls = {"n": 0}
 
     def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+        calls["n"] += 1
         log_path.write_text(
             "pipy: provider failure during turn: "
             "OpenAICodexResponseParseError: OpenAI Codex stream returned an error event. "
@@ -616,11 +619,83 @@ def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
 
     assert code == 1
+    assert calls["n"] == 2
     events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    retrying = next(event for event in events if event["type"] == "gap.retrying")
+    assert retrying["reason"] == "blocked:provider_failure"
+    assert retrying["log_path"] == "gap-1-attempt-1.log"
+    assert (tmp_path / "runs" / "run-L1" / "gap-1-attempt-1.log").is_file()
     failed = next(event for event in events if event["type"] == "gap.failed")
     assert failed["reason"] == "blocked:provider_failure"
+    assert failed["attempts"] == 2
     finished = next(event for event in events if event["type"] == "run.finished")
     assert finished["stop_reason"] == "blocked:provider_failure"
+
+
+def test_run_retries_provider_failure_and_accepts_clean_commit(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    calls = {"n": 0}
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            log_path.write_text(
+                "pipy: provider failure during turn: OpenAI Codex stream did not include "
+                "a terminal response event. (response_status=unknown)\n",
+                encoding="utf-8",
+            )
+            return 1, ""
+        sha = _commit(repo, "docs/gap1.md", "gap 1")
+        return 0, f"PARITY_RESULT: COMMITTED {sha}\n"
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(
+        _opts(repo, tmp_path, max_gaps=1),
+        hooks,
+        clock=_clock_seq([0.0, 1.0, 2.0, 3.0]),
+    )
+
+    assert code == 0
+    assert calls["n"] == 2
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    retrying = next(event for event in events if event["type"] == "gap.retrying")
+    assert retrying["next_attempt"] == 2
+    completed = next(event for event in events if event["type"] == "gap.completed")
+    assert completed["attempts"] == 2
+    finished = next(event for event in events if event["type"] == "run.finished")
+    assert finished["stop_reason"] == "cap_reached"
+
+
+def test_run_does_not_retry_provider_failure_after_partial_progress(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    calls = {"n": 0}
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+        calls["n"] += 1
+        (repo / "partial.txt").write_text("partial\n", encoding="utf-8")
+        log_path.write_text(
+            "pipy: provider failure during turn: OpenAI Codex stream did not include "
+            "a terminal response event. (response_status=unknown)\n",
+            encoding="utf-8",
+        )
+        return 1, ""
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(
+        _opts(repo, tmp_path, provider_failure_retries=2),
+        hooks,
+        clock=_clock_seq([0.0, 1.0]),
+    )
+
+    assert code == 1
+    assert calls["n"] == 1
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    skipped = next(event for event in events if event["type"] == "gap.retry_skipped")
+    assert skipped["skip_reason"] == "unexpected_progress"
+    failed = next(event for event in events if event["type"] == "gap.failed")
+    assert failed["reason"] == "blocked:provider_failure"
 
 
 def test_run_does_not_classify_earlier_recovered_provider_failure(tmp_path: Path) -> None:

@@ -1497,13 +1497,13 @@ class NativeToolReplSession:
                 )
             return result.final_text or ""
 
-        def _extension_custom_driver(factory: Any) -> object:
+        def _extension_custom_driver(factory: Any, options: Any = None) -> object:
             # Only an interactive terminal can take over the screen; a
             # captured-stream run degrades to a deterministic no-op (also
             # enforced by ExtensionUi.custom when has_ui is False).
             if terminal_ui is None:
                 return None
-            return terminal_ui.run_custom_component(factory)
+            return terminal_ui.run_custom_component(factory, options)
 
         extension_ui_driver = (
             _LiveExtensionUiDriver(terminal_ui, cwd) if terminal_ui is not None else None

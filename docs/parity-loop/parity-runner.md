@@ -23,6 +23,7 @@ commits stay local on `main` for review. See the design at
     uv run python scripts/parity_runner.py --agent codex --max-gaps 1
     uv run python scripts/parity_runner.py --report-slice --curate-report
     uv run python scripts/parity_runner.py --max-gaps 2 --time-budget 3600
+    uv run python scripts/parity_runner.py --provider-failure-retries 0
 
 The child parity-loop skill honors reviewer-selection environment variables for
 the plan and code review gates:
@@ -75,6 +76,15 @@ agent-specific recipes pass their matching `--agent`, while the generic report
 recipes use the CLI default unless `--agent` is supplied directly.
 `just parity-report-last` refreshes the latest completed run report, and
 `just parity-report <label>` refreshes a named run.
+
+When a child log ends with pipy's known provider-stream interruption diagnostic,
+the runner classifies the gap as `blocked:provider_failure`. By default it
+retries that gap once, but only if the failed child left `main`, `HEAD`, refs,
+and the worktree unchanged. Before retrying, it archives the failed log as
+`gap-<n>-attempt-<m>.log` and records `gap.retrying` in `run.jsonl`; if the
+child made partial progress, the runner records `gap.retry_skipped` and stops
+for human cleanup. Use `--provider-failure-retries 0` to disable this transient
+provider retry.
 
 `just parity-improve-pipy-dry` is the current pipy-native dogfood health check:
 it asks pipy itself to run the `parity-improve` skill and stop without checks or

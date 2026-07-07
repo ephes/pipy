@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 import pty
+import select
 import struct
 import sys
 import termios
 import threading
 import time
+import errno
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -23,22 +25,35 @@ import pytest
 
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
+_DETACHED_PTY_STREAMS: list[object] = []
+_ABANDONED_PTY_FDS: list[int] = []
+_DRAINER_STOPS: dict[threading.Thread, threading.Event] = {}
+
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
     collected: list[bytes] = []
+    stop = threading.Event()
 
     def _drain() -> None:
-        while True:
+        while not stop.is_set():
+            readable, _, _ = select.select([fd], [], [], 0.05)
+            if not readable:
+                continue
             try:
                 chunk = os.read(fd, 65536)
-            except OSError:
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    time.sleep(0.01)
+                    continue
                 return
             if not chunk:
-                return
+                time.sleep(0.01)
+                continue
             collected.append(chunk)
 
     thread = threading.Thread(target=_drain, daemon=True)
     thread.start()
+    _DRAINER_STOPS[thread] = stop
     return thread, collected
 
 
@@ -56,17 +71,50 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
-def _teardown(stdin, terminal, in_master: int, err_master: int) -> None:
-    for closer in (
-        lambda: stdin.close(),
-        lambda: terminal.close(),
-        lambda: os.close(in_master),
-        lambda: os.close(err_master),
-    ):
+def _detach_text_stream(stream: TextIO) -> None:
+    try:
+        stream.flush()
+    except (OSError, ValueError):
+        pass
+    detach = getattr(stream, "detach", None)
+    if callable(detach):
         try:
-            closer()
-        except OSError:
+            _DETACHED_PTY_STREAMS.append(detach())
+        except (OSError, ValueError):
             pass
+
+
+def _stream_fd(stream: TextIO) -> int | None:
+    try:
+        return stream.fileno()
+    except (OSError, ValueError):
+        return None
+
+
+def _teardown(
+    stdin: TextIO,
+    terminal: TextIO,
+    in_master: int,
+    err_master: int,
+    err_thread: threading.Thread,
+) -> None:
+    # Closing TextIOWrapper objects around pty slaves can block in close(2) on
+    # macOS. These test streams are opened with closefd=False, so detach the
+    # wrappers, stop the nonblocking drainer, and let process teardown reclaim
+    # the bounded set of pty descriptors.
+    stop = _DRAINER_STOPS.pop(err_thread, None)
+    if stop is not None:
+        stop.set()
+    stdin_fd = _stream_fd(stdin)
+    terminal_fd = _stream_fd(terminal)
+    _detach_text_stream(stdin)
+    _detach_text_stream(terminal)
+    if stdin_fd is not None:
+        _ABANDONED_PTY_FDS.append(stdin_fd)
+    if terminal_fd is not None:
+        _ABANDONED_PTY_FDS.append(terminal_fd)
+    _ABANDONED_PTY_FDS.extend([in_master, err_master])
+    err_thread.join(timeout=2.0)
 
 
 class _ProbeComponent:
@@ -98,15 +146,15 @@ def _make_ui(tmp_path: Path):
     in_master, in_slave = pty.openpty()
     err_master, err_slave = pty.openpty()
     _set_winsize(err_slave, 24, 80)
-    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
-    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
-    _err_thread, err_chunks = _spawn_live_drainer(err_master)
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8", closefd=False)
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8", closefd=False)
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
     ui = ToolLoopTerminalUi(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    return ui, stdin, terminal, in_master, err_master, err_chunks
+    return ui, stdin, terminal, in_master, err_master, err_thread, err_chunks
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
@@ -116,7 +164,7 @@ def test_pty_custom_component_types_and_submits(
     monkeypatch.delenv("COLUMNS", raising=False)
     monkeypatch.delenv("LINES", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -133,7 +181,7 @@ def test_pty_custom_component_types_and_submits(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "custom-component worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == ["hi"]
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured, "custom overlay must not use alt screen"
@@ -144,7 +192,7 @@ def test_pty_custom_component_esc_cancels(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -158,7 +206,7 @@ def test_pty_custom_component_esc_cancels(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "custom-component worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == [None]
 
 
@@ -167,7 +215,7 @@ def test_pty_extension_editor_accepts_newline_and_submits(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -185,7 +233,7 @@ def test_pty_extension_editor_accepts_newline_and_submits(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == ["seed\nnext"]
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured, "editor overlay must not use alt screen"
@@ -207,7 +255,7 @@ def test_pty_extension_editor_external_editor_success(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -223,7 +271,7 @@ def test_pty_extension_editor_external_editor_success(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     assert result == ["edited from external"]
     assert state_path.exists(), "external editor did not run"
@@ -244,7 +292,7 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -261,7 +309,7 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     assert result == ["seed"]
 
@@ -279,7 +327,7 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
 
     def _run() -> None:
@@ -296,7 +344,7 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     assert result == ["seed"]
 
@@ -310,7 +358,7 @@ def test_pty_extension_shortcut_returns_sentinel(
     from pipy_harness.native.tui import HOTKEY_EXTENSION_SHORTCUT_PREFIX
 
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     ui.extension_shortcut_keys = frozenset({"ctrl-g"})
     result: list[str] = []
 
@@ -325,5 +373,5 @@ def test_pty_extension_shortcut_returns_sentinel(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "read_line did not return on shortcut"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == [f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-g\n"]

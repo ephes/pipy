@@ -44,6 +44,7 @@ DEFAULTS = {
     "time_budget": 7200,
     "per_gap_timeout": 2400,
     "min_gap_slice": 600,
+    "provider_failure_retries": 1,
 }
 INCOMPLETE_LOCK_GRACE = 30.0
 
@@ -58,6 +59,7 @@ class Opts:
     time_budget: float = 7200.0
     per_gap_timeout: float = 2400.0
     min_gap_slice: float = 600.0
+    provider_failure_retries: int = 1
     dry_run: bool = False
 
 
@@ -969,6 +971,14 @@ class _RunLog:
     def gap_log(self, idx: int) -> Path:
         return self.per_run / f"gap-{idx}.log"
 
+    def archive_gap_attempt(self, idx: int, attempt: int, log_path: Path) -> Path:
+        archived = self.per_run / f"gap-{idx}-attempt-{attempt}.log"
+        try:
+            log_path.replace(archived)
+        except FileNotFoundError:
+            pass
+        return archived
+
 
 def _gap_prompt() -> str:
     return (
@@ -1085,51 +1095,100 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                     break
                 head_before = head(repo)
                 refs_before = ref_snapshot(repo)
-                gap_log_path = log.gap_log(gaps_done + 1)
-                exit_code, stdout = hooks.run_gap(
-                    _gap_prompt(),
-                    min(opts.per_gap_timeout, rem),
-                    gap_log_path,
-                )
-                kind, arg = parse_sentinel(stdout)
-                if exit_code == 0 and kind == "COMMITTED":
-                    ok, reason = verify_committed(repo, head_before, refs_before, arg)
-                    if ok:
-                        head_after = head(repo)
-                        gaps_done += 1
-                        log.event(
-                            "gap.completed",
-                            index=gaps_done,
-                            sha=arg,
-                            head_before=head_before,
-                            head_after=head_after,
-                        )
-                        continue
-                    stop = f"verify_failed:{reason}"
-                    log.event("gap.failed", reason=stop)
-                    break
-                if exit_code == 0 and kind == "NO_GAPS":
-                    ok, reason = verify_no_gaps(repo, head_before, refs_before)
-                    if ok:
-                        stop = "no_gaps"
-                        log.event("gap.no_gaps")
+                gap_index = gaps_done + 1
+                attempt = 1
+                provider_failures_retried = 0
+                while True:
+                    rem = remaining()
+                    gap_log_path = log.gap_log(gap_index)
+                    exit_code, stdout = hooks.run_gap(
+                        _gap_prompt(),
+                        min(opts.per_gap_timeout, rem),
+                        gap_log_path,
+                    )
+                    kind, arg = parse_sentinel(stdout)
+                    if exit_code == 0 and kind == "COMMITTED":
+                        ok, reason = verify_committed(repo, head_before, refs_before, arg)
+                        if ok:
+                            head_after = head(repo)
+                            gaps_done += 1
+                            # A successful retry must clear the previous
+                            # provider-failure stop reason before a max-gaps
+                            # exit.
+                            stop = "cap_reached"
+                            log.event(
+                                "gap.completed",
+                                index=gaps_done,
+                                sha=arg,
+                                head_before=head_before,
+                                head_after=head_after,
+                                attempts=attempt,
+                            )
+                            break
+                        stop = f"verify_failed:{reason}"
+                        log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
                         break
-                    stop = f"verify_failed:{reason}"
-                    log.event("gap.failed", reason=stop)
+                    if exit_code == 0 and kind == "NO_GAPS":
+                        ok, reason = verify_no_gaps(repo, head_before, refs_before)
+                        if ok:
+                            stop = "no_gaps"
+                            log.event("gap.no_gaps", attempts=attempt)
+                            break
+                        stop = f"verify_failed:{reason}"
+                        log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
+                        break
+                    current_refs = ref_snapshot(repo)
+                    has_unexpected_progress = (
+                        current_branch(repo) != "main"
+                        or not tree_clean(repo)
+                        or head(repo) != head_before
+                        or current_refs != refs_before
+                    )
+                    if kind == "BLOCKED" and has_unexpected_progress:
+                        log.event("unexpected_progress", reason=arg)
+                    if kind == "BLOCKED":
+                        stop = f"blocked:{arg}"
+                        detected_block = arg
+                    else:
+                        detected_block = child_block_reason(gap_log_path)
+                        stop = f"blocked:{detected_block}" if detected_block else "failure"
+                    if (
+                        detected_block == "provider_failure"
+                        and provider_failures_retried < opts.provider_failure_retries
+                    ):
+                        if has_unexpected_progress:
+                            log.event(
+                                "gap.retry_skipped",
+                                index=gap_index,
+                                attempt=attempt,
+                                reason=stop,
+                                skip_reason="unexpected_progress",
+                            )
+                        elif remaining() < opts.min_gap_slice:
+                            log.event(
+                                "gap.retry_skipped",
+                                index=gap_index,
+                                attempt=attempt,
+                                reason=stop,
+                                skip_reason="time_budget",
+                            )
+                        else:
+                            archived = log.archive_gap_attempt(gap_index, attempt, gap_log_path)
+                            provider_failures_retried += 1
+                            log.event(
+                                "gap.retrying",
+                                index=gap_index,
+                                attempt=attempt,
+                                next_attempt=attempt + 1,
+                                reason=stop,
+                                log_path=archived.name,
+                            )
+                            attempt += 1
+                            continue
+                    log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
                     break
-                if kind == "BLOCKED" and (
-                    current_branch(repo) != "main"
-                    or not tree_clean(repo)
-                    or head(repo) != head_before
-                    or ref_snapshot(repo) != refs_before
-                ):
-                    log.event("unexpected_progress", reason=arg)
-                if kind == "BLOCKED":
-                    stop = f"blocked:{arg}"
-                else:
-                    detected_block = child_block_reason(gap_log_path)
-                    stop = f"blocked:{detected_block}" if detected_block else "failure"
-                log.event("gap.failed", reason=stop)
+                if gaps_done == gap_index:
+                    continue
                 break
 
             clean_stop = stop in ("no_gaps", "cap_reached")
@@ -1262,6 +1321,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--time-budget", type=float, default=DEFAULTS["time_budget"])
     parser.add_argument("--per-gap-timeout", type=float, default=DEFAULTS["per_gap_timeout"])
     parser.add_argument("--min-gap-slice", type=float, default=DEFAULTS["min_gap_slice"])
+    parser.add_argument(
+        "--provider-failure-retries",
+        type=int,
+        default=DEFAULTS["provider_failure_retries"],
+        help=(
+            "times to retry a gap after a detected provider stream failure when "
+            "the child made no git/worktree progress"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--report-slice",
@@ -1331,6 +1399,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         time_budget=args.time_budget,
         per_gap_timeout=args.per_gap_timeout,
         min_gap_slice=args.min_gap_slice,
+        provider_failure_retries=args.provider_failure_retries,
         dry_run=args.dry_run,
     )
     exit_code = run(opts, default_hooks(opts), clock=time.monotonic)

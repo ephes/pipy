@@ -51,6 +51,14 @@ class _TtyBuffer:
         return self._buffer.getvalue()
 
 
+class _InputBuffer:
+    def fileno(self) -> int:
+        return 0
+
+    def isatty(self) -> bool:
+        return True
+
+
 class _ScriptedComponent:
     """A minimal custom component: renders a marker, finishes on Enter."""
 
@@ -242,20 +250,132 @@ def test_extension_editor_component_cancels() -> None:
 def test_collecting_ui_custom_delegates_to_driver() -> None:
     captured: dict[str, object] = {}
 
-    def driver(factory):
+    def driver(factory, options=None):
         # Drive the factory like the real overlay would, feeding one Enter.
         result_box: list[object] = []
         component = factory(lambda v=None: result_box.append(v))
         component.handle_input("enter")
         captured["component"] = component
+        captured["options"] = options
         return result_box[0] if result_box else None
 
     ui = _CollectingUi(has_ui=True, custom_driver=driver)
-    result = ui.custom(lambda done: _ScriptedComponent(done))
+    result = ui.custom(
+        lambda done: _ScriptedComponent(done),
+        {"overlay": True, "overlayOptions": {"width": 42}},
+    )
     assert result == "submitted"
     component = captured["component"]
     assert isinstance(component, _ScriptedComponent)
     assert component.keys == ["enter"]
+    assert captured["options"] == {"overlay": True, "overlayOptions": {"width": 42}}
+
+
+def test_tui_custom_component_options_width_handle_and_dispose(
+    monkeypatch, tmp_path: Path
+) -> None:
+    ui = _ui(tmp_path)
+    ui.input_stream = cast(TextIO, _InputBuffer())
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+
+    keys = iter(["enter"])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda _self, _fd: next(keys)
+    )
+
+    seen: dict[str, object] = {}
+
+    class Component:
+        def __init__(self, done) -> None:
+            self._done = done
+            self.disposed = False
+
+        def render(self, width: int) -> list[str]:
+            seen["render_width"] = width
+            return [f"width={width}"]
+
+        def handle_input(self, key: str) -> None:
+            self._done(f"key:{key}")
+
+        def dispose(self) -> None:
+            self.disposed = True
+            seen["disposed"] = True
+
+    def on_handle(handle) -> None:
+        seen["handle"] = handle
+        handle.update()
+        handle.requestRender()
+
+    result = ui.run_custom_component(
+        lambda done: Component(done),
+        {
+            "overlay": True,
+            "overlayOptions": {"width": 23},
+            "onHandle": on_handle,
+        },
+    )
+
+    assert result == "key:enter"
+    assert seen["render_width"] == 23
+    assert seen["disposed"] is True
+    handle = seen["handle"]
+    assert hasattr(handle, "hide")
+    assert hasattr(handle, "requestRender")
+
+
+def test_tui_custom_component_callable_snake_case_options(
+    monkeypatch, tmp_path: Path
+) -> None:
+    ui = _ui(tmp_path)
+    ui.input_stream = cast(TextIO, _InputBuffer())
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+
+    keys = iter(["enter"])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda _self, _fd: next(keys)
+    )
+
+    widths: list[int] = []
+
+    class Component:
+        def __init__(self, done) -> None:
+            self._done = done
+
+        def render(self, width: int) -> list[str]:
+            widths.append(width)
+            return [f"width={width}"]
+
+        def handle_input(self, _key: str) -> None:
+            self._done("done")
+
+    result = ui.run_custom_component(
+        lambda done: Component(done),
+        {"overlay_options": lambda: {"width": 31.8}},
+    )
+
+    assert result == "done"
+    assert widths == [31]
+
+
+def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+    ui.input_stream = cast(TextIO, _InputBuffer())
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+
+    def fail_read(_self, _fd):
+        raise AssertionError("hide should finish before reading input")
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", fail_read)
+
+    result = ui.run_custom_component(
+        lambda done: _ScriptedComponent(done),
+        {"on_handle": lambda handle: handle.hide()},
+    )
+
+    assert result is None
 
 
 def test_extension_ui_and_component_protocols_are_runtime_checkable() -> None:
@@ -272,7 +392,7 @@ def test_collecting_ui_custom_is_noop_without_driver_or_ui() -> None:
     assert ui.custom(lambda done: _ScriptedComponent(done)) is None
 
     # UI driver present but has_ui False -> still None (no interactive takeover).
-    def driver(factory):  # pragma: no cover - must not be called
+    def driver(factory, options=None):  # pragma: no cover - must not be called
         raise AssertionError("driver must not run without a UI")
 
     ui2 = _CollectingUi(has_ui=False, custom_driver=driver)

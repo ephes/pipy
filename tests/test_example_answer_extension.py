@@ -171,7 +171,8 @@ def test_answer_handler_extracts_and_submits(tmp_path) -> None:
         completions.append((system_prompt, user_text))
         return '{"questions": [{"question": "Which DB?", "context": "mysql/pg"}]}'
 
-    def fake_driver(factory):
+    def fake_driver(factory, options=None):
+        assert options is None
         captured: list = []
         component = factory(captured.append)
         # Answer the single question and submit (Enter -> confirm, Enter -> ok).

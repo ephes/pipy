@@ -316,13 +316,14 @@ The highest-impact remaining gaps are now:
    tool/model/thinking controls, rich message renderers, editor helpers,
    session-manager helpers, terminal-input hooks, footer data, and
    custom-message delivery and live chrome `requestRender` re-rendering now
-   ship. Pi remains ahead on in-session full-history redraw on `/resume` switches,
-   live custom message component invalidation/re-rendering, broader custom editor
-   component-library parity beyond the landed live integration, OAuth-provider
-   extension `/login` wiring, remote PyPI/npm sources, and the broader package
-   ecosystem. Managed git sources and package `update` now ship behind a
-   pipy-owned cache; the next extension/package slices are richer API follow-ons
-   and any future PyPI/npm source kinds after a broader supply-chain policy.
+   ship. Pi remains ahead on live custom message component
+   invalidation/re-rendering, broader custom editor/component-library parity
+   beyond the landed live integration, a full custom overlay stack beyond the
+   bounded `ctx.ui.custom(..., options)` support, remote PyPI/npm sources, and
+   the broader package ecosystem. Managed git sources and package `update` now
+   ship behind a pipy-owned cache; the next extension/package slices are richer
+   API follow-ons and any future PyPI/npm source kinds after a broader
+   supply-chain policy.
 2. **Provider/model catalog follow-ons.** Remaining provider work is narrower
    adapter/product polish: live Anthropic/Copilot login UX, the deliberate
    `openai-codex-responses` legacy-factory exception for settings-derived retry
@@ -1509,8 +1510,8 @@ reopening completed rich-UI slices.
 
 Candidate next slices:
 
-- broader custom editor component-library parity beyond the live
-  `setEditorComponent` integration; or
+- broader custom editor/component-library parity beyond the live
+  `setEditorComponent` integration and bounded custom overlay options; or
 - broader provider/auth helpers beyond the landed OAuth-provider `/login`
   auth-storage wiring.
 
@@ -1673,8 +1674,9 @@ Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
 basic cursor movement/backspace, cancels on Esc/Ctrl-C, and opens `$VISUAL` or
 `$EDITOR` on Ctrl+G like Pi; successful editor exits replace the buffer and
 failed exits keep the prior text. Main-prompt read/write/paste helpers,
-autocomplete provider wrappers, and bounded live custom editor component integration
-now ship; broader Pi component-library parity remains a follow-on.
+autocomplete provider wrappers, bounded live custom editor component integration,
+and `ctx.ui.custom(factory, options=None)` overlay option handling now ship;
+broader Pi component-library and full overlay-stack parity remains a follow-on.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package
@@ -1812,9 +1814,9 @@ Invariants that must hold for any near-term slice:
   (`ctx.ui.theme`/`get_all_themes`/`get_theme`/`set_theme`) and autocomplete
   provider wrappers also ship. Still deferred are the remaining richer
   extension-owned UI surfaces Pi exposes: editor replacement
-  (`setEditorComponent`) and multi-widget custom overlays beyond the narrow
-  Python `ctx.ui.custom` and
-  custom session-entry/message-rendering paths.
+  (`setEditorComponent`) and a full custom overlay stack beyond the bounded
+  Python `ctx.ui.custom(factory, options=None)` path and custom
+  session-entry/message-rendering paths.
   Render-once custom tool rendering now ships; live (invalidate-driven) tool
   rendering remains deferred.
 - Extension/package platform follow-ons: package runtime composition for

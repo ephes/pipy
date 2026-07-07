@@ -712,6 +712,30 @@ class _CustomMessageRenderState:
     lines: tuple[str, ...]
 
 
+class _CustomOverlayHandle:
+    """Minimal Pi-shaped custom overlay handle exposed to extension callbacks."""
+
+    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
+        self._ui = ui
+
+    def hide(self) -> None:
+        if not self._ui._custom_done:
+            self._ui._custom_done = True
+            self._ui._custom_result = None
+
+    def update(self) -> None:
+        self.requestRender()
+
+    def requestRender(self) -> None:
+        try:
+            self._ui.paint()
+        except (OSError, ValueError):
+            pass
+
+    def request_render(self) -> None:
+        self.requestRender()
+
+
 _HistoryBlock = tuple[str, tuple[str, ...]]
 
 
@@ -829,6 +853,7 @@ class ToolLoopTerminalUi:
     # paints its lines and routes keystrokes, running no provider turn.
     custom_overlay_open: bool = False
     _custom_component: object | None = None
+    _custom_component_render_width: int | None = None
     _custom_done: bool = False
     _custom_result: object = None
     session_picker_open: bool = False
@@ -2003,7 +2028,9 @@ class ToolLoopTerminalUi:
     # -- custom extension overlay (ctx.ui.custom) ---------------------------
 
     def run_custom_component(
-        self, factory: "Callable[[Callable[..., None]], object]"
+        self,
+        factory: "Callable[[Callable[..., None]], object]",
+        options: object = None,
     ) -> object:
         """Drive a trusted extension custom component; return its result.
 
@@ -2013,10 +2040,17 @@ class ToolLoopTerminalUi:
         overlay and routes decoded keys to it until it finishes (or the input
         stream ends / errors, which finishes with ``None``). Runs no provider
         turn. Returns the result passed to `done`, or ``None`` if cancelled.
+
+        ``options`` accepts Pi-shaped custom overlay fields. Pipy's bounded TUI
+        currently renders overlay and non-overlay custom components through the
+        same inline overlay path, but it honors overlay width hints and handle
+        callbacks for API parity.
         """
 
         self._custom_done = False
         self._custom_result = None
+        previous_width = self._custom_component_render_width
+        self._custom_component_render_width = self._custom_component_width(options)
 
         def done(result: object = None) -> None:
             if not self._custom_done:
@@ -2027,6 +2061,7 @@ class ToolLoopTerminalUi:
         try:
             self._custom_component = component
             self.custom_overlay_open = True
+            self._notify_custom_handle(options, _CustomOverlayHandle(self))
             self.paint()
             fd = self.input_stream.fileno()
             self._enter_raw_mode()
@@ -2053,6 +2088,15 @@ class ToolLoopTerminalUi:
         finally:
             self.custom_overlay_open = False
             self._custom_component = None
+            self._custom_component_render_width = previous_width
+            dispose = getattr(component, "dispose", None)
+            if callable(dispose):
+                try:
+                    dispose()
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:
+                    pass
             # Relinquish the screen immediately: repaint the normal frame so the
             # overlay does not linger until some unrelated later paint. Guarded
             # so a repaint failure never masks the in-flight result/exception.
@@ -2062,6 +2106,55 @@ class ToolLoopTerminalUi:
                 pass
             self._restore_terminal_mode()
         return self._custom_result
+
+    def _custom_component_width(self, options: object) -> int | None:
+        overlay_options = self._custom_option(options, "overlayOptions", "overlay_options")
+        if callable(overlay_options):
+            try:
+                overlay_options = overlay_options()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:
+                overlay_options = None
+        width = self._custom_option(overlay_options, "width")
+        if isinstance(width, bool):
+            return None
+        if isinstance(width, int) and width > 0:
+            return max(1, min(width, 500))
+        if isinstance(width, float) and width > 0:
+            return max(1, min(int(width), 500))
+        if isinstance(width, str):
+            try:
+                parsed = int(width)
+            except ValueError:
+                return None
+            return max(1, min(parsed, 500)) if parsed > 0 else None
+        return None
+
+    def _notify_custom_handle(self, options: object, handle: object) -> None:
+        callback = self._custom_option(options, "onHandle", "on_handle")
+        if not callable(callback):
+            return
+        try:
+            callback(handle)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            pass
+
+    @staticmethod
+    def _custom_option(source: object, *names: str) -> object:
+        if source is None:
+            return None
+        if isinstance(source, Mapping):
+            for name in names:
+                if name in source:
+                    return source[name]
+            return None
+        for name in names:
+            if hasattr(source, name):
+                return getattr(source, name)
+        return None
 
     def run_extension_select(
         self, title: str, options: Sequence[str]
@@ -2674,7 +2767,8 @@ class ToolLoopTerminalUi:
         if component is None:
             return []
         try:
-            raw = component.render(width)  # type: ignore[attr-defined]
+            render_width = self._custom_component_render_width or width
+            raw = component.render(render_width)  # type: ignore[attr-defined]
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 - never let a bad render crash paint
