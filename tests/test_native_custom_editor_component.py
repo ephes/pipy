@@ -5,7 +5,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO, cast
 
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import (
+    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    HOTKEY_THINKING_CYCLE,
+    ToolLoopTerminalUi,
+)
 
 
 class _TtyBuffer:
@@ -38,6 +42,9 @@ class _CustomEditor:
         self.on_change = None
         self.autocomplete_provider: object | None = None
         self.autocomplete_results: list[object] = []
+        self.action_handlers: dict[str, object] = {}
+        self.keybindings: object | None = None
+        self.on_extension_shortcut = None
 
     def set_text(self, text: str) -> None:
         self.text = text
@@ -80,6 +87,12 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
 ) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
     keys: Iterator[str] = iter(("x", "enter"))
     monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
     monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
@@ -87,10 +100,16 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui.set_editor_component(factory)
 
     assert ui.read_line("> ") == "x\n"
 
+    assert component.keybindings is not None
+    assert getattr(component.keybindings, "matches")("shift-tab", "app.thinking.cycle")
+    assert getattr(component.keybindings, "matches")("ctrl-p", "app.model.cycleForward")
+    assert getattr(component.keybindings, "matches")("ctrl+p", "app.model.cycleForward")
+    assert getattr(component.keybindings, "matches")("ctrl-o", "app.tools.expand")
+    assert getattr(component.keybindings, "matches")("ctrl+o", "app.tools.expand")
     assert component.keys == ["x", "enter"]
     assert ui.input_text == ""
     assert component.get_text() == ""
@@ -176,6 +195,69 @@ def test_custom_editor_receives_latest_autocomplete_provider(tmp_path: Path) -> 
     ui.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert component.autocomplete_provider is provider
+
+
+def test_custom_editor_component_app_action_preserves_text_for_next_prompt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "shift-tab":
+            handler = component.action_handlers["app.thinking.cycle"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+            return
+        component.text += key
+        if component.on_change is not None:
+            component.on_change(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("a", "shift-tab"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui.read_line("> ") == f"{HOTKEY_THINKING_CYCLE}\n"
+    assert ui._pending_initial_text == "a"
+
+    keys = iter(("enter",))
+    assert ui.read_line("> ") == "a\n"
+    assert component.get_text() == ""
+
+
+def test_custom_editor_component_extension_shortcut_routes_to_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "ctrl+x":
+            assert component.on_extension_shortcut is not None
+            component.on_extension_shortcut(key)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("ctrl+x",))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    ui.extension_shortcut_keys = frozenset({"ctrl+x"})
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui.read_line("> ") == f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl+x\n"
 
 
 def test_custom_editor_component_ignores_non_callable_factory(tmp_path: Path) -> None:

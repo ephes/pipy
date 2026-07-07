@@ -1506,9 +1506,11 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 The rich message resume/redraw slice and bounded OAuth-provider `/login` slice
 have shipped. The broader extension/package platform remains the highest-impact
-parity area; the next small follow-on is custom editor/component-library parity
-beyond the landed live `setEditorComponent` integration and bounded
-`ctx.ui.custom(..., options)` overlay path.
+parity area. The latest focused increment shipped custom-editor app-hotkey
+delegation through a bounded keybinding/action adapter; the next small follow-on
+remains custom editor/component-library parity beyond the landed live
+`setEditorComponent` integration and bounded `ctx.ui.custom(..., options)`
+overlay path.
 
 Keep this slice focused on one Pi-shaped editor/component API increment. Do not
 reopen completed rich-message, chrome `requestRender`, footer branch-change,
@@ -1674,9 +1676,10 @@ Shift+Enter where decoded and Alt+Enter as pipy's portable fallback, supports
 basic cursor movement/backspace, cancels on Esc/Ctrl-C, and opens `$VISUAL` or
 `$EDITOR` on Ctrl+G like Pi; successful editor exits replace the buffer and
 failed exits keep the prior text. Main-prompt read/write/paste helpers,
-autocomplete provider wrappers, bounded live custom editor component integration,
-and `ctx.ui.custom(factory, options=None)` overlay option handling now ship;
-broader Pi component-library and full overlay-stack parity remains a follow-on.
+autocomplete provider wrappers, bounded live custom editor component integration
+including app-hotkey delegation through a keybinding/action adapter, and
+`ctx.ui.custom(factory, options=None)` overlay option handling now ship; broader
+Pi component-library and full overlay-stack parity remains a follow-on.
 
 Remaining package work (deferred): PyPI/npm source kinds and richer package
 ecosystem policy. Managed git sources, the isolated package cache, and package

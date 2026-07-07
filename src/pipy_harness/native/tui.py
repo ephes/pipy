@@ -739,6 +739,50 @@ class _CustomOverlayHandle:
 _HistoryBlock = tuple[str, tuple[str, ...]]
 
 
+class _CustomEditorKeybindings:
+    """Small Pi-shaped keybinding/action adapter for custom editors.
+
+    The literal keys mirror the built-in read-loop branches that return
+    ``HOTKEY_*`` sentinels. They intentionally include both pipy's decoded
+    dash-form events (``ctrl-p``) and Pi-style key specs (``ctrl+p``) so
+    translated custom editors can either match live events or inspect bindings.
+    """
+
+    _ACTION_KEYS: Mapping[str, tuple[str, ...]] = {
+        "app.thinking.cycle": ("shift-tab",),
+        "app.model.cycleForward": ("ctrl-p", "ctrl+p"),
+        "app.model.cycleBackward": ("shift-ctrl-p", "shift+ctrl+p", "ctrl+shift+p"),
+        "app.tools.expand": ("ctrl-o", "ctrl+o"),
+        "app.thinking.toggle": ("ctrl-t", "ctrl+t"),
+    }
+
+    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
+        self._ui = ui
+        self.action_handlers: dict[str, Callable[[], object]] = {}
+        for action in self._ACTION_KEYS:
+            self.action_handlers[action] = self._handler_for(action)
+        self.actionHandlers = self.action_handlers
+
+    def _handler_for(self, action: str) -> Callable[[], object]:
+        def handler() -> object:
+            self._ui._queue_custom_editor_action(action)
+            return None
+
+        return handler
+
+    def keys_for(self, action: str) -> list[str]:
+        return list(self._ACTION_KEYS.get(action, ()))
+
+    def matches(self, key: str, action: str) -> bool:
+        return key in self._ACTION_KEYS.get(action, ())
+
+    def matches_action(self, key: str, action: str) -> bool:
+        return self.matches(key, action)
+
+    def matchesAction(self, key: str, action: str) -> bool:
+        return self.matches(key, action)
+
+
 @dataclass(slots=True)
 class ToolLoopTerminalUi:
     """Stateful terminal frame for the native tool-loop REPL.
@@ -945,6 +989,7 @@ class ToolLoopTerminalUi:
     _custom_editor_active: bool = False
     _custom_editor_submitted: str | None = None
     _custom_editor_changed_text: str | None = None
+    _custom_editor_action: str | None = None
     # Resize handling.
     _resize_pending: bool = False
     _last_painted_size: tuple[int, int] = (0, 0)
@@ -1711,6 +1756,7 @@ class ToolLoopTerminalUi:
 
         current_text = self.get_input_text()
         self._custom_editor_submitted = None
+        self._custom_editor_action = None
         self._custom_editor_changed_text = None
         if factory is None:
             self._custom_editor_component = None
@@ -1722,7 +1768,7 @@ class ToolLoopTerminalUi:
             return
         self._custom_editor_factory = factory
         try:
-            component = factory(self, chrome_style_for(self.terminal_stream), None)
+            component = factory(self, chrome_style_for(self.terminal_stream), _CustomEditorKeybindings(self))
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 - extension factory fails closed
@@ -1755,19 +1801,53 @@ class ToolLoopTerminalUi:
             self.input_cursor = len(text)
 
         for name in ("on_submit", "onSubmit"):
-            self._set_component_attr_if_possible(component, name, submit)
+            self._set_component_attr(component, name, submit)
         for name in ("on_change", "onChange"):
-            self._set_component_attr_if_possible(component, name, change)
-        # Pi copies app-level action handlers for CustomEditor subclasses. Pipy
-        # does not expose the full Pi editor action-handler map yet; built-in
-        # exit/model/thinking hotkeys remain a broader component-library parity
-        # follow-on, while this bounded slice requires custom editors to submit
-        # or cancel through their own key handling.
+            self._set_component_attr(component, name, change)
+        self._set_component_attr_if_absent(
+            component,
+            "on_extension_shortcut",
+            lambda key: self._queue_custom_editor_action(f"app.extensionShortcut:{key}"),
+        )
+        self._set_component_attr_if_absent(
+            component,
+            "onExtensionShortcut",
+            lambda key: self._queue_custom_editor_action(f"app.extensionShortcut:{key}"),
+        )
+        handlers = getattr(component, "action_handlers", None)
+        if handlers is None:
+            handlers = getattr(component, "actionHandlers", None)
+        if handlers is not None:
+            for action in _CustomEditorKeybindings._ACTION_KEYS:
+                try:
+                    if action not in handlers:
+                        handlers[action] = (
+                            lambda action=action: self._queue_custom_editor_action(action)
+                        )
+                except Exception:  # noqa: BLE001 - duck-typed mapping may be immutable
+                    pass
+
+    def _queue_custom_editor_action(self, action: str) -> None:
+        self._custom_editor_action = action
 
     @staticmethod
-    def _set_component_attr_if_possible(
+    def _set_component_attr(
         component: object, name: str, value: object
     ) -> None:
+        try:
+            setattr(component, name, value)
+        except Exception:  # noqa: BLE001 - duck-typed object may forbid attrs
+            pass
+
+    @staticmethod
+    def _set_component_attr_if_absent(
+        component: object, name: str, value: object
+    ) -> None:
+        try:
+            if getattr(component, name, None) is not None:
+                return
+        except Exception:  # noqa: BLE001 - still attempt to set below
+            pass
         try:
             setattr(component, name, value)
         except Exception:  # noqa: BLE001 - duck-typed object may forbid attrs
@@ -1822,6 +1902,7 @@ class ToolLoopTerminalUi:
         if component is None:
             return None
         self._custom_editor_submitted = None
+        self._custom_editor_action = None
         handler = getattr(component, "handle_input", None) or getattr(
             component, "handleInput", None
         )
@@ -1837,6 +1918,35 @@ class ToolLoopTerminalUi:
                 self._custom_editor_submitted = result
         elif key == "enter":
             self._custom_editor_submitted = self._custom_editor_text()
+        if self._custom_editor_action is not None:
+            action = self._custom_editor_action
+            self._custom_editor_action = None
+            self.input_text = self._custom_editor_text()
+            self.input_cursor = len(self.input_text)
+            if action in {
+                "app.model.cycleForward",
+                "app.model.cycleBackward",
+                "app.thinking.cycle",
+                "app.tools.expand",
+                "app.thinking.toggle",
+            }:
+                if self.input_text:
+                    self._pending_initial_text = self.input_text
+                self._set_custom_editor_text("")
+            if action == "app.model.cycleForward":
+                return HOTKEY_MODEL_CYCLE_NEXT
+            if action == "app.model.cycleBackward":
+                return HOTKEY_MODEL_CYCLE_PREV
+            if action == "app.thinking.cycle":
+                return HOTKEY_THINKING_CYCLE
+            if action == "app.tools.expand":
+                return HOTKEY_TOGGLE_TOOLS
+            if action == "app.thinking.toggle":
+                return HOTKEY_TOGGLE_THINKING
+            if action.startswith("app.extensionShortcut:"):
+                key_name = action.removeprefix("app.extensionShortcut:")
+                return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key_name}"
+            return None
         if self._custom_editor_submitted is not None:
             submitted = self._custom_editor_submitted
             self._custom_editor_submitted = None

@@ -563,9 +563,10 @@ so Pi extensions translate naturally:
   (`ctx.ui.set_editor_component` / `setEditorComponent` and
   `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts call the
   factory, route keys to the returned component, wire submit/change callbacks,
-  forward autocomplete providers, preserve text when clearing, and headless
-  contexts no-op/return `None` like Pi RPC. Broader Pi component-library parity
-  remains deferred.
+  forward autocomplete providers, pass a bounded keybinding/action adapter,
+  wire app-action handlers for custom-editor delegation, preserve text when
+  clearing, and headless contexts no-op/return `None` like Pi RPC. Broader Pi
+  component-library parity remains deferred.
 - Custom overlays **(bounded options shipped)**: a focused custom component with
   keyboard focus, mirroring Pi's `custom(...)` overlay. The live product TUI
   accepts `custom(factory, options=None)` with Pi-shaped `overlay`,
@@ -1397,8 +1398,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     `ctx.ui.get_editor_component()` / `getEditorComponent()` store and return a
     live factory, and `None` clears it. Headless contexts no-op and return
     `None`, matching Pi RPC. The live product TUI now calls the factory, routes
-    keys, wires submit/change callbacks, forwards autocomplete, and preserves
-    text when clearing. Broader Pi component-library parity remains deferred.
+    keys, wires submit/change callbacks, forwards autocomplete, passes a
+    bounded keybinding/action adapter, wires delegated app-action handlers, and
+    preserves text when clearing. Broader Pi component-library parity remains
+    deferred.
 22. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,

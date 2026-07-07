@@ -274,8 +274,8 @@ Pipy current state:
 Follow-ons:
 
 1. Richer Pi extension APIs: broader custom editor/component-library parity
-   beyond the landed live `setEditorComponent` integration and bounded custom
-   overlay options,
+   beyond the landed live `setEditorComponent` integration (including app-hotkey
+   delegation) and bounded custom overlay options,
    live custom message component invalidation/re-rendering beyond the landed
    single-component rich message renderer (item C), richer tool-output
    expansion integration beyond the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
