@@ -565,7 +565,9 @@ so Pi extensions translate naturally:
   factory, route keys to the returned component, wire submit/change callbacks,
   forward autocomplete providers, pass a bounded keybinding/action adapter,
   wire app-action handlers for custom-editor delegation, preserve text when
-  clearing, and headless contexts no-op/return `None` like Pi RPC. Broader Pi
+  clearing, and headless contexts no-op/return `None` like Pi RPC. The live
+  getter returns the configured factory even when construction fails soft or
+  returns no active component, matching Pi's stored-factory semantics. Broader Pi
   component-library parity remains deferred.
 - Custom overlays **(bounded options shipped)**: a focused custom component with
   keyboard focus, mirroring Pi's `custom(...)` overlay. The live product TUI

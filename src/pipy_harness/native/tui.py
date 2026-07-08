@@ -1759,6 +1759,7 @@ class ToolLoopTerminalUi:
         self._custom_editor_action = None
         self._custom_editor_changed_text = None
         if factory is None:
+            self._custom_editor_factory = None
             self._custom_editor_component = None
             self._custom_editor_active = False
             self.set_input_text(current_text)
@@ -1785,7 +1786,7 @@ class ToolLoopTerminalUi:
         self.paint()
 
     def get_editor_component(self) -> object | None:
-        return self._custom_editor_factory if self._custom_editor_active else None
+        return self._custom_editor_factory
 
     def _wire_custom_editor_component(self, component: object) -> None:
         def submit(value: object | None = None) -> None:

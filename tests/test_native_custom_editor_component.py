@@ -235,7 +235,22 @@ def test_custom_editor_component_factory_failure_falls_back(tmp_path: Path) -> N
 
     ui.set_editor_component(bad_factory)
 
-    assert ui.get_editor_component() is None
+    assert ui.get_editor_component() is bad_factory
+    assert ui.get_input_text() == "kept"
+
+
+def test_custom_editor_component_none_return_still_reports_factory(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    ui.set_input_text("kept")
+
+    def empty_factory(tui: object, theme: object, keybindings: object) -> object | None:
+        return None
+
+    ui.set_editor_component(empty_factory)
+
+    assert ui.get_editor_component() is empty_factory
     assert ui.get_input_text() == "kept"
 
 
