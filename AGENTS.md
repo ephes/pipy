@@ -29,6 +29,17 @@ This file is for coding agents working in this repository. It records local proj
 - Implementation and review work is not complete until documentation matches the change when behavior, workflow, or user-facing usage changes.
 - Update release notes in the same change when they apply. Treat missing or stale docs or release notes as incomplete work.
 
+## Theme State Hygiene
+- The expected local development chrome theme is `pi`. Before diagnosing
+  "broken colors", check both `~/.pipy/settings.json` and
+  `~/.local/state/pipy/native-theme.json`: a `theme` value in settings is the
+  source of truth and overrides the native theme store on startup.
+- Do not leave global or project settings on non-`pi` themes (`ocean`,
+  `high-contrast`, package themes) after tests, screenshots, or manual
+  verification. For theme experiments, isolate state with temporary
+  `PIPY_CONFIG_HOME`, `PIPY_NATIVE_THEME_PATH`, and/or `HOME`, or restore the
+  settings file before finishing.
+
 ## Source Control (trunk-based development)
 - **This repo uses trunk-based development.** Do routine work directly on `main`
   in small, reviewable, green increments.
