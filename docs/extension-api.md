@@ -564,9 +564,11 @@ so Pi extensions translate naturally:
   `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts call the
   factory, route keys to the returned component, wire submit/change callbacks,
   forward autocomplete providers, pass a bounded keybinding/action adapter,
-  wire app-action handlers for custom-editor delegation, preserve text when
-  clearing, and headless contexts no-op/return `None` like Pi RPC. The live
-  getter returns the configured factory even when construction fails soft or
+  wire app-action handlers plus `onEscape`/`onCtrlD`/`onPasteImage` callbacks
+  for custom-editor delegation, preserve text when clearing, and headless
+  contexts no-op/return `None` like Pi RPC. Ctrl-C remains outside the delegated
+  custom-editor handler map, preserving the process-level interrupt path. The
+  live getter returns the configured factory even when construction fails soft or
   returns no active component, matching Pi's stored-factory semantics. Broader Pi
   component-library parity remains deferred.
 - Custom overlays **(bounded options shipped)**: a focused custom component with
@@ -1401,9 +1403,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     live factory, and `None` clears it. Headless contexts no-op and return
     `None`, matching Pi RPC. The live product TUI now calls the factory, routes
     keys, wires submit/change callbacks, forwards autocomplete, passes a
-    bounded keybinding/action adapter, wires delegated app-action handlers, and
-    preserves text when clearing. Broader Pi component-library parity remains
-    deferred.
+    bounded keybinding/action adapter, wires delegated app-action handlers plus
+    special Escape/Ctrl-D/paste-image callbacks, and preserves text when
+    clearing. Ctrl-C remains outside the delegated handler map. Broader Pi
+    component-library parity remains deferred.
 22. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),
     `ctx.ui.get_all_themes()` (`{"name", "path": None}` per available theme,

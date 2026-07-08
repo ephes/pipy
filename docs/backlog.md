@@ -1506,11 +1506,14 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 The rich message resume/redraw slice and bounded OAuth-provider `/login` slice
 have shipped. The broader extension/package platform remains the highest-impact
-parity area. The latest focused increment shipped Pi-faithful custom-editor
-getter semantics: live `ctx.ui.getEditorComponent()` now returns the configured
-factory even when construction fails soft or produces no active component, while
-clearing restores `None` and headless contexts remain no-op. The next small
-follow-on remains custom editor/component-library parity beyond the landed live
+parity area. Recent focused increments shipped Pi-faithful custom-editor getter
+semantics and bounded app-action delegation: live
+`ctx.ui.getEditorComponent()` now returns the configured factory even when
+construction fails soft or produces no active component; custom editors receive
+Pi-style keybinding specs, special `onEscape`/`onCtrlD`/`onPasteImage`
+callbacks, delegated model/thinking/tool/follow-up handlers, draft preservation,
+and Ctrl-C remains outside the delegated handler map. The next small follow-on
+remains custom editor/component-library parity beyond the landed live
 `setEditorComponent` integration and bounded `ctx.ui.custom(..., options)`
 overlay path.
 

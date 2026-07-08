@@ -231,6 +231,7 @@ from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
     HOTKEY_MODEL_CYCLE_PREV,
+    HOTKEY_MODEL_SELECT,
     HOTKEY_THINKING_CYCLE,
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
@@ -2568,12 +2569,17 @@ class NativeToolReplSession:
                 from_hotkey = command_text in {
                     HOTKEY_MODEL_CYCLE_NEXT,
                     HOTKEY_MODEL_CYCLE_PREV,
+                    HOTKEY_MODEL_SELECT,
                 }
                 if from_hotkey:
                     stripped = (
-                        "/scoped-models next"
-                        if stripped == HOTKEY_MODEL_CYCLE_NEXT
-                        else "/scoped-models prev"
+                        "/model"
+                        if command_text == HOTKEY_MODEL_SELECT
+                        else (
+                            "/scoped-models next"
+                            if command_text == HOTKEY_MODEL_CYCLE_NEXT
+                            else "/scoped-models prev"
+                        )
                     )
                     user_input = stripped
                     # Keep the dispatch key in sync with the translated command so

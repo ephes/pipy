@@ -145,6 +145,7 @@ _INPUT_NEWLINE_GLYPH = "⏎"
 HOTKEY_THINKING_CYCLE = "\x00pipy-hotkey:thinking-cycle"
 HOTKEY_MODEL_CYCLE_NEXT = "\x00pipy-hotkey:model-cycle-next"
 HOTKEY_MODEL_CYCLE_PREV = "\x00pipy-hotkey:model-cycle-prev"
+HOTKEY_MODEL_SELECT = "\x00pipy-hotkey:model-select"
 HOTKEY_TOGGLE_TOOLS = "\x00pipy-hotkey:toggle-tools"
 HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
 # An activated extension's registered keyboard shortcut fired; the normalized
@@ -743,23 +744,57 @@ class _CustomEditorKeybindings:
     """Small Pi-shaped keybinding/action adapter for custom editors.
 
     The literal keys mirror the built-in read-loop branches that return
-    ``HOTKEY_*`` sentinels. They intentionally include both pipy's decoded
-    dash-form events (``ctrl-p``) and Pi-style key specs (``ctrl+p``) so
-    translated custom editors can either match live events or inspect bindings.
+    ``HOTKEY_*`` sentinels. Canonical bindings stay in Pi's ``ctrl+p`` style
+    while aliases accept pipy's decoded ``ctrl-p`` live events.
     """
 
     _ACTION_KEYS: Mapping[str, tuple[str, ...]] = {
-        "app.thinking.cycle": ("shift-tab",),
-        "app.model.cycleForward": ("ctrl-p", "ctrl+p"),
-        "app.model.cycleBackward": ("shift-ctrl-p", "shift+ctrl+p", "ctrl+shift+p"),
-        "app.tools.expand": ("ctrl-o", "ctrl+o"),
-        "app.thinking.toggle": ("ctrl-t", "ctrl+t"),
+        "app.interrupt": ("escape",),
+        "app.exit": ("ctrl+d",),
+        "app.thinking.cycle": ("shift+tab",),
+        "app.model.cycleForward": ("ctrl+p",),
+        "app.model.cycleBackward": ("shift+ctrl+p",),
+        "app.model.select": ("ctrl+l",),
+        "app.tools.expand": ("ctrl+o",),
+        "app.thinking.toggle": ("ctrl+t",),
+        "app.message.followUp": ("alt+enter",),
+        "app.message.dequeue": ("alt+up",),
+        "app.clipboard.pasteImage": (
+            ("alt+v",) if sys.platform == "win32" else ("ctrl+v",)
+        ),
     }
+    _ALIASES: Mapping[str, tuple[str, ...]] = {
+        "app.interrupt": ("esc",),
+        "app.exit": ("ctrl-d",),
+        "app.thinking.cycle": ("shift-tab",),
+        "app.model.cycleForward": ("ctrl-p",),
+        "app.model.cycleBackward": ("shift-ctrl-p", "ctrl+shift+p"),
+        "app.model.select": ("ctrl-l",),
+        "app.tools.expand": ("ctrl-o",),
+        "app.thinking.toggle": ("ctrl-t",),
+        "app.message.followUp": ("alt-enter",),
+        "app.message.dequeue": ("alt-up",),
+        "app.clipboard.pasteImage": (
+            ("alt-v",) if sys.platform == "win32" else ("ctrl-v",)
+        ),
+    }
+    _HANDLER_ACTIONS: tuple[str, ...] = (
+        "app.interrupt",
+        "app.exit",
+        "app.thinking.cycle",
+        "app.model.cycleForward",
+        "app.model.cycleBackward",
+        "app.model.select",
+        "app.tools.expand",
+        "app.thinking.toggle",
+        "app.message.followUp",
+        "app.message.dequeue",
+    )
 
     def __init__(self, ui: "ToolLoopTerminalUi") -> None:
         self._ui = ui
         self.action_handlers: dict[str, Callable[[], object]] = {}
-        for action in self._ACTION_KEYS:
+        for action in self._HANDLER_ACTIONS:
             self.action_handlers[action] = self._handler_for(action)
         self.actionHandlers = self.action_handlers
 
@@ -774,7 +809,9 @@ class _CustomEditorKeybindings:
         return list(self._ACTION_KEYS.get(action, ()))
 
     def matches(self, key: str, action: str) -> bool:
-        return key in self._ACTION_KEYS.get(action, ())
+        return key in self._ACTION_KEYS.get(action, ()) or key in self._ALIASES.get(
+            action, ()
+        )
 
     def matches_action(self, key: str, action: str) -> bool:
         return self.matches(key, action)
@@ -990,6 +1027,7 @@ class ToolLoopTerminalUi:
     _custom_editor_submitted: str | None = None
     _custom_editor_changed_text: str | None = None
     _custom_editor_action: str | None = None
+    _custom_editor_exit_requested: bool = False
     # Resize handling.
     _resize_pending: bool = False
     _last_painted_size: tuple[int, int] = (0, 0)
@@ -1054,6 +1092,11 @@ class ToolLoopTerminalUi:
                 if self._custom_editor_active:
                     submitted = self._handle_custom_editor_key(key)
                     if submitted is not None:
+                        if self._custom_editor_exit_requested:
+                            self._custom_editor_exit_requested = False
+                            self._reset_line_editor_state()
+                            self.paint()
+                            return ""
                         self._record_history(submitted)
                         self._reset_line_editor_state()
                         self.paint()
@@ -1758,6 +1801,7 @@ class ToolLoopTerminalUi:
         self._custom_editor_submitted = None
         self._custom_editor_action = None
         self._custom_editor_changed_text = None
+        self._custom_editor_exit_requested = False
         if factory is None:
             self._custom_editor_factory = None
             self._custom_editor_component = None
@@ -1769,7 +1813,11 @@ class ToolLoopTerminalUi:
             return
         self._custom_editor_factory = factory
         try:
-            component = factory(self, chrome_style_for(self.terminal_stream), _CustomEditorKeybindings(self))
+            component = factory(
+                self,
+                chrome_style_for(self.terminal_stream),
+                _CustomEditorKeybindings(self),
+            )
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 - extension factory fails closed
@@ -1815,11 +1863,26 @@ class ToolLoopTerminalUi:
             "onExtensionShortcut",
             lambda key: self._queue_custom_editor_action(f"app.extensionShortcut:{key}"),
         )
+        self._set_component_attr_pair_if_absent(
+            component,
+            ("on_escape", "onEscape"),
+            lambda: self._queue_custom_editor_action("app.interrupt"),
+        )
+        self._set_component_attr_pair_if_absent(
+            component,
+            ("on_ctrl_d", "onCtrlD"),
+            lambda: self._queue_custom_editor_action("app.exit"),
+        )
+        self._set_component_attr_pair_if_absent(
+            component,
+            ("on_paste_image", "onPasteImage"),
+            lambda: self._queue_custom_editor_action("app.clipboard.pasteImage"),
+        )
         handlers = getattr(component, "action_handlers", None)
         if handlers is None:
             handlers = getattr(component, "actionHandlers", None)
         if handlers is not None:
-            for action in _CustomEditorKeybindings._ACTION_KEYS:
+            for action in _CustomEditorKeybindings._HANDLER_ACTIONS:
                 try:
                     if action not in handlers:
                         handlers[action] = (
@@ -1853,6 +1916,23 @@ class ToolLoopTerminalUi:
             setattr(component, name, value)
         except Exception:  # noqa: BLE001 - duck-typed object may forbid attrs
             pass
+
+    @classmethod
+    def _set_component_attr_pair_if_absent(
+        cls, component: object, names: tuple[str, str], value: object
+    ) -> None:
+        existing = None
+        for name in names:
+            try:
+                candidate = getattr(component, name, None)
+            except Exception:  # noqa: BLE001 - still attempt to set below
+                candidate = None
+            if candidate is not None:
+                existing = candidate
+                break
+        shared = existing if existing is not None else value
+        for name in names:
+            cls._set_component_attr_if_absent(component, name, shared)
 
     def _forward_autocomplete_to_custom_editor(self, component: object) -> None:
         setter = getattr(component, "set_autocomplete_provider", None) or getattr(
@@ -1896,6 +1976,7 @@ class ToolLoopTerminalUi:
                 return
 
     def _handle_custom_editor_key(self, key: str | None) -> str | None:
+        self._custom_editor_exit_requested = False
         if key is None:
             self.paint()
             return None
@@ -1927,6 +2008,7 @@ class ToolLoopTerminalUi:
             if action in {
                 "app.model.cycleForward",
                 "app.model.cycleBackward",
+                "app.model.select",
                 "app.thinking.cycle",
                 "app.tools.expand",
                 "app.thinking.toggle",
@@ -1938,12 +2020,36 @@ class ToolLoopTerminalUi:
                 return HOTKEY_MODEL_CYCLE_NEXT
             if action == "app.model.cycleBackward":
                 return HOTKEY_MODEL_CYCLE_PREV
+            if action == "app.model.select":
+                return HOTKEY_MODEL_SELECT
             if action == "app.thinking.cycle":
                 return HOTKEY_THINKING_CYCLE
             if action == "app.tools.expand":
                 return HOTKEY_TOGGLE_TOOLS
             if action == "app.thinking.toggle":
                 return HOTKEY_TOGGLE_THINKING
+            if action == "app.message.followUp":
+                text = self._custom_editor_text()
+                if text.strip():
+                    self.enqueue_follow_up(text)
+                self._pending_initial_text = None
+                self._set_custom_editor_text("")
+                return None
+            if action == "app.message.dequeue":
+                self.restore_pending_to_editor()
+                return None
+            if action == "app.clipboard.pasteImage":
+                self._paste_clipboard_image()
+                return None
+            if action == "app.interrupt":
+                self._pending_initial_text = None
+                self._set_custom_editor_text("")
+                return None
+            if action == "app.exit":
+                if not self._custom_editor_text():
+                    self._custom_editor_exit_requested = True
+                    return ""
+                return None
             if action.startswith("app.extensionShortcut:"):
                 key_name = action.removeprefix("app.extensionShortcut:")
                 return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key_name}"
@@ -1951,6 +2057,7 @@ class ToolLoopTerminalUi:
         if self._custom_editor_submitted is not None:
             submitted = self._custom_editor_submitted
             self._custom_editor_submitted = None
+            self._pending_initial_text = None
             self._set_custom_editor_text("")
             return submitted
         self.input_text = self._custom_editor_text()
@@ -5423,7 +5530,11 @@ class ToolLoopTerminalUi:
         # Quote the reference when the temp path contains a space (e.g. a TMPDIR
         # with spaces) so the @image: resolver loads it as a single token.
         reference = f'"{path}"' if " " in str(path) else str(path)
-        self._insert_input_text(f"@image:{reference} ")
+        insertion = f"@image:{reference} "
+        if self._custom_editor_active:
+            self._set_custom_editor_text(f"{self._custom_editor_text()}{insertion}")
+            return
+        self._insert_input_text(insertion)
 
     def _delete_before_cursor(self) -> None:
         cursor = self._effective_input_cursor()
@@ -5736,16 +5847,21 @@ class ToolLoopTerminalUi:
         if not queued:
             return
         joined = "\n\n".join(queued)
-        existing = (
-            self._pending_initial_text
-            if self._pending_initial_text is not None
-            else self.input_text
-        )
+        if self._pending_initial_text is not None:
+            existing = self._pending_initial_text
+        elif self._custom_editor_active:
+            existing = self._custom_editor_text()
+        else:
+            existing = self.input_text
         combined = f"{joined}\n\n{existing}" if existing else joined
         # Reflect immediately and survive the next read_line reset.
         self._pending_initial_text = combined
-        self.input_text = combined
-        self.input_cursor = len(combined)
+        if self._custom_editor_active:
+            self._set_custom_editor_text(combined)
+            return
+        else:
+            self.input_text = combined
+            self.input_cursor = len(combined)
         self._refresh_slash_menu_state()
 
     def take_next_drain(self) -> str | None:

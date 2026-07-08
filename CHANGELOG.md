@@ -9,6 +9,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 ### Added
 
 - Rich extension custom-message renderers now refresh their existing TUI block when the live tool-output expanded flag changes, matching Pi's `MessageRenderer(..., { expanded })` behavior without persisting rendered rows.
+- Live custom editor components now receive Pi-shaped app-action delegation:
+  keybinding specs, model/thinking/tool/follow-up handlers, Escape/Ctrl-D and
+  paste-image callbacks, draft preservation, and Ctrl-C remains on the terminal
+  interrupt path.
 
 
 ### Removed

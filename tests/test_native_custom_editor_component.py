@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Iterator
+import os
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TextIO, cast
 
+from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    HOTKEY_MODEL_SELECT,
     HOTKEY_THINKING_CYCLE,
     ToolLoopTerminalUi,
 )
@@ -34,6 +37,16 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
     )
 
 
+def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, data)
+    os.close(write_fd)
+    try:
+        return ui._read_key(read_fd)
+    finally:
+        os.close(read_fd)
+
+
 class _CustomEditor:
     def __init__(self) -> None:
         self.text = ""
@@ -45,6 +58,12 @@ class _CustomEditor:
         self.action_handlers: dict[str, object] = {}
         self.keybindings: object | None = None
         self.on_extension_shortcut = None
+        self.on_escape: Callable[[], object] | None = None
+        self.on_ctrl_d: Callable[[], object] | None = None
+        self.on_paste_image: Callable[[], object] | None = None
+        self.onEscape: Callable[[], object] | None = None
+        self.onCtrlD: Callable[[], object] | None = None
+        self.onPasteImage: Callable[[], object] | None = None
 
     def set_text(self, text: str) -> None:
         self.text = text
@@ -301,6 +320,367 @@ def test_custom_editor_component_app_action_preserves_text_for_next_prompt(
     keys = iter(("enter",))
     assert ui.read_line("> ") == "a\n"
     assert component.get_text() == ""
+
+
+def test_custom_editor_keybindings_expose_pi_style_bindings(tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    keybindings = component.keybindings
+    assert keybindings is not None
+    assert getattr(keybindings, "keys_for")("app.model.cycleForward") == ["ctrl+p"]
+    assert getattr(keybindings, "matches")("ctrl-p", "app.model.cycleForward")
+    assert getattr(keybindings, "matches")("ctrl+p", "app.model.cycleForward")
+    assert getattr(keybindings, "keys_for")("app.clipboard.pasteImage") == ["ctrl+v"]
+    assert "app.clear" not in component.action_handlers
+    assert "app.clipboard.pasteImage" not in component.action_handlers
+    assert callable(getattr(component, "on_paste_image"))
+
+
+def test_custom_editor_keybindings_match_real_decoded_keys(tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    keybindings = component.keybindings
+    assert keybindings is not None
+    assert getattr(keybindings, "matches")(
+        _decode_key(ui, b"\x1b"), "app.interrupt"
+    )
+    assert getattr(keybindings, "matches")(
+        _decode_key(ui, b"\x0c"), "app.model.select"
+    )
+    assert getattr(keybindings, "matches")(
+        _decode_key(ui, b"\x1b\r"), "app.message.followUp"
+    )
+    assert getattr(keybindings, "matches")(
+        _decode_key(ui, b"\x16"), "app.clipboard.pasteImage"
+    )
+
+
+def test_custom_editor_component_model_select_preserves_draft(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    def handle_input(key: str) -> None:
+        assert component.keybindings is not None
+        if getattr(component.keybindings, "matches")(key, "app.model.select"):
+            handler = component.action_handlers["app.model.select"]
+            assert callable(handler)
+            handler()
+            return
+        component.text += key
+        if component.on_change is not None:
+            component.on_change(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("draft", "ctrl-l"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    ui.set_editor_component(factory)
+
+    assert ui.read_line("> ") == f"{HOTKEY_MODEL_SELECT}\n"
+    assert ui._pending_initial_text == "draft"
+
+
+def test_custom_editor_component_follow_up_queues_and_clears_draft(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "alt-enter":
+            handler = component.action_handlers["app.message.followUp"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+            return
+        component.text += key
+        if component.on_change is not None:
+            component.on_change(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("later", "alt-enter", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui.read_line("> ") == "\n"
+    assert ui.has_pending_messages()
+    ui.restore_pending_to_editor()
+    assert ui.get_input_text() == "later"
+
+
+def test_custom_editor_component_empty_follow_up_does_not_queue(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "alt-enter":
+            handler = component.action_handlers["app.message.followUp"]
+            assert callable(handler)
+            handler()
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui._handle_custom_editor_key("alt-enter") is None
+    assert not ui.has_pending_messages()
+
+
+def test_custom_editor_component_dequeue_preserves_current_draft(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+    ui.enqueue_follow_up("queued")
+
+    def handle_input(key: str) -> None:
+        if key == "alt-up":
+            handler = component.action_handlers["app.message.dequeue"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    component.set_text("draft")
+
+    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui.get_input_text() == "queued\n\ndraft"
+    assert ui._pending_initial_text == "queued\n\ndraft"
+    assert ui._handle_custom_editor_key("enter") == "queued\n\ndraft"
+    assert ui._pending_initial_text is None
+
+
+def test_custom_editor_component_follow_up_clears_restored_prefill(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+    ui.enqueue_follow_up("queued")
+
+    def handle_input(key: str) -> None:
+        if key == "alt-up":
+            handler = component.action_handlers["app.message.dequeue"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "alt-enter":
+            handler = component.action_handlers["app.message.followUp"]
+            assert callable(handler)
+            handler()
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui._pending_initial_text == "queued"
+    assert ui._handle_custom_editor_key("alt-enter") is None
+    assert ui._pending_initial_text is None
+    assert ui.get_input_text() == ""
+
+
+def test_custom_editor_component_interrupt_clears_restored_prefill(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+    ui.enqueue_follow_up("queued")
+
+    def handle_input(key: str) -> None:
+        if key == "alt-up":
+            handler = component.action_handlers["app.message.dequeue"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "escape":
+            assert component.on_escape is not None
+            component.on_escape()
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui._handle_custom_editor_key("alt-up") is None
+    assert ui._pending_initial_text == "queued"
+    assert ui._handle_custom_editor_key("escape") is None
+    assert ui._pending_initial_text is None
+    assert ui.get_input_text() == ""
+
+
+def test_custom_editor_component_restore_survives_next_read_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+    ui.enqueue_follow_up("queued")
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    ui.restore_pending_to_editor()
+
+    keys: Iterator[str] = iter(("enter",))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    assert ui.read_line("> ") == "queued\n"
+
+
+def test_custom_editor_component_exit_only_when_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "ctrl-d":
+            handler = component.action_handlers["app.exit"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+            return
+        component.text += key
+        if component.on_change is not None:
+            component.on_change(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys: Iterator[str] = iter(("x", "ctrl-d", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui.read_line("> ") == "x\n"
+
+    component = _CustomEditor()
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    keys = iter(("ctrl-d",))
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui.read_line("> ") == ""
+
+
+def test_custom_editor_component_exit_flag_does_not_leak(tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "ctrl-d":
+            handler = component.action_handlers["app.exit"]
+            assert callable(handler)
+            handler()
+            return
+        if key == "enter":
+            assert component.on_submit is not None
+            component.on_submit(component.text)
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui._handle_custom_editor_key("ctrl-d") == ""
+    component.set_text("next")
+    assert ui._handle_custom_editor_key("enter") == "next"
+
+
+def test_custom_editor_component_preserves_existing_escape_callback(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+    seen: list[str] = []
+    component.onEscape = lambda: seen.append("custom")
+
+    def handle_input(key: str) -> None:
+        if key == "escape":
+            assert component.on_escape is not None
+            component.on_escape()
+
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert component.on_escape is component.onEscape
+    assert ui._handle_custom_editor_key("escape") is None
+    assert seen == ["custom"]
+    assert ui._custom_editor_action is None
+
+
+def test_custom_editor_component_paste_image_inserts_into_component(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    def handle_input(key: str) -> None:
+        assert component.keybindings is not None
+        if getattr(component.keybindings, "matches")(key, "app.clipboard.pasteImage"):
+            paste = getattr(component, "on_paste_image")
+            assert callable(paste)
+            paste()
+
+    ui.clipboard_temp_dir = tmp_path / "clip"
+    ui.clipboard_image_read = lambda: ImageClipboardResult(
+        found=True,
+        data=b"\x89PNG\r\n\x1a\n" + b"\x00" * 8,
+        media_type="image/png",
+        detail="ok",
+    )
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    ui.set_editor_component(factory)
+
+    assert ui._handle_custom_editor_key("ctrl-v") is None
+    assert component.get_text().startswith("@image:")
+    assert ui.get_input_text() == component.get_text()
 
 
 def test_custom_editor_component_extension_shortcut_routes_to_session(

@@ -22,6 +22,7 @@ from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import (
+    HOTKEY_MODEL_SELECT,
     SettingsRow,
     ToolLoopTerminalUi,
     _visible_len_allow_sgr,
@@ -1325,6 +1326,70 @@ def test_model_command_direct_reference_rebinds_next_turn(
     assert result.status == HarnessStatus.SUCCEEDED
     # The /model command ran no provider turn; only the post-switch prompt did,
     # and it was constructed with the newly selected provider/model.
+    assert seen == [("openai", "gpt-5.5")]
+    assert result.provider_name == "openai"
+    assert result.model_id == "gpt-5.5"
+    assert result.user_turn_count == 1
+
+
+def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt",
+        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
+    )
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    ui = _ui(tmp_path)
+    scripted = iter((f"{HOTKEY_MODEL_SELECT}\n", "hello\n", ""))
+    chosen_labels: list[str] = []
+
+    def _read_line(self, prompt_label, *, footer=None):
+        del self, prompt_label, footer
+        return next(scripted)
+
+    def _select_model(self, options, *, current_index=0, title=None):
+        del self, current_index, title
+        chosen = next(
+            index
+            for index, option in enumerate(options)
+            if option.selectable and option.label.startswith("openai/gpt-5.5")
+        )
+        chosen_labels.append(options[chosen].label)
+        return chosen
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _select_model)
+    from pipy_harness.native.tui import TURN_SETTLED
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "wait_for_active_turn_interrupt",
+        lambda self, done_event, abort_event, **kwargs: TURN_SETTLED,
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert chosen_labels
     assert seen == [("openai", "gpt-5.5")]
     assert result.provider_name == "openai"
     assert result.model_id == "gpt-5.5"
