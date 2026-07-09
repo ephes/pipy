@@ -2105,6 +2105,7 @@ class NativeToolReplSession:
                 has_ui=terminal_ui is not None,
                 trigger=trigger,
                 notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
                 set_active_tools_fn=extension_set_active_tools,
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
@@ -2261,6 +2262,7 @@ class NativeToolReplSession:
                 target=target,
                 trigger=trigger,
                 notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
                 set_active_tools_fn=extension_set_active_tools,
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
@@ -2604,6 +2606,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        ui_driver=extension_ui_driver,
                         flags=extension_flag_values,
                     )
                     if shell_context_text is not None:
@@ -3714,6 +3717,7 @@ class NativeToolReplSession:
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
                         notify_sink=_extension_notify,
+                        ui_driver=extension_ui_driver,
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
@@ -3761,6 +3765,7 @@ class NativeToolReplSession:
                     has_ui=terminal_ui is not None,
                     system_prompt=base_system_prompt,
                     notify_sink=_extension_notify,
+                    ui_driver=extension_ui_driver,
                     set_active_tools_fn=extension_set_active_tools,
                     set_model_fn=extension_set_model,
                     set_thinking_level_fn=extension_set_thinking_level,
@@ -3839,6 +3844,7 @@ class NativeToolReplSession:
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
+                            ui_driver=extension_ui_driver,
                             set_active_tools_fn=extension_set_active_tools,
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
@@ -4011,6 +4017,7 @@ class NativeToolReplSession:
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
+                            ui_driver=extension_ui_driver,
                             set_active_tools_fn=extension_set_active_tools,
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
@@ -4071,6 +4078,7 @@ class NativeToolReplSession:
                                 cwd=str(cwd),
                                 has_ui=terminal_ui is not None,
                                 notify_sink=_extension_notify,
+                                ui_driver=extension_ui_driver,
                                 set_active_tools_fn=extension_set_active_tools,
                                 set_model_fn=lambda _reference: False,
                                 set_thinking_level_fn=extension_set_thinking_level,
@@ -4610,6 +4618,7 @@ class NativeToolReplSession:
         set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
         set_model_fn: Callable[[str], bool] | None = None,
         set_thinking_level_fn: Callable[[str], bool] | None = None,
+        ui_driver: ExtensionUiDriver | None = None,
         flags: Mapping[str, object] | None = None,
     ) -> str | None:
         """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
@@ -4642,6 +4651,7 @@ class NativeToolReplSession:
             notify_sink=lambda kind, message: self._emit_diagnostic(
                 terminal_ui, error_stream, message
             ),
+            ui_driver=ui_driver,
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,

@@ -1315,11 +1315,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     matching Pi's reload `session_start` lifecycle. Chrome an extension sets
     from that hook is restored immediately through the live UI driver.
     The working indicator **does** animate: custom `frames` cycle through pipy's
-    existing spinner loop at `interval_ms` (default interval otherwise). Deferred:
-    non-lifecycle event hooks
-    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) do not yet thread
-    the live `ui_driver`, so chrome calls from those contexts are recorded but
-    do not paint until a context that has the live driver runs. Gate
+    existing spinner loop at `interval_ms` (default interval otherwise). The live
+    UI driver is now threaded into non-lifecycle event hooks too
+    (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*` and session gates),
+    so Pi-shaped chrome/editor calls from those contexts paint immediately in
+    the product TUI while headless contexts remain deterministic no-ops. Gate
     `scripts/parity_checks/extension_chrome_widgets_conformance.py --json` proves
     the chrome units; the golden
     `scripts/parity_checks/extension_conformance_gate.py --json` proves the

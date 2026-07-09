@@ -282,9 +282,7 @@ Follow-ons:
    `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, streaming
    `steer`/`followUp` delivery, custom-entry `/resume` redraw, and
    `CustomMessageEntry` renderer dispatch), live tool-render invalidation beyond the landed
-   render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks
-   (`tool_call`/`tool_result`/`input`/`user_bash`/`before_*`) so their chrome
-   calls paint immediately, broader dynamic-flag integration beyond the landed
+   render-once snapshot, broader dynamic-flag integration beyond the landed
    tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and broader extension state helpers beyond the landed command/shortcut
    session-manager view and name/label metadata actions.
 2. Broader provider/auth helpers beyond the landed extension OAuth `/login`

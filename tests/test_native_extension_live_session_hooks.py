@@ -246,3 +246,209 @@ def test_session_before_compact_hook_blocks_product_command(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert "compact blocked by extension: no compact" in err.getvalue()
+
+
+class _FakeUiDriver:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self.editor_text = "draft"
+        self.tools_expanded = False
+
+    def set_status(self, key: str, text: str | None) -> None:
+        self.calls.append(("status", (key, text)))
+
+    def set_widget(self, key: str, content: object, placement: str) -> None:
+        self.calls.append(("widget", (key, content, placement)))
+
+    def get_editor_text(self) -> str:
+        self.calls.append(("get_editor", None))
+        return self.editor_text
+
+    def set_editor_text(self, text: str) -> None:
+        self.calls.append(("set_editor", text))
+        self.editor_text = text
+
+    def paste_to_editor(self, text: str) -> None:
+        self.calls.append(("paste", text))
+        self.editor_text += text
+
+    def set_tools_expanded(self, expanded: bool) -> None:
+        self.calls.append(("set_tools_expanded", expanded))
+        self.tools_expanded = bool(expanded)
+
+    def get_tools_expanded(self) -> bool:
+        self.calls.append(("get_tools_expanded", None))
+        return self.tools_expanded
+
+
+def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> None:
+    from pipy_harness.native.extension_runtime import (
+        BeforeAgentStartResult,
+        InputTransform,
+        ToolBlock,
+        ToolResultTransform,
+        dispatch_before_agent_start_hooks,
+        dispatch_input_hooks,
+        dispatch_tool_call_hooks,
+        dispatch_tool_result_hooks,
+    )
+
+    driver = _FakeUiDriver()
+
+    text = dispatch_input_hooks(
+        (
+            lambda event, ctx: (
+                ctx.ui.set_status("input", event.text),
+                ctx.ui.set_editor_text(event.text + "!"),
+                InputTransform(text=ctx.ui.get_editor_text()),
+            )[-1],
+        ),
+        "hello",
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+    before = dispatch_before_agent_start_hooks(
+        (
+            lambda event, ctx: (
+                ctx.ui.set_widget(
+                    "before", event.system_prompt, placement="below_editor"
+                ),
+                BeforeAgentStartResult(append_system_prompt="extra"),
+            )[-1],
+        ),
+        cwd=str(tmp_path),
+        has_ui=True,
+        system_prompt="sys",
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+    block = dispatch_tool_call_hooks(
+        (
+            lambda event, ctx: (
+                ctx.ui.set_status("tool-call", event.tool_name),
+                ToolBlock(reason="blocked"),
+            )[-1],
+        ),
+        tool_name="bash",
+        tool_input={},
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+    result = dispatch_tool_result_hooks(
+        (
+            lambda event, ctx: (
+                ctx.ui.set_tools_expanded(True),
+                ToolResultTransform(content=event.content + "::result"),
+            )[-1],
+        ),
+        tool_name="bash",
+        content="out",
+        is_error=False,
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+
+    assert text == "hello!"
+    assert before.append_system_prompt == "extra"
+    assert isinstance(block, ToolBlock)
+    assert result == "out::result"
+    assert ("status", ("input", "hello")) in driver.calls
+    assert ("set_editor", "hello!") in driver.calls
+    assert ("widget", ("before", "sys", "below_editor")) in driver.calls
+    assert ("status", ("tool-call", "bash")) in driver.calls
+    assert ("set_tools_expanded", True) in driver.calls
+
+
+def test_live_session_gate_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> None:
+    driver = _FakeUiDriver()
+
+    def user_bash(event, ctx):
+        ctx.ui.paste_to_editor(" bash")
+        return UserBashDecision(command=event.command + " --safe")
+
+    def before_provider(event, ctx):
+        ctx.ui.set_widget("provider", event.user_prompt, placement="above_editor")
+        return ProviderRequestTransform(user_prompt=event.user_prompt + "::provider")
+
+    def session_before(event, ctx):
+        ctx.ui.set_status("session", event.operation)
+        return SessionDecision(allow=False, reason=ctx.ui.get_editor_text())
+
+    bash_decision = dispatch_user_bash_hooks(
+        (user_bash,),
+        command="echo ok",
+        exclude_from_context=False,
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="prompt",
+        provider_name="stub",
+        model_id="model",
+        cwd=tmp_path,
+        available_tools=(),
+    )
+    provider_transform = dispatch_before_provider_request_hooks(
+        (before_provider,),
+        request,
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+    session_decision = dispatch_session_before_hooks(
+        (session_before,),
+        operation="compact",
+        cwd=str(tmp_path),
+        has_ui=True,
+        ui_driver=driver,  # type: ignore[arg-type]
+    )
+
+    assert bash_decision.allowed
+    assert bash_decision.command == "echo ok --safe"
+    assert provider_transform.user_prompt == "prompt::provider"
+    assert not session_decision.allow
+    assert session_decision.reason == "draft bash"
+    assert ("paste", " bash") in driver.calls
+    assert ("widget", ("provider", "prompt", "above_editor")) in driver.calls
+    assert ("status", ("session", "compact")) in driver.calls
+
+
+def test_non_lifecycle_ui_driver_is_noop_when_headless(tmp_path: Path) -> None:
+    driver = _FakeUiDriver()
+
+    def hook(_event, ctx):
+        ctx.ui.set_status("input", "ignored")
+        return None
+
+    assert dispatch_user_bash_hooks(
+        (
+            lambda event, ctx: (
+                ctx.ui.set_status("bash", event.command),
+                UserBashDecision(),
+            )[-1],
+        ),
+        command="echo ok",
+        exclude_from_context=False,
+        cwd=str(tmp_path),
+        has_ui=False,
+        ui_driver=driver,  # type: ignore[arg-type]
+    ).allowed
+    assert dispatch_before_provider_request_hooks(
+        (hook,),
+        ProviderRequest(
+            system_prompt="sys",
+            user_prompt="prompt",
+            provider_name="stub",
+            model_id="model",
+            cwd=tmp_path,
+            available_tools=(),
+        ),
+        cwd=str(tmp_path),
+        has_ui=False,
+        ui_driver=driver,  # type: ignore[arg-type]
+    ).user_prompt == "prompt"
+    assert driver.calls == []

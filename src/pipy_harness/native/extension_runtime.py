@@ -3229,6 +3229,7 @@ def dispatch_input_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3249,7 +3250,7 @@ def dispatch_input_hooks(
         return current
     ctx = _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
@@ -3277,6 +3278,7 @@ def dispatch_before_agent_start_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     system_prompt: str = "",
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
@@ -3295,7 +3297,7 @@ def dispatch_before_agent_start_hooks(
     if hooks:
         ctx = _CommandContext(
             cwd,
-            _CollectingUi(has_ui, notify_sink),
+            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
@@ -3340,6 +3342,7 @@ def dispatch_tool_result_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3359,7 +3362,7 @@ def dispatch_tool_result_hooks(
     if hooks:
         ctx = _CommandContext(
             cwd,
-            _CollectingUi(has_ui, notify_sink),
+            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
@@ -3443,6 +3446,7 @@ def dispatch_tool_call_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3461,7 +3465,7 @@ def dispatch_tool_call_hooks(
     event = ToolCallEvent(tool_name=tool_name, input=tool_input)
     ctx = _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
@@ -3489,6 +3493,7 @@ def dispatch_user_bash_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3506,7 +3511,7 @@ def dispatch_user_bash_hooks(
     current_exclude = bool(exclude_from_context)
     ctx = _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
@@ -3568,6 +3573,7 @@ def dispatch_before_provider_request_hooks(
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3592,7 +3598,7 @@ def dispatch_before_provider_request_hooks(
     if hooks:
         ctx = _CommandContext(
             cwd,
-            _CollectingUi(has_ui, notify_sink),
+            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
             _ConversationView(getattr(request, "messages", ())),
             set_active_tools_fn=set_active_tools_fn,
             set_model_fn=set_model_fn,
@@ -3644,6 +3650,7 @@ def dispatch_session_before_hooks(
     target: str | None = None,
     trigger: str | None = None,
     notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
     set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
@@ -3661,7 +3668,7 @@ def dispatch_session_before_hooks(
     event = SessionBeforeEvent(operation=operation, target=target, trigger=trigger)
     ctx = _CommandContext(
         cwd,
-        _CollectingUi(has_ui, notify_sink),
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         set_active_tools_fn=set_active_tools_fn,
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,

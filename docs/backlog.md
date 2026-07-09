@@ -1512,10 +1512,12 @@ semantics and bounded app-action delegation: live
 construction fails soft or produces no active component; custom editors receive
 Pi-style keybinding specs, special `onEscape`/`onCtrlD`/`onPasteImage`
 callbacks, delegated model/thinking/tool/follow-up handlers, draft preservation,
-and Ctrl-C remains outside the delegated handler map. The next small follow-on
-remains custom editor/component-library parity beyond the landed live
-`setEditorComponent` integration and bounded `ctx.ui.custom(..., options)`
-overlay path.
+and Ctrl-C remains outside the delegated handler map. Non-lifecycle extension
+hooks now receive the live product-TUI UI driver too, so their Pi-shaped
+chrome/editor calls paint immediately while headless contexts stay no-op. The
+next small follow-on remains custom editor/component-library parity beyond the
+landed live `setEditorComponent` integration and bounded
+`ctx.ui.custom(..., options)` overlay path.
 
 Keep this slice focused on one Pi-shaped editor/component API increment. Do not
 reopen completed rich-message, chrome `requestRender`, footer branch-change,
