@@ -557,10 +557,11 @@ so Pi extensions translate naturally:
   `setHeader` / `setTitle`).
 - Editor integration **(partly shipped)**: command/shortcut contexts can
   read/write the core input editor text and paste literal text at the current
-  cursor (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
-  `ctx.ui.paste_to_editor`, mirroring Pi's `getEditorText` / `setEditorText` /
-  `pasteToEditor`). The Pi-shaped custom editor component integration also ships
-  (`ctx.ui.set_editor_component` / `setEditorComponent` and
+  cursor using Pi-canonical camelCase (`ctx.ui.getEditorText`,
+  `ctx.ui.setEditorText`, `ctx.ui.pasteToEditor`) plus Python convenience
+  aliases (`ctx.ui.get_editor_text`, `ctx.ui.set_editor_text`,
+  `ctx.ui.paste_to_editor`). The Pi-shaped custom editor component integration
+  also ships (`ctx.ui.set_editor_component` / `setEditorComponent` and
   `ctx.ui.get_editor_component` / `getEditorComponent`): live contexts call the
   factory, route keys to the returned component, wire submit/change callbacks,
   forward autocomplete providers, pass a bounded keybinding/action adapter,
@@ -1391,8 +1392,9 @@ and the live `scripts/tmux_answer_verify.sh`.
     the in-frame buffer, and failed exits keep the prior text. The returned text
     is live command-handler data; it is not written to the metadata-first
     archive by default. The same command/shortcut contexts now also expose
-    `ctx.ui.get_editor_text()`, `ctx.ui.set_editor_text(text)`, and
-    `ctx.ui.paste_to_editor(text)` for the core prompt editor. Live paste
+    Pi-canonical camelCase `ctx.ui.getEditorText()`,
+    `ctx.ui.setEditorText(text)`, and `ctx.ui.pasteToEditor(text)` for the core
+    prompt editor, with snake_case Python convenience aliases retained. Live paste
     inserts literal text at the current cursor while preserving surrounding
     draft text and pasted newlines, matching Pi's bracketed-paste path. These
     helpers are live-only mutations: headless reads return `""`, headless

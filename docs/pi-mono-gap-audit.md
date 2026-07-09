@@ -223,6 +223,11 @@ Pipy current state:
   `ctx.set_session_name` / `ctx.setSessionName`, `ctx.get_session_name` /
   `ctx.getSessionName`, and `ctx.set_label` / `ctx.setLabel`, all through native
   session-info/label entries rather than mutable tree exposure.
+- The editor text helpers now include Pi-canonical camelCase aliases:
+  `ctx.ui.getEditorText`, `ctx.ui.setEditorText`, and
+  `ctx.ui.pasteToEditor` delegate to the shipped snake_case Python helpers,
+  preserving live editor read/write/paste behavior and headless
+  no-op/empty-string semantics.
 - Extension slice 23 has shipped: live product-TUI autocomplete provider
   wrappers — `ctx.ui.add_autocomplete_provider` plus Pi-shaped
   `ctx.ui.addAutocompleteProvider` compose providers with Pi-shaped

@@ -1504,6 +1504,11 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ### Broader custom editor/component-library parity — SELECTED
 
+The extension editor text-helper alias slice has shipped: Pi-canonical
+`ctx.ui.getEditorText`, `ctx.ui.setEditorText`, and `ctx.ui.pasteToEditor` now
+delegate to the existing live editor helpers, with snake_case names retained as
+Python convenience aliases.
+
 The rich message resume/redraw slice and bounded OAuth-provider `/login` slice
 have shipped. The broader extension/package platform remains the highest-impact
 parity area. Recent focused increments shipped Pi-faithful custom-editor getter

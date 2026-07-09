@@ -202,6 +202,7 @@ class _FakeEditorUiDriver:
     def __init__(self, text: str = "") -> None:
         self.text = text
         self.pasted: list[str] = []
+        self.editor_calls: list[tuple[str, str]] = []
 
     def select(self, title: str, options: object) -> str | None:
         return None
@@ -246,9 +247,11 @@ class _FakeEditorUiDriver:
         return self.text
 
     def set_editor_text(self, text: str) -> None:
+        self.editor_calls.append(("set", text))
         self.text = text
 
     def paste_to_editor(self, text: str) -> None:
+        self.editor_calls.append(("paste", text))
         self.pasted.append(text)
         self.text = text
 
@@ -268,7 +271,9 @@ class _FakeEditorUiDriver:
         return getattr(self, "editor_component", None)
 
 
-def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None:
+def test_dispatch_exposes_snake_case_editor_text_helpers_to_live_ui(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(
         workspace,
@@ -293,6 +298,39 @@ def test_dispatch_exposes_editor_text_helpers_to_live_ui(tmp_path: Path) -> None
     assert dispatch is not None
     assert dispatch.ran is True
     assert dispatch.messages == (("info", "draft"),)
+    assert driver.editor_calls == [("set", "set:hello"), ("paste", "paste:hello")]
+    assert driver.pasted == ["paste:hello"]
+    assert driver.text == "paste:hello"
+
+
+def test_dispatch_exposes_camelcase_editor_text_helpers_to_live_ui(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editui",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        ctx.ui.notify(ctx.ui.getEditorText())\n"
+        "        ctx.ui.setEditorText('set:' + args)\n"
+        "        ctx.ui.pasteToEditor('paste:' + args)\n"
+        "    api.register_command('edit-ui', 'edit ui', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-ui hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=True,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "draft"),)
+    assert driver.editor_calls == [("set", "set:hello"), ("paste", "paste:hello")]
     assert driver.pasted == ["paste:hello"]
     assert driver.text == "paste:hello"
 
@@ -466,7 +504,9 @@ def test_dispatch_editor_component_helpers_are_headless_noops(tmp_path: Path) ->
     assert driver.get_editor_component() is None
 
 
-def test_dispatch_editor_text_helpers_are_headless_noops(tmp_path: Path) -> None:
+def test_dispatch_snake_case_editor_text_helpers_are_headless_noops(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(
         workspace,
@@ -476,6 +516,37 @@ def test_dispatch_editor_text_helpers_are_headless_noops(tmp_path: Path) -> None
         "        ctx.ui.notify('text=' + ctx.ui.get_editor_text())\n"
         "        ctx.ui.set_editor_text('ignored')\n"
         "        ctx.ui.paste_to_editor('ignored')\n"
+        "    api.register_command('edit-ui', 'edit ui', edit)\n",
+    )
+    driver = _FakeEditorUiDriver("draft")
+
+    dispatch = dispatch_extension_command(
+        "/edit-ui hello",
+        _command_map(workspace),
+        cwd=str(workspace),
+        has_ui=False,
+        ui_driver=driver,
+    )
+
+    assert dispatch is not None
+    assert dispatch.ran is True
+    assert dispatch.messages == (("info", "text="),)
+    assert driver.text == "draft"
+    assert driver.pasted == []
+
+
+def test_dispatch_camelcase_editor_text_helpers_are_headless_noops(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "editui",
+        "def activate(api):\n"
+        "    def edit(ctx, args):\n"
+        "        ctx.ui.notify('text=' + ctx.ui.getEditorText())\n"
+        "        ctx.ui.setEditorText('ignored')\n"
+        "        ctx.ui.pasteToEditor('ignored')\n"
         "    api.register_command('edit-ui', 'edit ui', edit)\n",
     )
     driver = _FakeEditorUiDriver("draft")

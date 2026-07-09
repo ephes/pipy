@@ -1105,9 +1105,15 @@ class ExtensionUi(Protocol):
 
     def get_editor_text(self) -> str: ...
 
+    def getEditorText(self) -> str: ...
+
     def set_editor_text(self, text: str) -> None: ...
 
+    def setEditorText(self, text: str) -> None: ...
+
     def paste_to_editor(self, text: str) -> None: ...
+
+    def pasteToEditor(self, text: str) -> None: ...
 
     @property
     def theme(self) -> ChromePalette: ...
@@ -1556,6 +1562,9 @@ class _CollectingUi:
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return ""
 
+    def getEditorText(self) -> str:
+        return self.get_editor_text()
+
     def set_editor_text(self, text: str) -> None:
         """Replace the live core editor text when a product TUI is available."""
         if self._ui_driver is None or not self.has_ui:
@@ -1565,6 +1574,9 @@ class _CollectingUi:
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             pass
 
+    def setEditorText(self, text: str) -> None:
+        self.set_editor_text(text)
+
     def paste_to_editor(self, text: str) -> None:
         """Paste text into the live core editor when a product TUI is available."""
         if self._ui_driver is None or not self.has_ui:
@@ -1573,6 +1585,9 @@ class _CollectingUi:
             self._ui_driver.paste_to_editor(str(text))
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             pass
+
+    def pasteToEditor(self, text: str) -> None:
+        self.paste_to_editor(text)
 
     def add_autocomplete_provider(self, factory: object) -> None:
         """Stack an editor autocomplete provider wrapper on the live TUI."""

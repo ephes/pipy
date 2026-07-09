@@ -8,6 +8,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Extension UI editor text helpers now expose Pi-canonical camelCase aliases:
+  `ctx.ui.getEditorText()`, `ctx.ui.setEditorText(text)`, and
+  `ctx.ui.pasteToEditor(text)`. The existing snake_case helpers remain
+  available as Python convenience aliases.
 - Rich extension custom-message renderers now refresh their existing TUI block when the live tool-output expanded flag changes, matching Pi's `MessageRenderer(..., { expanded })` behavior without persisting rendered rows.
 - Live custom editor components now receive Pi-shaped app-action delegation:
   keybinding specs, model/thinking/tool/follow-up handlers, Escape/Ctrl-D and
@@ -135,9 +139,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - feat(extension-api): editor text helpers for command/shortcut contexts.
   Extensions can read the core prompt buffer, replace it, or paste literal text
   at the current cursor via `ctx.ui.get_editor_text()`,
-  `ctx.ui.set_editor_text(text)`, and `ctx.ui.paste_to_editor(text)`, mirroring
-  Pi's `getEditorText`, `setEditorText`, and `pasteToEditor`. Headless reads
-  return `""`; headless writes and pastes no-op deterministically.
+  `ctx.ui.set_editor_text(text)`, and `ctx.ui.paste_to_editor(text)`. Headless
+  reads return `""`; headless writes and pastes no-op deterministically.
 - feat(extension-api): theme controls for command/shortcut contexts (rich-UI
   item E). Extensions can read and switch the chrome theme via `ctx.ui.theme`
   (the active `ChromePalette`), `ctx.ui.get_all_themes()` (`{"name", "path"}`
