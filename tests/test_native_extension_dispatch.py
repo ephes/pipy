@@ -282,7 +282,9 @@ def test_dispatch_exposes_snake_case_editor_text_helpers_to_live_ui(
         "    def edit(ctx, args):\n"
         "        ctx.ui.notify(ctx.ui.get_editor_text())\n"
         "        ctx.ui.set_editor_text('set:' + args)\n"
+        "        ctx.ui.notify(ctx.ui.get_editor_text())\n"
         "        ctx.ui.paste_to_editor('paste:' + args)\n"
+        "        ctx.ui.notify(ctx.ui.get_editor_text())\n"
         "    api.register_command('edit-ui', 'edit ui', edit)\n",
     )
     driver = _FakeEditorUiDriver("draft")
@@ -297,7 +299,11 @@ def test_dispatch_exposes_snake_case_editor_text_helpers_to_live_ui(
 
     assert dispatch is not None
     assert dispatch.ran is True
-    assert dispatch.messages == (("info", "draft"),)
+    assert dispatch.messages == (
+        ("info", "draft"),
+        ("info", "set:hello"),
+        ("info", "paste:hello"),
+    )
     assert driver.editor_calls == [("set", "set:hello"), ("paste", "paste:hello")]
     assert driver.pasted == ["paste:hello"]
     assert driver.text == "paste:hello"
@@ -314,7 +320,9 @@ def test_dispatch_exposes_camelcase_editor_text_helpers_to_live_ui(
         "    def edit(ctx, args):\n"
         "        ctx.ui.notify(ctx.ui.getEditorText())\n"
         "        ctx.ui.setEditorText('set:' + args)\n"
+        "        ctx.ui.notify(ctx.ui.getEditorText())\n"
         "        ctx.ui.pasteToEditor('paste:' + args)\n"
+        "        ctx.ui.notify(ctx.ui.getEditorText())\n"
         "    api.register_command('edit-ui', 'edit ui', edit)\n",
     )
     driver = _FakeEditorUiDriver("draft")
@@ -329,7 +337,11 @@ def test_dispatch_exposes_camelcase_editor_text_helpers_to_live_ui(
 
     assert dispatch is not None
     assert dispatch.ran is True
-    assert dispatch.messages == (("info", "draft"),)
+    assert dispatch.messages == (
+        ("info", "draft"),
+        ("info", "set:hello"),
+        ("info", "paste:hello"),
+    )
     assert driver.editor_calls == [("set", "set:hello"), ("paste", "paste:hello")]
     assert driver.pasted == ["paste:hello"]
     assert driver.text == "paste:hello"
