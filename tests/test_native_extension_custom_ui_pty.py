@@ -353,13 +353,13 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
 def test_pty_extension_shortcut_returns_sentinel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # A registered extension shortcut key (ctrl-g) decoded by read_line returns
+    # A registered extension shortcut key decoded by read_line returns
     # the HOTKEY_EXTENSION_SHORTCUT sentinel the session dispatches.
     from pipy_harness.native.tui import HOTKEY_EXTENSION_SHORTCUT_PREFIX
 
     monkeypatch.setenv("TERM", "xterm-256color")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
-    ui.extension_shortcut_keys = frozenset({"ctrl-g"})
+    ui.extension_shortcut_keys = frozenset({"ctrl-x"})
     result: list[str] = []
 
     def _run() -> None:
@@ -369,9 +369,9 @@ def test_pty_extension_shortcut_returns_sentinel(
     worker.start()
     try:
         time.sleep(0.2)
-        os.write(in_master, b"\x07")  # Ctrl+G
+        os.write(in_master, b"\x18")  # Ctrl+X
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "read_line did not return on shortcut"
     finally:
         _teardown(stdin, terminal, in_master, err_master, err_thread)
-    assert result == [f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-g\n"]
+    assert result == [f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-x\n"]

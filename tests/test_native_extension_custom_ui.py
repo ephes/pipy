@@ -247,6 +247,57 @@ def test_extension_editor_component_cancels() -> None:
     assert result == [None]
 
 
+def test_extension_editor_component_uses_resolved_external_editor_key() -> None:
+    result: list[object] = []
+    calls: list[str] = []
+
+    def external_editor(text: str) -> str:
+        calls.append(text)
+        return "edited"
+
+    component = _ExtensionEditorComponent(
+        "Draft",
+        "prefill",
+        lambda value=None: result.append(value),
+        external_editor,
+        ("ctrl+x",),
+    )
+
+    rendered = "\n".join(component.render(80))
+    assert "ctrl-x external edit" in rendered
+
+    component.handle_input("ctrl-g")
+    assert component.text == "prefill"
+    assert calls == []
+
+    component.handle_input("ctrl-x")
+    assert component.text == "edited"
+    assert calls == ["prefill"]
+
+
+def test_extension_editor_component_hides_external_editor_hint_when_unbound() -> None:
+    calls: list[str] = []
+
+    def external_editor(text: str) -> str:
+        calls.append(text)
+        return "edited"
+
+    component = _ExtensionEditorComponent(
+        "Draft",
+        "prefill",
+        lambda value=None: None,
+        external_editor,
+        (),
+    )
+
+    rendered = "\n".join(component.render(80))
+    assert "external edit" not in rendered
+
+    component.handle_input("ctrl-g")
+    assert component.text == "prefill"
+    assert calls == []
+
+
 def test_collecting_ui_custom_delegates_to_driver() -> None:
     captured: dict[str, object] = {}
 

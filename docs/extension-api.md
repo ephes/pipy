@@ -42,9 +42,12 @@ expansion controls also ship for command/shortcut contexts:
 expansion state, and `ctx.ui.set_tools_expanded(...)` / `setToolsExpanded(...)`
 set it; headless contexts match Pi RPC by returning `False` and no-oping writes.
 The extension
-editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from
-Ctrl+G. Raw terminal input subscriptions ship for live product-TUI command/
-shortcut contexts via `ctx.ui.on_terminal_input(handler)` /
+editor also supports Pi's `$VISUAL`/`$EDITOR` external-editor handoff from the
+resolved `app.editor.external` keybinding, default Ctrl+G; that default binding
+is reserved from extension shortcuts, so translated extensions must not register
+Ctrl+G. Ctrl+G remains reserved even when a user rebinds `app.editor.external`
+to another key. Raw terminal input subscriptions ship for live product-TUI command/shortcut contexts via
+`ctx.ui.on_terminal_input(handler)` /
 `ctx.ui.onTerminalInput(handler)`: handlers see decoded key strings before
 built-in editor handling, may consume or replace them, and receive an
 idempotent disposer; headless contexts return a no-op disposer like Pi RPC.
@@ -301,6 +304,8 @@ class PipyExtensionAPI(Protocol):
         handler: Callable[["ShortcutContext"], object],
         description: str | None = None,
     ) -> None: ...
+    # Shortcuts may not shadow core editor/app bindings; default Ctrl-G is
+    # reserved for app.editor.external / external-editor handoff.
 
     def register_flag(self, flag: "ExtensionFlag") -> None: ...
 
@@ -542,8 +547,11 @@ so Pi extensions translate naturally:
   `select(title, options) -> str | None`,
   `input(title, placeholder) -> str | None`, and a multi-line
   `editor(title, prefill) -> str | None`. These simple command/shortcut
-  primitives now ship; `editor` also supports Pi's Ctrl+G `$VISUAL`/`$EDITOR`
-  external-editor handoff in interactive TTY sessions.
+  primitives now ship; `editor` also supports Pi's `$VISUAL`/`$EDITOR`
+  external-editor handoff from the resolved `app.editor.external` keybinding
+  (default Ctrl+G) in interactive TTY sessions. Ctrl+G is a reserved app binding;
+  an extension that registers it as a shortcut is disabled rather than shadowing
+  the editor.
 - Status and indicators **(shipped for command/shortcut contexts)**:
   `set_status(key, text)`, working-message and working-indicator controls, and
   `ctx.ui.set_hidden_thinking_label(label=None)` /
@@ -1405,9 +1413,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     live factory, and `None` clears it. Headless contexts no-op and return
     `None`, matching Pi RPC. The live product TUI now calls the factory, routes
     keys, wires submit/change callbacks, forwards autocomplete, passes a
-    bounded keybinding/action adapter, wires delegated app-action handlers plus
-    special Escape/Ctrl-D/paste-image callbacks, and preserves text when
-    clearing. Ctrl-C remains outside the delegated handler map. Broader Pi
+    bounded keybinding/action adapter, wires delegated app-action handlers
+    including `app.editor.external` through the same `$VISUAL`/`$EDITOR` helper
+    as `ctx.ui.editor(...)`, plus special Escape/Ctrl-D/paste-image callbacks,
+    and preserves text when clearing. Ctrl-C remains outside the delegated handler map. Broader Pi
     component-library parity remains deferred.
 22. Extension UI theme controls — **landed for command/shortcut contexts**
     (rich-UI item E): `ctx.ui.theme` (current active `ChromePalette`),

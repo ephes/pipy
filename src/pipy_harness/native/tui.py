@@ -56,7 +56,12 @@ from pipy_harness.native.editor_completion import (
 from pipy_harness.native.extension_runtime import (
     FooterData,
     RegisteredMessageRenderer,
+    normalize_shortcut_key,
     render_extension_message,
+)
+from pipy_harness.native.keybindings import (
+    DEFAULT_KEYBINDINGS,
+    KeybindingsManager,
 )
 from pipy_harness.native.tool_renderers import (
     build_tool_render_theme,
@@ -500,17 +505,20 @@ class _ExtensionEditorComponent:
         prefill: str | None,
         done: Callable[..., None],
         external_editor: Callable[[str], str | None] | None = None,
+        external_editor_keys: Sequence[str] = ("ctrl+g",),
     ) -> None:
         self.title = title
         self.text = "" if prefill is None else str(prefill)
         self.cursor = len(self.text)
         self._done = done
         self._external_editor = external_editor
+        self._external_editor_keys = tuple(external_editor_keys)
 
     def render(self, width: int) -> list[str]:
         hint = "enter submit, shift/alt-enter newline, esc cancel"
-        if self._external_editor is not None:
-            hint += ", ctrl-g external editor"
+        if self._external_editor is not None and self._external_editor_keys:
+            key_hint = self._external_editor_keys[0].replace("+", "-")
+            hint += f", {key_hint} external edit"
         lines = [
             _clip_plain(
                 f" {sanitize_label_text(self.title)} - {hint}",
@@ -546,7 +554,10 @@ class _ExtensionEditorComponent:
         if key in {"shift-enter", "alt-enter"}:
             self._insert("\n")
             return
-        if key == "ctrl-g" and self._external_editor is not None:
+        if (
+            self._external_editor is not None
+            and _matches_key_specs(key, self._external_editor_keys)
+        ):
             edited = self._external_editor(self.text)
             if edited is not None:
                 self.text = edited
@@ -738,6 +749,56 @@ class _CustomOverlayHandle:
 
 
 _HistoryBlock = tuple[str, tuple[str, ...]]
+_USER_KEYBINDING_ACTIONS = frozenset({"app.editor.external"})
+
+
+def _canonical_key_spec(key: str) -> str:
+    normalized = normalize_shortcut_key(key)
+    parts = normalized.split("-")
+    modifiers: list[str] = []
+    index = 0
+    while index < len(parts) - 1 and parts[index] in {"shift", "ctrl", "alt", "meta"}:
+        modifiers.append(parts[index])
+        index += 1
+    base = "-".join(parts[index:])
+    return "+".join([*modifiers, base]) if modifiers else base
+
+
+def _default_keys_for_action(action: str) -> tuple[str, ...]:
+    if action == "app.clipboard.pasteImage" and sys.platform == "win32":
+        return ("alt+v",)
+    default = DEFAULT_KEYBINDINGS.get(action)
+    return tuple(default.default_keys) if default is not None else ()
+
+
+def _resolved_key_specs(
+    action: str, keybindings_manager: KeybindingsManager | None
+) -> list[str]:
+    if (
+        keybindings_manager is not None
+        and action in _USER_KEYBINDING_ACTIONS
+        and action in DEFAULT_KEYBINDINGS
+    ):
+        if keybindings_manager.has_user_binding(action):
+            return [
+                _canonical_key_spec(key)
+                for key in keybindings_manager.keys_for(action)
+            ]
+    return [_canonical_key_spec(key) for key in _default_keys_for_action(action)]
+
+
+def _matches_key_specs(key: str, specs: Sequence[str]) -> bool:
+    normalized = normalize_shortcut_key(key)
+    aliases = {
+        candidate
+        for spec in specs
+        if (candidate := normalize_shortcut_key(spec))
+    }
+    if "escape" in aliases:
+        aliases.add("esc")
+    if "esc" in aliases:
+        aliases.add("escape")
+    return bool(normalized) and normalized in aliases
 
 
 class _CustomEditorKeybindings:
@@ -748,36 +809,6 @@ class _CustomEditorKeybindings:
     while aliases accept pipy's decoded ``ctrl-p`` live events.
     """
 
-    _ACTION_KEYS: Mapping[str, tuple[str, ...]] = {
-        "app.interrupt": ("escape",),
-        "app.exit": ("ctrl+d",),
-        "app.thinking.cycle": ("shift+tab",),
-        "app.model.cycleForward": ("ctrl+p",),
-        "app.model.cycleBackward": ("shift+ctrl+p",),
-        "app.model.select": ("ctrl+l",),
-        "app.tools.expand": ("ctrl+o",),
-        "app.thinking.toggle": ("ctrl+t",),
-        "app.message.followUp": ("alt+enter",),
-        "app.message.dequeue": ("alt+up",),
-        "app.clipboard.pasteImage": (
-            ("alt+v",) if sys.platform == "win32" else ("ctrl+v",)
-        ),
-    }
-    _ALIASES: Mapping[str, tuple[str, ...]] = {
-        "app.interrupt": ("esc",),
-        "app.exit": ("ctrl-d",),
-        "app.thinking.cycle": ("shift-tab",),
-        "app.model.cycleForward": ("ctrl-p",),
-        "app.model.cycleBackward": ("shift-ctrl-p", "ctrl+shift+p"),
-        "app.model.select": ("ctrl-l",),
-        "app.tools.expand": ("ctrl-o",),
-        "app.thinking.toggle": ("ctrl-t",),
-        "app.message.followUp": ("alt-enter",),
-        "app.message.dequeue": ("alt-up",),
-        "app.clipboard.pasteImage": (
-            ("alt-v",) if sys.platform == "win32" else ("ctrl-v",)
-        ),
-    }
     _HANDLER_ACTIONS: tuple[str, ...] = (
         "app.interrupt",
         "app.exit",
@@ -787,12 +818,18 @@ class _CustomEditorKeybindings:
         "app.model.select",
         "app.tools.expand",
         "app.thinking.toggle",
+        "app.editor.external",
         "app.message.followUp",
         "app.message.dequeue",
     )
 
-    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
+    def __init__(
+        self,
+        ui: "ToolLoopTerminalUi",
+        keybindings_manager: KeybindingsManager | None = None,
+    ) -> None:
         self._ui = ui
+        self._keybindings_manager = keybindings_manager
         self.action_handlers: dict[str, Callable[[], object]] = {}
         for action in self._HANDLER_ACTIONS:
             self.action_handlers[action] = self._handler_for(action)
@@ -806,12 +843,10 @@ class _CustomEditorKeybindings:
         return handler
 
     def keys_for(self, action: str) -> list[str]:
-        return list(self._ACTION_KEYS.get(action, ()))
+        return _resolved_key_specs(action, self._keybindings_manager)
 
     def matches(self, key: str, action: str) -> bool:
-        return key in self._ACTION_KEYS.get(action, ()) or key in self._ALIASES.get(
-            action, ()
-        )
+        return _matches_key_specs(key, self.keys_for(action))
 
     def matches_action(self, key: str, action: str) -> bool:
         return self.matches(key, action)
@@ -1033,6 +1068,7 @@ class ToolLoopTerminalUi:
     _last_painted_size: tuple[int, int] = (0, 0)
     _prev_winch_handler: Any = None
     _bracketed_paste_active: bool = False
+    keybindings_manager: KeybindingsManager | None = None
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -1129,6 +1165,17 @@ class ToolLoopTerminalUi:
                 if key == "ctrl-d":
                     if not self.input_text:
                         return ""
+                    continue
+                if self._matches_keybinding(key, "app.editor.external"):
+                    edited = self._run_configured_external_editor(self.input_text)
+                    if edited is not None:
+                        self._snapshot_for_undo()
+                        self._reset_history_nav()
+                        self.input_text = edited
+                        self.input_cursor = len(edited)
+                        self.slash_menu_open = False
+                        self._close_autocomplete()
+                    self.paint()
                     continue
                 if key in {"ctrl-p", "shift-ctrl-p"}:
                     # app.model.cycleForward (ctrl+p) / cycleBackward
@@ -1816,7 +1863,7 @@ class ToolLoopTerminalUi:
             component = factory(
                 self,
                 chrome_style_for(self.terminal_stream),
-                _CustomEditorKeybindings(self),
+                _CustomEditorKeybindings(self, self.keybindings_manager),
             )
         except (KeyboardInterrupt, SystemExit):
             raise
@@ -2028,6 +2075,14 @@ class ToolLoopTerminalUi:
                 return HOTKEY_TOGGLE_TOOLS
             if action == "app.thinking.toggle":
                 return HOTKEY_TOGGLE_THINKING
+            if action == "app.editor.external":
+                edited = self._run_configured_external_editor(
+                    self._custom_editor_text()
+                )
+                if edited is not None:
+                    self._set_custom_editor_text(edited)
+                self.paint()
+                return None
             if action == "app.message.followUp":
                 text = self._custom_editor_text()
                 if text.strip():
@@ -2403,9 +2458,12 @@ class ToolLoopTerminalUi:
         """Run a Pi-shaped extension multi-line editor overlay."""
 
         external_editor = self._extension_external_editor_callback()
+        external_editor_keys = _resolved_key_specs(
+            "app.editor.external", self.keybindings_manager
+        )
         result = self.run_custom_component(
             lambda done: _ExtensionEditorComponent(
-                str(title), prefill, done, external_editor
+                str(title), prefill, done, external_editor, external_editor_keys
             )
         )
         return result if isinstance(result, str) else None
@@ -2413,14 +2471,29 @@ class ToolLoopTerminalUi:
     def _extension_external_editor_callback(
         self,
     ) -> Callable[[str], str | None] | None:
-        editor_cmd = os.environ.get("VISUAL") or os.environ.get("EDITOR")
-        if not editor_cmd:
+        if not self._external_editor_command():
             return None
 
         def run_external_editor(current_text: str) -> str | None:
-            return self._run_extension_external_editor(editor_cmd, current_text)
+            return self._run_configured_external_editor(current_text)
 
         return run_external_editor
+
+    @staticmethod
+    def _external_editor_command() -> str | None:
+        return os.environ.get("VISUAL") or os.environ.get("EDITOR")
+
+    def _run_configured_external_editor(self, current_text: str) -> str | None:
+        editor_cmd = self._external_editor_command()
+        if not editor_cmd:
+            return None
+        return self._run_extension_external_editor(editor_cmd, current_text)
+
+    def _matches_keybinding(self, key: str, action: str) -> bool:
+        return _matches_key_specs(
+            key,
+            _resolved_key_specs(action, self.keybindings_manager),
+        )
 
     def _run_extension_external_editor(
         self, editor_cmd: str, current_text: str

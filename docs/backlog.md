@@ -1516,13 +1516,28 @@ semantics and bounded app-action delegation: live
 `ctx.ui.getEditorComponent()` now returns the configured factory even when
 construction fails soft or produces no active component; custom editors receive
 Pi-style keybinding specs, special `onEscape`/`onCtrlD`/`onPasteImage`
-callbacks, delegated model/thinking/tool/follow-up handlers, draft preservation,
-and Ctrl-C remains outside the delegated handler map. Non-lifecycle extension
+callbacks, delegated model/thinking/tool/follow-up/external-editor handlers
+(`app.editor.external` through `$VISUAL`/`$EDITOR`), draft preservation, and
+Ctrl-C remains outside the delegated handler map. Non-lifecycle extension
 hooks now receive the live product-TUI UI driver too, so their Pi-shaped
 chrome/editor calls paint immediately while headless contexts stay no-op. The
 next small follow-on remains custom editor/component-library parity beyond the
 landed live `setEditorComponent` integration and bounded
 `ctx.ui.custom(..., options)` overlay path.
+
+Keybinding follow-on: `app.editor.external` now honors `keybindings.json` in
+the built-in editor, custom editor, and `ctx.ui.editor(...)` overlay paths, but
+the rest of the built-in prompt hotkeys (`app.model.*`, `app.tools.expand`,
+`app.thinking.*`) still use the legacy hard-coded read-loop branches. Dynamic
+extension-shortcut reservation for user-rebound app keys is also deferred. Until
+that lands, a user who rebinds `app.editor.external` away from Ctrl-G still
+cannot give Ctrl-G to an extension, and startup warns if the rebound key is also
+registered by an extension shortcut because the live editor action wins. If
+`app.editor.external` is rebound onto one of the still hard-coded built-in prompt
+hotkeys, the external-editor action takes precedence over that hard-coded branch
+in the built-in editor. A broader keybinding pass should make built-in prompt
+hotkeys, custom editor adapters, and extension shortcut reservation resolve from
+one action/key table with explicit conflict precedence.
 
 Keep this slice focused on one Pi-shaped editor/component API increment. Do not
 reopen completed rich-message, chrome `requestRender`, footer branch-change,

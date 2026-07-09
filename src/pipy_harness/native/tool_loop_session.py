@@ -205,6 +205,7 @@ from pipy_harness.native.extension_runtime import (
     extension_unregistered_providers,
     is_valid_custom_entry_type,
     make_extension_context,
+    normalize_shortcut_key,
     parse_extension_flag_tokens,
     render_extension_message,
     safe_custom_entry_data,
@@ -1461,10 +1462,27 @@ class NativeToolReplSession:
             workspace=cwd,
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
+            keybindings_manager=keybindings,
             extension_menu_names=extension_menu_names,
             extension_descriptions=extension_descriptions,
             extension_shortcut_keys=frozenset(_ext_runtime.shortcuts),
         )
+        if terminal_ui is not None and keybindings.has_user_binding(
+            "app.editor.external"
+        ):
+            editor_keys = {
+                normalized
+                for key in keybindings.keys_for("app.editor.external")
+                if (normalized := normalize_shortcut_key(key))
+            }
+            shadowed_keys = sorted(editor_keys.intersection(_ext_runtime.shortcuts))
+            for key in shadowed_keys:
+                print(
+                    "pipy: extension shortcut "
+                    f"{key!r} is shadowed by app.editor.external; rebind the "
+                    "editor action or extension shortcut.",
+                    file=error_stream,
+                )
 
         # Live UI sink for extension `ctx.ui.notify` from hooks and tools:
         # notifications are emitted as local diagnostics (interactive) and
@@ -4275,6 +4293,7 @@ class NativeToolReplSession:
         extension_menu_names: tuple[str, ...] = (),
         extension_descriptions: dict[str, str] | None = None,
         extension_shortcut_keys: frozenset[str] = frozenset(),
+        keybindings_manager: KeybindingsManager | None = None,
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -4289,6 +4308,7 @@ class NativeToolReplSession:
                 resources, extension_descriptions
             ),
             autocomplete_max_visible=autocomplete_max_visible,
+            keybindings_manager=keybindings_manager,
             extension_shortcut_keys=extension_shortcut_keys,
         )
 

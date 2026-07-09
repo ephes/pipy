@@ -14,9 +14,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   available as Python convenience aliases.
 - Rich extension custom-message renderers now refresh their existing TUI block when the live tool-output expanded flag changes, matching Pi's `MessageRenderer(..., { expanded })` behavior without persisting rendered rows.
 - Live custom editor components now receive Pi-shaped app-action delegation:
-  keybinding specs, model/thinking/tool/follow-up handlers, Escape/Ctrl-D and
-  paste-image callbacks, draft preservation, and Ctrl-C remains on the terminal
-  interrupt path.
+  keybinding specs, model/thinking/tool/follow-up handlers, external-editor
+  (`app.editor.external`) handoff, Escape/Ctrl-D and paste-image callbacks,
+  draft preservation, and Ctrl-C remains on the terminal interrupt path. The
+  built-in editor now also opens `$VISUAL`/`$EDITOR` from the resolved
+  `app.editor.external` binding, default Ctrl-G, as an undoable edit. The
+  default Ctrl-G editor binding is reserved from extension shortcuts; extensions
+  that still register Ctrl-G now fail activation as a reserved shortcut.
 
 
 ### Removed

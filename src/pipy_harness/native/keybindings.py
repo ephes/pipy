@@ -315,6 +315,11 @@ class KeybindingsManager:
             return
         self._user = load_keybindings_file(self._config_path)
 
+    def has_user_binding(self, action: str) -> bool:
+        """Whether ``action`` is explicitly present in user keybindings."""
+
+        return action in self._user
+
     def keys_for(self, action: str) -> list[str]:
         """Resolved key specs for ``action`` (user override, else default)."""
 

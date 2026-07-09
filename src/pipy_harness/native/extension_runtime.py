@@ -103,6 +103,12 @@ RESERVED_SHORTCUT_KEYS: frozenset[str] = frozenset(
         "ctrl-u",
         "ctrl-y",
         "ctrl-z",
+        # Pi reserves the default app.editor.external key. Dynamic reservation
+        # for user-rebound app.editor.external is deferred with the rest of the
+        # shortcut/keybindings integration; when a user binds the editor action
+        # to a key that an extension also registers, the live editor branch wins,
+        # while Ctrl-G remains reserved even if the user moves the editor action.
+        "ctrl-g",
         "ctrl-o",
         "ctrl-p",
         "ctrl-t",

@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import io
 import os
+import shlex
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.native.clipboard import ImageClipboardResult
+from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsManager
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_SELECT,
     HOTKEY_THINKING_CYCLE,
     ToolLoopTerminalUi,
+    _CustomEditorKeybindings,
 )
 
 
@@ -176,6 +180,7 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
+
     def factory(tui: object, theme: object, keybindings: object) -> _CamelActionCustomEditor:
         del tui, theme
         component.keybindings = keybindings
@@ -714,3 +719,426 @@ def test_custom_editor_component_ignores_non_callable_factory(tmp_path: Path) ->
     ui.set_editor_component(object())
 
     assert ui.get_editor_component() is None
+
+
+def test_custom_editor_keybindings_include_external_editor_and_overrides(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    default = ui.keybindings_manager = KeybindingsManager()
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    assert component.keybindings is not None
+    assert "app.editor.external" in component.action_handlers
+    assert getattr(component.keybindings, "keys_for")("app.editor.external") == [
+        "ctrl+g"
+    ]
+    assert getattr(component.keybindings, "matches")("ctrl+g", "app.editor.external")
+    assert getattr(component.keybindings, "matches")("ctrl-g", "app.editor.external")
+
+    ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
+    component = _CustomEditor()
+
+    def override_factory(
+        tui: object, theme: object, keybindings: object
+    ) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(override_factory)
+
+    assert component.keybindings is not None
+    assert default.keys_for("app.editor.external") == ["ctrl+g"]
+    assert getattr(component.keybindings, "keys_for")("app.editor.external") == [
+        "ctrl+x"
+    ]
+    assert getattr(component.keybindings, "matches")("ctrl+x", "app.editor.external")
+    assert getattr(component.keybindings, "matches")("ctrl-x", "app.editor.external")
+    assert not getattr(component.keybindings, "matches")(
+        "ctrl-g", "app.editor.external"
+    )
+
+    ui.keybindings_manager = KeybindingsManager({"app.editor.external": []})
+    component = _CustomEditor()
+    ui.set_editor_component(override_factory)
+    assert component.keybindings is not None
+    assert getattr(component.keybindings, "keys_for")("app.editor.external") == []
+    assert not getattr(component.keybindings, "matches")(
+        "ctrl-g", "app.editor.external"
+    )
+
+
+def test_custom_editor_keybindings_manager_preserves_other_default_actions(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    ui.keybindings_manager = KeybindingsManager(
+        {
+            "app.editor.external": "ctrl+x",
+            "app.model.cycleForward": "ctrl+y",
+        }
+    )
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    assert component.keybindings is not None
+    assert getattr(component.keybindings, "keys_for")("app.model.cycleForward") == [
+        "ctrl+p"
+    ]
+    assert getattr(component.keybindings, "matches")(
+        "ctrl-p", "app.model.cycleForward"
+    )
+    assert not getattr(component.keybindings, "matches")(
+        "ctrl-y", "app.model.cycleForward"
+    )
+    assert getattr(component.keybindings, "keys_for")("app.thinking.cycle") == [
+        "shift+tab"
+    ]
+    assert getattr(component.keybindings, "matches")("shift-tab", "app.thinking.cycle")
+    paste_key = "alt+v" if sys.platform == "win32" else "ctrl+v"
+    paste_decoded = "alt-v" if sys.platform == "win32" else "ctrl-v"
+    assert getattr(component.keybindings, "keys_for")("app.clipboard.pasteImage") == [
+        paste_key
+    ]
+    assert getattr(component.keybindings, "matches")(
+        paste_decoded, "app.clipboard.pasteImage"
+    )
+
+
+def test_custom_editor_keybindings_manager_matches_all_default_action_aliases(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    ui.keybindings_manager = KeybindingsManager()
+    component = _CustomEditor()
+
+    def factory(tui: object, theme: object, keybindings: object) -> _CustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    ui.set_editor_component(factory)
+
+    assert component.keybindings is not None
+    expected = {
+        "app.interrupt": ("esc", "escape"),
+        "app.exit": ("ctrl-d", "ctrl+d"),
+        "app.thinking.cycle": ("shift-tab", "shift+tab"),
+        "app.model.cycleForward": ("ctrl-p", "ctrl+p"),
+        "app.model.cycleBackward": ("shift-ctrl-p", "shift+ctrl+p"),
+        "app.model.select": ("ctrl-l", "ctrl+l"),
+        "app.tools.expand": ("ctrl-o", "ctrl+o"),
+        "app.thinking.toggle": ("ctrl-t", "ctrl+t"),
+        "app.editor.external": ("ctrl-g", "ctrl+g"),
+        "app.message.followUp": ("alt-enter", "alt+enter"),
+        "app.message.dequeue": ("alt-up", "alt+up"),
+    }
+    for action, (decoded_key, spec) in expected.items():
+        assert getattr(component.keybindings, "keys_for")(action) == [spec], action
+        assert getattr(component.keybindings, "matches")(decoded_key, action), action
+    assert getattr(component.keybindings, "matches")(
+        "ctrl+shift+p", "app.model.cycleBackward"
+    )
+
+
+def test_custom_editor_keybinding_actions_exist_in_default_table() -> None:
+    actions = (*_CustomEditorKeybindings._HANDLER_ACTIONS, "app.clipboard.pasteImage")
+
+    assert all(action in DEFAULT_KEYBINDINGS for action in actions)
+
+
+def test_custom_editor_external_editor_action_updates_draft_on_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    input_file: TextIO
+    terminal_file: TextIO
+    component = _CamelActionCustomEditor()
+
+    def handle_input(key: str) -> None:
+        assert component.keybindings is not None
+        if getattr(component.keybindings, "matches")(key, "app.editor.external"):
+            handler = component.actionHandlers["app.editor.external"]
+            assert callable(handler)
+            handler()
+
+    editor = tmp_path / "fake-editor.py"
+    editor.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "path = Path(sys.argv[1])\n"
+        "text = path.read_text(encoding='utf-8')\n"
+        "path.write_text('edited:' + text, encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv(
+        "EDITOR", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    paints: list[str] = []
+    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: paints.append("paint"))
+
+    def factory(
+        tui: object, theme: object, keybindings: object
+    ) -> _CamelActionCustomEditor:
+        del tui, theme
+        component.keybindings = keybindings
+        return component
+
+    with (
+        open(os.devnull, "r", encoding="utf-8") as input_file,
+        open(os.devnull, "w", encoding="utf-8") as terminal_file,
+    ):
+        ui = ToolLoopTerminalUi(
+            input_stream=cast(TextIO, input_file),
+            terminal_stream=cast(TextIO, terminal_file),
+            cwd=tmp_path,
+        )
+        ui.set_input_text("seed")
+        component.handle_input = handle_input  # type: ignore[method-assign]
+        ui.set_editor_component(factory)
+        assert ui._handle_custom_editor_key("ctrl-g") is None
+        assert component.get_text() == "edited:seed"
+        assert ui.get_input_text() == "edited:seed"
+        assert ui._custom_editor_submitted is None
+        assert paints
+
+
+def test_custom_editor_external_editor_action_preserves_draft_without_editor(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ui = _ui(tmp_path)
+    component = _CamelActionCustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "ctrl-g":
+            handler = component.actionHandlers["app.editor.external"]
+            assert callable(handler)
+            handler()
+
+    ui.set_input_text("seed")
+    component.handle_input = handle_input  # type: ignore[method-assign]
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.delenv("EDITOR", raising=False)
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+
+    assert ui._handle_custom_editor_key("ctrl-g") is None
+    assert component.get_text() == "seed"
+    assert ui.get_input_text() == "seed"
+    assert ui._custom_editor_submitted is None
+
+
+def test_custom_editor_external_editor_action_preserves_draft_on_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    input_file: TextIO
+    terminal_file: TextIO
+    component = _CamelActionCustomEditor()
+
+    def handle_input(key: str) -> None:
+        if key == "ctrl-g":
+            handler = component.actionHandlers["app.editor.external"]
+            assert callable(handler)
+            handler()
+
+    editor = tmp_path / "failing-editor.py"
+    editor.write_text(
+        "#!/usr/bin/env python3\nraise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "VISUAL", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: None)
+    with (
+        open(os.devnull, "r", encoding="utf-8") as input_file,
+        open(os.devnull, "w", encoding="utf-8") as terminal_file,
+    ):
+        ui = ToolLoopTerminalUi(
+            input_stream=cast(TextIO, input_file),
+            terminal_stream=cast(TextIO, terminal_file),
+            cwd=tmp_path,
+        )
+        ui.set_input_text("seed")
+        component.handle_input = handle_input  # type: ignore[method-assign]
+        ui.set_editor_component(lambda tui, theme, keybindings: component)
+        assert ui._handle_custom_editor_key("ctrl-g") is None
+        assert component.get_text() == "seed"
+        assert ui.get_input_text() == "seed"
+        assert ui._custom_editor_submitted is None
+
+
+def test_default_editor_external_editor_action_updates_draft_on_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    editor = tmp_path / "fake-editor.py"
+    editor.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "path = Path(sys.argv[1])\n"
+        "text = path.read_text(encoding='utf-8')\n"
+        "path.write_text('edited:' + text, encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv(
+        "EDITOR", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    keys: Iterator[str] = iter(("ctrl-g", "enter"))
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    with (
+        open(os.devnull, "r", encoding="utf-8") as input_file,
+        open(os.devnull, "w", encoding="utf-8") as terminal_file,
+    ):
+        ui = ToolLoopTerminalUi(
+            input_stream=cast(TextIO, input_file),
+            terminal_stream=cast(TextIO, terminal_file),
+            cwd=tmp_path,
+        )
+        ui._pending_initial_text = "seed"
+
+        assert ui.read_line("> ") == "edited:seed\n"
+
+
+def test_default_editor_external_editor_action_honors_empty_user_binding(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+    keys: Iterator[str] = iter(("ctrl-g", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    def run_editor(self: object, text: str) -> str:
+        del self
+        calls.append(text)
+        return "edited"
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "_run_configured_external_editor",
+        run_editor,
+    )
+
+    ui = _ui(tmp_path)
+    ui.keybindings_manager = KeybindingsManager({"app.editor.external": []})
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    ui._pending_initial_text = "seed"
+
+    assert ui.read_line("> ") == "seed\n"
+    assert calls == []
+
+
+def test_default_editor_external_editor_action_is_undoable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+    keys: Iterator[str] = iter(("ctrl-g", "ctrl-z", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    def run_editor(self: object, text: str) -> str:
+        del self
+        calls.append(text)
+        return "edited"
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "_run_configured_external_editor", run_editor)
+
+    ui = _ui(tmp_path)
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    ui._pending_initial_text = "seed"
+
+    assert ui.read_line("> ") == "seed\n"
+    assert calls == ["seed"]
+
+
+def test_default_editor_external_editor_action_honors_user_override(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+    keys: Iterator[str] = iter(("ctrl-x", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    def run_editor(self: object, text: str) -> str:
+        del self
+        calls.append(text)
+        return "edited"
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "_run_configured_external_editor",
+        run_editor,
+    )
+
+    ui = _ui(tmp_path)
+    ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    ui._pending_initial_text = "seed"
+
+    assert ui.read_line("> ") == "edited\n"
+    assert calls == ["seed"]
+
+
+def test_default_editor_external_editor_action_precedes_extension_shortcut(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+    keys: Iterator[str] = iter(("ctrl-x", "enter"))
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
+    )
+
+    def run_editor(self: object, text: str) -> str:
+        del self
+        calls.append(text)
+        return "edited"
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "_run_configured_external_editor",
+        run_editor,
+    )
+
+    ui = _ui(tmp_path)
+    ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
+    ui.extension_shortcut_keys = frozenset({"ctrl-x"})
+    monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
+    ui._pending_initial_text = "seed"
+
+    assert ui.read_line("> ") == "edited\n"
+    assert calls == ["seed"]

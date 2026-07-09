@@ -10,12 +10,21 @@ custom UI, notifications). Reserved built-in hotkeys and duplicates are refused
 
 from __future__ import annotations
 
+import re
+from io import StringIO
+from pathlib import Path
+
+from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.extension_runtime import (
+    RESERVED_SHORTCUT_KEYS,
     activate_extensions,
     dispatch_extension_shortcut,
     extension_shortcuts,
     normalize_shortcut_key,
 )
+from pipy_harness.native.keybindings import KeybindingsManager
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
+from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
 def test_normalize_canonicalizes_modifier_order() -> None:
@@ -40,6 +49,46 @@ def test_modifier_reordered_reserved_key_is_refused(tmp_path) -> None:
     activated = activate_extensions(descriptors)
     assert activated[0].status == "disabled"
     assert extension_shortcuts(activated) == {}
+
+
+def test_default_external_editor_shortcut_is_reserved(tmp_path) -> None:
+    # Pi reserves app.editor.external (default Ctrl+G) for the editor, so an
+    # extension shortcut must not shadow it.
+    _write_ext(
+        tmp_path,
+        "bad",
+        "def activate(api):\n"
+        "    api.register_shortcut('Ctrl+G', lambda ctx, args: None)\n",
+    )
+    from pipy_harness.native.extensions import discover_extensions
+
+    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    activated = activate_extensions(descriptors)
+    assert activated[0].status == "disabled"
+    assert extension_shortcuts(activated) == {}
+
+
+def test_shipped_examples_do_not_register_reserved_external_editor_shortcut() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    reserved_patterns = sorted(
+        re.escape(key).replace(r"\-", "[-+]") for key in RESERVED_SHORTCUT_KEYS
+    )
+    forbidden = re.compile(
+        r"register_?shortcut\s*\(\s*['\"](?:"
+        + "|".join(reserved_patterns)
+        + r")['\"]",
+        re.IGNORECASE,
+    )
+    offenders: list[str] = []
+    for base in (repo / "docs" / "examples" / "extensions", repo / "scripts"):
+        assert base.exists(), base
+        for path in base.rglob("*"):
+            if path.suffix not in {".py", ".sh"}:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if forbidden.search(text):
+                offenders.append(str(path.relative_to(repo)))
+    assert offenders == []
 
 
 def _write_ext(root, name: str, body: str) -> None:
@@ -85,7 +134,7 @@ def activate(api):
     def handler(ctx, args):
         msg = ctx.conversation.last_assistant_message()
         ctx.ui.notify("seen:" + (msg.text if msg else "none"), "info")
-    api.register_shortcut("ctrl-g", handler)
+    api.register_shortcut("ctrl-x", handler)
 """,
     )
     activated = _activate(tmp_path)
@@ -94,7 +143,7 @@ def activate(api):
     from pipy_harness.native.tools.messages import AssistantMessage
 
     dispatch = dispatch_extension_shortcut(
-        "ctrl-g",
+        "ctrl-x",
         shortcuts,
         cwd=str(tmp_path),
         has_ui=True,
@@ -211,7 +260,7 @@ def activate(api):
     def handler(ctx, args):
         ctx.ui.notify("SHORTCUT_NOTICE")
         api.send_user_message("SHORTCUT_PROMPT")
-    api.register_shortcut("ctrl-g", handler)
+    api.register_shortcut("ctrl-x", handler)
 """,
     )
     provider = _CapturingProvider()
@@ -219,7 +268,7 @@ def activate(api):
     error_stream = StringIO()
     result = session.run(
         workspace_root=tmp_path,
-        input_stream=StringIO(f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-g\n"),
+        input_stream=StringIO(f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-x\n"),
         output_stream=StringIO(),
         error_stream=error_stream,
     )
@@ -230,6 +279,55 @@ def activate(api):
     assert "SHORTCUT_NOTICE" in error_stream.getvalue()
 
 
+def test_rebound_external_editor_key_warns_when_extension_shortcut_shadowed(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "shadow",
+        """
+def activate(api):
+    api.register_shortcut("Ctrl+X", lambda ctx, args: None)
+""",
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    error_stream = StringIO()
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=StringIO(),
+        terminal_stream=error_stream,
+        cwd=tmp_path,
+    )
+
+    def read_line(self, prompt_label, *, footer=None):
+        del self, prompt_label, footer
+        return "/exit"
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        keybindings_manager=KeybindingsManager({"app.editor.external": "Ctrl+X"}),
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO(),
+        output_stream=StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert (
+        "extension shortcut 'ctrl-x' is shadowed by app.editor.external"
+        in error_stream.getvalue()
+    )
+
+
 def test_duplicate_shortcut_key_disables_second_extension(tmp_path) -> None:
     for name in ("aaa", "bbb"):
         _write_ext(
@@ -237,7 +335,7 @@ def test_duplicate_shortcut_key_disables_second_extension(tmp_path) -> None:
             name,
             """
 def activate(api):
-    api.register_shortcut("ctrl-g", lambda ctx, args: None)
+    api.register_shortcut("ctrl-x", lambda ctx, args: None)
 """,
         )
     activated = _activate(tmp_path)
@@ -245,4 +343,4 @@ def activate(api):
     # First (sorted) keeps the binding; the second is disabled as a duplicate.
     assert statuses["aaa"] == "activated"
     assert statuses["bbb"] == "disabled"
-    assert set(extension_shortcuts(activated)) == {"ctrl-g"}
+    assert set(extension_shortcuts(activated)) == {"ctrl-x"}
