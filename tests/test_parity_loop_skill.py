@@ -154,6 +154,12 @@ IMPROVE_REQUIRED_TOKENS = (
     "Never delegate the review",
 )
 
+FD_PRESSURE_GATE_TOKENS = (
+    "Too many open files",
+    "ulimit -n 4096; just check",
+    "flaky PTY test",
+)
+
 
 def test_improve_body_exists() -> None:
     assert IMPROVE_BODY.is_file(), f"missing improve body: {IMPROVE_BODY}"
@@ -169,6 +175,13 @@ def test_improve_body_has_no_placeholders() -> None:
     text = IMPROVE_BODY.read_text(encoding="utf-8")
     found = [tok for tok in PLACEHOLDER_TOKENS if tok in text]
     assert not found, f"improve body contains placeholder tokens: {found}"
+
+
+@pytest.mark.parametrize("body", (BODY, IMPROVE_BODY), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_gate_steps_cover_fd_pressure_retry(body: Path) -> None:
+    text = body.read_text(encoding="utf-8")
+    missing = [tok for tok in FD_PRESSURE_GATE_TOKENS if tok not in text]
+    assert not missing, f"{body.relative_to(REPO_ROOT)} lacks gate retry tokens: {missing}"
 
 
 IMPROVE_WRAPPERS = (

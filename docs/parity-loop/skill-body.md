@@ -260,9 +260,17 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    source.
 7. **Code-review loop until CLEAN (over the complete diff).** Each iteration: run
    `just check` (and `prek run --all-files` only if a `.pre-commit-config.yaml`
-   is present — `just check` is pipy's real gate; `pre-commit` is not installed),
-   and only when green run the different-family review over the **full diff —
-   code and docs together**. The reviewer must be a single direct fresh context:
+   is present — `just check` is pipy's real gate; `pre-commit` is not installed).
+   If full `just check` fails on macOS with `Too many open files` after focused
+   tests have passed, first check whether the diff touches fd-owning areas such
+   as PTY, subprocess, socket, file-handle, or resource-management code; if it
+   does, treat the failure as a real regression until disproven. Otherwise retry
+   the unchanged gate with a raised descriptor limit such as
+   `ulimit -n 4096; just check` before treating it as a code failure; still rerun
+   any individually reported flaky PTY test to distinguish environmental
+   pressure from a real regression. Only when green, run the
+   different-family review over the **full diff — code and docs together**. The
+   reviewer must be a single direct fresh context:
    no subagents, `Agent` tool, Task-style delegation, or parallel reviewer fanout.
    On an ISSUES verdict, fix and **return to the top of
    this iteration** (re-run `just check` and prek before the next review), so
