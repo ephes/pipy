@@ -580,13 +580,17 @@ so Pi extensions translate naturally:
   live getter returns the configured factory even when construction fails soft or
   returns no active component, matching Pi's stored-factory semantics. Broader Pi
   component-library parity remains deferred.
-- Custom overlays **(bounded options shipped)**: a focused custom component with
-  keyboard focus, mirroring Pi's `custom(...)` overlay. The live product TUI
-  accepts `custom(factory, options=None)` with Pi-shaped `overlay`,
+- Custom overlays **(bounded options + handle shipped)**: a focused custom
+  component with keyboard focus, mirroring Pi's `custom(...)` overlay. The live
+  product TUI accepts `custom(factory, options=None)` with Pi-shaped `overlay`,
   `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle` fields; both
   overlay modes use pipy's existing inline overlay renderer in this bounded
   slice, while width hints, handle callbacks, dispose-on-close, and headless
-  no-construction behavior are covered.
+  no-construction behavior are covered. The handle exposes Pi-shaped `hide`,
+  `setHidden`, `isHidden`, `focus`, `unfocus`, and `isFocused`; in pipy's
+  single-overlay bounded path, hidden overlays skip render/input, unfocused
+  visible overlays keep rendering but skip input, and explicit `unfocus` targets
+  are accepted but ignored until a real overlay focus graph ships.
 - Tool-output expansion **(shipped)**: `ctx.ui.get_tools_expanded()` /
   `getToolsExpanded()` read the current live product-TUI expansion state, and
   `ctx.ui.set_tools_expanded(expanded)` / `setToolsExpanded(expanded)` set the
@@ -1463,8 +1467,12 @@ and the live `scripts/tmux_answer_verify.sh`.
     `should_trigger_file_completion`/`shouldTriggerFileCompletion`; and fail
     soft back to the built-in provider. Headless contexts accept the call as a
     deterministic no-op.
+    The bounded overlay handle now exposes Pi-shaped `hide`, `setHidden`,
+    `isHidden`, `focus`, `unfocus`, and `isFocused`; hidden overlays skip
+    render/input and unfocused visible overlays keep rendering but skip input.
     Deferred: broader custom editor component-library parity, a full custom
-    overlay stack/component library, and live per-frame component invalidation.
+    overlay stack/component library, target-aware overlay focus graph, and live
+    per-frame component invalidation.
 
 ## Open Questions
 

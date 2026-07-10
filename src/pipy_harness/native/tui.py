@@ -730,19 +730,63 @@ class _CustomOverlayHandle:
     def __init__(self, ui: "ToolLoopTerminalUi") -> None:
         self._ui = ui
 
+    def _paint(self) -> None:
+        try:
+            self._ui.paint()
+        except (OSError, ValueError):
+            pass
+
     def hide(self) -> None:
         if not self._ui._custom_done:
             self._ui._custom_done = True
             self._ui._custom_result = None
+            self._paint()
+
+    def setHidden(self, hidden: bool) -> None:  # noqa: N802 - Pi API
+        value = bool(hidden)
+        if self._ui._custom_overlay_hidden == value:
+            return
+        self._ui._custom_overlay_hidden = value
+        self._ui._custom_overlay_focused = not value
+        self._paint()
+
+    def set_hidden(self, hidden: bool) -> None:
+        self.setHidden(hidden)
+
+    def isHidden(self) -> bool:  # noqa: N802 - Pi API
+        return bool(self._ui._custom_overlay_hidden)
+
+    def is_hidden(self) -> bool:
+        return self.isHidden()
+
+    def focus(self) -> None:
+        changed = self._ui._custom_overlay_hidden or not self._ui._custom_overlay_focused
+        self._ui._custom_overlay_hidden = False
+        self._ui._custom_overlay_focused = True
+        if changed:
+            self._paint()
+
+    def unfocus(self, options: object = None) -> None:
+        # ``options.target`` is accepted for Pi-shaped duck typing. Pipy's
+        # bounded custom-component path has no overlay stack/focus graph yet,
+        # so there is no alternate target to focus in this slice.
+        del options
+        if not self._ui._custom_overlay_focused:
+            return
+        self._ui._custom_overlay_focused = False
+        self._paint()
+
+    def isFocused(self) -> bool:  # noqa: N802 - Pi API
+        return bool(self._ui._custom_overlay_focused and not self._ui._custom_overlay_hidden)
+
+    def is_focused(self) -> bool:
+        return self.isFocused()
 
     def update(self) -> None:
         self.requestRender()
 
     def requestRender(self) -> None:
-        try:
-            self._ui.paint()
-        except (OSError, ValueError):
-            pass
+        self._paint()
 
     def request_render(self) -> None:
         self.requestRender()
@@ -970,6 +1014,8 @@ class ToolLoopTerminalUi:
     custom_overlay_open: bool = False
     _custom_component: object | None = None
     _custom_component_render_width: int | None = None
+    _custom_overlay_hidden: bool = False
+    _custom_overlay_focused: bool = False
     _custom_done: bool = False
     _custom_result: object = None
     session_picker_open: bool = False
@@ -2322,6 +2368,8 @@ class ToolLoopTerminalUi:
 
         self._custom_done = False
         self._custom_result = None
+        self._custom_overlay_hidden = False
+        self._custom_overlay_focused = True
         previous_width = self._custom_component_render_width
         self._custom_component_render_width = self._custom_component_width(options)
 
@@ -2350,6 +2398,9 @@ class ToolLoopTerminalUi:
                     # component.
                     continue
                 try:
+                    if self._custom_overlay_hidden or not self._custom_overlay_focused:
+                        self.paint()
+                        continue
                     component.handle_input(key)  # type: ignore[attr-defined]
                 except (KeyboardInterrupt, SystemExit):
                     raise
@@ -2362,6 +2413,8 @@ class ToolLoopTerminalUi:
             self.custom_overlay_open = False
             self._custom_component = None
             self._custom_component_render_width = previous_width
+            self._custom_overlay_hidden = False
+            self._custom_overlay_focused = False
             dispose = getattr(component, "dispose", None)
             if callable(dispose):
                 try:
@@ -3054,6 +3107,8 @@ class ToolLoopTerminalUi:
         rendered lines before they reach the terminal frame.
         """
 
+        if self._custom_overlay_hidden:
+            return []
         component = self._custom_component
         if component is None:
             return []

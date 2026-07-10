@@ -1521,6 +1521,10 @@ callbacks, delegated model/thinking/tool/follow-up/external-editor handlers
 Ctrl-C remains outside the delegated handler map. Non-lifecycle extension
 hooks now receive the live product-TUI UI driver too, so their Pi-shaped
 chrome/editor calls paint immediately while headless contexts stay no-op. The
+bounded custom overlay handle slice has shipped too: `ctx.ui.custom(...,
+options)` `onHandle` callbacks now receive Pi-shaped `hide`, `setHidden`,
+`isHidden`, `focus`, `unfocus`, and `isFocused` methods, with hidden overlays
+skipping render/input and unfocused visible overlays skipping input only. The
 next small follow-on remains custom editor/component-library parity beyond the
 landed live `setEditorComponent` integration and bounded
 `ctx.ui.custom(..., options)` overlay path.

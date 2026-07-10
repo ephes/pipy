@@ -371,8 +371,17 @@ def test_tui_custom_component_options_width_handle_and_dispose(
     assert seen["render_width"] == 23
     assert seen["disposed"] is True
     handle = seen["handle"]
-    assert hasattr(handle, "hide")
-    assert hasattr(handle, "requestRender")
+    for method in (
+        "hide",
+        "setHidden",
+        "isHidden",
+        "focus",
+        "unfocus",
+        "isFocused",
+        "requestRender",
+        "request_render",
+    ):
+        assert hasattr(handle, method)
 
 
 def test_tui_custom_component_callable_snake_case_options(
@@ -427,6 +436,63 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
     )
 
     assert result is None
+
+
+
+def test_tui_custom_component_handle_visibility_and_focus(monkeypatch, tmp_path: Path) -> None:
+    ui = _ui(tmp_path)
+    ui.input_stream = cast(TextIO, _InputBuffer())
+    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+
+    keys = iter(["hidden-key", "shown-key", "unfocused-key", "focused-key"])
+
+    def read_key(_self, _fd):
+        key = next(keys)
+        handle = handle_box.get("handle")
+        if key == "shown-key" and handle is not None:
+            handle.setHidden(False)  # type: ignore[attr-defined]
+        elif key == "focused-key" and handle is not None:
+            handle.focus()  # type: ignore[attr-defined]
+        return key
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", read_key)
+
+    events: list[tuple[str, object]] = []
+    handle_box: dict[str, object] = {}
+
+    class Component:
+        def __init__(self, done) -> None:
+            self._done = done
+
+        def render(self, width: int) -> list[str]:
+            events.append(("render", width))
+            return ["custom-visible"]
+
+        def handle_input(self, key: str) -> None:
+            events.append(("key", key))
+            handle = handle_box["handle"]
+            if key == "shown-key":
+                handle.unfocus({"target": object()})  # type: ignore[attr-defined]
+            elif key == "focused-key":
+                self._done("done")
+
+    def on_handle(handle) -> None:
+        handle_box["handle"] = handle
+        assert handle.isFocused() is True
+        assert handle.isHidden() is False
+        handle.setHidden(True)
+        assert handle.isHidden() is True
+
+    result = ui.run_custom_component(lambda done: Component(done), {"onHandle": on_handle})
+
+    assert result == "done"
+    assert ("key", "hidden-key") not in events
+    assert ("key", "unfocused-key") not in events
+    assert ("key", "shown-key") in events
+    assert ("key", "focused-key") in events
+    # The unfocused overlay remains visible: paint after unfocus still renders.
+    assert [event[0] for event in events].count("render") >= 3
 
 
 def test_extension_ui_and_component_protocols_are_runtime_checkable() -> None:

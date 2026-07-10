@@ -235,13 +235,16 @@ Pipy current state:
   `should_trigger_file_completion` methods for `@` and forced Tab completion,
   while headless contexts remain deterministic no-ops.
 - Extension slice 24 has shipped and now includes bounded live custom editor integration: `ctx.ui.set_editor_component` / `setEditorComponent` calls the factory in the product TUI, routes decoded keys to the returned component, wires submit/change callbacks, forwards autocomplete providers, passes Pi-style keybinding specs plus live decoded-key aliases, wires app-action callbacks/handlers for model/thinking/tool/follow-up/external-editor delegation (including `app.editor.external` through `$VISUAL`/`$EDITOR`), keeps paste image on a special callback path, preserves editor text when clearing back to the default editor, and keeps headless contexts no-op/return `None` like Pi RPC. The live getter now returns the configured factory even when construction fails soft or returns no active component, matching Pi's stored-factory semantics. Broader Pi component-library parity remains deferred.
-- Bounded custom overlay options have shipped for `ctx.ui.custom`: command and
-  shortcut contexts accept `custom(factory, options=None)` with Pi-shaped
-  `overlay`, `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle`
-  fields. Pipy keeps both overlay modes on its existing inline renderer in this
-  slice, but honors width hints, exposes a minimal hide/update/requestRender
-  handle, disposes components on close, and preserves deterministic headless
-  no-construction behavior.
+- Bounded custom overlay options and handle controls have shipped for
+  `ctx.ui.custom`: command and shortcut contexts accept
+  `custom(factory, options=None)` with Pi-shaped `overlay`,
+  `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle` fields. Pipy
+  keeps both overlay modes on its existing inline renderer in this slice, but
+  honors width hints, exposes Pi-shaped `hide`, `setHidden`, `isHidden`,
+  `focus`, `unfocus`, and `isFocused` handle methods (plus repaint aliases),
+  disposes components on close, and preserves deterministic headless
+  no-construction behavior. Hidden overlays skip render/input; unfocused
+  visible overlays keep rendering but skip input until focused again.
 - Extension slice 25 has shipped: tool-output expansion controls —
   `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
   `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
