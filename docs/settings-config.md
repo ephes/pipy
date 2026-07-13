@@ -471,11 +471,15 @@ runtime has no matching surface yet) is:
   - `httpIdleTimeoutMs` and `retry.provider.timeoutMs` — resolve the
     OpenAI-Codex header/body idle policy (300000 ms default, `0` disabled).
   - `retry.{enabled,maxRetries,baseDelayMs}` and
-    `retry.provider.maxRetryDelayMs` — mapped onto the provider HTTP
+    `retry.provider.{maxRetries,maxRetryDelayMs}` — mapped onto the provider
     `RetryPolicy` via `settings.retry_policy_from_settings` and applied to the
-    retry-aware native provider(s) (openai-codex) at REPL startup. `maxRetries`
-    n → `max_attempts = n + 1`; ms→s; `enabled=false` → a single attempt;
-    values are clamped to the `RetryPolicy` bounds.
+    retry-aware native provider(s) (openai-codex) at REPL startup. Provider
+    `maxRetries` wins when it is a valid integer and otherwise inherits the
+    global value; n → `max_attempts = n + 1`; ms→s; `enabled=false` → a single
+    attempt; values are clamped to the `RetryPolicy` bounds. OpenAI-Codex owns
+    the complete request-plus-stream attempt and retries transient failures
+    only before its first accepted provider event. Bounded `retry-after-ms` and
+    `Retry-After` can raise (never bypass) the configured delay cap.
   - `compaction.enabled` — gates pipy's automatic tool-loop compaction
     threshold (and `/compact` remains available regardless).
 - **Accepted + round-tripped + reported, currently inert** (no matching pipy
@@ -486,10 +490,8 @@ runtime has no matching surface yet) is:
   - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
     attaches parent summaries by a different mechanism than a token reserve.
   - `transport` (no websocket transport surface yet), `steeringMode` / `followUpMode`
-    (no in-turn steering/follow-up queue yet — see backlog), and
-    `retry.provider.maxRetries` (the shared `RetryPolicy` still models a single
-    attempts policy; provider-specific precedence lands with progress-aware
-    retries). `websocketConnectTimeoutMs` is validated and provider-wired but
+    (no in-turn steering/follow-up queue yet — see backlog).
+    `websocketConnectTimeoutMs` is validated and provider-wired but
     cannot affect the still-SSE-only transport until that slice lands.
   These are surfaced by `/settings` so the user can see the effective value.
 

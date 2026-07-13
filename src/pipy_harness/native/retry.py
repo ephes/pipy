@@ -1,12 +1,10 @@
 """Reusable retry-with-backoff helper for native provider HTTP calls.
 
-This module is intentionally minimal: it wraps any callable that may raise
-a provider HTTP error and retries on transient HTTP status codes. It uses
-only the Python standard library (``time`` / ``random``) and avoids any
-provider-specific knowledge so it can be shared by the native OpenAI and
-OpenRouter providers (and any future JSON-over-HTTP provider that follows
-the ``OpenAIProviderError`` / ``OpenRouterProviderError`` pattern of
-exposing ``self.metadata['http_status']``).
+This module is intentionally minimal: by default it retries transient HTTP
+status exceptions, while an optional decision hook lets a provider own a
+narrower transport/progress taxonomy. It uses only the Python standard library
+(``time`` / ``random``) and avoids provider-specific knowledge so it remains
+shared by native providers.
 
 The helper takes the policy as a dataclass and accepts injectable
 ``sleep`` / ``jitter`` callables so the tests can run hermetically with a
@@ -92,18 +90,25 @@ def retry_with_backoff(
     policy: RetryPolicy,
     sleep: Callable[[float], None] = time.sleep,
     jitter: Callable[[], float] = random.random,
+    should_retry: Callable[[BaseException], bool] | None = None,
+    retry_after_seconds: Callable[[BaseException], float | None] | None = None,
 ) -> T:
-    """Run ``operation`` with exponential backoff on retriable statuses.
+    """Run ``operation`` with bounded exponential backoff.
 
     The callable is invoked up to ``policy.max_attempts`` times. Between
     attempts the helper sleeps for
-    ``min(max_delay, initial_delay * multiplier ** (attempt - 1)) +
-    jitter() * jitter_seconds`` seconds.
+    ``min(max_delay, initial_delay * multiplier ** (attempt - 1) +
+    jitter() * jitter_seconds)`` seconds before applying any larger bounded
+    server-requested delay.
 
-    Non-status exceptions and exceptions with an ``http_status`` outside
-    ``policy.retriable_statuses`` are re-raised immediately without
-    sleeping. After exhausting all attempts the last retriable exception
-    is re-raised unchanged.
+    By default, only exceptions carrying an HTTP status in
+    ``policy.retriable_statuses`` are retried, preserving the historical
+    shared-provider behavior. A caller may inject ``should_retry`` to own a
+    provider-specific exception/progress taxonomy. ``retry_after_seconds`` may
+    request a minimum server delay; malformed/negative values are ignored and
+    the final exponential+jitter/server delay is always capped by
+    ``policy.max_delay_seconds``. After exhausting all attempts the last
+    retriable exception is re-raised unchanged.
     """
 
     last_exc: BaseException | None = None
@@ -111,8 +116,12 @@ def retry_with_backoff(
         try:
             return operation()
         except BaseException as exc:  # noqa: BLE001 — we re-raise unrecognized errors
-            status = _extract_http_status(exc)
-            if status is None or status not in policy.retriable_statuses:
+            if should_retry is None:
+                status = _extract_http_status(exc)
+                retry = status is not None and status in policy.retriable_statuses
+            else:
+                retry = should_retry(exc)
+            if not retry:
                 raise
             last_exc = exc
             if attempt >= policy.max_attempts:
@@ -120,7 +129,21 @@ def retry_with_backoff(
             base_delay = policy.initial_delay_seconds * (
                 policy.multiplier ** (attempt - 1)
             )
-            delay = min(policy.max_delay_seconds, base_delay) + jitter() * policy.jitter_seconds
+            delay = min(
+                policy.max_delay_seconds,
+                base_delay + jitter() * policy.jitter_seconds,
+            )
+            if retry_after_seconds is not None:
+                requested_delay = retry_after_seconds(exc)
+                if (
+                    isinstance(requested_delay, int | float)
+                    and not isinstance(requested_delay, bool)
+                    and requested_delay >= 0
+                ):
+                    delay = min(
+                        policy.max_delay_seconds,
+                        max(delay, float(requested_delay)),
+                    )
             sleep(delay)
     assert last_exc is not None  # noqa: S101 — loop guarantees this is set when we exit via break
     raise last_exc

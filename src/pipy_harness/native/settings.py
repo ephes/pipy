@@ -687,6 +687,18 @@ class SettingsManager:
     def get_retry_max_retries(self) -> int:
         return self._nested_int("retry", "maxRetries", default=3)
 
+    def get_retry_provider_max_retries(self) -> int | None:
+        """Return a valid provider-specific retry count, or inherit globally."""
+
+        retry = self._get("retry")
+        provider = retry.get("provider") if isinstance(retry, dict) else None
+        if not isinstance(provider, dict):
+            return None
+        value = provider.get("maxRetries")
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
     def get_retry_base_delay_ms(self) -> int:
         return self._nested_int("retry", "baseDelayMs", default=2000)
 
@@ -740,7 +752,13 @@ def retry_policy_from_settings(manager: SettingsManager) -> "RetryPolicy":
     if not manager.get_retry_enabled():
         return RetryPolicy(max_attempts=1)
 
-    max_attempts = max(1, min(10, manager.get_retry_max_retries() + 1))
+    provider_max_retries = manager.get_retry_provider_max_retries()
+    max_retries = (
+        manager.get_retry_max_retries()
+        if provider_max_retries is None
+        else provider_max_retries
+    )
+    max_attempts = max(1, min(10, max_retries + 1))
     initial = manager.get_retry_base_delay_ms() / 1000.0
     initial = min(30.0, initial) if initial > 0 else 0.5
     max_delay = manager.get_retry_provider_max_retry_delay_ms() / 1000.0
@@ -782,6 +800,8 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"enabled={manager.get_retry_enabled()}, "
         f"maxRetries={manager.get_retry_max_retries()}, "
         f"baseDelayMs={manager.get_retry_base_delay_ms()}, "
+        "provider.maxRetries="
+        f"{manager.get_retry_provider_max_retries() if manager.get_retry_provider_max_retries() is not None else '(inherit)'}, "
         f"provider.maxRetryDelayMs={manager.get_retry_provider_max_retry_delay_ms()}",
         "    branchSummary: "
         f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "

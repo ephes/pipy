@@ -94,9 +94,15 @@ Recognized connection/header failures and interrupted reads become sanitized
 provider failures. They do not expose raw socket messages, response bodies,
 prompts, auth values, or tool payloads. Cancellation remains a distinct abort,
 and an exhausted failure returns control to the REPL so a later prompt can run.
-Automatic pre-progress retry and live WebSocket selection are delivered in the
-next reviewed implementation slices; `transport` remains SSE-only at this
-intermediate commit.
+The provider owns a bounded request-plus-stream attempt loop. Transient HTTP,
+connection, header, and stream failures are retried only before the first
+accepted provider event; after any metadata, reasoning, text, or tool event,
+the turn fails without replay so visible output and tool work cannot be
+duplicated. Backoff is cancellation-aware and honors bounded `retry-after-ms`
+and `Retry-After` delays. `retry.provider.maxRetries` overrides the global
+retry count; `retry.enabled=false` makes exactly one outer attempt. There is no
+higher-level automatic turn replay. Live WebSocket selection remains the next
+reviewed implementation slice, so `transport` is still SSE-only here.
 
 ### Azure OpenAI configuration
 

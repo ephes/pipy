@@ -160,7 +160,17 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
             ]
         ),
     )
-    client = _ScriptedSseHTTPClient([first_turn, final_turn])
+    # The first attempt ends before any provider event. The provider may replay
+    # that request safely; the recovered tool call must still execute exactly
+    # once and produce exactly one function_call_output.
+    client = _ScriptedSseHTTPClient(
+        [
+            SseResponse(status_code=200, body=""),
+            first_turn,
+            SseResponse(status_code=200, body=""),
+            final_turn,
+        ]
+    )
 
     provider = OpenAICodexResponsesProvider(
         model_id="gpt-test",
@@ -168,6 +178,8 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
             store=_InMemoryCredentialStore(_credentials())
         ),
         http_client=client,
+        retry_sleep=lambda _delay: None,
+        retry_jitter=lambda: 0.0,
     )
     output_stream = io.StringIO()
     error_stream = io.StringIO()
@@ -200,7 +212,9 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     assert "the file says hello from notes" in output_stream.getvalue()
 
     # First turn's request carries the user message and the read tool declaration.
-    first_body = client.requests[0]["body"]
+    assert len(client.requests) == 4
+    assert client.requests[0]["body"] == client.requests[1]["body"]
+    first_body = client.requests[1]["body"]
     assert isinstance(first_body["tools"], list)
     assert first_body["tools"][0]["type"] == "function"
     assert first_body["tools"][0]["name"] == "read"
@@ -215,7 +229,8 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
 
     # Second turn's request must include the function_call and
     # function_call_output items for the dispatched read.
-    second_body = client.requests[1]["body"]
+    assert client.requests[2]["body"] == client.requests[3]["body"]
+    second_body = client.requests[3]["body"]
     items = second_body["input"]
     function_call_item = next(
         item for item in items if item.get("type") == "function_call"

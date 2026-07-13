@@ -555,14 +555,21 @@ def test_retry_getters_defaults_and_overrides(tmp_path: Path) -> None:
     mgr = _manager(tmp_path)
     assert mgr.get_retry_enabled() is True
     assert mgr.get_retry_max_retries() == 3
+    assert mgr.get_retry_provider_max_retries() is None
     assert mgr.get_retry_base_delay_ms() == 2000
     assert mgr.get_retry_provider_max_retry_delay_ms() == 60000
     _write_json(
         tmp_path / "config" / "settings.json",
-        {"retry": {"maxRetries": 5, "provider": {"maxRetryDelayMs": 30000}}},
+        {
+            "retry": {
+                "maxRetries": 5,
+                "provider": {"maxRetries": 2, "maxRetryDelayMs": 30000},
+            }
+        },
     )
     mgr2 = _manager(tmp_path)
     assert mgr2.get_retry_max_retries() == 5
+    assert mgr2.get_retry_provider_max_retries() == 2
     assert mgr2.get_retry_provider_max_retry_delay_ms() == 30000
 
 
@@ -586,6 +593,7 @@ def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
     assert "steering: one-at-a-time" in text
     assert "compaction:" in text
     assert "retry:" in text
+    assert "provider.maxRetries=(inherit)" in text
     assert "openai/gpt-5.5" in text
     assert "httpIdleTimeoutMs: 300000" in text
     assert "retry.provider.timeoutMs: (inherit)" in text
@@ -678,10 +686,16 @@ def test_retry_policy_from_settings_overrides(tmp_path: Path) -> None:
 
     _write_json(
         tmp_path / "config" / "settings.json",
-        {"retry": {"maxRetries": 5, "baseDelayMs": 500, "provider": {"maxRetryDelayMs": 30000}}},
+        {
+            "retry": {
+                "maxRetries": 5,
+                "baseDelayMs": 500,
+                "provider": {"maxRetries": 2, "maxRetryDelayMs": 30000},
+            }
+        },
     )
     policy = retry_policy_from_settings(_manager(tmp_path))
-    assert policy.max_attempts == 6
+    assert policy.max_attempts == 3
     assert policy.initial_delay_seconds == 0.5
     assert policy.max_delay_seconds == 30.0
 
@@ -691,6 +705,27 @@ def test_retry_policy_disabled_is_single_attempt(tmp_path: Path) -> None:
 
     _write_json(tmp_path / "config" / "settings.json", {"retry": {"enabled": False}})
     assert retry_policy_from_settings(_manager(tmp_path)).max_attempts == 1
+
+
+@pytest.mark.parametrize("invalid", [None, True, 1.5, "2"])
+def test_retry_provider_max_retries_invalid_value_inherits_global(
+    tmp_path: Path, invalid: object
+) -> None:
+    from pipy_harness.native.settings import retry_policy_from_settings
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {
+            "retry": {
+                "maxRetries": 4,
+                "provider": {"maxRetries": invalid},
+            }
+        },
+    )
+    manager = _manager(tmp_path)
+
+    assert manager.get_retry_provider_max_retries() is None
+    assert retry_policy_from_settings(manager).max_attempts == 5
 
 
 def test_retry_policy_clamps_out_of_range(tmp_path: Path) -> None:

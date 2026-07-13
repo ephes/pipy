@@ -92,10 +92,11 @@ The notes call out the most important limits.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `retry.enabled` | boolean | Enable agent/provider retry policy. |
-| `retry.maxRetries` | number | Maximum retry count. |
-| `retry.baseDelayMs` | number | Initial retry delay in milliseconds. |
+| `retry.maxRetries` | number | Global maximum retry count (default 3); bounded OpenAI-Codex retries occur only before the first provider event. |
+| `retry.baseDelayMs` | number | Initial exponential retry delay in milliseconds (default 2000). |
 | `retry.provider.timeoutMs` | number | OpenAI-Codex idle-timeout override in milliseconds; inherits `httpIdleTimeoutMs`; `0` disables. |
-| `retry.provider.maxRetryDelayMs` | number | Cap for provider-requested retry delays. |
+| `retry.provider.maxRetries` | number | OpenAI-Codex retry-count override; invalid/unset values inherit `retry.maxRetries`. |
+| `retry.provider.maxRetryDelayMs` | number | Cap for exponential, jitter, and server-requested retry delays. |
 | `steeringMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
 | `followUpMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
 | `transport` | string | `auto`, `sse`, or `websocket` where a provider supports choices; otherwise accepted but no-op. |

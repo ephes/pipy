@@ -322,3 +322,84 @@ def test_custom_retriable_statuses_overrides_defaults() -> None:
 
     assert calls["count"] == 1
     assert clock.sleeps == []
+
+
+def test_custom_exception_decision_can_retry_non_status_error() -> None:
+    clock = FakeClock()
+    calls = 0
+
+    def op() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("transient")
+        return "ok"
+
+    result = retry_with_backoff(
+        op,
+        policy=RetryPolicy(jitter_seconds=0.0),
+        sleep=clock,
+        jitter=_zero_jitter,
+        should_retry=lambda exc: isinstance(exc, ConnectionError),
+    )
+
+    assert result == "ok"
+    assert calls == 2
+    assert clock.sleeps == [0.5]
+
+
+def test_server_requested_delay_raises_wait_and_is_capped() -> None:
+    clock = FakeClock()
+    calls = 0
+
+    def op() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FakeHTTPStatusError(503)
+        return "ok"
+
+    result = retry_with_backoff(
+        op,
+        policy=RetryPolicy(
+            max_attempts=2,
+            initial_delay_seconds=1.0,
+            max_delay_seconds=3.0,
+            jitter_seconds=0.0,
+        ),
+        sleep=clock,
+        jitter=_zero_jitter,
+        retry_after_seconds=lambda _exc: 20.0,
+    )
+
+    assert result == "ok"
+    assert clock.sleeps == [3.0]
+
+
+@pytest.mark.parametrize("value", [-1.0, float("nan"), "bad", None])
+def test_invalid_server_requested_delay_falls_back_to_exponential(
+    value: object,
+) -> None:
+    clock = FakeClock()
+    calls = 0
+
+    def op() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FakeHTTPStatusError(503)
+        return "ok"
+
+    def invalid_retry_after(_exc: BaseException) -> Any:
+        return value
+
+    result = retry_with_backoff(
+        op,
+        policy=RetryPolicy(max_attempts=2, jitter_seconds=0.0),
+        sleep=clock,
+        jitter=_zero_jitter,
+        retry_after_seconds=invalid_retry_after,
+    )
+
+    assert result == "ok"
+    assert clock.sleeps == [0.5]

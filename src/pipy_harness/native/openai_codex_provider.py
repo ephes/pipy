@@ -7,7 +7,9 @@ import errno
 import hashlib
 import http.client
 import json
+import math
 import os
+import random
 import re
 import secrets
 import socket
@@ -19,8 +21,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Protocol, TextIO
@@ -30,7 +33,6 @@ from pipy_harness.native._provider_helpers import (
     decode_json_object,
     failed_provider_result,
     open_url_cancellable,
-    safe_response_label,
     serialize_tool_for_responses,
     utc_now,
 )
@@ -38,7 +40,11 @@ from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.retry import RetryPolicy, retry_with_backoff
+from pipy_harness.native.retry import (
+    DEFAULT_RETRIABLE_STATUSES,
+    RetryPolicy,
+    retry_with_backoff,
+)
 from pipy_harness.native.settings import (
     DEFAULT_HTTP_IDLE_TIMEOUT_MS,
     DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
@@ -74,6 +80,21 @@ OPENAI_CODEX_API_LABEL_ALLOWLIST = frozenset(
         "websocket_connection_limit_reached",
     }
 )
+OPENAI_CODEX_RESPONSE_STATUS_ALLOWLIST = frozenset(
+    {"cancelled", "completed", "failed", "incomplete"}
+)
+OPENAI_CODEX_TERMINAL_API_LABELS = frozenset(
+    {
+        "authentication_error",
+        "billing_hard_limit_reached",
+        "insufficient_quota",
+        "invalid_request_error",
+        "permission_error",
+        "quota_exceeded",
+        "usage_limit_reached",
+    }
+)
+MAX_RETRY_AFTER_SECONDS = 120.0
 _RETRYABLE_TRANSPORT_ERRNOS = frozenset(
     {
         errno.ECONNABORTED,
@@ -191,6 +212,8 @@ class UrllibSseHTTPClient:
     the full string; production code should consume `event_stream`.
     """
 
+    retry_clock: Callable[[], float] = time.time
+
     def post_sse(
         self,
         url: str,
@@ -221,7 +244,9 @@ class UrllibSseHTTPClient:
             )
         except urllib.error.HTTPError as exc:
             raise OpenAICodexHTTPStatusError.from_http_error(
-                exc, cancel_token=cancel_token
+                exc,
+                cancel_token=cancel_token,
+                now_seconds=self.retry_clock(),
             ) from exc
         except ProviderCancelledError:
             raise
@@ -309,14 +334,7 @@ def _iter_sse_stream(
             data_lines.clear()
             if not payload or payload == "[DONE]":
                 continue
-            try:
-                parsed = json.loads(payload)
-            except json.JSONDecodeError as exc:
-                raise OpenAICodexResponseParseError(
-                    "OpenAI Codex stream included malformed event JSON."
-                ) from exc
-            if isinstance(parsed, Mapping):
-                yield parsed
+            yield _decode_sse_event(payload)
             continue
         if stripped_line.startswith("data:"):
             data_lines.append(stripped_line.removeprefix("data:").strip())
@@ -324,14 +342,7 @@ def _iter_sse_stream(
     if data_lines:
         payload = "\n".join(data_lines).strip()
         if payload and payload != "[DONE]":
-            try:
-                parsed = json.loads(payload)
-            except json.JSONDecodeError as exc:
-                raise OpenAICodexResponseParseError(
-                    "OpenAI Codex stream included malformed event JSON."
-                ) from exc
-            if isinstance(parsed, Mapping):
-                yield parsed
+            yield _decode_sse_event(payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,10 +573,13 @@ class OpenAICodexResponsesProvider:
     retry_policy: "RetryPolicy" = field(
         default_factory=lambda: RetryPolicy(
             max_attempts=4,
-            initial_delay_seconds=1.0,
-            max_delay_seconds=8.0,
+            initial_delay_seconds=2.0,
+            max_delay_seconds=60.0,
         )
     )
+    retry_sleep: Callable[[float], None] | None = None
+    retry_jitter: Callable[[], float] = random.random
+    retry_clock: Callable[[], float] = time.time
 
     @property
     def name(self) -> str:
@@ -640,39 +654,120 @@ class OpenAICodexResponsesProvider:
             "originator": "pipy",
             "User-Agent": "pipy",
         }
+        http_client: SseHTTPClient = self.http_client
+        if type(http_client) is UrllibSseHTTPClient:
+            # Keep HTTP-date Retry-After parsing on the provider's injected
+            # wall-clock seam even though urllib owns the HTTPError boundary.
+            http_client = UrllibSseHTTPClient(retry_clock=self.retry_clock)
 
-        def _post() -> SseResponse:
-            resp = self.http_client.post_sse(
-                self.endpoint,
-                headers=headers,
-                body=body,
-                timeout_seconds=self.timeout_seconds,
-                cancel_token=cancel_token,
-            )
+        attempt = 0
+        progress = StreamProgress()
+
+        def _attempt() -> ParsedOpenAICodexResponse:
+            nonlocal attempt, progress
+            attempt += 1
+            progress = StreamProgress()
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            try:
+                resp = http_client.post_sse(
+                    self.endpoint,
+                    headers=headers,
+                    body=body,
+                    timeout_seconds=self.timeout_seconds,
+                    cancel_token=cancel_token,
+                )
+            except urllib.error.HTTPError as exc:
+                raise OpenAICodexHTTPStatusError.from_http_error(
+                    exc,
+                    cancel_token=cancel_token,
+                    now_seconds=self.retry_clock(),
+                ) from exc
             if resp.status_code < 200 or resp.status_code >= 300:
                 raise OpenAICodexHTTPStatusError(
                     f"OpenAI Codex request failed with HTTP status {resp.status_code}.",
                     metadata={"http_status": resp.status_code},
                 )
-            return resp
-
-        try:
-            response = retry_with_backoff(_post, policy=self.retry_policy)
-            result = _parse_sse_response(
-                response.body,
+            return _parse_sse_response(
+                resp.body,
                 stream_sink=stream_sink,
                 reasoning_sink=reasoning_sink,
-                event_stream=response.event_stream,
+                event_stream=resp.event_stream,
                 cancel_token=cancel_token,
+                progress=progress,
             )
+
+        def _should_retry(exc: BaseException) -> bool:
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            return not progress.observed and _codex_failure_retryable(exc)
+
+        def _retry_after_seconds(exc: BaseException) -> float | None:
+            metadata = getattr(exc, "metadata", None)
+            if not isinstance(metadata, dict):
+                return None
+            value = metadata.get("retry_after_seconds")
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                return None
+            capped = min(self.retry_policy.max_delay_seconds, max(0.0, float(value)))
+            metadata["retry_after_seconds"] = capped
+            return capped
+
+        def _sleep_before_retry(delay: float) -> None:
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if self.retry_sleep is not None:
+                self.retry_sleep(delay)
+            elif cancel_token is not None:
+                cancel_token.event.wait(delay)
+            else:
+                time.sleep(delay)
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+
+        try:
+            result = retry_with_backoff(
+                _attempt,
+                policy=self.retry_policy,
+                sleep=_sleep_before_retry,
+                jitter=self.retry_jitter,
+                should_retry=_should_retry,
+                retry_after_seconds=_retry_after_seconds,
+            )
+        except ProviderCancelledError:
+            raise
         except OpenAICodexProviderError as exc:
+            metadata = dict(exc.metadata)
+            retry_after = metadata.get("retry_after_seconds")
+            if (
+                isinstance(retry_after, int | float)
+                and not isinstance(retry_after, bool)
+            ):
+                metadata["retry_after_seconds"] = min(
+                    self.retry_policy.max_delay_seconds,
+                    max(0.0, float(retry_after)),
+                )
+            intrinsically_retryable = _codex_failure_retryable(exc)
+            metadata.update(
+                {
+                    "attempt": attempt,
+                    "exhausted": (
+                        intrinsically_retryable
+                        and not progress.observed
+                        and attempt >= self.retry_policy.max_attempts
+                    ),
+                    "max_attempts": self.retry_policy.max_attempts,
+                    "progress": progress.value,
+                    "retryable": intrinsically_retryable,
+                }
+            )
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
                 error_type=type(exc).__name__,
                 error_message=str(exc),
-                metadata=exc.metadata,
+                metadata=metadata,
             )
 
         return ProviderResult(
@@ -851,8 +946,15 @@ class OpenAICodexHTTPStatusError(OpenAICodexProviderError):
         exc: urllib.error.HTTPError,
         *,
         cancel_token: CancelToken | None = None,
+        now_seconds: float | None = None,
     ) -> OpenAICodexHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
+        retry_after = _parse_retry_after_seconds(
+            exc.headers,
+            now_seconds=time.time() if now_seconds is None else now_seconds,
+        )
+        if retry_after is not None:
+            metadata["retry_after_seconds"] = retry_after
         body: Mapping[str, Any]
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
@@ -903,6 +1005,20 @@ class OpenAICodexResponseParseError(OpenAICodexProviderError):
     """Raised when the Codex response shape is unsupported."""
 
 
+@dataclass(slots=True)
+class StreamProgress:
+    """Attempt-local monotonic provider-event progress marker."""
+
+    observed: bool = False
+
+    @property
+    def value(self) -> str:
+        return "event" if self.observed else "none"
+
+    def mark_event(self) -> None:
+        self.observed = True
+
+
 def _safe_codex_api_label(value: Any) -> str | None:
     """Return a known bounded API label, never arbitrary server text."""
 
@@ -913,6 +1029,74 @@ def _safe_codex_api_label(value: Any) -> str | None:
     if OPENAI_CODEX_API_LABEL_RE.fullmatch(value) is None:
         return None
     return value if value in OPENAI_CODEX_API_LABEL_ALLOWLIST else None
+
+
+def _safe_codex_response_status(value: Any) -> str:
+    if not isinstance(value, str):
+        return "unknown"
+    return value if value in OPENAI_CODEX_RESPONSE_STATUS_ALLOWLIST else "unknown"
+
+
+def _parse_retry_after_seconds(
+    headers: Any,
+    *,
+    now_seconds: float,
+) -> float | None:
+    """Parse Pi-shaped retry headers into one bounded numeric duration."""
+
+    if headers is None:
+        return None
+    retry_after_ms = headers.get("retry-after-ms")
+    if retry_after_ms is not None:
+        try:
+            milliseconds = float(str(retry_after_ms).strip())
+        except ValueError:
+            milliseconds = -1.0
+        if math.isfinite(milliseconds) and milliseconds >= 0:
+            return min(MAX_RETRY_AFTER_SECONDS, milliseconds / 1000.0)
+
+    retry_after = headers.get("Retry-After")
+    if retry_after is None:
+        retry_after = headers.get("retry-after")
+    if retry_after is None:
+        return None
+    text = str(retry_after).strip()
+    try:
+        seconds = float(text)
+    except ValueError:
+        try:
+            parsed_date = parsedate_to_datetime(text)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if parsed_date.tzinfo is None:
+            return None
+        seconds = parsed_date.timestamp() - now_seconds
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(MAX_RETRY_AFTER_SECONDS, seconds)
+
+
+def _codex_failure_retryable(exc: BaseException) -> bool:
+    """Classify sanitized Codex failures without consulting server prose."""
+
+    if isinstance(exc, ProviderCancelledError):
+        return False
+    if isinstance(exc, OpenAICodexHTTPStatusError):
+        metadata = exc.metadata
+        if any(
+            metadata.get(key) in OPENAI_CODEX_TERMINAL_API_LABELS
+            for key in ("api_error_type", "api_error_code")
+        ):
+            return False
+        status = metadata.get("http_status")
+        return (
+            isinstance(status, int)
+            and not isinstance(status, bool)
+            and status in DEFAULT_RETRIABLE_STATUSES
+        )
+    if isinstance(exc, OpenAICodexTransportError):
+        return exc.metadata.get("retryable") is True
+    return False
 
 
 def _transport_exception_retryable(exc: BaseException) -> bool | None:
@@ -1077,19 +1261,44 @@ def _parse_sse_response(
     reasoning_sink: StreamChunkSink | None = None,
     event_stream: Iterator[Mapping[str, Any]] | None = None,
     cancel_token: CancelToken | None = None,
+    progress: StreamProgress | None = None,
 ) -> ParsedOpenAICodexResponse:
+    events: Iterator[Mapping[str, Any]] = (
+        event_stream if event_stream is not None else _iter_sse_events(body)
+    )
+    return _parse_response_events(
+        events,
+        stream_sink=stream_sink,
+        reasoning_sink=reasoning_sink,
+        cancel_token=cancel_token,
+        progress=progress,
+    )
+
+
+def _parse_response_events(
+    events: Iterator[Mapping[str, Any]],
+    *,
+    stream_sink: StreamChunkSink | None = None,
+    reasoning_sink: StreamChunkSink | None = None,
+    cancel_token: CancelToken | None = None,
+    progress: StreamProgress | None = None,
+) -> ParsedOpenAICodexResponse:
+    """Assemble a transport-neutral stream of accepted Responses events."""
+
     text_chunks: list[str] = []
     fallback_text_chunks: list[str] = []
     terminal_response: Mapping[str, Any] | None = None
+    terminal_event_type: str | None = None
     function_call_items: dict[str, _StreamingFunctionCall] = {}
     next_call_order = 0
 
-    events: Iterator[Mapping[str, Any]] = (
-        event_stream if event_stream is not None else iter(_iter_sse_events(body))
-    )
+    attempt_progress = progress if progress is not None else StreamProgress()
     for event in events:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
+        # Progress changes before any event-specific processing, including
+        # metadata, explicit errors, reasoning, text, and tool assembly.
+        attempt_progress.mark_event()
         event_type = event.get("type")
         if event_type == "response.reasoning_summary_text.delta":
             delta = event.get("delta")
@@ -1113,19 +1322,6 @@ def _parse_sse_response(
             raise OpenAICodexResponseParseError(
                 "OpenAI Codex stream returned an error event.",
                 metadata=metadata,
-            )
-        if event_type == "response.failed":
-            terminal_response = _event_response(event)
-            response_status = safe_response_label(
-                terminal_response.get("status") if terminal_response is not None else None,
-                default="failed",
-            )
-            raise OpenAICodexResponseParseError(
-                f"OpenAI Codex response status was {response_status}.",
-                metadata={
-                    "provider_response_store_requested": False,
-                    "response_status": response_status,
-                },
             )
         if event_type == "response.output_text.delta":
             delta = event.get("delta")
@@ -1214,8 +1410,21 @@ def _parse_sse_response(
                 else:
                     fallback_text_chunks.extend(_extract_output_text_chunks(item))
             continue
-        if event_type in {"response.completed", "response.done", "response.incomplete"}:
+        if event_type in {
+            "response.cancelled",
+            "response.completed",
+            "response.done",
+            "response.failed",
+            "response.incomplete",
+        }:
+            terminal_event_type = event_type
             terminal_response = _event_response(event)
+            # The first terminal event is authoritative. Closing a real SSE
+            # generator runs its ``finally`` immediately and closes the HTTP
+            # response, while preventing later bytes/events or a late socket
+            # error from changing an already terminal outcome.
+            _close_event_iterator(events)
+            break
 
     # A cancel that shuts the socket down makes the stream end at EOF (a clean
     # iterator stop, not an exception), so re-check after the loop: a cancelled
@@ -1223,16 +1432,35 @@ def _parse_sse_response(
     if cancel_token is not None:
         cancel_token.raise_if_cancelled()
 
-    if terminal_response is None:
-        raise OpenAICodexResponseParseError(
-            "OpenAI Codex stream did not include a terminal response event.",
-            metadata={"provider_response_store_requested": False, "response_status": "unknown"},
+    if terminal_event_type is None:
+        raise OpenAICodexStreamInterruptedError(
+            "OpenAI Codex stream was interrupted before completion.",
+            metadata={
+                "phase": "stream",
+                "provider_response_store_requested": False,
+                "response_status": "unknown",
+                "retryable": True,
+                "transport": "sse",
+            },
         )
 
-    response_status = safe_response_label(terminal_response.get("status"), default="unknown")
-    if response_status and response_status != "completed":
+    terminal_failure_status = {
+        "response.cancelled": "cancelled",
+        "response.failed": "failed",
+        "response.incomplete": "incomplete",
+    }.get(terminal_event_type)
+    if terminal_failure_status is not None:
+        response_status = terminal_failure_status
+        if terminal_response is None:
+            terminal_response = {}
+    elif terminal_response is None:
+        response_status = "unknown"
+        terminal_response = {}
+    else:
+        response_status = _safe_codex_response_status(terminal_response.get("status"))
+    if response_status != "completed":
         raise OpenAICodexResponseParseError(
-            f"OpenAI Codex response status was {response_status}.",
+            "OpenAI Codex response did not complete successfully.",
             metadata={
                 "provider_response_store_requested": False,
                 "response_status": response_status,
@@ -1293,8 +1521,9 @@ def _safe_str(value: Any) -> str | None:
     return None
 
 
-def _iter_sse_events(body: str) -> list[Mapping[str, Any]]:
-    events: list[Mapping[str, Any]] = []
+def _iter_sse_events(body: str) -> Iterator[Mapping[str, Any]]:
+    """Yield body-fixture SSE events lazily so terminals stop later parsing."""
+
     for block in body.replace("\r\n", "\n").split("\n\n"):
         data_lines = [
             line.removeprefix("data:").strip()
@@ -1306,20 +1535,37 @@ def _iter_sse_events(body: str) -> list[Mapping[str, Any]]:
         data = "\n".join(data_lines).strip()
         if not data or data == "[DONE]":
             continue
-        try:
-            parsed = json.loads(data)
-        except json.JSONDecodeError as exc:
-            raise OpenAICodexResponseParseError(
-                "OpenAI Codex stream included malformed event JSON."
-            ) from exc
-        if isinstance(parsed, Mapping):
-            events.append(parsed)
-    return events
+        yield _decode_sse_event(data)
+
+
+def _decode_sse_event(payload: str) -> Mapping[str, Any]:
+    """Decode exactly one SSE event without retaining server-controlled data."""
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise OpenAICodexResponseParseError(
+            "OpenAI Codex stream included malformed event JSON."
+        ) from exc
+    if not isinstance(parsed, Mapping):
+        raise OpenAICodexResponseParseError(
+            "OpenAI Codex stream included a non-object event."
+        )
+    return parsed
 
 
 def _event_response(event: Mapping[str, Any]) -> Mapping[str, Any] | None:
     response = event.get("response")
     return response if isinstance(response, Mapping) else None
+
+
+def _close_event_iterator(events: Iterator[Mapping[str, Any]]) -> None:
+    close = getattr(events, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - best-effort terminal stream close
+            pass
 
 
 def _extract_output_text_chunks(item: Mapping[str, Any]) -> list[str]:

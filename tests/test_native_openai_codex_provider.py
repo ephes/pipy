@@ -35,6 +35,7 @@ from pipy_harness.native.openai_codex_provider import (
     create_authorization_flow,
     parse_authorization_input,
 )
+from pipy_harness.native.retry import RetryPolicy
 
 
 class FakeSseHTTPClient:
@@ -429,7 +430,12 @@ def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):
     assert result.error_message == "OpenAI Codex request failed with HTTP status 400."
     assert result.metadata == {
         "api_error_type": "invalid_request_error",
+        "attempt": 1,
+        "exhausted": False,
         "http_status": 400,
+        "max_attempts": 4,
+        "progress": "none",
+        "retryable": False,
     }
     assert "SYSTEM_PROMPT" not in json.dumps(result.metadata, sort_keys=True)
     assert "SYSTEM_PROMPT" not in (result.error_message or "")
@@ -454,6 +460,7 @@ def test_openai_codex_provider_non_success_boundary_status_fails_safely(tmp_path
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        retry_policy=RetryPolicy(max_attempts=1),
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -461,7 +468,14 @@ def test_openai_codex_provider_non_success_boundary_status_fails_safely(tmp_path
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "OpenAICodexHTTPStatusError"
     assert result.error_message == "OpenAI Codex request failed with HTTP status 503."
-    assert result.metadata == {"http_status": 503}
+    assert result.metadata == {
+        "attempt": 1,
+        "exhausted": True,
+        "http_status": 503,
+        "max_attempts": 1,
+        "progress": "none",
+        "retryable": True,
+    }
     assert result.final_text is None
 
 
@@ -714,8 +728,13 @@ def test_sse_error_event_omits_unknown_or_payload_like_code(
     assert result.status == HarnessStatus.FAILED
     assert result.error_message == "OpenAI Codex stream returned an error event."
     assert result.metadata == {
+        "attempt": 1,
+        "exhausted": False,
+        "max_attempts": 4,
+        "progress": "event",
         "provider_response_store_requested": False,
         "response_status": "unknown",
+        "retryable": False,
     }
     assert str(unsafe_label) not in serialized
     assert str(unsafe_label) not in (result.error_message or "")
@@ -737,8 +756,13 @@ def test_sse_error_event_keeps_allowlisted_code(tmp_path: Path) -> None:
 
     assert result.metadata == {
         "api_error_code": "rate_limit_error",
+        "attempt": 1,
+        "exhausted": False,
+        "max_attempts": 4,
+        "progress": "event",
         "provider_response_store_requested": False,
         "response_status": "unknown",
+        "retryable": False,
     }
 
 
@@ -776,6 +800,84 @@ def test_sse_error_event_code_does_not_leak_through_repl_result_or_stderr(
         },
         sort_keys=True,
     )
+
+
+@pytest.mark.parametrize(
+    "unsafe_status",
+    [
+        "PROMPT_SHOULD_NOT_LEAK",
+        "https://private.example/body",
+        "sk-proj-TOKEN_SHOULD_NOT_LEAK",
+        "response body text",
+        "control\ntext",
+        "étiquette",
+        "x" * 65,
+    ],
+)
+def test_terminal_response_uses_frozen_status_allowlist(
+    tmp_path: Path, unsafe_status: str
+) -> None:
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(
+                status_code=200,
+                body=sse_payload(
+                    [
+                        {
+                            "type": "response.done",
+                            "response": {"status": unsafe_status},
+                        }
+                    ]
+                ),
+            )
+        ),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_message == (
+        "OpenAI Codex response did not complete successfully."
+    )
+    assert result.metadata is not None
+    assert result.metadata["response_status"] == "unknown"
+    assert result.metadata["progress"] == "event"
+    assert unsafe_status not in (result.error_message or "")
+    assert unsafe_status not in json.dumps(result.metadata, sort_keys=True)
+
+
+@pytest.mark.parametrize("status", ["failed", "incomplete", "cancelled"])
+def test_terminal_non_success_status_is_fixed_and_non_retryable(
+    tmp_path: Path, status: str
+) -> None:
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(
+                status_code=200,
+                body=sse_payload(
+                    [
+                        {
+                            "type": f"response.{status}",
+                            "response": {"status": status},
+                        }
+                    ]
+                ),
+            )
+        ),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.error_message == (
+        "OpenAI Codex response did not complete successfully."
+    )
+    assert result.metadata is not None
+    assert result.metadata["response_status"] == status
+    assert result.metadata["retryable"] is False
 
 
 class _FailingStreamResponse:
@@ -820,6 +922,7 @@ def test_historical_stream_read_timeout_is_sanitized_provider_failure(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=UrllibSseHTTPClient(),
+        retry_policy=RetryPolicy(max_attempts=1),
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -832,7 +935,11 @@ def test_historical_stream_read_timeout_is_sanitized_provider_failure(
         "OpenAI Codex stream was interrupted before completion."
     )
     assert result.metadata == {
+        "attempt": 1,
+        "exhausted": True,
+        "max_attempts": 1,
         "phase": "stream",
+        "progress": "none",
         "retryable": True,
         "transport": "sse",
     }
