@@ -420,6 +420,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `node_modules/`) or symlinks escaping the workspace for workspace-relative
   directories, matching the `@` picker and the read policy; explicit
   absolute/`~/` navigation the user points Tab at is still listed as-is.
+- OpenAI-Codex streams now use a configurable 300-second header/body idle
+  timeout by default instead of the former hard-coded 60-second socket timeout.
+  Recognized connection, timeout, reset, and truncated-stream failures become
+  sanitized provider failures, while deliberate cancellation remains immediate
+  and non-retryable.
+- OpenAI-Codex now retries bounded transient HTTP and transport failures across
+  the complete request-plus-SSE-stream attempt, with cancellation-aware
+  exponential backoff and capped `Retry-After` support. Retries stop before
+  replay once any provider event is parsed, preventing duplicate visible text,
+  reasoning, tool calls, or tool effects.
 
 ## [0.1.0] - 2026-06-03
 

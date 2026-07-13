@@ -84,7 +84,11 @@ and the worktree unchanged. Before retrying, it archives the failed log as
 `gap-<n>-attempt-<m>.log` and records `gap.retrying` in `run.jsonl`; if the
 child made partial progress, the runner records `gap.retry_skipped` and stops
 for human cleanup. Use `--provider-failure-retries 0` to disable this transient
-provider retry.
+provider retry. This currently recognizes the normalized
+`pipy: provider failure during turn:` diagnostic. Recognition of the historical
+raw `pipy: The read operation timed out` tail remains a defense-in-depth item in
+the active OpenAI-Codex reliability plan; the provider itself now normalizes
+that condition before it reaches the runner.
 
 `just parity-improve-pipy-dry` is the current pipy-native dogfood health check:
 it asks pipy itself to run the `parity-improve` skill and stop without checks or

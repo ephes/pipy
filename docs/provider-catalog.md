@@ -7,7 +7,8 @@ families `google-generative-ai`, `azure-openai-responses`,
 `cloudflare-workers-ai`, and the Tier 3 IAM families `amazon-bedrock`,
 `google-vertex` (2026-06-03), gated end to end. Every real adapter family is now
 catalog-constructed except `openai-codex-responses` (kept on the legacy factory
-for its settings-derived `RetryPolicy`) and the deterministic `fake` bootstrap.
+for its settings-derived timeout, retry, and transport configuration) and the
+deterministic `fake` bootstrap.
 A models.json custom provider/model now runs a real turn using the catalog
 baseUrl/model/auth/headers/routing/thinking, in both the REPL and the one-shot
 `pipy run` path. Startup `--native-provider`/`--native-model` resolution now
@@ -151,8 +152,11 @@ Tier 3 catalog construction (shipped 2026-06-03):
   special-casing (Gemma is not a Vertex Gemini model).
   Covered by conformance item 22.
 - `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
-  factory builds it with a settings-derived `RetryPolicy` (cli.py) that catalog
-  construction would drop, and its OAuth/SSE auth is fully self-contained.
+  factory builds it with settings-derived idle-timeout, retry, and transport
+  configuration (`cli.py`) that catalog construction would drop, and its
+  OAuth/SSE auth is fully self-contained. The timeout and bounded pre-event
+  request/stream retry policy are live; WebSocket selection remains the next
+  transport slice.
   `build_provider` returns `None` for it so it keeps the legacy factory.
 
 Remaining adapter/product follow-ons:

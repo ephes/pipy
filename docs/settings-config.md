@@ -455,8 +455,10 @@ so config is forward-compatible and Pi-written files do not lose data.
   compaction settings live too.
 - Retry: `retry.enabled` (true), `maxRetries` (3), `baseDelayMs` (2000,
   exponential backoff 2s/4s/8s), and `retry.provider.{timeoutMs, maxRetries,
-  maxRetryDelayMs(60000)}`. These feed pipy's provider HTTP retry policy
-  (`pipy_harness.native.retry`). Migrated legacy `retry.maxDelayMs` →
+  maxRetryDelayMs(60000)}`. These feed pipy's retry policy
+  (`pipy_harness.native.retry`); OpenAI-Codex applies it across each complete
+  request-plus-stream attempt and retries only before the first provider event.
+  Migrated legacy `retry.maxDelayMs` →
   `retry.provider.maxRetryDelayMs` (Pi `migrateSettings`).
 - Branch summary: `branchSummary.reserveTokens` (16384), `skipPrompt` (false).
   Related to the `/tree` branch-summary flow in `session-tree.md`.

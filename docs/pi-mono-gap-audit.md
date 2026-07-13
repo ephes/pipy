@@ -15,6 +15,22 @@ It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
 
+## Active operator-selected gap (2026-07-13)
+
+OpenAI-Codex transport reliability is in flight ahead of the older ranked
+queue. Research and design are complete. The shipped first two runtime slices
+replace the hard-coded 60-second SSE socket timeout with a configurable
+300-second idle-timeout policy, normalize recognized transport/read failures,
+and retry bounded transient request-plus-stream attempts only before the first
+provider event. Cancellation remains non-retryable and the no-post-event-replay
+boundary prevents duplicate text, reasoning, tool calls, or effects.
+
+Remaining slices are real `auto|sse|websocket` behavior with Pi-shaped
+pre-event fallback, parity-runner recognition of the historical raw timeout as
+defense in depth, and final documentation/integration closure. Until then,
+OpenAI-Codex remains SSE-only. See the reviewed research, design, and plan under
+`docs/superpowers/` and the current target in `docs/backlog.md`.
+
 ## Sources checked
 
 Pipy docs/specs:

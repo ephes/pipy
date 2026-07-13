@@ -25,7 +25,7 @@ The steps below are deliberately ordered so each commit is independently green
 and reviewable. `just check` is unconditional before every review/commit and is
 rerun after every review fix. Do not collapse the slices into one diff.
 
-## Slice 1 — Timeout policy and transport-error normalization
+## Slice 1 — Timeout policy and transport-error normalization — COMPLETE (`683c2de`)
 
 ### Intent
 
@@ -110,7 +110,7 @@ review fix, then commit:
 fix(provider): normalize Codex transport timeouts
 ```
 
-## Slice 2 — Bounded progress-aware retries
+## Slice 2 — Bounded progress-aware retries — COMPLETE (`31aad11`)
 
 ### Intent
 
@@ -190,7 +190,7 @@ review fix, then commit:
 fix(provider): retry safe Codex stream failures
 ```
 
-## Slice 3 — Real WebSocket transport and Pi-shaped fallback
+## Slice 3 — Real WebSocket transport and Pi-shaped fallback — NEXT
 
 ### Intent
 

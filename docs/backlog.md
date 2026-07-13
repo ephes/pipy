@@ -1503,7 +1503,45 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Broader custom editor/component-library parity — SELECTED
+### OpenAI-Codex transport reliability — IN FLIGHT
+
+The operator-selected transport-reliability gap supersedes the previously
+selected extension follow-on until the provider chain is complete. Research
+and the reviewed implementation plan are committed under
+`docs/superpowers/`; the first two runtime slices now ship:
+
+- OpenAI-Codex HTTP/SSE uses a validated 300,000 ms header/body idle timeout
+  by default instead of the former provider-local 60-second socket timeout.
+  `httpIdleTimeoutMs` and `retry.provider.timeoutMs` configure it in integer
+  milliseconds, with `0` disabling the timeout.
+- Recognized open/read/reset/truncation failures are normalized into sanitized
+  provider-domain failures. Deliberate cancellation wins every normalization
+  race and is never retried.
+- The retry boundary now owns the request and complete SSE stream attempt.
+  Bounded, cancellation-aware retries cover transient HTTP and pre-event
+  transport failures, honor capped `Retry-After`, and stop after the first
+  parsed provider event so visible text, reasoning, tool assembly, and tool
+  execution cannot be duplicated.
+
+The next reviewed slice is real OpenAI-Codex WebSocket transport and
+Pi-shaped pre-event SSE fallback for `transport: auto|sse|websocket`. After
+that, the parity runner still needs defense-in-depth recognition of the
+historical raw timeout plus focused regression coverage of its existing
+branch/HEAD/ref/worktree no-progress guard, followed by final docs, release-note,
+and integration closure. Until the WebSocket slice lands,
+OpenAI-Codex remains SSE-only and `/settings` must not imply otherwise.
+
+Acceptance criteria for the next slice:
+
+```sh
+uv lock --check
+uv run pytest tests/test_native_openai_codex_provider.py tests/test_native_openai_codex_tool_calls.py -q
+uv run pytest tests/test_native_provider_streaming.py tests/test_native_provider_cancellation.py -q
+uv run pytest tests/test_native_settings.py tests/test_openai_codex_retry.py -q
+just check
+```
+
+### Queued afterward: broader custom editor/component-library parity
 
 The extension editor text-helper alias slice has shipped: Pi-canonical
 `ctx.ui.getEditorText`, `ctx.ui.setEditorText`, and `ctx.ui.pasteToEditor` now
@@ -1736,7 +1774,7 @@ compatibility, broader dynamic extension flag integration beyond the landed
 git sources, package `update`, and extension OAuth-provider `/login` wiring now
 ship; broader remote package sources remain deferred.
 
-Acceptance criteria:
+Acceptance criteria when that queued follow-on is selected:
 
 ```sh
 uv run python scripts/parity_checks/extension_package_conformance.py --json

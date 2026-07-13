@@ -409,6 +409,21 @@ provider sends the same low default text verbosity as Pi's Codex Responses
 path, maps streamed final text and normalized usage into the existing provider
 result shape, and archives only safe metadata such as provider, model, status,
 duration, storage booleans, response status, and normalized counters.
+
+The SSE request uses a configurable 300,000 ms header/body idle timeout rather
+than the former provider-local 60-second socket timeout. `httpIdleTimeoutMs`
+sets the shared default, `retry.provider.timeoutMs` overrides it for this
+provider, and `0` disables the timeout instead of passing a zero-second timeout
+to `urllib`. Recognized connection, timeout, reset, and truncated-stream
+failures become sanitized provider-domain errors. The retry boundary owns the
+complete request plus stream attempt and retries bounded transient failures
+only before the first parsed provider event, with cancellation-aware backoff
+and capped `Retry-After` support. Once any event arrives, the provider never
+replays the stream, preventing duplicate text, reasoning, assembled tool calls,
+or tool effects. Escape/Ctrl-C cancellation remains distinct, immediate, and
+non-retryable. OpenAI-Codex is still SSE-only until the reviewed WebSocket
+transport slice makes `transport: auto|sse|websocket` effective.
+
 Auth material, authorization URLs, raw request bodies, raw provider responses,
 headers with credentials, prompts, model output, provider-native payloads,
 stdout, stderr, tool payloads, diffs, file contents, secrets, credentials,
