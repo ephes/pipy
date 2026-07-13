@@ -287,7 +287,7 @@ review fix, then commit:
 feat(provider): add Codex WebSocket transport
 ```
 
-## Slice 4 — Parity-runner and product failure handling
+## Slice 4 — Parity-runner and product failure handling — COMPLETE
 
 ### Intent
 

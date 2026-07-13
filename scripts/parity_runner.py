@@ -64,8 +64,15 @@ class Opts:
 
 
 @dataclass
+class ChildRunResult:
+    exit_code: int
+    stdout: str
+    timed_out: bool = False
+
+
+@dataclass
 class Hooks:
-    run_gap: Callable[[str, float, Path], tuple[int, str]]
+    run_gap: Callable[[str, float, Path], ChildRunResult]
     run_improve: Callable[[str, float, Path], int]
     ledger_validate: Callable[[Path], int]
     ledger_open_count: Callable[[Path], int]
@@ -807,12 +814,13 @@ def curate_slice_report(
     head_before = head(repo)
     restore_guards = install_no_push_guards(repo)
     try:
-        rc, _ = _spawn_capture(
+        curation_result = _spawn_capture(
             [*_agent_cmd(agent), "--", _report_curation_prompt(repo, report_path)],
             repo,
             timeout,
             log_path,
         )
+        rc = curation_result.exit_code
     finally:
         restore_guards()
     if rc != 0:
@@ -997,9 +1005,13 @@ def child_block_reason(log_path: Path) -> str | None:
     # In pipy print-mode, a fatal provider failure is emitted at the tail of the
     # child log. Do not match the entire log: interactive/product paths can log
     # recoverable provider failures and continue, and a later unrelated failure
-    # should not be hidden as a provider outage.
-    tail = [line for line in text.splitlines()[-20:] if line.strip()]
+    # should not be hidden as a provider outage. The legacy raw timeout match is
+    # deliberately exact defense in depth; the normalized provider-failure
+    # diagnostic remains the primary product path.
+    tail = [line.strip() for line in text.splitlines()[-20:] if line.strip()]
     if any("pipy: provider failure during turn:" in line for line in tail):
+        return "provider_failure"
+    if any(line == "pipy: The read operation timed out" for line in tail):
         return "provider_failure"
     return None
 
@@ -1101,12 +1113,36 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                 while True:
                     rem = remaining()
                     gap_log_path = log.gap_log(gap_index)
-                    exit_code, stdout = hooks.run_gap(
+                    log.event(
+                        "gap.attempt_started",
+                        index=gap_index,
+                        attempt=attempt,
+                    )
+                    child_result = hooks.run_gap(
                         _gap_prompt(),
                         min(opts.per_gap_timeout, rem),
                         gap_log_path,
                     )
+                    exit_code = child_result.exit_code
+                    stdout = child_result.stdout
                     kind, arg = parse_sentinel(stdout)
+                    if kind == "BLOCKED":
+                        attempt_reason = arg
+                    elif exit_code == 0 and kind in ("COMMITTED", "NO_GAPS"):
+                        attempt_reason = None
+                    else:
+                        attempt_reason = child_block_reason(gap_log_path)
+                    if attempt_reason is not None and len(attempt_reason) > 128:
+                        attempt_reason = attempt_reason[:125] + "..."
+                    log.event(
+                        "gap.attempt_finished",
+                        index=gap_index,
+                        attempt=attempt,
+                        exit_code=exit_code,
+                        timed_out=child_result.timed_out,
+                        outcome=kind.lower() if kind is not None else "exit",
+                        reason=attempt_reason,
+                    )
                     if exit_code == 0 and kind == "COMMITTED":
                         ok, reason = verify_committed(repo, head_before, refs_before, arg)
                         if ok:
@@ -1232,7 +1268,7 @@ def _agent_cmd(agent: str) -> list[str]:
     return [agent, "-p"]
 
 
-def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
+def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> ChildRunResult:
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -1245,6 +1281,7 @@ def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) ->
     try:
         out, err = proc.communicate(timeout=timeout)
         rc = proc.returncode
+        timed_out = False
     except subprocess.TimeoutExpired:
         try:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -1252,12 +1289,13 @@ def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) ->
             pass
         out, err = proc.communicate()
         rc = -1
+        timed_out = True
     log_path.write_text((out or "") + "\n--- stderr ---\n" + (err or ""), encoding="utf-8")
-    return rc, out or ""
+    return ChildRunResult(rc, out or "", timed_out)
 
 
-def _real_run_gap(repo: Path, agent: str) -> Callable[[str, float, Path], tuple[int, str]]:
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+def _real_run_gap(repo: Path, agent: str) -> Callable[[str, float, Path], ChildRunResult]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> ChildRunResult:
         return _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path)
 
     return run_gap
@@ -1265,8 +1303,7 @@ def _real_run_gap(repo: Path, agent: str) -> Callable[[str, float, Path], tuple[
 
 def _real_run_improve(repo: Path, agent: str) -> Callable[[str, float, Path], int]:
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
-        rc, _ = _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path)
-        return rc
+        return _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path).exit_code
 
     return run_improve
 

@@ -430,6 +430,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   exponential backoff and capped `Retry-After` support. Retries stop before
   replay once any provider event is parsed, preventing duplicate visible text,
   reasoning, tool calls, or tool effects.
+- The parity runner now records child-attempt start/finish events, distinguishes
+  runner timeouts from signal exits, and narrowly retries a legacy raw
+  `pipy: The read operation timed out` child tail only when no branch, HEAD,
+  ref, or worktree progress occurred.
 
 ## [0.1.0] - 2026-06-03
 

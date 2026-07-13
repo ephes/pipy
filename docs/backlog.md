@@ -1524,13 +1524,15 @@ and the reviewed implementation plan are committed under
   execution cannot be duplicated.
 
 The real OpenAI-Codex WebSocket transport and Pi-shaped pre-event SSE fallback
-for `transport: auto|sse|websocket` now ship. The remaining reviewed follow-on
-is parity-runner defense-in-depth recognition of the historical raw timeout plus
-focused regression coverage of its existing branch/HEAD/ref/worktree
-no-progress guard, followed by final docs, release-note, and integration
+for `transport: auto|sse|websocket` now ship. Parity-runner defense-in-depth for
+the historical raw timeout now also ships: runner logs record structured child
+attempt start/finish events, distinguish runner timeouts from signal exits, and
+retry only when the normalized provider diagnostic or exact legacy
+`pipy: The read operation timed out` tail appears with no branch/HEAD/ref/worktree
+progress. The remaining follow-on is final docs, release-note, and integration
 closure.
 
-Acceptance criteria for the remaining parity-runner defense-in-depth slice:
+Acceptance criteria for the transport-reliability closeout:
 
 ```sh
 uv lock --check

@@ -244,7 +244,7 @@ def test_lesson_gate_clean_when_no_open(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _, log = _events_recorder()
     hooks = pr.Hooks(
-        run_gap=lambda *a: (0, ""),
+        run_gap=lambda *a: pr.ChildRunResult(0, ""),
         run_improve=lambda *a: 0,
         ledger_validate=lambda _r: 0,
         ledger_open_count=lambda _r: 0,
@@ -274,7 +274,7 @@ def test_lesson_gate_drains_then_exit3(tmp_path: Path) -> None:
         return 0
 
     hooks = pr.Hooks(
-        run_gap=lambda *a: (0, ""),
+        run_gap=lambda *a: pr.ChildRunResult(0, ""),
         run_improve=fake_improve,
         ledger_validate=lambda _r: 0,
         ledger_open_count=lambda _r: state["open"],
@@ -297,7 +297,7 @@ def test_lesson_gate_ledger_invalid(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _, log = _events_recorder()
     hooks = pr.Hooks(
-        run_gap=lambda *a: (0, ""),
+        run_gap=lambda *a: pr.ChildRunResult(0, ""),
         run_improve=lambda *a: 0,
         ledger_validate=lambda _r: 1,
         ledger_open_count=lambda _r: 0,
@@ -325,7 +325,7 @@ def test_lesson_gate_skips_improve_when_no_budget(tmp_path: Path) -> None:
         return 0
 
     hooks = pr.Hooks(
-        run_gap=lambda *a: (0, ""),
+        run_gap=lambda *a: pr.ChildRunResult(0, ""),
         run_improve=fake_improve,
         ledger_validate=lambda _r: 0,
         ledger_open_count=lambda _r: 1,
@@ -390,7 +390,7 @@ def _write_run_events(path: Path, events: list[dict[str, Any]]) -> None:
 
 def _ok_ledger_hooks(**over: Any) -> Any:
     base: dict[str, Any] = {
-        "run_gap": lambda *a: (0, ""),
+        "run_gap": lambda *a: pr.ChildRunResult(0, ""),
         "run_improve": lambda *a: 0,
         "ledger_validate": lambda _r: 0,
         "ledger_open_count": lambda _r: 0,
@@ -416,19 +416,58 @@ def test_spawn_capture_closes_child_stdin(monkeypatch: Any, tmp_path: Path) -> N
 
     monkeypatch.setattr(pr.subprocess, "Popen", fake_popen)
 
-    rc, out = pr._spawn_capture(["fake-agent"], tmp_path, 10.0, tmp_path / "agent.log")
+    result = pr._spawn_capture(["fake-agent"], tmp_path, 10.0, tmp_path / "agent.log")
 
-    assert rc == 0
-    assert out == "ok\n"
+    assert result.exit_code == 0
+    assert result.stdout == "ok\n"
+    assert result.timed_out is False
     assert captured["stdin"] is pr.subprocess.DEVNULL
+
+
+def test_spawn_capture_marks_timeout_only_for_timeout_expired(monkeypatch: Any, tmp_path: Path) -> None:
+    class TimeoutProc:
+        pid = 999999
+        returncode = None
+        calls = 0
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+            self.calls += 1
+            if self.calls == 1:
+                raise pr.subprocess.TimeoutExpired(["fake-agent"], timeout)
+            return ("partial\n", "timeout stderr\n")
+
+    monkeypatch.setattr(pr.subprocess, "Popen", lambda *a, **kw: TimeoutProc())
+    monkeypatch.setattr(pr.os, "getpgid", lambda _pid: 999999)
+    monkeypatch.setattr(pr.os, "killpg", lambda _pgid, _sig: None)
+
+    result = pr._spawn_capture(["fake-agent"], tmp_path, 10.0, tmp_path / "agent.log")
+
+    assert result.exit_code == -1
+    assert result.stdout == "partial\n"
+    assert result.timed_out is True
+
+    class SignalProc:
+        pid = 999999
+        returncode = -1
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+            return ("signal\n", "")
+
+    monkeypatch.setattr(pr.subprocess, "Popen", lambda *a, **kw: SignalProc())
+
+    result2 = pr._spawn_capture(["fake-agent"], tmp_path, 10.0, tmp_path / "agent2.log")
+
+    assert result2.exit_code == -1
+    assert result2.stdout == "signal\n"
+    assert result2.timed_out is False
 
 
 def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
-    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
+    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls.append(cmd)
-        return 0, ""
+        return pr.ChildRunResult(0, "")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 
@@ -465,7 +504,7 @@ def test_real_agent_prompt_is_delimited(monkeypatch: Any, tmp_path: Path) -> Non
 
 def test_run_stops_on_no_gaps(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
-    hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n"))
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
     assert code == 0
 
@@ -474,7 +513,7 @@ def test_run_records_remote_tracking_ref_audit(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     remote_main = pr.head(repo)
     _git(repo, "update-ref", "refs/remotes/origin/main", remote_main)
-    hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n"))
 
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
 
@@ -492,13 +531,13 @@ def test_run_does_one_verified_gap_then_no_gaps(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         assert pr.SINGLE_GAP_MARKER in prompt
         calls["n"] += 1
         if calls["n"] == 1:
             sha = _commit(repo, f"docs/gap{calls['n']}.md", "gap 1")
-            return 0, f"PARITY_RESULT: COMMITTED {sha}\n"
-        return 0, "PARITY_RESULT: NO_GAPS\n"
+            return pr.ChildRunResult(0, f"PARITY_RESULT: COMMITTED {sha}\n")
+        return pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0, 2.0, 3.0]))
@@ -512,7 +551,7 @@ def test_run_does_one_verified_gap_then_no_gaps(tmp_path: Path) -> None:
 
 def test_run_stops_on_unverified_committed(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
-    hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: COMMITTED deadbeef\n"))
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(0, "PARITY_RESULT: COMMITTED deadbeef\n"))
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
     assert code == 1
 
@@ -524,7 +563,7 @@ def test_run_blocks_duplicate_label(tmp_path: Path) -> None:
     _git(repo, "commit", "-q", "-m", "ignore runs")
     opts = _opts(repo, tmp_path, run_dir=repo / "runs")
     (repo / "runs" / "run-L1").mkdir(parents=True)
-    hooks = _ok_ledger_hooks(run_gap=lambda *a: (0, "PARITY_RESULT: NO_GAPS\n"))
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n"))
     code = pr.run(opts, hooks, clock=_clock_seq([0.0]))
     assert code == 2
 
@@ -533,9 +572,9 @@ def test_run_preflight_backlog_exit3_zero_gaps(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     gap_calls = {"n": 0}
 
-    def run_gap(*a: Any) -> tuple[int, str]:
+    def run_gap(*a: Any) -> pr.ChildRunResult:
         gap_calls["n"] += 1
-        return 0, "PARITY_RESULT: NO_GAPS\n"
+        return pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n")
 
     hooks = _ok_ledger_hooks(
         run_gap=run_gap,
@@ -551,10 +590,10 @@ def test_run_stops_at_max_gaps_cap(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls["n"] += 1
         sha = _commit(repo, f"docs/gap{calls['n']}.md", f"gap {calls['n']}")
-        return 0, f"PARITY_RESULT: COMMITTED {sha}\n"
+        return pr.ChildRunResult(0, f"PARITY_RESULT: COMMITTED {sha}\n")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
     code = pr.run(
@@ -572,10 +611,10 @@ def test_run_stops_at_time_budget_cap(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls["n"] += 1
         sha = _commit(repo, "docs/gap1.md", "gap 1")
-        return 0, f"PARITY_RESULT: COMMITTED {sha}\n"
+        return pr.ChildRunResult(0, f"PARITY_RESULT: COMMITTED {sha}\n")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
     code = pr.run(
@@ -592,7 +631,7 @@ def test_run_stops_at_time_budget_cap(tmp_path: Path) -> None:
 def test_run_blocked_records_human_cleanup(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     hooks = _ok_ledger_hooks(
-        run_gap=lambda *a: (0, "PARITY_RESULT: BLOCKED reviewer unavailable\n")
+        run_gap=lambda *a: pr.ChildRunResult(0, "PARITY_RESULT: BLOCKED reviewer unavailable\n")
     )
     code = pr.run(_opts(repo, tmp_path), hooks, clock=_clock_seq([0.0, 1.0]))
     assert code == 1
@@ -600,11 +639,11 @@ def test_run_blocked_records_human_cleanup(tmp_path: Path) -> None:
     assert '"needs_human_cleanup": true' in runlog
 
 
-def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None:
+def test_run_attempt_events_record_exit_and_retry_metadata(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls["n"] += 1
         log_path.write_text(
             "pipy: provider failure during turn: "
@@ -612,7 +651,7 @@ def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None
             "(response_status=unknown)\n",
             encoding="utf-8",
         )
-        return 1, ""
+        return pr.ChildRunResult(1, "")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
 
@@ -621,6 +660,14 @@ def test_run_classifies_pipy_provider_failure_as_blocked(tmp_path: Path) -> None
     assert code == 1
     assert calls["n"] == 2
     events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    started = [event for event in events if event["type"] == "gap.attempt_started"]
+    finished_attempts = [event for event in events if event["type"] == "gap.attempt_finished"]
+    assert [event["attempt"] for event in started] == [1, 2]
+    assert [event["attempt"] for event in finished_attempts] == [1, 2]
+    assert finished_attempts[0]["exit_code"] == 1
+    assert finished_attempts[0]["timed_out"] is False
+    assert finished_attempts[0]["outcome"] == "exit"
+    assert finished_attempts[0]["reason"] == "provider_failure"
     retrying = next(event for event in events if event["type"] == "gap.retrying")
     assert retrying["reason"] == "blocked:provider_failure"
     assert retrying["log_path"] == "gap-1-attempt-1.log"
@@ -636,7 +683,7 @@ def test_run_retries_provider_failure_and_accepts_clean_commit(tmp_path: Path) -
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls["n"] += 1
         if calls["n"] == 1:
             log_path.write_text(
@@ -644,9 +691,9 @@ def test_run_retries_provider_failure_and_accepts_clean_commit(tmp_path: Path) -
                 "a terminal response event. (response_status=unknown)\n",
                 encoding="utf-8",
             )
-            return 1, ""
+            return pr.ChildRunResult(1, "")
         sha = _commit(repo, "docs/gap1.md", "gap 1")
-        return 0, f"PARITY_RESULT: COMMITTED {sha}\n"
+        return pr.ChildRunResult(0, f"PARITY_RESULT: COMMITTED {sha}\n")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
 
@@ -671,7 +718,7 @@ def test_run_does_not_retry_provider_failure_after_partial_progress(tmp_path: Pa
     repo = _init_repo(tmp_path)
     calls = {"n": 0}
 
-    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls["n"] += 1
         (repo / "partial.txt").write_text("partial\n", encoding="utf-8")
         log_path.write_text(
@@ -679,7 +726,7 @@ def test_run_does_not_retry_provider_failure_after_partial_progress(tmp_path: Pa
             "a terminal response event. (response_status=unknown)\n",
             encoding="utf-8",
         )
-        return 1, ""
+        return pr.ChildRunResult(1, "")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
 
@@ -698,17 +745,128 @@ def test_run_does_not_retry_provider_failure_after_partial_progress(tmp_path: Pa
     assert failed["reason"] == "blocked:provider_failure"
 
 
+def test_run_does_not_retry_provider_failure_after_tracked_progress(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
+        (repo / "seed.txt").write_text("changed\n", encoding="utf-8")
+        log_path.write_text("pipy: provider failure during turn: transient\n", encoding="utf-8")
+        return pr.ChildRunResult(1, "")
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(_opts(repo, tmp_path, provider_failure_retries=2), hooks, clock=_clock_seq([0.0, 1.0]))
+
+    assert code == 1
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    skipped = next(event for event in events if event["type"] == "gap.retry_skipped")
+    assert skipped["skip_reason"] == "unexpected_progress"
+
+
+def test_run_does_not_retry_provider_failure_after_branch_head_or_ref_progress(tmp_path: Path) -> None:
+    scenarios = {
+        "branch": lambda repo: _git(repo, "checkout", "-q", "-b", "side"),
+        "head": lambda repo: _commit(repo, "docs/progress.md", "progress"),
+        "ref": lambda repo: _git(repo, "update-ref", "refs/tags/progress", pr.head(repo)),
+    }
+
+    for name, mutate in scenarios.items():
+        case_tmp = tmp_path / name
+        case_tmp.mkdir()
+        repo = _init_repo(case_tmp)
+
+        def run_gap(_prompt: str, _timeout: float, log_path: Path, mutate=mutate, repo=repo) -> pr.ChildRunResult:
+            mutate(repo)
+            log_path.write_text("pipy: provider failure during turn: transient\n", encoding="utf-8")
+            return pr.ChildRunResult(1, "")
+
+        hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+        code = pr.run(_opts(repo, case_tmp, provider_failure_retries=2), hooks, clock=_clock_seq([0.0, 1.0]))
+
+        assert code == 1
+        events = _run_events(case_tmp / "runs" / "run-L1" / "run.jsonl")
+        skipped = next(event for event in events if event["type"] == "gap.retry_skipped")
+        assert skipped["skip_reason"] == "unexpected_progress"
+
+
+def test_run_retries_legacy_raw_timeout_tail(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    calls = {"n": 0}
+
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            log_path.write_text("pipy: The read operation timed out\n", encoding="utf-8")
+            return pr.ChildRunResult(1, "")
+        sha = _commit(repo, "docs/gap1.md", "gap 1")
+        return pr.ChildRunResult(0, f"PARITY_RESULT: COMMITTED {sha}\n")
+
+    hooks = _ok_ledger_hooks(run_gap=run_gap)
+
+    code = pr.run(_opts(repo, tmp_path, max_gaps=1), hooks, clock=_clock_seq([0.0, 1.0, 2.0]))
+
+    assert code == 0
+    assert calls["n"] == 2
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    retrying = next(event for event in events if event["type"] == "gap.retrying")
+    assert retrying["reason"] == "blocked:provider_failure"
+
+
+def test_run_does_not_classify_broad_legacy_timeout_matches(tmp_path: Path) -> None:
+    cases = [
+        "pipy: The read operation timed out while parsing payload\n",
+        "pipy: OSError: The read operation timed out\n",
+        "pipy: the read operation timed out\n",
+        "body token: pipy: The read operation timed out extra\n",
+        "pipy: The read operation timed out\n" + "\n".join(f"later {idx}" for idx in range(25)),
+    ]
+
+    for idx, text in enumerate(cases):
+        log_path = tmp_path / f"legacy-{idx}.log"
+        log_path.write_text(text, encoding="utf-8")
+        assert pr.child_block_reason(log_path) is None
+
+
+def test_run_records_child_timeout_separately_from_signal_exit(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    hooks = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(-1, "", timed_out=True))
+
+    code = pr.run(
+        _opts(repo, tmp_path, provider_failure_retries=0),
+        hooks,
+        clock=_clock_seq([0.0, 1.0]),
+    )
+
+    assert code == 1
+    events = _run_events(tmp_path / "runs" / "run-L1" / "run.jsonl")
+    finished = next(event for event in events if event["type"] == "gap.attempt_finished")
+    assert finished["exit_code"] == -1
+    assert finished["timed_out"] is True
+
+    second_tmp = tmp_path / "second"
+    second_tmp.mkdir()
+    repo2 = _init_repo(second_tmp)
+    hooks2 = _ok_ledger_hooks(run_gap=lambda *a: pr.ChildRunResult(-1, "", timed_out=False))
+    code2 = pr.run(_opts(repo2, second_tmp), hooks2, clock=_clock_seq([0.0, 1.0]))
+    assert code2 == 1
+    events2 = _run_events(second_tmp / "runs" / "run-L1" / "run.jsonl")
+    finished2 = next(event for event in events2 if event["type"] == "gap.attempt_finished")
+    assert finished2["exit_code"] == -1
+    assert finished2["timed_out"] is False
+
+
 def test_run_does_not_classify_earlier_recovered_provider_failure(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
 
-    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(_prompt: str, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         log_path.write_text(
             "pipy: provider failure during turn: transient\n"
             + "\n".join(f"later unrelated failure context {idx}" for idx in range(25))
             + "\n",
             encoding="utf-8",
         )
-        return 1, ""
+        return pr.ChildRunResult(1, "")
 
     hooks = _ok_ledger_hooks(run_gap=run_gap)
 
@@ -724,9 +882,9 @@ def test_run_postloop_backlog_exit3_after_improve(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     state = {"open": 0, "improve_calls": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         state["open"] = 2
-        return 0, "PARITY_RESULT: NO_GAPS\n"
+        return pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n")
 
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
         assert pr.UNATTENDED_MARKER in prompt
@@ -751,9 +909,9 @@ def test_run_postloop_surfaces_improve_child_caveats(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     state = {"open": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         state["open"] = 1
-        return 0, "PARITY_RESULT: NO_GAPS\n"
+        return pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n")
 
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
         state["open"] = 0
@@ -811,9 +969,9 @@ def test_run_postloop_records_safety_net_commits(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     state = {"open": 0}
 
-    def run_gap(prompt: str, timeout: float, log_path: Path) -> tuple[int, str]:
+    def run_gap(prompt: str, timeout: float, log_path: Path) -> pr.ChildRunResult:
         state["open"] = 1
-        return 0, "PARITY_RESULT: NO_GAPS\n"
+        return pr.ChildRunResult(0, "PARITY_RESULT: NO_GAPS\n")
 
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
         state["open"] = 0
@@ -1241,7 +1399,7 @@ def test_curate_slice_report_invokes_agent_and_preserves_facts(
     report.write_text(original, encoding="utf-8")
     calls: list[dict[str, Any]] = []
 
-    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> tuple[int, str]:
+    def fake_spawn(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> pr.ChildRunResult:
         calls.append({"cmd": cmd, "cwd": cwd, "timeout": timeout, "log_path": log_path})
         assert "report.md" in cmd[-1]
         log_path.write_text("curation log\n", encoding="utf-8")
@@ -1252,7 +1410,7 @@ def test_curate_slice_report_invokes_agent_and_preserves_facts(
             ),
             encoding="utf-8",
         )
-        return (0, "REPORT_CURATION: OK\n")
+        return pr.ChildRunResult(0, "REPORT_CURATION: OK\n")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 
@@ -1283,7 +1441,7 @@ def test_curate_slice_report_fails_when_placeholder_remains(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: (0, "REPORT_CURATION: OK\n"))
+    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: pr.ChildRunResult(0, "REPORT_CURATION: OK\n"))
 
     try:
         pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
@@ -1305,13 +1463,13 @@ def test_curate_slice_report_fails_when_agent_changes_generated_facts(
         encoding="utf-8",
     )
 
-    def fake_spawn(*_args: Any) -> tuple[int, str]:
+    def fake_spawn(*_args: Any) -> pr.ChildRunResult:
         report.write_text(
             "<!-- BEGIN GENERATED:facts -->\nchanged\n<!-- END GENERATED:facts -->\n\n"
             "Curated.\n",
             encoding="utf-8",
         )
-        return (0, "REPORT_CURATION: OK\n")
+        return pr.ChildRunResult(0, "REPORT_CURATION: OK\n")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 
@@ -1335,7 +1493,7 @@ def test_curate_slice_report_fails_when_agent_exits_nonzero(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: (7, "failed\n"))
+    monkeypatch.setattr(pr, "_spawn_capture", lambda *a: pr.ChildRunResult(7, "failed\n"))
 
     try:
         pr.curate_slice_report(repo, tmp_path / "runs", report, agent="fake-agent", timeout=12.0)
@@ -1358,11 +1516,11 @@ def test_curate_slice_report_fails_when_agent_changes_other_files(
     )
     report.write_text(original, encoding="utf-8")
 
-    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         log_path.write_text("curation log\n", encoding="utf-8")
         report.write_text(original.replace(pr.REPORT_FACTS_ONLY_MARKER, "Curated."), encoding="utf-8")
         (repo / "other.txt").write_text("unexpected\n", encoding="utf-8")
-        return (0, "REPORT_CURATION: OK\n")
+        return pr.ChildRunResult(0, "REPORT_CURATION: OK\n")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 
@@ -1387,12 +1545,12 @@ def test_curate_slice_report_fails_when_agent_moves_head(
     )
     report.write_text(original, encoding="utf-8")
 
-    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> tuple[int, str]:
+    def fake_spawn(_cmd: list[str], _cwd: Path, _timeout: float, log_path: Path) -> pr.ChildRunResult:
         log_path.write_text("curation log\n", encoding="utf-8")
         report.write_text(original.replace(pr.REPORT_FACTS_ONLY_MARKER, "Curated."), encoding="utf-8")
         _git(repo, "add", str(report.relative_to(repo)))
         _git(repo, "commit", "-q", "-m", "unexpected curation commit")
-        return (0, "REPORT_CURATION: OK\n")
+        return pr.ChildRunResult(0, "REPORT_CURATION: OK\n")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 
@@ -1430,9 +1588,9 @@ def test_curate_slice_report_skips_already_curated_report(
     )
     spawned = {"value": False}
 
-    def fake_spawn(*_args: Any) -> tuple[int, str]:
+    def fake_spawn(*_args: Any) -> pr.ChildRunResult:
         spawned["value"] = True
-        return (0, "")
+        return pr.ChildRunResult(0, "")
 
     monkeypatch.setattr(pr, "_spawn_capture", fake_spawn)
 

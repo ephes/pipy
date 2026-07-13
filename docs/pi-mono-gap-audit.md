@@ -26,10 +26,12 @@ provider event. Cancellation remains non-retryable and the no-post-event-replay
 boundary prevents duplicate text, reasoning, tool calls, or effects.
 
 The real `auto|sse|websocket` behavior with Pi-shaped pre-event fallback now
-ships. Remaining slices are parity-runner recognition of the historical raw
-timeout as defense in depth and final documentation/integration closure. See the
-reviewed research, design, and plan under `docs/superpowers/` and the current
-target in `docs/backlog.md`.
+ships. Parity-runner recognition of the exact historical raw timeout tail also
+ships as defense in depth, with structured attempt lifecycle logging and retry
+still guarded by the no-progress branch/HEAD/ref/worktree invariant. The
+remaining slice is final documentation/integration closure. See the reviewed
+research, design, and plan under `docs/superpowers/` and the current target in
+`docs/backlog.md`.
 
 ## Sources checked
 
