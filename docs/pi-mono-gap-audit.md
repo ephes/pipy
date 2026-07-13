@@ -68,8 +68,11 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   supply-chain policy.
 - Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) ship in
   pipy under the REPL product path and are backed by the native session tree.
-  The old metadata-only `--native-output json` has been **removed** (2026-06-20);
-  callers use `--mode json`, and the removed flag emits guidance naming it.
+  RPC thinking-level commands now update catalog-backed provider request
+  construction for subsequent prompts; broader live provider switching over RPC
+  remains a documented follow-on. The old metadata-only `--native-output json`
+  has been **removed** (2026-06-20); callers use `--mode json`, and the removed
+  flag emits guidance naming it.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork

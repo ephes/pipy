@@ -10,6 +10,7 @@ and clean EOF shutdown.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import queue
@@ -20,6 +21,9 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.automation.jsonl import JsonlLineBuffer
 from pipy_harness.native.automation.rpc import NativeRpcServer
 from pipy_harness.native.fake import AutomationFakeProvider
@@ -110,6 +114,66 @@ def client(tmp_path: Path):
         c.close()
 
 
+def _provider_state_adapter(tmp_path: Path) -> PipyNativeToolReplAdapter:
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENAI_API_KEY": "sk-test"},
+        openai_codex_auth_path=tmp_path / "codex.json",
+    )
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("openai", "gpt-5.5"),
+        provider_factory=lambda _sel: AutomationFakeProvider(),
+        catalog_state=catalog,
+        persist_defaults=False,
+    )
+    return PipyNativeToolReplAdapter(provider_state=state)
+
+
+def test_set_thinking_level_updates_provider_state_before_construction(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=tree,
+        stdin=io.StringIO(),
+        stdout_buffer=io.BytesIO(),
+        error_stream=io.StringIO(),
+    )
+
+    server._cmd_set_thinking_level("t", {"level": "high"})
+
+    assert adapter.provider_state is not None
+    assert adapter.provider_state.thinking_level == "high"
+    provider = adapter._current_provider()
+    assert getattr(provider, "reasoning_effort", None) == "high"
+
+
+def test_cycle_thinking_level_updates_provider_state_before_construction(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=tree,
+        stdin=io.StringIO(),
+        stdout_buffer=io.BytesIO(),
+        error_stream=io.StringIO(),
+    )
+
+    server._cmd_cycle_thinking_level("t", {})
+
+    assert adapter.provider_state is not None
+    assert adapter.provider_state.thinking_level == "minimal"
+    provider = adapter._current_provider()
+    assert getattr(provider, "reasoning_effort", None) == "minimal"
+
+
 def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
     # A batch client submits a prompt + a follow-up, then closes stdin. The
     # queued follow-up must still run before shutdown (not dropped behind EOF).
@@ -126,7 +190,8 @@ def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
     user_texts = [
         "".join(b.get("text", "") for b in r["message"]["content"])
         for r in records
-        if r.get("type") == "message_start" and r.get("message", {}).get("role") == "user"
+        if r.get("type") == "message_start"
+        and r.get("message", {}).get("role") == "user"
     ]
     assert "ROOT" in user_texts
     assert "SECOND" in user_texts
@@ -138,7 +203,12 @@ def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:
 
     # The correlated prompt success precedes the event stream.
     success = records[0]
-    assert success == {"id": "r1", "type": "response", "command": "prompt", "success": True}
+    assert success == {
+        "id": "r1",
+        "type": "response",
+        "command": "prompt",
+        "success": True,
+    }
 
     types = [r["type"] for r in records[1:]]
     assert types[0] == "agent_start"
@@ -326,7 +396,9 @@ def test_prompt_during_active_run_is_queued_observably(client) -> None:
     client.wait_for(lambda r: r.get("type") == "agent_start")
     client.send({"id": "p2", "type": "prompt", "message": "second prompt"})
     qu = client.wait_for(
-        lambda r: r.get("type") == "queue_update" and "second prompt" in r.get("followUp", [])
+        lambda r: (
+            r.get("type") == "queue_update" and "second prompt" in r.get("followUp", [])
+        )
     )
     assert "second prompt" in qu["followUp"]
     client.send({"id": "s", "type": "get_state"})

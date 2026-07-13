@@ -102,11 +102,12 @@ The broad parity ladder, applied with small-slice discipline:
 - Extension/RPC parity: the headless automation protocol has **shipped** —
   `--mode json` (full Pi-shaped event stream), `--print`/`-p` (one-shot text),
   and `--mode rpc` (long-lived stdin/stdout JSONL with the full Pi command
-  vocabulary), gated by
+  vocabulary, including RPC thinking-level changes threaded into catalog-backed
+  provider request construction), gated by
   `scripts/parity_checks/automation_rpc_conformance.py --json`
   ([automation-rpc.md](automation-rpc.md)). Remaining integration points
   (extension APIs, custom commands/UI surfaced over the RPC extension-UI
-  channel) build on this foundation.
+  channel, and broader live provider switching over RPC) build on this foundation.
 
 ### Prioritized Pi Gap Queue (2026-05-28)
 

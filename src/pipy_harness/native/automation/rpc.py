@@ -137,7 +137,9 @@ class _PromptChannel:
 
 
 class _NullEventSink:
-    def emit(self, event_type: str, *, summary: str, payload: Any | None = None) -> None:
+    def emit(
+        self, event_type: str, *, summary: str, payload: Any | None = None
+    ) -> None:
         return None
 
 
@@ -303,9 +305,7 @@ class NativeRpcServer:
         while time.monotonic() < deadline:
             with self._lock:
                 idle = (
-                    not self._turn_active
-                    and not self._steering
-                    and not self._follow_up
+                    not self._turn_active and not self._steering and not self._follow_up
                 )
             if idle:
                 return
@@ -370,16 +370,12 @@ class NativeRpcServer:
     def _dispatch(self, ctype: str, cid: str | None, command: dict[str, Any]) -> None:
         handler = getattr(self, f"_cmd_{ctype}", None)
         if handler is None:
-            self._respond_error(
-                cid, ctype, f"{ctype} is not yet implemented over RPC"
-            )
+            self._respond_error(cid, ctype, f"{ctype} is not yet implemented over RPC")
             return
         handler(cid, command)
 
     # -- response helpers ------------------------------------------------
-    def _respond(
-        self, cid: str | None, command: str, data: Any = _OMIT
-    ) -> None:
+    def _respond(self, cid: str | None, command: str, data: Any = _OMIT) -> None:
         record: dict[str, Any] = {
             "type": "response",
             "command": command,
@@ -465,7 +461,9 @@ class NativeRpcServer:
     def _cmd_follow_up(self, cid: str | None, command: dict[str, Any]) -> None:
         message = command.get("message")
         if not isinstance(message, str) or not message:
-            self._respond_error(cid, "follow_up", "follow_up requires a non-empty message")
+            self._respond_error(
+                cid, "follow_up", "follow_up requires a non-empty message"
+            )
             return
         with self._lock:
             self._follow_up.append(message)
@@ -534,13 +532,21 @@ class NativeRpcServer:
         self._follow_up_mode = mode
         self._respond(cid, "set_follow_up_mode")
 
-    def _cmd_set_auto_compaction(self, cid: str | None, command: dict[str, Any]) -> None:
+    def _cmd_set_auto_compaction(
+        self, cid: str | None, command: dict[str, Any]
+    ) -> None:
         self._auto_compaction = bool(command.get("enabled"))
         self._respond(cid, "set_auto_compaction")
 
     def _cmd_set_auto_retry(self, cid: str | None, command: dict[str, Any]) -> None:
         self._auto_retry = bool(command.get("enabled"))
         self._respond(cid, "set_auto_retry")
+
+    def _set_thinking_level(self, level: str) -> None:
+        self._thinking_level = level
+        provider_state = getattr(self._adapter, "provider_state", None)
+        if provider_state is not None and hasattr(provider_state, "thinking_level"):
+            provider_state.thinking_level = level
 
     def _cmd_set_thinking_level(self, cid: str | None, command: dict[str, Any]) -> None:
         level = command.get("level")
@@ -549,18 +555,22 @@ class NativeRpcServer:
                 cid, "set_thinking_level", f"unknown thinking level: {level}"
             )
             return
-        # The requested level is recorded and surfaced in get_state.thinkingLevel
-        # plus a thinking_level_changed event, but it is not yet threaded into the
-        # running session's provider requests — a documented follow-on
-        # (docs/automation-rpc.md "Model / thinking controls").
-        self._thinking_level = level
+        # Pi routes RPC thinking controls through AgentSession.setThinkingLevel(),
+        # so the next provider request is constructed with the new level. In
+        # pipy's automation build, NativeReplProviderState is the shared
+        # construction boundary; injected-provider adapters keep the
+        # transport-local recorded value because there is no provider state to
+        # mutate.
+        self._set_thinking_level(level)
         self._respond(cid, "set_thinking_level")
         self._writer.write_line({"type": "thinking_level_changed", "level": level})
 
-    def _cmd_cycle_thinking_level(self, cid: str | None, command: dict[str, Any]) -> None:
+    def _cmd_cycle_thinking_level(
+        self, cid: str | None, command: dict[str, Any]
+    ) -> None:
         index = self._THINKING_LEVELS.index(self._thinking_level)
         level = self._THINKING_LEVELS[(index + 1) % len(self._THINKING_LEVELS)]
-        self._thinking_level = level
+        self._set_thinking_level(level)
         self._respond(cid, "cycle_thinking_level", {"level": level})
         self._writer.write_line({"type": "thinking_level_changed", "level": level})
 
@@ -663,7 +673,9 @@ class NativeRpcServer:
             },
         )
 
-    def _cmd_get_last_assistant_text(self, cid: str | None, command: dict[str, Any]) -> None:
+    def _cmd_get_last_assistant_text(
+        self, cid: str | None, command: dict[str, Any]
+    ) -> None:
         # Source of truth is the native session tree, so a resumed/preloaded
         # session returns its last assistant text even with no live cache yet;
         # fall back to the live-event cache otherwise.
@@ -683,7 +695,11 @@ class NativeRpcServer:
         try:
             for entry in self._tree.get_branch():
                 message = getattr(entry, "message", None)
-                if message is not None and getattr(message, "content", None) is not None and type(message).__name__ == "UserMessage":
+                if (
+                    message is not None
+                    and getattr(message, "content", None) is not None
+                    and type(message).__name__ == "UserMessage"
+                ):
                     entries.append({"entryId": entry.id, "text": message.content})
         except Exception:
             entries = []
@@ -692,7 +708,9 @@ class NativeRpcServer:
     def _cmd_get_commands(self, cid: str | None, command: dict[str, Any]) -> None:
         self._respond(cid, "get_commands", {"commands": []})
 
-    def _cmd_get_available_models(self, cid: str | None, command: dict[str, Any]) -> None:
+    def _cmd_get_available_models(
+        self, cid: str | None, command: dict[str, Any]
+    ) -> None:
         provider, model_id = self._selection()
         self._respond(
             cid,
@@ -703,7 +721,9 @@ class NativeRpcServer:
     def _cmd_set_session_name(self, cid: str | None, command: dict[str, Any]) -> None:
         name = command.get("name")
         if not isinstance(name, str) or not name.strip():
-            self._respond_error(cid, "set_session_name", "session name must be non-empty")
+            self._respond_error(
+                cid, "set_session_name", "session name must be non-empty"
+            )
             return
         try:
             self._tree.append_session_info(name.strip())
@@ -711,9 +731,7 @@ class NativeRpcServer:
             self._respond_error(cid, "set_session_name", f"{type(exc).__name__}: {exc}")
             return
         self._respond(cid, "set_session_name")
-        self._writer.write_line(
-            {"type": "session_info_changed", "name": name.strip()}
-        )
+        self._writer.write_line({"type": "session_info_changed", "name": name.strip()})
 
     # -- bash ------------------------------------------------------------
     def _cmd_bash(self, cid: str | None, command: dict[str, Any]) -> None:

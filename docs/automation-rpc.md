@@ -453,22 +453,20 @@ native session tree (`docs/session-tree.md`).
   well-formed error while a bash is in flight (and a no-op success when idle)
   rather than falsely claiming a cancel. This is the same bash executor the tool
   loop uses; full output is in-scope for this surface.
-- **Model / thinking controls — current build (documented boundary).** The RPC
-  model/thinking commands are accepted and their effect is observable in
-  `get_state`, but in the current `--mode rpc` build they do **not** mutate the
-  live provider or propagate into the next provider request:
-  - `get_available_models` returns the configured provider/model; `set_model`
-    succeeds for the currently selected provider/model and returns a well-formed
-    error for any other (the automation build runs a single configured
-    provider); `cycle_model` returns `null` data (nothing to cycle to). No live
-    provider switch happens.
-  - `set_thinking_level`/`cycle_thinking_level` validate and **record** the
-    requested level, surface it in `get_state.thinkingLevel`, and emit a
-    `thinking_level_changed` event, but the recorded level is not yet threaded
-    into the running session's provider requests.
-  Live provider switching and threading the thinking level into the active
-  provider request over RPC are explicit follow-ons; the accepted-and-reported
-  behavior keeps the command vocabulary complete and the responses well-formed.
+- **Model controls — current build (documented boundary).**
+  `get_available_models` returns the configured provider/model; `set_model`
+  succeeds for the currently selected provider/model and returns a well-formed
+  error for any other (the automation build runs a single configured provider);
+  `cycle_model` returns `null` data (nothing to cycle to). No live provider
+  switch happens.
+- **Thinking controls.** `set_thinking_level`/`cycle_thinking_level` validate
+  and record the requested level, surface it in `get_state.thinkingLevel`, emit a
+  `thinking_level_changed` event, and, for catalog-backed RPC sessions, thread
+  the level through the shared provider-state construction boundary so the next
+  provider request uses the selected thinking level. Injected-provider adapters
+  without a provider-state boundary keep the recorded/get_state behavior only.
+  Live provider switching over RPC remains an explicit follow-on; the accepted
+  command vocabulary and response shapes stay Pi-compatible.
 
 ### Compaction
 
