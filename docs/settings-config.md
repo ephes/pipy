@@ -255,7 +255,8 @@ Top-level scalars:
 - `showHardwareCursor?: boolean` (default from `PI_HARDWARE_CURSOR` →
   pipy `PIPY_HARDWARE_CURSOR`)
 - `sessionDir?: string`
-- `httpIdleTimeoutMs?: number` (0 disables; default = pipy HTTP default)
+- `httpIdleTimeoutMs?: number` (integer ms; 0 disables; default 300000)
+- `websocketConnectTimeoutMs?: number` (integer ms; 0 disables; default 15000)
 
 Nested objects (top-level keys are shallow-merged one level; deeper objects such
 as `retry.provider` are replaced wholesale):
@@ -428,8 +429,16 @@ file), constraining the scoped set / Ctrl+P cycle; an optional per-pattern
 - `transport` (`auto` | `sse` | `websocket`): provider transport selection.
   Default `auto`. Migrated from a legacy `websockets: boolean`
   (`true`→`websocket`, `false`→`sse`).
-- `httpIdleTimeoutMs`: HTTP header/body idle timeout in ms; `0` disables it;
-  invalid values raise a clear error (Pi `getHttpIdleTimeoutMs`).
+- `httpIdleTimeoutMs`: HTTP header/body idle timeout in integer ms; unset
+  resolves to 300000 (five minutes), `0` disables it, and invalid values raise a
+  clear error (Pi `getHttpIdleTimeoutMs`). The OpenAI-Codex SSE adapter applies
+  it to header wait and between-read socket idleness, not total turn duration.
+- `retry.provider.timeoutMs`: optional OpenAI-Codex provider override with the
+  same units/validation; it wins over `httpIdleTimeoutMs`. A disabled zero is
+  converted to Python `None`, never passed to `urllib` as non-blocking mode.
+- `websocketConnectTimeoutMs`: WebSocket open-handshake timeout in integer ms;
+  unset resolves to 15000 and `0` disables it. It is wired through provider
+  construction now and becomes active with the WebSocket transport slice.
 
 pipy honors these where its runtime has the matching surface. Where pipy has no
 matching surface yet (e.g. websocket transport, queued steering during a turn —
@@ -459,6 +468,8 @@ actively *honored* today vs. accepted-and-reported-but-inert (because pipy's
 runtime has no matching surface yet) is:
 
 - **Honored:**
+  - `httpIdleTimeoutMs` and `retry.provider.timeoutMs` — resolve the
+    OpenAI-Codex header/body idle policy (300000 ms default, `0` disabled).
   - `retry.{enabled,maxRetries,baseDelayMs}` and
     `retry.provider.maxRetryDelayMs` — mapped onto the provider HTTP
     `RetryPolicy` via `settings.retry_policy_from_settings` and applied to the
@@ -474,10 +485,12 @@ runtime has no matching surface yet) is:
     are not yet consumed.
   - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
     attaches parent summaries by a different mechanism than a token reserve.
-  - `transport` (no websocket transport surface), `steeringMode` / `followUpMode`
+  - `transport` (no websocket transport surface yet), `steeringMode` / `followUpMode`
     (no in-turn steering/follow-up queue yet — see backlog), and
-    `retry.provider.{timeoutMs,maxRetries}` (the shared `RetryPolicy` models a
-    single attempts/delay policy, not separate provider-vs-app retry counts).
+    `retry.provider.maxRetries` (the shared `RetryPolicy` still models a single
+    attempts policy; provider-specific precedence lands with progress-aware
+    retries). `websocketConnectTimeoutMs` is validated and provider-wired but
+    cannot affect the still-SSE-only transport until that slice lands.
   These are surfaced by `/settings` so the user can see the effective value.
 
 ## System-Prompt Replace/Append Files

@@ -82,6 +82,22 @@ Common built-in sources:
 out of archives. Prefer environment variables or `models.json` env-name
 references for repeatable local setup.
 
+### OpenAI-Codex timeout and failure behavior
+
+OpenAI-Codex SSE requests use a five-minute (300000 ms) header/body idle
+timeout by default, rather than a 60-second total-turn deadline. Configure
+`httpIdleTimeoutMs` in settings, or use `retry.provider.timeoutMs` as the
+provider override. Values are integer milliseconds; `0` disables the deadline.
+The timeout restarts naturally after successful socket activity.
+
+Recognized connection/header failures and interrupted reads become sanitized
+provider failures. They do not expose raw socket messages, response bodies,
+prompts, auth values, or tool payloads. Cancellation remains a distinct abort,
+and an exhausted failure returns control to the REPL so a later prompt can run.
+Automatic pre-progress retry and live WebSocket selection are delivered in the
+next reviewed implementation slices; `transport` remains SSE-only at this
+intermediate commit.
+
 ### Azure OpenAI configuration
 
 The `azure-openai` provider resolves its endpoint and deployment from these env

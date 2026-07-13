@@ -16,10 +16,13 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.settings import (
+    DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+    DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
     SettingsManager,
     deep_merge_settings,
     migrate_settings,
     resolve_config_home,
+    timeout_ms_to_seconds,
 )
 
 
@@ -402,6 +405,62 @@ def test_http_idle_timeout_zero_disables_and_invalid_raises(tmp_path: Path) -> N
         _manager(tmp_path).get_http_idle_timeout_ms()
 
 
+def test_timeout_defaults_and_provider_override_precedence(tmp_path: Path) -> None:
+    manager = _manager(tmp_path)
+    assert manager.get_http_idle_timeout_ms() == DEFAULT_HTTP_IDLE_TIMEOUT_MS
+    assert manager.get_retry_provider_timeout_ms() is None
+    assert manager.get_effective_provider_timeout_ms() == DEFAULT_HTTP_IDLE_TIMEOUT_MS
+    assert (
+        manager.get_websocket_connect_timeout_ms()
+        == DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS
+    )
+
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {
+            "httpIdleTimeoutMs": 9_000,
+            "retry": {"provider": {"timeoutMs": 2_500}},
+            "websocketConnectTimeoutMs": 0,
+        },
+    )
+    overridden = _manager(tmp_path)
+    assert overridden.get_retry_provider_timeout_ms() == 2_500
+    assert overridden.get_effective_provider_timeout_ms() == 2_500
+    assert overridden.get_websocket_connect_timeout_ms() == 0
+
+
+@pytest.mark.parametrize("value", [None, True, -1, 1.5, "5000"])
+@pytest.mark.parametrize(
+    "setting",
+    ["httpIdleTimeoutMs", "retry.provider.timeoutMs", "websocketConnectTimeoutMs"],
+)
+def test_timeout_settings_reject_invalid_values(
+    tmp_path: Path, setting: str, value: object
+) -> None:
+    body: dict[str, object]
+    if setting == "retry.provider.timeoutMs":
+        body = {"retry": {"provider": {"timeoutMs": value}}}
+        getter = "get_retry_provider_timeout_ms"
+    else:
+        body = {setting: value}
+        getter = (
+            "get_http_idle_timeout_ms"
+            if setting == "httpIdleTimeoutMs"
+            else "get_websocket_connect_timeout_ms"
+        )
+    _write_json(tmp_path / "config" / "settings.json", body)
+    with pytest.raises(ValueError, match="non-negative integer"):
+        getattr(_manager(tmp_path), getter)()
+
+
+def test_timeout_ms_to_seconds_maps_zero_to_disabled() -> None:
+    assert timeout_ms_to_seconds(300_000) == 300.0
+    assert timeout_ms_to_seconds(1) == 0.001
+    assert timeout_ms_to_seconds(0) is None
+    with pytest.raises(ValueError):
+        timeout_ms_to_seconds(-1)
+
+
 def test_prompt_history_enabled_nested(tmp_path: Path) -> None:
     _write_json(
         tmp_path / "config" / "settings.json", {"promptHistory": {"enabled": True}}
@@ -528,6 +587,10 @@ def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
     assert "compaction:" in text
     assert "retry:" in text
     assert "openai/gpt-5.5" in text
+    assert "httpIdleTimeoutMs: 300000" in text
+    assert "retry.provider.timeoutMs: (inherit)" in text
+    assert "effectiveProviderTimeoutMs: 300000" in text
+    assert "websocketConnectTimeoutMs: 15000" in text
 
 
 def test_merged_file_settings_excludes_base_defaults(tmp_path: Path) -> None:

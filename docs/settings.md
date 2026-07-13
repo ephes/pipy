@@ -94,11 +94,13 @@ The notes call out the most important limits.
 | `retry.enabled` | boolean | Enable agent/provider retry policy. |
 | `retry.maxRetries` | number | Maximum retry count. |
 | `retry.baseDelayMs` | number | Initial retry delay in milliseconds. |
+| `retry.provider.timeoutMs` | number | OpenAI-Codex idle-timeout override in milliseconds; inherits `httpIdleTimeoutMs`; `0` disables. |
 | `retry.provider.maxRetryDelayMs` | number | Cap for provider-requested retry delays. |
 | `steeringMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
 | `followUpMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
 | `transport` | string | `auto`, `sse`, or `websocket` where a provider supports choices; otherwise accepted but no-op. |
-| `httpIdleTimeoutMs` | number | HTTP idle timeout in milliseconds; `0` disables. |
+| `httpIdleTimeoutMs` | number | Header/body idle timeout in integer milliseconds; default `300000`; `0` disables. OpenAI-Codex applies it to SSE socket idleness, not total turn time. |
+| `websocketConnectTimeoutMs` | number | WebSocket open timeout in integer milliseconds; default `15000`; `0` disables. Wired now and active when the WebSocket transport is selected in the transport slice. |
 
 ### Resources and packages
 

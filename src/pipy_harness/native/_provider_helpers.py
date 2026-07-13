@@ -173,7 +173,7 @@ def _build_cancellable_opener(
 def open_url_cancellable(
     request: urllib.request.Request,
     *,
-    timeout_seconds: float,
+    timeout_seconds: float | None,
     cancel_token: CancelToken | None = None,
 ) -> Any:
     """``urlopen`` that registers the underlying connection on the token.
@@ -203,7 +203,7 @@ def open_url_cancellable(
 def urlopen_read_cancellable(
     request: urllib.request.Request,
     *,
-    timeout_seconds: float,
+    timeout_seconds: float | None,
     cancel_token: CancelToken | None = None,
 ) -> tuple[int, bytes]:
     """``urlopen`` + ``read`` that honors a :class:`CancelToken`.

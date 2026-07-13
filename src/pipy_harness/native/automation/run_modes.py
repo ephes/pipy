@@ -188,9 +188,11 @@ def run_print_mode(
     adapter.error_stream = error_stream
     result = _run_oneshot(adapter, cwd)
     metadata = result.metadata or {}
-    error_type = metadata.get("error_type")
+    error_type = metadata.get("error_type") or metadata.get("provider_failure_type")
     if error_type:
-        error_message = metadata.get("error_message")
+        error_message = metadata.get("error_message") or metadata.get(
+            "provider_failure_message"
+        )
         detail = f": {error_message}" if error_message else ""
         print(f"pipy: run failed with {error_type}{detail}", file=error_stream)
         return result.exit_code or 1

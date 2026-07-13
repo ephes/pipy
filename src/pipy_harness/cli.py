@@ -66,9 +66,12 @@ from pipy_harness.native.version_check import (
     self_update_plan,
 )
 from pipy_harness.native.settings import (
+    DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+    DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
     SettingsManager,
     local_state_base_defaults,
     retry_policy_from_settings,
+    timeout_ms_to_seconds,
 )
 from pipy_harness.native.themes import NativeThemeStore, THEME_ENV_VAR, resolve_active_theme_name
 from pipy_harness.native.workspace_context import (
@@ -2445,9 +2448,24 @@ def _provider_factory_for(
     if settings_manager is None:
         return _native_provider_for_selection
     policy = retry_policy_from_settings(settings_manager)
+    timeout_seconds = timeout_ms_to_seconds(
+        settings_manager.get_effective_provider_timeout_ms()
+    )
+    websocket_connect_timeout_seconds = timeout_ms_to_seconds(
+        settings_manager.get_websocket_connect_timeout_ms()
+    )
+    transport = settings_manager.get_transport()
 
     def _factory(selection: NativeModelSelection) -> ProviderPort:
-        return _native_provider_for_selection(selection, retry_policy=policy)
+        return _native_provider_for_selection(
+            selection,
+            retry_policy=policy,
+            openai_codex_timeout_seconds=timeout_seconds,
+            openai_codex_transport=transport,
+            openai_codex_websocket_connect_timeout_seconds=(
+                websocket_connect_timeout_seconds
+            ),
+        )
 
     return _factory
 
@@ -2456,6 +2474,13 @@ def _native_provider_for_selection(
     selection: NativeModelSelection,
     *,
     retry_policy: "RetryPolicy | None" = None,
+    openai_codex_timeout_seconds: float | None = (
+        DEFAULT_HTTP_IDLE_TIMEOUT_MS / 1000.0
+    ),
+    openai_codex_transport: str = "auto",
+    openai_codex_websocket_connect_timeout_seconds: float | None = (
+        DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
+    ),
 ) -> ProviderPort:
     if selection.provider_name == "openai":
         return OpenAIResponsesProvider(model_id=selection.model_id)
@@ -2470,11 +2495,17 @@ def _native_provider_for_selection(
 
         return Ds4ChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-codex":
+        options: dict[str, Any] = {
+            "model_id": selection.model_id,
+            "timeout_seconds": openai_codex_timeout_seconds,
+            "transport": openai_codex_transport,
+            "websocket_connect_timeout_seconds": (
+                openai_codex_websocket_connect_timeout_seconds
+            ),
+        }
         if retry_policy is not None:
-            return OpenAICodexResponsesProvider(
-                model_id=selection.model_id, retry_policy=retry_policy
-            )
-        return OpenAICodexResponsesProvider(model_id=selection.model_id)
+            options["retry_policy"] = retry_policy
+        return OpenAICodexResponsesProvider(**options)
     if selection.provider_name == "openrouter":
         return OpenRouterChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "anthropic":

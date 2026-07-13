@@ -1206,6 +1206,8 @@ class NativeToolReplResult:
     compaction_dropped_group_count: int = 0
     error_type: str | None = None
     error_message: str | None = None
+    provider_failure_type: str | None = None
+    provider_failure_message: str | None = None
 
 
 @dataclass
@@ -1677,6 +1679,8 @@ class NativeToolReplSession:
         image_attachment_failed_count = 0
         compaction_count = 0
         compaction_dropped_group_count_total = 0
+        unresolved_provider_error_type: str | None = None
+        unresolved_provider_error_message: str | None = None
         # Native session-tree command state. ``pending_prefill`` carries text
         # from a ``/tree`` user-message selection back into the next prompt
         # (rehydrated editor in the live TUI). ``tree_filter_mode`` is the
@@ -3929,6 +3933,8 @@ class NativeToolReplSession:
                             or f"provider {effective_provider_name!r} returned status "
                             f"{provider_result.status.value!r} without a final response"
                         )
+                        unresolved_provider_error_type = error_type
+                        unresolved_provider_error_message = error_message
                         safe_metadata = provider_result.metadata or {}
                         diagnostic_suffix = ""
                         response_status = safe_metadata.get("response_status")
@@ -3965,6 +3971,8 @@ class NativeToolReplSession:
                         emitter.assistant_message_end(failed_assistant_message)
                         emitter.turn_end(failed_assistant_message, [])
                         break
+                    unresolved_provider_error_type = None
+                    unresolved_provider_error_message = None
                     tool_calls = tuple(provider_result.tool_calls)
                     turn_assistant_message = AssistantMessage(
                         content=provider_result.final_text or "",
@@ -4255,6 +4263,8 @@ class NativeToolReplSession:
                 image_attachment_failed_count=image_attachment_failed_count,
                 compaction_count=compaction_count,
                 compaction_dropped_group_count=compaction_dropped_group_count_total,
+                provider_failure_type=unresolved_provider_error_type,
+                provider_failure_message=unresolved_provider_error_message,
             )
         finally:
             emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)

@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import base64
+import errno
 import io
 import json
 import stat
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import NativeNoToolReplConversationContext, ProviderRequest
+from pipy_harness.native import (
+    NativeNoToolReplConversationContext,
+    NativeToolReplSession,
+    ProviderRequest,
+)
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
     OAuthTokenResponse,
     OpenAICodexCredentials,
     OpenAICodexHTTPStatusError,
     OpenAICodexResponsesProvider,
+    OpenAICodexStreamInterruptedError,
+    OpenAICodexTransportError,
     SseResponse,
     OpenAICodexAuthManager,
     UrllibSseHTTPClient,
@@ -38,7 +49,7 @@ class FakeSseHTTPClient:
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
         self.requests.append(
@@ -202,6 +213,7 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
     assert posted["headers"]["originator"] == "pipy"
     assert posted["headers"]["OpenAI-Beta"] == "responses=experimental"
     assert posted["headers"]["Content-Type"] == "application/json"
+    assert posted["timeout_seconds"] == 300.0
     assert posted["body"] == {
         "model": "gpt-test",
         "instructions": "SYSTEM_PROMPT_SHOULD_BE_SENT_NOT_STORED",
@@ -401,7 +413,7 @@ def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):
         url="https://chatgpt.com/backend-api/codex/responses",
         code=400,
         msg="Bad Request",
-        hdrs={},
+        hdrs=Message(),
         fp=io.BytesIO(error_body),
     )
     provider = OpenAICodexResponsesProvider(
@@ -416,7 +428,6 @@ def test_openai_codex_provider_http_error_keeps_message_conservative(tmp_path):
     assert result.error_type == "OpenAICodexHTTPStatusError"
     assert result.error_message == "OpenAI Codex request failed with HTTP status 400."
     assert result.metadata == {
-        "api_error_code": "bad_request",
         "api_error_type": "invalid_request_error",
         "http_status": 400,
     }
@@ -501,11 +512,11 @@ def test_urllib_sse_http_client_translates_http_error_without_raw_body(monkeypat
         url="https://chatgpt.com/backend-api/codex/responses",
         code=400,
         msg="Bad Request",
-        hdrs={},
+        hdrs=Message(),
         fp=io.BytesIO(error_body),
     )
 
-    def fake_urlopen(request: urllib.request.Request, timeout: float) -> None:
+    def fake_urlopen(request: urllib.request.Request, timeout: float | None) -> None:
         assert request.full_url == "https://chatgpt.com/backend-api/codex/responses"
         assert request.get_method() == "POST"
         assert timeout == 12.0
@@ -525,13 +536,357 @@ def test_urllib_sse_http_client_translates_http_error_without_raw_body(monkeypat
     except OpenAICodexHTTPStatusError as exc:
         assert str(exc) == "OpenAI Codex request failed with HTTP status 400."
         assert exc.metadata == {
-            "api_error_code": "bad_request",
             "api_error_type": "invalid_request_error",
             "http_status": 400,
         }
         assert "SYSTEM_PROMPT" not in str(exc)
     else:
         raise AssertionError("expected OpenAICodexHTTPStatusError")
+
+
+@pytest.mark.parametrize(
+    "unsafe_label",
+    [
+        "PROMPT_SHOULD_NOT_LEAK",
+        "https://private.example/body",
+        "sk-proj-TOKEN_SHOULD_NOT_LEAK",
+        "response body text",
+        "control\ntext",
+        "étiquette",
+        "x" * 65,
+    ],
+)
+def test_http_error_omits_unknown_or_payload_like_api_labels(
+    unsafe_label: str,
+) -> None:
+    error_body = json.dumps(
+        {"error": {"type": unsafe_label, "code": unsafe_label}}
+    ).encode("utf-8")
+    http_error = urllib.error.HTTPError(
+        url="https://chatgpt.com/backend-api/codex/responses",
+        code=400,
+        msg="Bad Request",
+        hdrs=Message(),
+        fp=io.BytesIO(error_body),
+    )
+
+    error = OpenAICodexHTTPStatusError.from_http_error(http_error)
+
+    assert error.metadata == {"http_status": 400}
+    assert unsafe_label not in str(error)
+    assert unsafe_label not in json.dumps(error.metadata, sort_keys=True)
+
+
+class _RaisingHTTPErrorBody:
+    def __init__(
+        self,
+        error: BaseException,
+        *,
+        before_raise: object | None = None,
+    ) -> None:
+        self.error = error
+        self.before_raise = before_raise
+
+    def read(self, *_args: object, **_kwargs: object) -> bytes:
+        if callable(self.before_raise):
+            self.before_raise()
+        raise self.error
+
+    def close(self) -> None:
+        pass
+
+
+def _http_error_with_body_reader(reader: Any) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        url="https://chatgpt.com/backend-api/codex/responses",
+        code=503,
+        msg="Service Unavailable",
+        hdrs=Message(),
+        fp=reader,
+    )
+
+
+@pytest.mark.parametrize(
+    "read_error",
+    [
+        TimeoutError("The read operation timed out"),
+        OSError(errno.ECONNRESET, "PRIVATE_CONNECTION_DETAIL"),
+        OSError(errno.ETIMEDOUT, "PRIVATE_TIMEOUT_DETAIL"),
+    ],
+)
+def test_http_error_body_transport_failure_returns_status_only_error(
+    monkeypatch: pytest.MonkeyPatch, read_error: BaseException
+) -> None:
+    http_error = _http_error_with_body_reader(_RaisingHTTPErrorBody(read_error))
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(http_error),
+    )
+
+    with pytest.raises(OpenAICodexHTTPStatusError) as raised:
+        UrllibSseHTTPClient().post_sse(
+            "https://chatgpt.com/backend-api/codex/responses",
+            headers={"Content-Type": "application/json"},
+            body={"model": "gpt-test"},
+            timeout_seconds=300.0,
+        )
+
+    assert str(raised.value) == (
+        "OpenAI Codex request failed with HTTP status 503."
+    )
+    assert raised.value.metadata == {"http_status": 503}
+    assert "PRIVATE" not in str(raised.value)
+    assert "read operation timed out" not in str(raised.value).lower()
+
+
+def test_http_error_body_unrelated_os_error_is_not_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http_error = _http_error_with_body_reader(
+        _RaisingHTTPErrorBody(OSError(errno.EACCES, "PRIVATE_PATH"))
+    )
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(http_error),
+    )
+
+    with pytest.raises(OSError, match="PRIVATE_PATH"):
+        UrllibSseHTTPClient().post_sse(
+            "https://chatgpt.com/backend-api/codex/responses",
+            headers={"Content-Type": "application/json"},
+            body={"model": "gpt-test"},
+            timeout_seconds=300.0,
+        )
+
+
+def test_http_error_body_cancel_wins_timeout_close_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = CancelToken()
+    http_error = _http_error_with_body_reader(
+        _RaisingHTTPErrorBody(
+            TimeoutError("The read operation timed out"),
+            before_raise=token.cancel,
+        )
+    )
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(http_error),
+    )
+
+    with pytest.raises(ProviderCancelledError):
+        UrllibSseHTTPClient().post_sse(
+            "https://chatgpt.com/backend-api/codex/responses",
+            headers={"Content-Type": "application/json"},
+            body={"model": "gpt-test"},
+            timeout_seconds=300.0,
+            cancel_token=token,
+        )
+
+
+@pytest.mark.parametrize(
+    "unsafe_label",
+    [
+        "PROMPT_SHOULD_NOT_LEAK",
+        "https://private.example/body",
+        "sk-proj-TOKEN_SHOULD_NOT_LEAK",
+        "response body text",
+        {"prompt": "PRIVATE_BODY"},
+    ],
+)
+def test_sse_error_event_omits_unknown_or_payload_like_code(
+    tmp_path: Path, unsafe_label: object
+) -> None:
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(
+                status_code=200,
+                body=sse_payload([{"type": "error", "code": unsafe_label}]),
+            )
+        ),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    serialized = json.dumps(result.metadata, sort_keys=True)
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_message == "OpenAI Codex stream returned an error event."
+    assert result.metadata == {
+        "provider_response_store_requested": False,
+        "response_status": "unknown",
+    }
+    assert str(unsafe_label) not in serialized
+    assert str(unsafe_label) not in (result.error_message or "")
+
+
+def test_sse_error_event_keeps_allowlisted_code(tmp_path: Path) -> None:
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(
+                status_code=200,
+                body=sse_payload([{"type": "error", "code": "rate_limit_error"}]),
+            )
+        ),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.metadata == {
+        "api_error_code": "rate_limit_error",
+        "provider_response_store_requested": False,
+        "response_status": "unknown",
+    }
+
+
+def test_sse_error_event_code_does_not_leak_through_repl_result_or_stderr(
+    tmp_path: Path,
+) -> None:
+    unsafe_label = "PROMPT_BODY_MUST_NOT_REACH_DIAGNOSTICS"
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=FakeSseHTTPClient(
+            SseResponse(
+                status_code=200,
+                body=sse_payload([{"type": "error", "code": unsafe_label}]),
+            )
+        ),
+    )
+    stderr = io.StringIO()
+
+    result = NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=stderr,
+    )
+
+    assert result.provider_failure_message == (
+        "OpenAI Codex stream returned an error event."
+    )
+    assert unsafe_label not in stderr.getvalue()
+    assert unsafe_label not in json.dumps(
+        {
+            "provider_failure_type": result.provider_failure_type,
+            "provider_failure_message": result.provider_failure_message,
+        },
+        sort_keys=True,
+    )
+
+
+class _FailingStreamResponse:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+        self.closed = False
+
+    def getcode(self) -> int:
+        return 200
+
+    def __iter__(self) -> _FailingStreamResponse:
+        return self
+
+    def __next__(self) -> bytes:
+        raise self.error
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_historical_stream_read_timeout_is_sanitized_provider_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = _FailingStreamResponse(TimeoutError("The read operation timed out"))
+    observed_timeouts: list[float | None] = []
+
+    def fake_open_url(
+        _request: urllib.request.Request,
+        *,
+        timeout_seconds: float | None,
+        cancel_token: object = None,
+    ) -> _FailingStreamResponse:
+        del cancel_token
+        observed_timeouts.append(timeout_seconds)
+        return response
+
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        fake_open_url,
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=UrllibSseHTTPClient(),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert observed_timeouts == [300.0]
+    assert response.closed is True
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_type == OpenAICodexStreamInterruptedError.__name__
+    assert result.error_message == (
+        "OpenAI Codex stream was interrupted before completion."
+    )
+    assert result.metadata == {
+        "phase": "stream",
+        "retryable": True,
+        "transport": "sse",
+    }
+    assert "read operation timed out" not in json.dumps(result.metadata)
+    assert "read operation timed out" not in (result.error_message or "").lower()
+
+
+def test_header_timeout_is_sanitized_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_open_url(*_args: object, **_kwargs: object) -> None:
+        raise TimeoutError("PRIVATE_RAW_TIMEOUT_TEXT")
+
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        fake_open_url,
+    )
+
+    with pytest.raises(OpenAICodexTransportError) as raised:
+        UrllibSseHTTPClient().post_sse(
+            "https://chatgpt.com/backend-api/codex/responses",
+            headers={"Content-Type": "application/json"},
+            body={"model": "gpt-test"},
+            timeout_seconds=300.0,
+        )
+
+    assert str(raised.value) == (
+        "OpenAI Codex transport failed while waiting for response headers."
+    )
+    assert raised.value.metadata == {
+        "phase": "headers",
+        "retryable": True,
+        "transport": "sse",
+    }
+    assert "PRIVATE_RAW_TIMEOUT_TEXT" not in str(raised.value)
+
+
+def test_unrelated_os_error_is_not_normalized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = _FailingStreamResponse(OSError(13, "UNRELATED_PRIVATE_PATH"))
+
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        lambda *_args, **_kwargs: response,
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=UrllibSseHTTPClient(),
+    )
+
+    with pytest.raises(OSError, match="UNRELATED_PRIVATE_PATH"):
+        provider.complete(provider_request(tmp_path))
 
 
 def _base64url(value: Mapping[str, Any]) -> str:

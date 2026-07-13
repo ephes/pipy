@@ -47,7 +47,7 @@ class FakeSseHTTPClient:
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
         self.requests.append({"url": url, "body": dict(body)})

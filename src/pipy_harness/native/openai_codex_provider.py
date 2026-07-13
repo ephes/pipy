@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
+import http.client
 import json
 import os
+import re
 import secrets
+import socket
+import ssl
 import stat
 import threading
 import time
@@ -21,12 +26,23 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, serialize_tool_for_responses, decode_json_object, open_url_cancellable, CANCELLED_READ_ERRORS
+from pipy_harness.native._provider_helpers import (
+    decode_json_object,
+    failed_provider_result,
+    open_url_cancellable,
+    safe_response_label,
+    serialize_tool_for_responses,
+    utc_now,
+)
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.retry import RetryPolicy, retry_with_backoff
+from pipy_harness.native.settings import (
+    DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+    DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
+)
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
@@ -42,6 +58,34 @@ OPENAI_CODEX_SCOPE = "openid profile email offline_access"
 OPENAI_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 OPENAI_CODEX_JWT_AUTH_CLAIM = "https://api.openai.com/auth"
 OPENAI_CODEX_MIN_TOKEN_TTL_SECONDS = 60
+OPENAI_CODEX_API_LABEL_MAX_LENGTH = 64
+OPENAI_CODEX_API_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+OPENAI_CODEX_API_LABEL_ALLOWLIST = frozenset(
+    {
+        "authentication_error",
+        "billing_hard_limit_reached",
+        "insufficient_quota",
+        "invalid_request_error",
+        "permission_error",
+        "quota_exceeded",
+        "rate_limit_error",
+        "server_error",
+        "usage_limit_reached",
+        "websocket_connection_limit_reached",
+    }
+)
+_RETRYABLE_TRANSPORT_ERRNOS = frozenset(
+    {
+        errno.ECONNABORTED,
+        errno.ECONNREFUSED,
+        errno.ECONNRESET,
+        errno.EHOSTUNREACH,
+        errno.ENETRESET,
+        errno.ENETUNREACH,
+        errno.EPIPE,
+        errno.ETIMEDOUT,
+    }
+)
 OPENAI_CODEX_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
@@ -97,7 +141,7 @@ class SseHTTPClient(Protocol):
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         cancel_token: CancelToken | None = None,
     ) -> SseResponse:
         """POST JSON and return the SSE response body.
@@ -153,7 +197,7 @@ class UrllibSseHTTPClient:
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         cancel_token: CancelToken | None = None,
     ) -> SseResponse:
         if cancel_token is not None:
@@ -176,10 +220,23 @@ class UrllibSseHTTPClient:
                 cancel_token=cancel_token,
             )
         except urllib.error.HTTPError as exc:
-            raise OpenAICodexHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenAICodexTransportError(f"OpenAI Codex request failed: {reason}") from exc
+            raise OpenAICodexHTTPStatusError.from_http_error(
+                exc, cancel_token=cancel_token
+            ) from exc
+        except ProviderCancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            normalized = _normalize_transport_exception(
+                exc,
+                transport="sse",
+                phase="headers",
+                stream=False,
+            )
+            if normalized is None:
+                raise
+            raise normalized from exc
 
         status_code = response.getcode()
         # Build a streaming iterator that yields parsed events as they
@@ -194,12 +251,22 @@ class UrllibSseHTTPClient:
                     if cancel_token is not None:
                         cancel_token.raise_if_cancelled()
                     yield event
-            except CANCELLED_READ_ERRORS as exc:
+            except ProviderCancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - recognized transport failures only
                 if cancel_token is not None and cancel_token.cancelled:
                     raise ProviderCancelledError(
                         "native provider turn cancelled"
                     ) from exc
-                raise
+                normalized = _normalize_transport_exception(
+                    exc,
+                    transport="sse",
+                    phase="stream",
+                    stream=True,
+                )
+                if normalized is None:
+                    raise
+                raise normalized from exc
             finally:
                 # The connection (registered by open_url_cancellable) is closed
                 # here; the per-turn token is discarded after the turn, so the
@@ -486,7 +553,11 @@ class OpenAICodexResponsesProvider:
     auth_manager: OpenAICodexAuthManager = field(default_factory=OpenAICodexAuthManager)
     http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
-    timeout_seconds: float = 60.0
+    timeout_seconds: float | None = DEFAULT_HTTP_IDLE_TIMEOUT_MS / 1000.0
+    transport: str = "auto"
+    websocket_connect_timeout_seconds: float | None = (
+        DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
+    )
     supports_tool_calls: bool = True
     retry_policy: "RetryPolicy" = field(
         default_factory=lambda: RetryPolicy(
@@ -775,20 +846,48 @@ class OpenAICodexHTTPStatusError(OpenAICodexProviderError):
     """Raised when the Codex endpoint returns a non-success HTTP status."""
 
     @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenAICodexHTTPStatusError:
+    def from_http_error(
+        cls,
+        exc: urllib.error.HTTPError,
+        *,
+        cancel_token: CancelToken | None = None,
+    ) -> OpenAICodexHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
+        body: Mapping[str, Any]
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         try:
-            body = decode_json_object(exc.read(), error_class=OpenAICodexResponseParseError, provider_label="OpenAI Codex")
-        except OpenAICodexResponseParseError:
+            raw_body = exc.read()
+        except ProviderCancelledError:
+            raise
+        except Exception as read_exc:  # noqa: BLE001 - recognized transport failures only
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if _transport_exception_retryable(read_exc) is None:
+                raise
+            # The HTTP response status is already sufficient for the stable
+            # provider-domain failure. A transport interruption while reading
+            # its optional diagnostic body must not leak a raw socket error.
             body = {}
+        else:
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            try:
+                body = decode_json_object(
+                    raw_body,
+                    error_class=OpenAICodexResponseParseError,
+                    provider_label="OpenAI Codex",
+                )
+            except OpenAICodexResponseParseError:
+                body = {}
         error = body.get("error")
         if isinstance(error, Mapping):
-            error_type = error.get("type")
-            error_code = error.get("code")
-            if isinstance(error_type, str):
-                metadata["api_error_type"] = sanitize_text(error_type)
-            if isinstance(error_code, str | int):
-                metadata["api_error_code"] = sanitize_text(str(error_code))
+            error_type = _safe_codex_api_label(error.get("type"))
+            error_code = _safe_codex_api_label(error.get("code"))
+            if error_type is not None:
+                metadata["api_error_type"] = error_type
+            if error_code is not None:
+                metadata["api_error_code"] = error_code
         return cls(f"OpenAI Codex request failed with HTTP status {exc.code}.", metadata=metadata)
 
 
@@ -796,8 +895,77 @@ class OpenAICodexTransportError(OpenAICodexProviderError):
     """Raised when the HTTP request cannot reach OpenAI Codex."""
 
 
+class OpenAICodexStreamInterruptedError(OpenAICodexTransportError):
+    """Raised when an opened Codex response stream ends unexpectedly."""
+
+
 class OpenAICodexResponseParseError(OpenAICodexProviderError):
     """Raised when the Codex response shape is unsupported."""
+
+
+def _safe_codex_api_label(value: Any) -> str | None:
+    """Return a known bounded API label, never arbitrary server text."""
+
+    if not isinstance(value, str):
+        return None
+    if len(value) > OPENAI_CODEX_API_LABEL_MAX_LENGTH:
+        return None
+    if OPENAI_CODEX_API_LABEL_RE.fullmatch(value) is None:
+        return None
+    return value if value in OPENAI_CODEX_API_LABEL_ALLOWLIST else None
+
+
+def _transport_exception_retryable(exc: BaseException) -> bool | None:
+    """Classify only recognized network exceptions; ``None`` means unrelated."""
+
+    if isinstance(exc, urllib.error.ContentTooShortError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, BaseException) and reason is not exc:
+            return _transport_exception_retryable(reason)
+        return None
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return False
+    if isinstance(exc, TimeoutError | socket.gaierror | ConnectionError):
+        return True
+    if isinstance(exc, ssl.SSLError):
+        return True
+    if isinstance(exc, http.client.IncompleteRead | http.client.RemoteDisconnected):
+        return True
+    if isinstance(exc, http.client.BadStatusLine):
+        return False
+    if isinstance(exc, OSError) and exc.errno in _RETRYABLE_TRANSPORT_ERRNOS:
+        return True
+    return None
+
+
+def _normalize_transport_exception(
+    exc: BaseException,
+    *,
+    transport: str,
+    phase: str,
+    stream: bool,
+) -> OpenAICodexTransportError | None:
+    """Create a stable provider error for a narrowly recognized exception."""
+
+    retryable = _transport_exception_retryable(exc)
+    if retryable is None:
+        return None
+    metadata = {
+        "phase": phase,
+        "retryable": retryable,
+        "transport": transport,
+    }
+    if stream:
+        return OpenAICodexStreamInterruptedError(
+            "OpenAI Codex stream was interrupted before completion.",
+            metadata=metadata,
+        )
+    return OpenAICodexTransportError(
+        "OpenAI Codex transport failed while waiting for response headers.",
+        metadata=metadata,
+    )
 
 
 def default_openai_codex_auth_path() -> Path:
@@ -935,11 +1103,16 @@ def _parse_sse_response(
                 reasoning_sink("\n\n")
             continue
         if event_type == "error":
-            code = event.get("code")
-            safe_code = sanitize_text(str(code)) if code is not None else "unknown"
+            safe_code = _safe_codex_api_label(event.get("code"))
+            metadata: dict[str, Any] = {
+                "provider_response_store_requested": False,
+                "response_status": "unknown",
+            }
+            if safe_code is not None:
+                metadata["api_error_code"] = safe_code
             raise OpenAICodexResponseParseError(
                 "OpenAI Codex stream returned an error event.",
-                metadata={"provider_response_store_requested": False, "response_status": safe_code},
+                metadata=metadata,
             )
         if event_type == "response.failed":
             terminal_response = _event_response(event)

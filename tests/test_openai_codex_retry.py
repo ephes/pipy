@@ -66,7 +66,7 @@ class _RetryHTTPClient:
         *,
         headers: Mapping[str, str],
         body: Mapping[str, Any],
-        timeout_seconds: float,
+        timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
         del url, headers, body, timeout_seconds

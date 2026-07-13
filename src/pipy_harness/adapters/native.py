@@ -400,6 +400,8 @@ class PipyNativeToolReplAdapter:
                 "compaction_count": run_output.compaction_count,
                 "error_type": run_output.error_type,
                 "error_message": run_output.error_message,
+                "provider_failure_type": run_output.provider_failure_type,
+                "provider_failure_message": run_output.provider_failure_message,
                 **instruction_metadata,
             },
         )

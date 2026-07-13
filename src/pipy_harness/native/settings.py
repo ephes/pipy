@@ -37,6 +37,9 @@ PACKAGE_ENTRY_SCOPE_KEY = "__pipy_scope"
 PROJECT_CONFIG_DIR_NAME = ".pipy"
 SETTINGS_FILENAME = "settings.json"
 
+DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000
+DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000
+
 # Lock acquisition is best-effort and must never deadlock a non-interactive run.
 _LOCK_RETRIES = 10
 _LOCK_BACKOFF_SECONDS = 0.02
@@ -473,21 +476,44 @@ class SettingsManager:
     def get_session_dir(self) -> str | None:
         return self._get_str("sessionDir")
 
-    def get_http_idle_timeout_ms(self) -> int | None:
-        """Return the HTTP idle timeout in ms (``0`` disables); ``None`` if unset.
+    def get_http_idle_timeout_ms(self) -> int:
+        """Return the effective HTTP idle timeout in ms (``0`` disables).
 
-        Mirrors Pi's ``getHttpIdleTimeoutMs``: an invalid (non-int or negative)
-        value raises a clear error at read time rather than at load.
+        Mirrors Pi's ``getHttpIdleTimeoutMs``: unset resolves to the 300-second
+        product default, while an invalid (non-int or negative) value raises a
+        clear error at read time rather than at load.
         """
 
-        value = self._get("httpIdleTimeoutMs")
-        if value is None:
+        effective = self.effective()
+        if "httpIdleTimeoutMs" not in effective:
+            return DEFAULT_HTTP_IDLE_TIMEOUT_MS
+        value = effective["httpIdleTimeoutMs"]
+        return _parse_timeout_ms(value, setting_name="httpIdleTimeoutMs")
+
+    def get_retry_provider_timeout_ms(self) -> int | None:
+        """Return the optional provider timeout override in milliseconds."""
+
+        retry = self._get("retry")
+        provider = retry.get("provider") if isinstance(retry, dict) else None
+        if not isinstance(provider, dict) or "timeoutMs" not in provider:
             return None
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(
-                f"httpIdleTimeoutMs must be a non-negative integer; got {value!r}"
-            )
-        return value
+        value = provider["timeoutMs"]
+        return _parse_timeout_ms(value, setting_name="retry.provider.timeoutMs")
+
+    def get_effective_provider_timeout_ms(self) -> int:
+        """Resolve provider override → product HTTP idle timeout."""
+
+        override = self.get_retry_provider_timeout_ms()
+        return self.get_http_idle_timeout_ms() if override is None else override
+
+    def get_websocket_connect_timeout_ms(self) -> int:
+        """Return the WebSocket open timeout in ms (``0`` disables)."""
+
+        effective = self.effective()
+        if "websocketConnectTimeoutMs" not in effective:
+            return DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS
+        value = effective["websocketConnectTimeoutMs"]
+        return _parse_timeout_ms(value, setting_name="websocketConnectTimeoutMs")
 
     def get_prompt_history_enabled(self) -> bool:
         value = self._get("promptHistory")
@@ -767,6 +793,10 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"showHardwareCursor={manager.get_show_hardware_cursor()}, "
         f"clearOnShrink={manager.get_clear_on_shrink()}",
         f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
+        f"    retry.provider.timeoutMs: {_provider_timeout_display(manager)}",
+        f"    effectiveProviderTimeoutMs: {_effective_provider_timeout_display(manager)}",
+        "    websocketConnectTimeoutMs: "
+        f"{_websocket_connect_timeout_display(manager)}",
         f"    sessionDir: {manager.get_session_dir() or '(default)'}",
     ]
 
@@ -776,7 +806,45 @@ def _http_idle_timeout_display(manager: SettingsManager) -> str:
         value = manager.get_http_idle_timeout_ms()
     except ValueError:
         return "(invalid)"
-    return "(unset)" if value is None else str(value)
+    return str(value)
+
+
+def _provider_timeout_display(manager: SettingsManager) -> str:
+    try:
+        value = manager.get_retry_provider_timeout_ms()
+    except ValueError:
+        return "(invalid)"
+    return "(inherit)" if value is None else str(value)
+
+
+def _effective_provider_timeout_display(manager: SettingsManager) -> str:
+    try:
+        return str(manager.get_effective_provider_timeout_ms())
+    except ValueError:
+        return "(invalid)"
+
+
+def _websocket_connect_timeout_display(manager: SettingsManager) -> str:
+    try:
+        return str(manager.get_websocket_connect_timeout_ms())
+    except ValueError:
+        return "(invalid)"
+
+
+def _parse_timeout_ms(value: Any, *, setting_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(
+            f"{setting_name} must be a non-negative integer; got {value!r}"
+        )
+    return value
+
+
+def timeout_ms_to_seconds(value: int) -> float | None:
+    """Convert a validated millisecond timeout; zero means disabled."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"timeout must be a non-negative integer; got {value!r}")
+    return None if value == 0 else value / 1000.0
 
 
 def local_state_base_defaults(

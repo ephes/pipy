@@ -21,6 +21,7 @@ import pytest
 
 from pipy_harness.native._provider_helpers import (
     JsonResponse,
+    open_url_cancellable,
     urlopen_read_cancellable,
 )
 from pipy_harness.native.anthropic_provider import AnthropicProvider
@@ -147,7 +148,7 @@ def test_urlopen_read_cancellable_interrupts_blocking_read() -> None:
     assert not worker.is_alive()
 
 
-def test_urlopen_read_cancellable_interrupts_header_wait() -> None:
+def test_urlopen_read_cancellable_interrupts_disabled_timeout_header_wait() -> None:
     """Cancel interrupts a non-streaming request blocked waiting for headers.
 
     This is the load-bearing case: a non-streaming JSON API does not send
@@ -172,7 +173,7 @@ def test_urlopen_read_cancellable_interrupts_header_wait() -> None:
         )
         try:
             urlopen_read_cancellable(
-                request, timeout_seconds=5.0, cancel_token=token
+                request, timeout_seconds=None, cancel_token=token
             )
             outcome.append("completed")
         except ProviderCancelledError:
@@ -197,6 +198,23 @@ def test_urlopen_read_cancellable_interrupts_header_wait() -> None:
 
     assert outcome == ["cancelled"]
     assert not worker.is_alive()
+
+
+def test_open_url_cancellable_forwards_none_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    response = object()
+    observed: list[float | None] = []
+
+    def fake_urlopen(
+        _request: urllib.request.Request, *, timeout: float | None
+    ) -> object:
+        observed.append(timeout)
+        return response
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    request = urllib.request.Request("https://example.invalid/test")
+
+    assert open_url_cancellable(request, timeout_seconds=None) is response
+    assert observed == [None]
 
 
 def test_urlopen_read_cancellable_interrupts_connection_close_body() -> None:
@@ -415,6 +433,44 @@ def test_codex_sse_parse_raises_on_cancel_after_clean_stream_eof() -> None:
 
     with pytest.raises(ProviderCancelledError):
         _parse_sse_response("", event_stream=_stream(), cancel_token=token)
+
+
+def test_codex_timeout_looking_close_race_remains_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pipy_harness.native.openai_codex_provider import UrllibSseHTTPClient
+
+    token = CancelToken()
+
+    class _Response:
+        def getcode(self) -> int:
+            return 200
+
+        def __iter__(self) -> _Response:
+            return self
+
+        def __next__(self) -> bytes:
+            token.cancel()
+            raise TimeoutError("The read operation timed out")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "pipy_harness.native.openai_codex_provider.open_url_cancellable",
+        lambda *_args, **_kwargs: _Response(),
+    )
+    response = UrllibSseHTTPClient().post_sse(
+        "https://chatgpt.com/backend-api/codex/responses",
+        headers={"Content-Type": "application/json"},
+        body={"model": "gpt-test"},
+        timeout_seconds=300.0,
+        cancel_token=token,
+    )
+    assert response.event_stream is not None
+
+    with pytest.raises(ProviderCancelledError):
+        list(response.event_stream)
 
 
 def test_anthropic_provider_forwards_cancel_token_to_http_boundary() -> None:

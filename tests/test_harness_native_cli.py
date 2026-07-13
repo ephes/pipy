@@ -1746,7 +1746,19 @@ def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> No
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "settings.json").write_text(
         json.dumps(
-            {"retry": {"maxRetries": 5, "baseDelayMs": 500, "provider": {"maxRetryDelayMs": 30000}}}
+            {
+                "httpIdleTimeoutMs": 9_000,
+                "transport": "sse",
+                "websocketConnectTimeoutMs": 3_000,
+                "retry": {
+                    "maxRetries": 5,
+                    "baseDelayMs": 500,
+                    "provider": {
+                        "maxRetryDelayMs": 30_000,
+                        "timeoutMs": 2_500,
+                    },
+                },
+            }
         ),
         encoding="utf-8",
     )
@@ -1760,6 +1772,9 @@ def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> No
     assert policy.max_attempts == 6
     assert policy.initial_delay_seconds == 0.5
     assert policy.max_delay_seconds == 30.0
+    assert provider.timeout_seconds == 2.5  # type: ignore[attr-defined]
+    assert provider.transport == "sse"  # type: ignore[attr-defined]
+    assert provider.websocket_connect_timeout_seconds == 3.0  # type: ignore[attr-defined]
 
 
 def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> None:
@@ -1771,6 +1786,76 @@ def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> N
     policy = provider.retry_policy  # type: ignore[attr-defined]
     assert policy.max_attempts == 4
     assert policy.initial_delay_seconds == 1.0
+    assert provider.timeout_seconds == 300.0  # type: ignore[attr-defined]
+    assert provider.transport == "auto"  # type: ignore[attr-defined]
+    assert provider.websocket_connect_timeout_seconds == 15.0  # type: ignore[attr-defined]
+
+
+def test_provider_factory_maps_disabled_timeouts_to_none(tmp_path) -> None:
+    from pipy_harness.cli import _provider_factory_for
+    from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {
+                "httpIdleTimeoutMs": 0,
+                "websocketConnectTimeoutMs": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        project_path=None,
+    )
+
+    provider = _provider_factory_for(manager)(
+        NativeModelSelection("openai-codex", "gpt-5.5")
+    )
+
+    assert provider.timeout_seconds is None  # type: ignore[attr-defined]
+    assert provider.websocket_connect_timeout_seconds is None  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "settings_body",
+    [
+        {"httpIdleTimeoutMs": None},
+        {"retry": {"provider": {"timeoutMs": None}}},
+        {"websocketConnectTimeoutMs": None},
+    ],
+)
+def test_provider_factory_rejects_explicit_null_timeouts_before_instantiation(
+    tmp_path, monkeypatch, settings_body
+) -> None:
+    from pipy_harness.cli import _provider_factory_for
+    from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.settings import SettingsManager
+
+    (tmp_path / "settings.json").write_text(
+        json.dumps(settings_body), encoding="utf-8"
+    )
+    manager = SettingsManager(
+        global_path=tmp_path / "settings.json",
+        project_path=None,
+    )
+    instantiated = False
+
+    def unexpected_provider(**_kwargs):
+        nonlocal instantiated
+        instantiated = True
+        raise AssertionError("provider must not be instantiated")
+
+    monkeypatch.setattr(
+        "pipy_harness.cli.OpenAICodexResponsesProvider", unexpected_provider
+    )
+
+    with pytest.raises(ValueError, match="non-negative integer"):
+        _provider_factory_for(manager)(
+            NativeModelSelection("openai-codex", "gpt-5.5")
+        )
+    assert instantiated is False
 
 
 def _make_skill(cwd, name: str) -> None:
