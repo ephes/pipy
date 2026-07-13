@@ -25,11 +25,11 @@ and retry bounded transient request-plus-stream attempts only before the first
 provider event. Cancellation remains non-retryable and the no-post-event-replay
 boundary prevents duplicate text, reasoning, tool calls, or effects.
 
-Remaining slices are real `auto|sse|websocket` behavior with Pi-shaped
-pre-event fallback, parity-runner recognition of the historical raw timeout as
-defense in depth, and final documentation/integration closure. Until then,
-OpenAI-Codex remains SSE-only. See the reviewed research, design, and plan under
-`docs/superpowers/` and the current target in `docs/backlog.md`.
+The real `auto|sse|websocket` behavior with Pi-shaped pre-event fallback now
+ships. Remaining slices are parity-runner recognition of the historical raw
+timeout as defense in depth and final documentation/integration closure. See the
+reviewed research, design, and plan under `docs/superpowers/` and the current
+target in `docs/backlog.md`.
 
 ## Sources checked
 

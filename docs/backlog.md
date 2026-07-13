@@ -1523,21 +1523,19 @@ and the reviewed implementation plan are committed under
   parsed provider event so visible text, reasoning, tool assembly, and tool
   execution cannot be duplicated.
 
-The next reviewed slice is real OpenAI-Codex WebSocket transport and
-Pi-shaped pre-event SSE fallback for `transport: auto|sse|websocket`. After
-that, the parity runner still needs defense-in-depth recognition of the
-historical raw timeout plus focused regression coverage of its existing
-branch/HEAD/ref/worktree no-progress guard, followed by final docs, release-note,
-and integration closure. Until the WebSocket slice lands,
-OpenAI-Codex remains SSE-only and `/settings` must not imply otherwise.
+The real OpenAI-Codex WebSocket transport and Pi-shaped pre-event SSE fallback
+for `transport: auto|sse|websocket` now ship. The remaining reviewed follow-on
+is parity-runner defense-in-depth recognition of the historical raw timeout plus
+focused regression coverage of its existing branch/HEAD/ref/worktree
+no-progress guard, followed by final docs, release-note, and integration
+closure.
 
-Acceptance criteria for the next slice:
+Acceptance criteria for the remaining parity-runner defense-in-depth slice:
 
 ```sh
 uv lock --check
-uv run pytest tests/test_native_openai_codex_provider.py tests/test_native_openai_codex_tool_calls.py -q
-uv run pytest tests/test_native_provider_streaming.py tests/test_native_provider_cancellation.py -q
-uv run pytest tests/test_native_settings.py tests/test_openai_codex_retry.py -q
+uv run pytest tests/test_parity_runner.py -q
+uv run pytest tests/test_native_openai_codex_provider.py tests/test_openai_codex_retry.py -q
 just check
 ```
 

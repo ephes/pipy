@@ -190,7 +190,7 @@ review fix, then commit:
 fix(provider): retry safe Codex stream failures
 ```
 
-## Slice 3 — Real WebSocket transport and Pi-shaped fallback — NEXT
+## Slice 3 — Real WebSocket transport and Pi-shaped fallback — COMPLETE
 
 ### Intent
 

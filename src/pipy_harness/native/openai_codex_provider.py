@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import webbrowser
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -62,6 +63,7 @@ OPENAI_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OPENAI_CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 OPENAI_CODEX_SCOPE = "openid profile email offline_access"
 OPENAI_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+OPENAI_CODEX_RESPONSES_WS_URL = "wss://chatgpt.com/backend-api/codex/responses"
 OPENAI_CODEX_JWT_AUTH_CLAIM = "https://api.openai.com/auth"
 OPENAI_CODEX_MIN_TOKEN_TTL_SECONDS = 60
 OPENAI_CODEX_API_LABEL_MAX_LENGTH = 64
@@ -153,6 +155,22 @@ class OpenAICodexCredentials:
         return self.expires_at <= current + OPENAI_CODEX_MIN_TOKEN_TTL_SECONDS
 
 
+class WebSocketClient(Protocol):
+    """Minimal injectable WebSocket client for Codex Responses calls."""
+
+    def post_events(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        body: Mapping[str, Any],
+        connect_timeout_seconds: float | None,
+        idle_timeout_seconds: float | None,
+        cancel_token: CancelToken | None = None,
+    ) -> Iterator[Mapping[str, Any]]:
+        """Send a Responses create request and yield decoded events."""
+
+
 class SseHTTPClient(Protocol):
     """Minimal injectable HTTP client for Codex Responses calls."""
 
@@ -198,6 +216,130 @@ class OpenAICodexCredentialStore(Protocol):
 
     def delete(self) -> bool:
         """Delete stored credentials, if present."""
+
+
+@dataclass(frozen=True, slots=True)
+class WebsocketsSyncClient:
+    """Synchronous adapter over the maintained ``websockets`` client."""
+
+    def post_events(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        body: Mapping[str, Any],
+        connect_timeout_seconds: float | None,
+        idle_timeout_seconds: float | None,
+        cancel_token: CancelToken | None = None,
+    ) -> Iterator[Mapping[str, Any]]:
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        try:
+            from websockets.exceptions import (
+                ConnectionClosed,
+                ConnectionClosedOK,
+                InvalidHandshake,
+                WebSocketException,
+            )
+            from websockets.sync.client import connect
+        except Exception as exc:  # noqa: BLE001
+            raise OpenAICodexTransportError(
+                "OpenAI Codex transport failed while waiting for response headers.",
+                metadata={"phase": "headers", "retryable": False, "transport": "websocket"},
+            ) from exc
+        try:
+            websocket = connect(
+                url,
+                additional_headers=dict(headers),
+                user_agent_header=None,
+                open_timeout=connect_timeout_seconds,
+                ping_interval=None,
+                max_size=4 * 1024 * 1024,
+                max_queue=16,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if isinstance(exc, WebSocketException | InvalidHandshake):
+                raise OpenAICodexTransportError(
+                    "OpenAI Codex transport failed while waiting for response headers.",
+                    metadata={
+                        "phase": "headers",
+                        "retryable": True,
+                        "transport": "websocket",
+                    },
+                ) from exc
+            normalized = _normalize_transport_exception(
+                exc, transport="websocket", phase="headers", stream=False
+            )
+            if normalized is not None:
+                raise normalized from exc
+            raise
+
+        def _events() -> Iterator[Mapping[str, Any]]:
+            registered = False
+            try:
+                if cancel_token is not None:
+                    cancel_token.register(websocket)
+                    registered = True
+                    cancel_token.raise_if_cancelled()
+                try:
+                    websocket.send(json.dumps({"type": "response.create", **body}))
+                except Exception as exc:  # noqa: BLE001
+                    if cancel_token is not None:
+                        cancel_token.raise_if_cancelled()
+                    normalized = _normalize_transport_exception(
+                        exc, transport="websocket", phase="headers", stream=False
+                    )
+                    if normalized is not None:
+                        raise normalized from exc
+                    raise
+                while True:
+                    if cancel_token is not None:
+                        cancel_token.raise_if_cancelled()
+                    try:
+                        message = websocket.recv(timeout=idle_timeout_seconds)
+                    except StopIteration:
+                        return
+                    except TimeoutError as exc:
+                        if cancel_token is not None:
+                            cancel_token.raise_if_cancelled()
+                        raise OpenAICodexStreamInterruptedError(
+                            "OpenAI Codex stream was interrupted before completion.",
+                            metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
+                        ) from exc
+                    except ConnectionClosedOK:
+                        return
+                    except ConnectionClosed as exc:
+                        if cancel_token is not None:
+                            cancel_token.raise_if_cancelled()
+                        raise OpenAICodexStreamInterruptedError(
+                            "OpenAI Codex stream was interrupted before completion.",
+                            metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
+                        ) from exc
+                    except Exception as exc:  # noqa: BLE001
+                        if cancel_token is not None:
+                            cancel_token.raise_if_cancelled()
+                        normalized = _normalize_transport_exception(
+                            exc, transport="websocket", phase="stream", stream=True
+                        )
+                        if normalized is not None:
+                            raise normalized from exc
+                        raise
+                    if not isinstance(message, str):
+                        raise OpenAICodexResponseParseError(
+                            "OpenAI Codex stream included a non-text WebSocket message."
+                        )
+                    yield _decode_websocket_event(message)
+            finally:
+                if cancel_token is not None and registered:
+                    cancel_token.unregister(websocket)
+                try:
+                    websocket.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        return _events()
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,6 +685,20 @@ class OpenAICodexAuthManager:
         return self.store.delete()
 
 
+class CodexTransportState:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._auto_fallback_to_sse = False
+
+    def should_skip_websocket(self) -> bool:
+        with self._lock:
+            return self._auto_fallback_to_sse
+
+    def remember_sse_fallback(self) -> None:
+        with self._lock:
+            self._auto_fallback_to_sse = True
+
+
 @dataclass(frozen=True, slots=True)
 class OpenAICodexResponsesProvider:
     """OpenAI Codex Responses streaming provider behind ProviderPort.
@@ -563,12 +719,19 @@ class OpenAICodexResponsesProvider:
     model_id: str
     auth_manager: OpenAICodexAuthManager = field(default_factory=OpenAICodexAuthManager)
     http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
+    websocket_client: WebSocketClient = field(default_factory=WebsocketsSyncClient)
     endpoint: str = OPENAI_CODEX_RESPONSES_URL
+    websocket_endpoint: str = OPENAI_CODEX_RESPONSES_WS_URL
     timeout_seconds: float | None = DEFAULT_HTTP_IDLE_TIMEOUT_MS / 1000.0
-    transport: str = "auto"
+    # CLI/settings construction passes Pi's resolved default (auto); direct
+    # construction keeps the historic SSE-safe default unless a transport is
+    # explicitly selected.
+    transport: str = "sse"
     websocket_connect_timeout_seconds: float | None = (
         DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
     )
+    transport_state: CodexTransportState = field(default_factory=CodexTransportState)
+    request_id_factory: Callable[[], str] = field(default_factory=lambda: lambda: uuid.uuid4().hex)
     supports_tool_calls: bool = True
     retry_policy: "RetryPolicy" = field(
         default_factory=lambda: RetryPolicy(
@@ -656,19 +819,12 @@ class OpenAICodexResponsesProvider:
         }
         http_client: SseHTTPClient = self.http_client
         if type(http_client) is UrllibSseHTTPClient:
-            # Keep HTTP-date Retry-After parsing on the provider's injected
-            # wall-clock seam even though urllib owns the HTTPError boundary.
             http_client = UrllibSseHTTPClient(retry_clock=self.retry_clock)
 
         attempt = 0
         progress = StreamProgress()
 
-        def _attempt() -> ParsedOpenAICodexResponse:
-            nonlocal attempt, progress
-            attempt += 1
-            progress = StreamProgress()
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
+        def _sse_attempt() -> ParsedOpenAICodexResponse:
             try:
                 resp = http_client.post_sse(
                     self.endpoint,
@@ -696,6 +852,70 @@ class OpenAICodexResponsesProvider:
                 cancel_token=cancel_token,
                 progress=progress,
             )
+
+        def _websocket_attempt() -> ParsedOpenAICodexResponse:
+            request_id = self.request_id_factory()
+            websocket_headers = {
+                "Authorization": f"Bearer {credentials.access_token}",
+                "OpenAI-Beta": "responses_websockets=2026-02-06",
+                "chatgpt-account-id": credentials.account_id,
+                "originator": "pipy",
+                "User-Agent": "pipy",
+                "session-id": request_id,
+                "x-client-request-id": request_id,
+            }
+            events = self.websocket_client.post_events(
+                self.websocket_endpoint,
+                headers=websocket_headers,
+                body=body,
+                connect_timeout_seconds=self.websocket_connect_timeout_seconds,
+                idle_timeout_seconds=self.timeout_seconds,
+                cancel_token=cancel_token,
+            )
+            return _parse_response_events(
+                events,
+                transport="websocket",
+                stream_sink=stream_sink,
+                reasoning_sink=reasoning_sink,
+                cancel_token=cancel_token,
+                progress=progress,
+            )
+
+        def _attempt() -> ParsedOpenAICodexResponse:
+            nonlocal attempt, progress
+            attempt += 1
+            progress = StreamProgress()
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            use_websocket = self.transport in {"auto", "websocket"} and not (
+                self.transport == "auto"
+                and self.transport_state.should_skip_websocket()
+            )
+            connection_limit_retried = False
+            if not use_websocket:
+                return _sse_attempt()
+            while True:
+                try:
+                    return _websocket_attempt()
+                except OpenAICodexResponseParseError as exc:
+                    if (
+                        not progress.observed
+                        and exc.metadata.get("api_error_code")
+                        == "websocket_connection_limit_reached"
+                    ):
+                        if not connection_limit_retried:
+                            connection_limit_retried = True
+                            continue
+                        if self.transport == "auto":
+                            self.transport_state.remember_sse_fallback()
+                        return _sse_attempt()
+                    raise
+                except OpenAICodexTransportError:
+                    if progress.observed:
+                        raise
+                    if self.transport == "auto":
+                        self.transport_state.remember_sse_fallback()
+                    return _sse_attempt()
 
         def _should_retry(exc: BaseException) -> bool:
             if cancel_token is not None:
@@ -1257,6 +1477,7 @@ class _StreamingFunctionCall:
 def _parse_sse_response(
     body: str,
     *,
+    transport: str = "sse",
     stream_sink: StreamChunkSink | None = None,
     reasoning_sink: StreamChunkSink | None = None,
     event_stream: Iterator[Mapping[str, Any]] | None = None,
@@ -1268,6 +1489,7 @@ def _parse_sse_response(
     )
     return _parse_response_events(
         events,
+        transport=transport,
         stream_sink=stream_sink,
         reasoning_sink=reasoning_sink,
         cancel_token=cancel_token,
@@ -1278,6 +1500,7 @@ def _parse_sse_response(
 def _parse_response_events(
     events: Iterator[Mapping[str, Any]],
     *,
+    transport: str = "unknown",
     stream_sink: StreamChunkSink | None = None,
     reasoning_sink: StreamChunkSink | None = None,
     cancel_token: CancelToken | None = None,
@@ -1298,8 +1521,20 @@ def _parse_response_events(
             cancel_token.raise_if_cancelled()
         # Progress changes before any event-specific processing, including
         # metadata, explicit errors, reasoning, text, and tool assembly.
-        attempt_progress.mark_event()
         event_type = event.get("type")
+        if event_type == "error" and event.get("code") == "websocket_connection_limit_reached":
+            safe_code = _safe_codex_api_label(event.get("code"))
+            pre_progress_metadata: dict[str, Any] = {
+                "provider_response_store_requested": False,
+                "response_status": "unknown",
+            }
+            if safe_code is not None:
+                pre_progress_metadata["api_error_code"] = safe_code
+            raise OpenAICodexResponseParseError(
+                "OpenAI Codex stream returned an error event.",
+                metadata=pre_progress_metadata,
+            )
+        attempt_progress.mark_event()
         if event_type == "response.reasoning_summary_text.delta":
             delta = event.get("delta")
             if reasoning_sink is not None and isinstance(delta, str) and delta:
@@ -1440,7 +1675,7 @@ def _parse_response_events(
                 "provider_response_store_requested": False,
                 "response_status": "unknown",
                 "retryable": True,
-                "transport": "sse",
+                "transport": transport,
             },
         )
 
@@ -1538,19 +1773,39 @@ def _iter_sse_events(body: str) -> Iterator[Mapping[str, Any]]:
         yield _decode_sse_event(data)
 
 
+def _decode_websocket_event(payload: str) -> Mapping[str, Any]:
+    """Decode exactly one WebSocket JSON event without retaining server text."""
+
+    return _decode_json_event(
+        payload,
+        malformed_message="OpenAI Codex WebSocket stream included malformed event JSON.",
+        non_object_message="OpenAI Codex WebSocket stream included a non-object event.",
+    )
+
+
 def _decode_sse_event(payload: str) -> Mapping[str, Any]:
     """Decode exactly one SSE event without retaining server-controlled data."""
+
+    return _decode_json_event(
+        payload,
+        malformed_message="OpenAI Codex stream included malformed event JSON.",
+        non_object_message="OpenAI Codex stream included a non-object event.",
+    )
+
+
+def _decode_json_event(
+    payload: str,
+    *,
+    malformed_message: str,
+    non_object_message: str,
+) -> Mapping[str, Any]:
 
     try:
         parsed = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise OpenAICodexResponseParseError(
-            "OpenAI Codex stream included malformed event JSON."
-        ) from exc
+        raise OpenAICodexResponseParseError(malformed_message) from exc
     if not isinstance(parsed, Mapping):
-        raise OpenAICodexResponseParseError(
-            "OpenAI Codex stream included a non-object event."
-        )
+        raise OpenAICodexResponseParseError(non_object_message)
     return parsed
 
 

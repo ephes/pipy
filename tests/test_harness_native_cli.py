@@ -2051,3 +2051,13 @@ def test_tool_filter_flags_parse_pi_aliases():
     assert options.exclude == ("bash",)
     assert options.no_tools is True
     assert options.no_builtin_tools is True
+
+
+def test_openai_codex_factory_default_transport_is_auto() -> None:
+    from pipy_harness.cli import NativeModelSelection, _native_provider_for_selection
+
+    provider = _native_provider_for_selection(
+        NativeModelSelection(provider_name="openai-codex", model_id="gpt-test")
+    )
+
+    assert provider.transport == "auto"  # type: ignore[attr-defined]

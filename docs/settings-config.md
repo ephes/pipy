@@ -437,14 +437,14 @@ file), constraining the scoped set / Ctrl+P cycle; an optional per-pattern
   same units/validation; it wins over `httpIdleTimeoutMs`. A disabled zero is
   converted to Python `None`, never passed to `urllib` as non-blocking mode.
 - `websocketConnectTimeoutMs`: WebSocket open-handshake timeout in integer ms;
-  unset resolves to 15000 and `0` disables it. It is wired through provider
-  construction now and becomes active with the WebSocket transport slice.
+  unset resolves to 15000 and `0` disables it. OpenAI-Codex applies it when
+  `transport` selects WebSocket or `auto` starts on WebSocket.
 
 pipy honors these where its runtime has the matching surface. Where pipy has no
-matching surface yet (e.g. websocket transport, queued steering during a turn —
-backlog notes steering/follow-up queuing is still open), the setting must be
-accepted, round-tripped, and reported by `/settings`, even if currently inert,
-so config is forward-compatible and Pi-written files do not lose data.
+matching surface yet (e.g. queued steering during a turn — backlog notes
+steering/follow-up queuing is still open), the setting must be accepted,
+round-tripped, and reported by `/settings`, even if currently inert, so config
+is forward-compatible and Pi-written files do not lose data.
 
 ## Compaction, Retry, and Branch-Summary Settings
 
@@ -491,10 +491,11 @@ runtime has no matching surface yet) is:
     are not yet consumed.
   - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
     attaches parent summaries by a different mechanism than a token reserve.
-  - `transport` (no websocket transport surface yet), `steeringMode` / `followUpMode`
-    (no in-turn steering/follow-up queue yet — see backlog).
-    `websocketConnectTimeoutMs` is validated and provider-wired but
-    cannot affect the still-SSE-only transport until that slice lands.
+  - `transport` and `websocketConnectTimeoutMs` — honored by OpenAI-Codex for
+    `auto|sse|websocket`; accepted/reported but inert for providers without a
+    multi-transport surface.
+  - `steeringMode` / `followUpMode` (no in-turn steering/follow-up queue yet —
+    see backlog).
   These are surfaced by `/settings` so the user can see the effective value.
 
 ## System-Prompt Replace/Append Files

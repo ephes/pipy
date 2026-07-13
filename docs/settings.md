@@ -99,9 +99,9 @@ The notes call out the most important limits.
 | `retry.provider.maxRetryDelayMs` | number | Cap for exponential, jitter, and server-requested retry delays. |
 | `steeringMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
 | `followUpMode` | string | `one-at-a-time` or `all`; active only for the shipped queue surfaces. |
-| `transport` | string | `auto`, `sse`, or `websocket` where a provider supports choices; otherwise accepted but no-op. |
-| `httpIdleTimeoutMs` | number | Header/body idle timeout in integer milliseconds; default `300000`; `0` disables. OpenAI-Codex applies it to SSE socket idleness, not total turn time. |
-| `websocketConnectTimeoutMs` | number | WebSocket open timeout in integer milliseconds; default `15000`; `0` disables. Wired now and active when the WebSocket transport is selected in the transport slice. |
+| `transport` | string | `auto`, `sse`, or `websocket` where a provider supports choices; OpenAI-Codex applies it with WebSocket-first fallback semantics. |
+| `httpIdleTimeoutMs` | number | Header/body idle timeout in integer milliseconds; default `300000`; `0` disables. OpenAI-Codex applies it to SSE socket idleness and WebSocket receives, not total turn time. |
+| `websocketConnectTimeoutMs` | number | WebSocket open timeout in integer milliseconds; default `15000`; `0` disables. |
 
 ### Resources and packages
 

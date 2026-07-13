@@ -187,6 +187,7 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -250,6 +251,7 @@ def test_openai_codex_provider_sends_no_tool_repl_context_as_prior_messages(tmp_
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request_with_context(tmp_path))
@@ -293,6 +295,7 @@ def test_openai_codex_provider_accepts_output_item_done_text_without_delta(tmp_p
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -321,6 +324,7 @@ def test_openai_codex_provider_accepts_crlf_done_and_ignores_non_data_sse_lines(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -1026,6 +1030,7 @@ def test_openai_codex_provider_streams_text_deltas_through_sink_in_source_order(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path), stream_sink=captured.append)
@@ -1050,11 +1055,13 @@ def test_openai_codex_provider_complete_without_sink_matches_streaming_final_tex
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=no_sink_client,
+        transport="sse",
     )
     provider_with_sink = OpenAICodexResponsesProvider(
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=with_sink_client,
+        transport="sse",
     )
     captured: list[str] = []
 
@@ -1075,6 +1082,7 @@ def test_openai_codex_provider_does_not_stream_when_sink_is_none(tmp_path):
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path), stream_sink=None)
@@ -1097,9 +1105,407 @@ def test_openai_codex_provider_streaming_does_not_call_sink_for_empty_delta(tmp_
         model_id="gpt-test",
         auth_manager=auth_manager_with(credentials()),
         http_client=client,
+        transport="sse",
     )
 
     result = provider.complete(provider_request(tmp_path), stream_sink=captured.append)
 
     assert captured == ["ok"]
     assert result.final_text == "ok"
+
+
+class FakeWebSocketClient:
+    def __init__(self, outcomes: list[Any]) -> None:
+        self.outcomes = outcomes
+        self.requests: list[dict[str, Any]] = []
+
+    def post_events(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        body: Mapping[str, Any],
+        connect_timeout_seconds: float | None,
+        idle_timeout_seconds: float | None,
+        cancel_token: object = None,
+    ):
+        self.requests.append(
+            {
+                "url": url,
+                "headers": dict(headers),
+                "body": dict(body),
+                "connect_timeout_seconds": connect_timeout_seconds,
+                "idle_timeout_seconds": idle_timeout_seconds,
+            }
+        )
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return iter(outcome)
+
+
+def completed_events(text: str = "ws ok") -> list[Mapping[str, Any]]:
+    return [
+        {"type": "response.output_text.delta", "delta": text},
+        {"type": "response.completed", "response": {"status": "completed"}},
+    ]
+
+
+def test_transport_sse_does_not_construct_websocket(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse ok"))))
+    ws = FakeWebSocketClient([completed_events()])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="sse",
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "sse ok"
+    assert ws.requests == []
+    assert len(sse.requests) == 1
+
+
+def test_transport_websocket_uses_ws_headers_and_request(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse"))))
+    ws = FakeWebSocketClient([completed_events("ws ok")])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        request_id_factory=lambda: "request-1",
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "ws ok"
+    assert sse.requests == []
+    assert ws.requests[0]["headers"]["OpenAI-Beta"] == "responses_websockets=2026-02-06"
+    assert ws.requests[0]["headers"]["session-id"] == "request-1"
+    assert ws.requests[0]["headers"]["x-client-request-id"] == "request-1"
+    assert ws.requests[0]["connect_timeout_seconds"] == 15.0
+    assert ws.requests[0]["idle_timeout_seconds"] == 300.0
+
+
+def test_pre_event_websocket_transport_failure_falls_back_to_sse(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse fallback"))))
+    ws = FakeWebSocketClient([
+        OpenAICodexTransportError(
+            "OpenAI Codex transport failed while waiting for response headers.",
+            metadata={"phase": "headers", "retryable": True, "transport": "websocket"},
+        )
+    ])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "sse fallback"
+    assert len(ws.requests) == 1
+    assert len(sse.requests) == 1
+
+
+def test_auto_transport_remembers_sse_after_pre_event_ws_failure(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse"))))
+    ws = FakeWebSocketClient([
+        OpenAICodexTransportError(
+
+            "OpenAI Codex transport failed while waiting for response headers.",
+            metadata={"phase": "headers", "retryable": True, "transport": "websocket"},
+        ),
+        completed_events("unexpected ws"),
+    ])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="auto",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    first = provider.complete(provider_request(tmp_path))
+    second = provider.complete(provider_request(tmp_path))
+
+    assert first.final_text == "sse"
+    assert second.final_text == "sse"
+    assert len(ws.requests) == 1
+    assert len(sse.requests) == 2
+
+
+def test_websocket_connection_limit_gets_one_fresh_ws_retry(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse"))))
+    ws = FakeWebSocketClient([
+        [
+            {"type": "error", "code": "websocket_connection_limit_reached"},
+        ],
+        completed_events("ws retry ok"),
+    ])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="auto",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "ws retry ok"
+    assert len(ws.requests) == 2
+    assert sse.requests == []
+
+
+def test_post_event_websocket_failure_does_not_fallback(tmp_path: Path) -> None:
+    def failing_events():
+        yield {"type": "response.output_text.delta", "delta": "partial"}
+        raise OpenAICodexStreamInterruptedError(
+            "OpenAI Codex stream was interrupted before completion.",
+            metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
+        )
+
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse"))))
+    ws = FakeWebSocketClient([failing_events()])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.FAILED
+    assert result.metadata is not None
+    assert result.metadata["progress"] == "event"
+    assert result.metadata["transport"] == "websocket"
+    assert sse.requests == []
+
+
+class _FakeRawWebSocket:
+    def __init__(self, messages: list[object]) -> None:
+        self.messages = messages
+        self.sent: list[str] = []
+        self.closed = False
+
+    def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    def recv(self, *, timeout: float | None = None) -> object:
+        del timeout
+        if not self.messages:
+            raise StopIteration
+        item = self.messages.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_websockets_sync_client_sends_response_create_and_decodes_raw_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = _FakeRawWebSocket([
+        json.dumps({"type": "response.output_text.delta", "delta": "hi"}),
+        json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+    ])
+    observed: dict[str, Any] = {}
+
+    def fake_connect(url: str, **kwargs: Any) -> _FakeRawWebSocket:
+        observed["url"] = url
+        observed.update(kwargs)
+        return raw
+
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+    from pipy_harness.native.openai_codex_provider import WebsocketsSyncClient
+
+    events = WebsocketsSyncClient().post_events(
+        "wss://example.test/responses",
+        headers={"OpenAI-Beta": "responses_websockets=2026-02-06"},
+        body={"model": "gpt-test"},
+        connect_timeout_seconds=None,
+        idle_timeout_seconds=12.0,
+    )
+
+    assert list(events) == [
+        {"type": "response.output_text.delta", "delta": "hi"},
+        {"type": "response.completed", "response": {"status": "completed"}},
+    ]
+    assert json.loads(raw.sent[0]) == {"type": "response.create", "model": "gpt-test"}
+    assert raw.closed is True
+    assert observed["url"] == "wss://example.test/responses"
+    assert observed["open_timeout"] is None
+    assert observed["ping_interval"] is None
+
+
+def test_repeated_websocket_connection_limit_retries_once_then_falls_back(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse after limit"))))
+    ws = FakeWebSocketClient([
+        [{"type": "error", "code": "websocket_connection_limit_reached"}],
+        [{"type": "error", "code": "websocket_connection_limit_reached"}],
+    ])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "sse after limit"
+    assert len(ws.requests) == 2
+    assert len(sse.requests) == 1
+
+
+def test_websockets_sync_client_treats_normal_close_as_clean_eof(monkeypatch: pytest.MonkeyPatch) -> None:
+    from websockets.exceptions import ConnectionClosedOK
+    from websockets.frames import Close
+
+    raw = _FakeRawWebSocket([
+        json.dumps({"type": "response.completed", "response": {"status": "completed"}}),
+        ConnectionClosedOK(Close(1000, ""), Close(1000, ""), True),
+    ])
+
+    monkeypatch.setattr("websockets.sync.client.connect", lambda *_args, **_kwargs: raw)
+    from pipy_harness.native.openai_codex_provider import WebsocketsSyncClient
+
+    events = WebsocketsSyncClient().post_events(
+        "wss://example.test/responses",
+        headers={},
+        body={"model": "gpt-test"},
+        connect_timeout_seconds=1.0,
+        idle_timeout_seconds=1.0,
+    )
+
+    assert list(events) == [
+        {"type": "response.completed", "response": {"status": "completed"}}
+    ]
+
+
+def test_pre_event_websocket_stream_interruption_falls_back_to_sse(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(
+        SseResponse(status_code=200, body=sse_payload(completed_events("sse after close")))
+    )
+    ws = FakeWebSocketClient(
+        [
+            OpenAICodexStreamInterruptedError(
+                "OpenAI Codex stream was interrupted before completion.",
+                metadata={
+                    "phase": "stream",
+                    "retryable": True,
+                    "transport": "websocket",
+                },
+            )
+        ]
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert result.final_text == "sse after close"
+    assert len(ws.requests) == 1
+    assert len(sse.requests) == 1
+
+
+def test_websockets_sync_client_cancel_token_closes_live_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = _FakeRawWebSocket([])
+    token = CancelToken()
+
+    def fake_connect(*_args: object, **_kwargs: object) -> _FakeRawWebSocket:
+        token.cancel()
+        return raw
+
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+    from pipy_harness.native.openai_codex_provider import WebsocketsSyncClient
+
+    events = WebsocketsSyncClient().post_events(
+        "wss://example.test/responses",
+        headers={},
+        body={"model": "gpt-test"},
+        connect_timeout_seconds=1.0,
+        idle_timeout_seconds=1.0,
+        cancel_token=token,
+    )
+
+    with pytest.raises(ProviderCancelledError):
+        list(events)
+
+    assert raw.closed is True
+
+
+def test_pre_event_websocket_protocol_error_does_not_fallback(tmp_path: Path) -> None:
+    sse = FakeSseHTTPClient(SseResponse(status_code=200, body=sse_payload(completed_events("sse"))))
+    ws = FakeWebSocketClient([
+        [
+            {"type": "error", "code": "authentication_error"},
+        ]
+    ])
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=sse,
+        websocket_client=ws,
+        transport="websocket",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.FAILED
+    assert sse.requests == []
+
+
+def test_websockets_sync_client_normalizes_raw_handshake_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from websockets.exceptions import InvalidHandshake
+
+    def fake_connect(*_args: object, **_kwargs: object) -> _FakeRawWebSocket:
+        raise InvalidHandshake("PRIVATE_HANDSHAKE_TEXT")
+
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+    from pipy_harness.native.openai_codex_provider import WebsocketsSyncClient
+
+    with pytest.raises(OpenAICodexTransportError) as raised:
+        WebsocketsSyncClient().post_events(
+            "wss://example.test/responses",
+            headers={},
+            body={"model": "gpt-test"},
+            connect_timeout_seconds=1.0,
+            idle_timeout_seconds=1.0,
+        )
+
+    assert raised.value.metadata == {
+        "phase": "headers",
+        "retryable": True,
+        "transport": "websocket",
+    }
+    assert "PRIVATE_HANDSHAKE_TEXT" not in str(raised.value)

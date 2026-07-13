@@ -421,8 +421,9 @@ only before the first parsed provider event, with cancellation-aware backoff
 and capped `Retry-After` support. Once any event arrives, the provider never
 replays the stream, preventing duplicate text, reasoning, assembled tool calls,
 or tool effects. Escape/Ctrl-C cancellation remains distinct, immediate, and
-non-retryable. OpenAI-Codex is still SSE-only until the reviewed WebSocket
-transport slice makes `transport: auto|sse|websocket` effective.
+non-retryable. OpenAI-Codex honors `transport: auto|sse|websocket`; WebSocket
+and auto use Pi-shaped pre-event SSE fallback, while post-event failures do not
+replay or fall back.
 
 Auth material, authorization URLs, raw request bodies, raw provider responses,
 headers with credentials, prompts, model output, provider-native payloads,
