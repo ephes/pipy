@@ -175,16 +175,16 @@ partial-output replay.
 Codex WS uses the HTTPS Responses URL converted to `wss:` and an opening
 handshake with bearer/account/session headers, then sends a JSON text message
 shaped as `{type: "response.create", ...request}`. Pi's header builder replaces
-the SSE beta value with `OpenAI-Beta: responses_websockets=2026-02-06`, but the
-current `connectWebSocket()` removes that header immediately before invoking the
-runtime WebSocket constructor. Pipy must test the actual required handshake
-rather than copy only the builder's intermediate value. Incoming text messages
-are the same Responses event objects consumed by the SSE assembler. A completed
-result requires `response.completed` or `response.done`; `response.incomplete`
-is terminal but not successful for tool execution. Close/error, invalid JSON,
-`response.failed`, and explicit API `error` events must remain distinct.
-Cancellation closes the socket. The initial WS connect/open timeout is separate
-from message-idle timeout.
+the SSE beta value with `OpenAI-Beta: responses_websockets=2026-02-06`.
+`headersToRecord()` serializes `Headers` keys in lowercase, so the subsequent
+case-sensitive `delete wsHeaders["OpenAI-Beta"]` does not remove the actual
+`openai-beta` entry; the current opening handshake therefore carries the WS beta
+header. Incoming text messages are the same Responses event objects consumed by
+the SSE assembler. A completed result requires `response.completed` or
+`response.done`; `response.incomplete` is terminal but not successful for tool
+execution. Close/error, invalid JSON, `response.failed`, and explicit API
+`error` events must remain distinct. Cancellation closes the socket. The
+initial WS connect/open timeout is separate from message-idle timeout.
 
 Python's standard library has HTTP, TLS, sockets, and base64 primitives but no
 RFC 6455 client. A local implementation would have to own handshake validation,
@@ -192,16 +192,21 @@ client masking, fragmentation and reassembly, control frames, ping/pong, close
 codes, size limits, TLS, proxies, cancellation races, and future protocol
 maintenance. That is disproportionate and security-sensitive transport code.
 
-The recommended dependency is the maintained `websockets` package's synchronous
-client. Its documented public API supplies `additional_headers`, proxy support,
-`open_timeout=None` disabled semantics, `recv(timeout=...)`, automatic control
-frames/fragment reassembly, close diagnostics, and bounded message queues. The
-design slice must pin a supported major range in `pyproject.toml`/`uv.lock`, set
-explicit max message/queue limits, disable or consciously configure keepalive,
-and wrap the library behind a tiny injectable `WebSocketClient` protocol so
-tests never use the network. This is a justified exception to the current
-zero-runtime-dependency posture; rolling an incomplete WebSocket stack is the
-higher reliability risk.
+The recommended dependency is the maintained `websockets` package. Its public
+APIs supply `additional_headers`, proxy support, disabled open-timeout
+semantics, timed receive, automatic control frames/fragment reassembly, close
+diagnostics, and bounded message queues. The synchronous `connect()` returns a
+connection only after the handshake and exposes no in-progress cancellation
+handle, so it cannot by itself meet Pipy's immediate Escape/Ctrl-C requirement
+when the open timeout is disabled. The design must therefore use the package's
+cancellable asyncio client behind a small synchronous queue/iterator adapter,
+register a task-cancellation handle before connect starts, and prove that path
+with an adapter-level hanging-connect test. It must also pin a supported major
+range in `pyproject.toml`/`uv.lock`, set explicit max message/queue limits,
+consciously configure keepalive, and retain injectable client/connect seams so
+tests never use external network access. This is a justified exception to the
+current zero-runtime-dependency posture; rolling an incomplete WebSocket stack
+is the higher reliability risk.
 
 References consulted for this dependency decision:
 
